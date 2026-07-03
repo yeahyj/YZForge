@@ -1,9 +1,46 @@
 {
-  /* Base configuration. Do not edit this field. */
   "extends": "./temp/tsconfig.cocos.json",
-
-  /* Add your custom configuration here. */
   "compilerOptions": {
-    "strict": false
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "db://internal/*": [
+        "D:/Applications/Cocos/Editor/Creator/3.8.8/resources/resources/3d/engine/editor/assets/*"
+      ],
+      "db://assets/*": [
+        "E:/study/git/YZForge/assets/*"
+      ],
+      "yzforge": [
+        "assets/yzforge/runtime/index.ts"
+      ],
+      "yzforge/*": [
+        "assets/yzforge/runtime/*"
+      ],
+      "yzforge/modules/*": [
+        "assets/app/registry/modules/*.ref.generated.ts"
+      ],
+      "yzforge/libraries/*": [
+        "assets/app/registry/libraries/*.ref.generated.ts"
+      ],
+      "yzforge/content-packs/*": [
+        "assets/app/registry/content-packs/*.generated.ts"
+      ],
+      "yzforge-contracts/modules/*": [
+        "assets/app/contracts/modules/*.contract.generated.ts"
+      ],
+      "yzforge-contracts/libraries/*": [
+        "assets/app/contracts/libraries/*.contract.generated.ts"
+      ],
+      "yzforge-contracts/content-packs/*": [
+        "assets/app/contracts/content-packs/*.contract.generated.ts"
+      ],
+      "yzforge-contracts/extensions/*": [
+        "assets/app/contracts/extensions/*.contract.generated.ts"
+      ],
+      "yzforge-shared/*": [
+        "assets/shared/code/*"
+      ]
+    }
   }
 }

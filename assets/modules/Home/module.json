@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "kind": "module",
+  "name": "Home",
+  "bundle": "yzforge-module-home",
+  "entry": "code/entry.generated.ts",
+  "public": "code/public.ts",
+  "enterParams": "HomeEnterParams",
+  "libraries": []
+}

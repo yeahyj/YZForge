@@ -1,6 +1,12 @@
 {
   "name": "YZForge",
   "uuid": "c44fe03a-b016-4812-bf22-43ebd8fa3ebd",
+  "scripts": {
+    "yzforge:create": "node extensions/yzforge/editor/cli.js create",
+    "yzforge:generate": "node extensions/yzforge/editor/cli.js generate",
+    "yzforge:validate": "node extensions/yzforge/editor/cli.js validate",
+    "typecheck": "node \"D:/Applications/Cocos/Editor/Creator/3.8.8/resources/app.asar.unpacked/node_modules/typescript/lib/tsc.js\" -p tsconfig.json --noEmit --pretty false"
+  },
   "creator": {
     "version": "3.8.8"
   }

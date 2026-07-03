@@ -1,0 +1,9 @@
+{
+  "name": "yzforge",
+  "version": "0.1.0",
+  "description": "YZForge Cocos Creator governance framework",
+  "main": "editor/main.js",
+  "author": "YZForge",
+  "package_version": 2,
+  "editor": ">=3.8.0"
+}
