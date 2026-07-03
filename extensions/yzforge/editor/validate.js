@@ -264,6 +264,89 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
   }
 }
 
+function withoutExt(filePath) {
+  return filePath.replace(/\.[^.\\/]+$/, '');
+}
+
+function lowerCamelCase(name) {
+  return String(name || '').replace(/^[A-Z]/, (value) => value.toLowerCase());
+}
+
+function scanFiles(root, extension) {
+  return walk(root, (filePath) => filePath.endsWith(extension) && !filePath.endsWith(`${extension}.meta`))
+    .sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+}
+
+function scanRuntimeFiles(root) {
+  return walk(root, (filePath) => {
+    return !filePath.endsWith('.meta') && !filePath.endsWith('.DS_Store');
+  }).sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+}
+
+function inferAssetType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.prefab') return 'Prefab';
+  if (ext === '.json') return 'JsonAsset';
+  if (ext === '.scene') return 'SceneAsset';
+  return 'Asset';
+}
+
+function contentPackAssetPath(pack, filePath) {
+  return toPosix(withoutExt(path.relative(pack.dir, filePath)));
+}
+
+function scanContentPackRefs(pack, projectRoot, issues) {
+  const files = [
+    ...scanFiles(path.join(pack.dir, 'res', 'prefab'), '.prefab'),
+    ...scanFiles(path.join(pack.dir, 'res', 'scene'), '.scene'),
+    ...scanRuntimeFiles(path.join(pack.dir, 'res', 'runtime')),
+  ].sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+
+  const refs = {};
+  for (const filePath of files) {
+    const key = lowerCamelCase(path.basename(filePath, path.extname(filePath)));
+    if (refs[key]) {
+      issues.push(`${pack.projectPath} has duplicate ContentPack ref key: ${key} (${toPosix(path.relative(projectRoot, filePath))}).`);
+    }
+    refs[key] = {
+      kind: 'asset',
+      type: inferAssetType(filePath),
+      path: contentPackAssetPath(pack, filePath),
+    };
+  }
+  return refs;
+}
+
+function validateContentPackManifest(projectRoot, project, issues) {
+  for (const pack of project.contentPacks) {
+    const manifestPath = path.join(pack.dir, 'manifest.generated.json');
+    const rel = toPosix(path.relative(projectRoot, manifestPath));
+    if (!fs.existsSync(manifestPath)) {
+      issues.push(`${pack.projectPath} generated manifest is missing: ${rel}.`);
+      continue;
+    }
+
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    } catch (error) {
+      issues.push(`${rel} is invalid JSON: ${error.message}.`);
+      continue;
+    }
+
+    const expected = {
+      schemaVersion: 1,
+      id: pack.id,
+      owner: pack.owner,
+      bundle: pack.bundle || expectedBundle('content-pack', pack),
+      refs: scanContentPackRefs(pack, projectRoot, issues),
+    };
+    if (JSON.stringify(manifest) !== JSON.stringify(expected)) {
+      issues.push(`${rel} is stale. Run YZForge Generate All.`);
+    }
+  }
+}
+
 function validateStrictCodeRules(projectRoot, issues) {
   const files = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts'));
   for (const filePath of files) {
@@ -332,6 +415,7 @@ function validate(projectRoot, options = {}) {
     validateCaseConflicts(projectRoot, issues);
     validateMainScene(projectRoot, issues);
     validateUiGeneratedRefs(projectRoot, project, issues);
+    validateContentPackManifest(projectRoot, project, issues);
     validateStrictCodeRules(projectRoot, issues);
   }
 

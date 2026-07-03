@@ -178,7 +178,14 @@ function inferRuntimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.prefab') return 'Prefab';
   if (ext === '.json') return 'JsonAsset';
+  if (ext === '.scene') return 'SceneAsset';
   return 'Asset';
+}
+
+function scanRuntimeFiles(root) {
+  return walk(root, (filePath) => {
+    return !filePath.endsWith('.meta') && !filePath.endsWith('.DS_Store');
+  }).sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
 }
 
 const AUTO_REF_COMPONENTS = new Set([
@@ -327,9 +334,7 @@ function renderAssets(descriptor) {
   const codeDir = path.join(descriptor.dir, 'code');
   const viewFiles = scanFiles(path.join(descriptor.dir, 'res', 'view'), '.prefab');
   const partFiles = scanFiles(path.join(descriptor.dir, 'res', 'part'), '.prefab');
-  const runtimeFiles = walk(path.join(descriptor.dir, 'res', 'runtime'), (filePath) => {
-    return !filePath.endsWith('.meta') && !filePath.endsWith('.DS_Store');
-  }).sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+  const runtimeFiles = scanRuntimeFiles(path.join(descriptor.dir, 'res', 'runtime'));
 
   const runtimeTypes = Array.from(new Set(runtimeFiles.map(inferRuntimeType))).sort();
   const yzforgeImports = ['defineAssets'];
@@ -451,6 +456,12 @@ function renderModuleContentPacks(module, packs) {
   if (owned.length === 0) {
     return 'export const contentPacks = {};';
   }
+  const packRefs = new Map(owned.map((pack) => [pack.id, scanContentPackRefs(pack)]));
+  const contentPackTypes = Array.from(new Set(Array.from(packRefs.values()).flat().map((ref) => ref.type))).sort();
+  const yzforgeImports = ['defineContentPack'];
+  if (contentPackTypes.length > 0) {
+    yzforgeImports.push('contentPackAssetRef');
+  }
   const imports = owned
     .flatMap((pack) => pack.libraries || [])
     .filter((name, index, all) => all.indexOf(name) === index)
@@ -458,6 +469,14 @@ function renderModuleContentPacks(module, packs) {
   const entries = owned.map((pack) => {
     const libraries = (pack.libraries || []).map((name) => `${name}Ref`).join(', ');
     const exportName = `${pack.owner}${pack.name}ContentPack`;
+    const refs = packRefs.get(pack.id) || [];
+    const refsLines = refs.length === 0
+      ? ['    refs: {},']
+      : [
+        '    refs: {',
+        ...refs.map((ref) => `        ${ref.key}: contentPackAssetRef(${ref.type}, '${ref.path}'),`),
+        '    },',
+      ];
     return [
       `export const ${exportName} = defineContentPack({`,
       `    id: '${pack.id}',`,
@@ -465,12 +484,13 @@ function renderModuleContentPacks(module, packs) {
       `    name: '${pack.name}',`,
       `    bundle: '${pack.bundle}',`,
       `    libraries: [${libraries}],`,
-      '    refs: {},',
+      ...refsLines,
       '});',
     ].join('\n');
   });
   return [
-    "import { defineContentPack } from '../../../yzforge/runtime';",
+    contentPackTypes.length > 0 ? `import { ${contentPackTypes.join(', ')} } from 'cc';` : '',
+    `import { ${yzforgeImports.join(', ')} } from '../../../yzforge/runtime';`,
     ...imports,
     '',
     ...entries,
@@ -479,6 +499,46 @@ function renderModuleContentPacks(module, packs) {
     ...owned.map((pack) => `    ${pack.name}: ${pack.owner}${pack.name}ContentPack,`),
     '};',
   ].join('\n');
+}
+
+function scanContentPackRefs(pack) {
+  const files = [
+    ...scanFiles(path.join(pack.dir, 'res', 'prefab'), '.prefab'),
+    ...scanFiles(path.join(pack.dir, 'res', 'scene'), '.scene'),
+    ...scanRuntimeFiles(path.join(pack.dir, 'res', 'runtime')),
+  ].sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+
+  const refs = files.map((filePath) => ({
+    key: lowerCamelCase(path.basename(filePath, path.extname(filePath))),
+    path: assetPath(pack, filePath),
+    type: inferRuntimeType(filePath),
+  }));
+  const seen = new Set();
+  for (const ref of refs) {
+    if (seen.has(ref.key)) {
+      throw new Error(`${pack.projectPath} has duplicate ContentPack ref key: ${ref.key}`);
+    }
+    seen.add(ref.key);
+  }
+  return refs;
+}
+
+function renderContentPackManifest(pack) {
+  const refs = {};
+  for (const ref of scanContentPackRefs(pack)) {
+    refs[ref.key] = {
+      kind: 'asset',
+      type: ref.type,
+      path: ref.path,
+    };
+  }
+  return {
+    schemaVersion: 1,
+    id: pack.id,
+    owner: pack.owner,
+    bundle: pack.bundle,
+    refs,
+  };
 }
 
 function updateTsconfig(projectRoot, options, changed) {
@@ -511,6 +571,11 @@ function generate(projectRoot, options = {}) {
   const writeGenerated = (relativePath, source, body) => {
     writeText(projectRoot, relativePath, generatedText(source, body), options, changed);
   };
+
+  for (const pack of project.contentPacks) {
+    pack.bundle = pack.bundle || contentPackBundleName(pack.owner, pack.name);
+    pack.libraries = pack.libraries || [];
+  }
 
   for (const library of project.libraries) {
     library.bundle = library.bundle || libraryBundleName(library.name);
@@ -555,14 +620,13 @@ function generate(projectRoot, options = {}) {
   writeGenerated('assets/app/bootstrap/install.generated.ts', 'assets/app/bootstrap', renderInstallGenerated(projectRoot));
 
   for (const pack of project.contentPacks) {
-    pack.bundle = pack.bundle || contentPackBundleName(pack.owner, pack.name);
-    writeJson(projectRoot, toPosix(path.relative(projectRoot, path.join(pack.dir, 'manifest.generated.json'))), {
-      schemaVersion: 1,
-      id: pack.id,
-      owner: pack.owner,
-      bundle: pack.bundle,
-      refs: {},
-    }, options, changed);
+    writeJson(
+      projectRoot,
+      toPosix(path.relative(projectRoot, path.join(pack.dir, 'manifest.generated.json'))),
+      renderContentPackManifest(pack),
+      options,
+      changed,
+    );
   }
 
   return {
