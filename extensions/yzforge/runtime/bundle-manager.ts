@@ -8,6 +8,7 @@ export enum BundleState {
     Loaded = 'loaded',
     Releasing = 'releasing',
     Failed = 'failed',
+    FailedRelease = 'failed-release',
 }
 
 interface BundleRecord {
@@ -17,10 +18,26 @@ interface BundleRecord {
     task?: Promise<AssetManager.Bundle>;
 }
 
+export interface BundleManagerOptions {
+    readonly unload?: 'immediate' | 'manual';
+}
+
+export interface LoadBundleOptions {
+    readonly acquire?: boolean;
+}
+
+export interface ReleaseBundleOptions {
+    readonly unload?: boolean;
+    readonly force?: boolean;
+}
+
 export class BundleManager {
     private readonly records = new Map<string, BundleRecord>();
 
-    public constructor(private readonly logger?: Logger) {}
+    public constructor(
+        private readonly logger?: Logger,
+        private readonly options: BundleManagerOptions = {},
+    ) {}
 
     public getState(bundleName: string): BundleState {
         return this.records.get(bundleName)?.state ?? BundleState.Empty;
@@ -36,7 +53,7 @@ export class BundleManager {
 
     public async loadBundle(
         bundleName: string,
-        options: { acquire?: boolean } = {},
+        options: LoadBundleOptions = {},
     ): Promise<AssetManager.Bundle> {
         const acquire = options.acquire !== false;
         let record = this.records.get(bundleName);
@@ -92,15 +109,19 @@ export class BundleManager {
         }
     }
 
-    public async releaseBundle(bundleName: string): Promise<void> {
+    public async releaseBundle(bundleName: string, options: ReleaseBundleOptions = {}): Promise<void> {
         const record = this.records.get(bundleName);
         if (!record) {
             return;
         }
-        if (record.refCount > 0) {
+        if (!options.force && record.refCount > 0) {
             record.refCount -= 1;
         }
         if (record.refCount > 0 || !record.bundle) {
+            return;
+        }
+        const unload = options.unload ?? this.options.unload !== 'manual';
+        if (!unload && !options.force) {
             return;
         }
         record.state = BundleState.Releasing;
@@ -110,8 +131,12 @@ export class BundleManager {
             this.records.delete(bundleName);
             this.logger?.debug(`Bundle released: ${bundleName}`);
         } catch (error) {
-            record.state = BundleState.Failed;
+            record.state = BundleState.FailedRelease;
             throw new YZForgeError(`Failed to release bundle: ${bundleName}`, 'bundle.release_failed', error);
         }
+    }
+
+    public async unloadBundle(bundleName: string): Promise<void> {
+        await this.releaseBundle(bundleName, { force: true });
     }
 }

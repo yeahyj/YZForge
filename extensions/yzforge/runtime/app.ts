@@ -105,45 +105,61 @@ export class App {
     }
 
     private async createModule<TParams>(ref: ModuleRef<TParams>): Promise<LoadedModule> {
-        for (const library of ref.libraries) {
-            await this.libraries.acquire(library, `module:${ref.name}`);
+        let bundleLoaded = false;
+        let instance: Module | undefined;
+        let assets: ModuleAssets | undefined;
+        try {
+            for (const library of ref.libraries) {
+                await this.libraries.acquire(library, `module:${ref.name}`);
+            }
+
+            const bundle = await this.bundles.loadBundle(ref.bundle);
+            bundleLoaded = true;
+            const entry = await this.entries.waitForModule(ref);
+            this.entries.validateModule(ref, entry);
+
+            instance = new entry.type();
+            assets = new ModuleAssets(ref.name, bundle, this.logger.child(`module:${ref.name}`));
+            const libraries = new ModuleLibraryManager(this, ref.name);
+            const contentPacks = new ContentPackManager(this, ref.name);
+            const ui = this.ui.createForModule(ref.name, instance);
+
+            instance.__yzforgeBind({
+                app: this,
+                ref,
+                assets,
+                config: entry.config,
+                libraries,
+                contentPacks,
+                ui,
+                logger: this.logger.child(`module:${ref.name}`),
+            });
+
+            await instance.__yzforgeCreate();
+            await instance.__yzforgeLoad();
+
+            const handle: LoadedModule = {
+                ref,
+                bundleName: ref.bundle,
+                instance,
+                assets,
+                config: entry.config,
+                contentPacks,
+                unload: async () => this.unloadModule(ref),
+            };
+            this.modules.set(ref.name, handle);
+            return handle;
+        } catch (error) {
+            await instance?.ui.closeOwned?.('module_load_failed');
+            await instance?.contentPacks.unloadAll?.();
+            await instance?.libraries.releaseAll?.();
+            assets?.releaseAll();
+            await this.libraries.releaseOwner(`module:${ref.name}`);
+            if (bundleLoaded) {
+                await this.bundles.releaseBundle(ref.bundle);
+            }
+            throw error;
         }
-
-        const bundle = await this.bundles.loadBundle(ref.bundle);
-        const entry = await this.entries.waitForModule(ref);
-        this.entries.validateModule(ref, entry);
-
-        const instance = new entry.type();
-        const assets = new ModuleAssets(ref.name, bundle, this.logger.child(`module:${ref.name}`));
-        const libraries = new ModuleLibraryManager(this, ref.name);
-        const contentPacks = new ContentPackManager(this, ref.name);
-        const ui = this.ui.createForModule(ref.name, instance);
-
-        instance.__yzforgeBind({
-            app: this,
-            ref,
-            assets,
-            config: entry.config,
-            libraries,
-            contentPacks,
-            ui,
-            logger: this.logger.child(`module:${ref.name}`),
-        });
-
-        await instance.__yzforgeCreate();
-        await instance.__yzforgeLoad();
-
-        const handle: LoadedModule = {
-            ref,
-            bundleName: ref.bundle,
-            instance,
-            assets,
-            config: entry.config,
-            contentPacks,
-            unload: async () => this.unloadModule(ref),
-        };
-        this.modules.set(ref.name, handle);
-        return handle;
     }
 }
 

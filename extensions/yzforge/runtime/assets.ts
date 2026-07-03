@@ -4,12 +4,20 @@ import type { Logger } from './logger';
 
 interface LoadedAssetRecord {
     readonly ref: LoadableAssetRef;
-    readonly asset: Asset;
+    asset?: Asset;
+    task?: Promise<Asset>;
+    refCount: number;
+    releaseWhenLoaded?: boolean;
 }
 
 export interface InstantiateOptions {
     readonly parent?: Node | null;
     readonly active?: boolean;
+    readonly acquireAsset?: boolean;
+}
+
+export interface LoadAssetOptions {
+    readonly acquire?: boolean;
 }
 
 export class AssetScope {
@@ -22,12 +30,44 @@ export class AssetScope {
         protected readonly logger?: Logger,
     ) {}
 
-    public async load<TAsset extends Asset>(ref: LoadableAssetRef<TAsset>): Promise<TAsset> {
-        const existing = this.loaded.get(ref.path);
+    public getLoadedCount(): number {
+        return this.loaded.size;
+    }
+
+    public getTrackedNodeCount(): number {
+        return this.nodes.size;
+    }
+
+    public getRefCount(ref: LoadableAssetRef): number {
+        return this.loaded.get(this.assetKey(ref))?.refCount ?? 0;
+    }
+
+    public async preload<TAsset extends Asset>(ref: LoadableAssetRef<TAsset>): Promise<TAsset> {
+        return this.load(ref, { acquire: false });
+    }
+
+    public async load<TAsset extends Asset>(
+        ref: LoadableAssetRef<TAsset>,
+        options: LoadAssetOptions = {},
+    ): Promise<TAsset> {
+        const acquire = options.acquire !== false;
+        const key = this.assetKey(ref);
+        const existing = this.loaded.get(key);
         if (existing) {
-            return existing.asset as TAsset;
+            if (acquire) {
+                existing.refCount += 1;
+            }
+            if (existing.asset) {
+                return existing.asset as TAsset;
+            }
+            return await existing.task as TAsset;
         }
-        const asset = await new Promise<TAsset>((resolve, reject) => {
+
+        const record: LoadedAssetRecord = {
+            ref,
+            refCount: acquire ? 1 : 0,
+        };
+        record.task = new Promise<TAsset>((resolve, reject) => {
             this.bundle.load(ref.path, ref.type as never, (error: Error | null, value: TAsset) => {
                 if (error || !value) {
                     reject(error ?? new Error(`Asset not returned: ${ref.path}`));
@@ -36,13 +76,25 @@ export class AssetScope {
                 resolve(value);
             });
         });
-        this.loaded.set(ref.path, { ref, asset });
-        this.logger?.debug(`Asset loaded: ${this.ownerName}/${ref.path}`);
-        return asset;
+        this.loaded.set(key, record);
+
+        try {
+            const asset = await record.task as TAsset;
+            record.asset = asset;
+            record.task = undefined;
+            this.logger?.debug(`Asset loaded: ${this.ownerName}/${ref.path}`, { refCount: record.refCount });
+            if (record.releaseWhenLoaded) {
+                this.releaseRecord(key, record);
+            }
+            return asset;
+        } catch (error) {
+            this.loaded.delete(key);
+            throw error;
+        }
     }
 
     public async instantiate(ref: LoadableAssetRef<Prefab>, options: InstantiateOptions = {}): Promise<Node> {
-        const prefab = await this.load(ref);
+        const prefab = await this.load(ref, { acquire: options.acquireAsset });
         const node = instantiate(prefab);
         if (options.active !== undefined) {
             node.active = options.active;
@@ -55,6 +107,9 @@ export class AssetScope {
     }
 
     public trackNode(node: Node): void {
+        if (!isValid(node)) {
+            return;
+        }
         this.nodes.add(node);
     }
 
@@ -62,23 +117,60 @@ export class AssetScope {
         this.nodes.delete(node);
     }
 
+    public destroyNode(node: Node): void {
+        this.untrackNode(node);
+        if (isValid(node)) {
+            node.destroy();
+        }
+    }
+
+    public release(ref: LoadableAssetRef, count = 1): void {
+        const key = this.assetKey(ref);
+        const record = this.loaded.get(key);
+        if (!record) {
+            return;
+        }
+        record.refCount = Math.max(0, record.refCount - Math.max(1, count));
+        if (record.refCount > 0) {
+            return;
+        }
+        if (record.task && !record.asset) {
+            record.releaseWhenLoaded = true;
+            return;
+        }
+        this.releaseRecord(key, record);
+    }
+
     public releaseAll(): void {
         for (const node of Array.from(this.nodes)) {
-            if (isValid(node)) {
-                node.destroy();
-            }
+            this.destroyNode(node);
         }
         this.nodes.clear();
 
-        for (const record of Array.from(this.loaded.values())) {
-            const bundle = this.bundle as unknown as { release?: (path: string, type?: unknown) => void };
-            if (typeof bundle.release === 'function') {
-                bundle.release(record.ref.path, record.ref.type);
-            } else {
-                assetManager.releaseAsset(record.asset);
-            }
+        for (const [key, record] of Array.from(this.loaded.entries())) {
+            this.releaseRecord(key, record);
         }
         this.loaded.clear();
+    }
+
+    private assetKey(ref: LoadableAssetRef): string {
+        return `${ref.path}::${ref.type?.name ?? 'Asset'}`;
+    }
+
+    private releaseRecord(key: string, record: LoadedAssetRecord): void {
+        this.loaded.delete(key);
+        record.refCount = 0;
+        if (!record.asset) {
+            record.releaseWhenLoaded = true;
+            return;
+        }
+        const bundle = this.bundle as unknown as { release?: (path: string, type?: unknown) => void };
+        if (typeof bundle.release === 'function') {
+            bundle.release(record.ref.path, record.ref.type);
+        } else {
+            assetManager.releaseAsset(record.asset);
+        }
+        this.logger?.debug(`Asset released: ${this.ownerName}/${record.ref.path}`);
     }
 }
 

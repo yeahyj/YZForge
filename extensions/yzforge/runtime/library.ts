@@ -80,37 +80,48 @@ export class LibraryRegistry {
         ref: LibraryRef<TTokens>,
         ownerKey: string,
     ): Promise<LoadedLibrary<TTokens>> {
-        for (const dependency of ref.libraries) {
-            await this.acquire(dependency, `library:${ref.name}`);
+        let bundle: AssetManager.Bundle | undefined;
+        try {
+            for (const dependency of ref.libraries) {
+                await this.acquire(dependency, `library:${ref.name}`);
+            }
+
+            bundle = await this.app.bundles.loadBundle(ref.bundle);
+            const entry = await this.app.entries.waitForLibrary(ref);
+            this.app.entries.validateLibrary(ref, entry);
+
+            const tokenInstances = new Map<string, unknown>();
+            const assets = new LibraryAssets(ref.name, bundle, this.app.logger.child(`library:${ref.name}`));
+            const record = {} as LibraryRecord;
+            const handle: LoadedLibrary<TTokens> = {
+                ref,
+                bundleName: ref.bundle,
+                assets,
+                config: entry.config,
+                use: (token) => this.useToken(record, token),
+                unload: async () => this.release(ref.name, ownerKey),
+            };
+            Object.assign(record, {
+                ref,
+                entry,
+                bundle,
+                assets,
+                handle,
+                owners: new Set<string>([ownerKey]),
+                tokenInstances,
+            });
+            this.records.set(ref.name, record);
+            this.rememberOwner(ownerKey, ref.name);
+            return handle;
+        } catch (error) {
+            if (bundle) {
+                await this.app.bundles.releaseBundle(ref.bundle);
+            }
+            for (const dependency of ref.libraries) {
+                await this.release(dependency.name, `library:${ref.name}`);
+            }
+            throw error;
         }
-
-        const bundle = await this.app.bundles.loadBundle(ref.bundle);
-        const entry = await this.app.entries.waitForLibrary(ref);
-        this.app.entries.validateLibrary(ref, entry);
-
-        const tokenInstances = new Map<string, unknown>();
-        const assets = new LibraryAssets(ref.name, bundle, this.app.logger.child(`library:${ref.name}`));
-        const record = {} as LibraryRecord;
-        const handle: LoadedLibrary<TTokens> = {
-            ref,
-            bundleName: ref.bundle,
-            assets,
-            config: entry.config,
-            use: (token) => this.useToken(record, token),
-            unload: async () => this.release(ref.name, ownerKey),
-        };
-        Object.assign(record, {
-            ref,
-            entry,
-            bundle,
-            assets,
-            handle,
-            owners: new Set<string>([ownerKey]),
-            tokenInstances,
-        });
-        this.records.set(ref.name, record);
-        this.rememberOwner(ownerKey, ref.name);
-        return handle;
     }
 
     private useToken<TTokens, TKey extends keyof TTokens>(

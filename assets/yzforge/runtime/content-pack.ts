@@ -43,27 +43,37 @@ export class ContentPackManager {
             return existing.handle as LoadedContentPack<TRefs, TConfig>;
         }
 
-        for (const library of ref.libraries) {
-            await this.app.libraries.acquire(library, `content-pack:${ref.id}`);
-        }
+        const ownerKey = `content-pack:${ref.id}`;
+        let bundle: AssetManager.Bundle | undefined;
+        try {
+            for (const library of ref.libraries) {
+                await this.app.libraries.acquire(library, ownerKey);
+            }
 
-        const bundle = await this.app.bundles.loadBundle(ref.bundle);
-        const assets = new ContentPackAssetScope(ref.id, bundle, this.app.logger.child(`content-pack:${ref.id}`));
-        const handle: LoadedContentPack<TRefs, TConfig> = {
-            ref,
-            bundleName: ref.bundle,
-            refs: ref.refs,
-            assets,
-            config: {},
-            unload: async () => this.unload(ref.id),
-        };
-        this.records.set(ref.id, {
-            ref,
-            bundle,
-            assets,
-            handle,
-        });
-        return handle;
+            bundle = await this.app.bundles.loadBundle(ref.bundle);
+            const assets = new ContentPackAssetScope(ref.id, bundle, this.app.logger.child(`content-pack:${ref.id}`));
+            const handle: LoadedContentPack<TRefs, TConfig> = {
+                ref,
+                bundleName: ref.bundle,
+                refs: ref.refs,
+                assets,
+                config: {},
+                unload: async () => this.unload(ref.id),
+            };
+            this.records.set(ref.id, {
+                ref,
+                bundle,
+                assets,
+                handle,
+            });
+            return handle;
+        } catch (error) {
+            if (bundle) {
+                await this.app.bundles.releaseBundle(ref.bundle);
+            }
+            await this.app.libraries.releaseOwner(ownerKey);
+            throw error;
+        }
     }
 
     public async unload(id: string): Promise<void> {

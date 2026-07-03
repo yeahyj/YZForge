@@ -121,7 +121,10 @@ export class ModuleUI {
         data?: TData,
         _options: OpenViewOptions = {},
     ): Promise<ViewHandle<TResult>> {
-        const node = await this.module.assets.instantiate(ref);
+        const cache = ref.policy.cache ?? 'asset';
+        const node = await this.module.assets.instantiate(ref, {
+            acquireAsset: cache !== 'asset',
+        });
         const component = node.getComponent(ref.component);
         if (!component) {
             node.destroy();
@@ -179,7 +182,10 @@ export class ModuleUI {
         await handle.view.__yzforgeClose(result);
         this.handles.delete(handle);
         if (isValid(handle.node)) {
-            handle.node.destroy();
+            this.module.assets.destroyNode(handle.node);
+        }
+        if ((handle.ref.policy.cache ?? 'asset') === 'none') {
+            this.module.assets.release(handle.ref);
         }
         handle.state = ViewState.Disposed;
     }
