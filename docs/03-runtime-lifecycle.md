@@ -359,7 +359,8 @@ if current module exists:
     pause current module UI
 target.onEnter(params)
 target becomes Active
-previous module remains Ready or unloads according to options
+if target enter succeeds:
+  previous module remains Ready or unloads according to options
 ```
 
 `Push`：
@@ -376,7 +377,7 @@ if current module exists:
   current becomes Paused
 target.onEnter(params)
 target becomes Active
-push target into module stack
+push previous module into module stack
 ```
 
 返回：

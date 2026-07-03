@@ -174,9 +174,15 @@ export abstract class Module<TEnter = unknown> {
     }
 
     public async __yzforgeEnter(params?: TEnter): Promise<void> {
+        const previousState = this.state;
         this.state = ModuleState.Entering;
-        await this.onEnter(params);
-        this.state = ModuleState.Active;
+        try {
+            await this.onEnter(params);
+            this.state = ModuleState.Active;
+        } catch (error) {
+            this.state = previousState;
+            throw error;
+        }
     }
 
     public async __yzforgePause(): Promise<void> {
@@ -199,9 +205,15 @@ export abstract class Module<TEnter = unknown> {
         if (this.state !== ModuleState.Active && this.state !== ModuleState.Paused) {
             return;
         }
+        const previousState = this.state;
         this.state = ModuleState.Exiting;
-        await this.onExit();
-        this.state = ModuleState.Ready;
+        try {
+            await this.onExit();
+            this.state = ModuleState.Ready;
+        } catch (error) {
+            this.state = previousState;
+            throw error;
+        }
     }
 
     public async __yzforgeUnload(): Promise<void> {
