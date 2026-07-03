@@ -3,6 +3,7 @@
 const path = require('path');
 const { create } = require('./create');
 const { generate } = require('./generate');
+const { smoke } = require('./smoke');
 const { validate } = require('./validate');
 
 async function main() {
@@ -36,6 +37,12 @@ async function main() {
     if (!result.ok) {
       process.exitCode = 1;
     }
+    return;
+  }
+
+  if (command === 'smoke') {
+    const result = smoke({ keep: process.argv.includes('--keep') });
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 

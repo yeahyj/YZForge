@@ -614,7 +614,7 @@ function resolveExistingImportTarget(filePath) {
     path.join(filePath, 'index.js'),
   ];
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
       return candidate;
     }
   }

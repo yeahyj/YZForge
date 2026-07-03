@@ -7,6 +7,7 @@
     "yzforge:generate:check": "node extensions/yzforge/editor/cli.js generate --check",
     "yzforge:validate": "node extensions/yzforge/editor/cli.js validate",
     "yzforge:validate:strict": "node extensions/yzforge/editor/cli.js validate --strict",
+    "yzforge:smoke": "node extensions/yzforge/editor/cli.js smoke",
     "typecheck": "node \"D:/Applications/Cocos/Editor/Creator/3.8.8/resources/app.asar.unpacked/node_modules/typescript/lib/tsc.js\" -p tsconfig.json --noEmit --pretty false"
   },
   "creator": {
