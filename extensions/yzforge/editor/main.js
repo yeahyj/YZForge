@@ -3,6 +3,7 @@
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { validate } = require('./validate');
+const { scanProject } = require('./scanner');
 const { kebabCase } = require('./fs-utils');
 
 function projectRoot() {
@@ -213,6 +214,29 @@ function showCreateHelp() {
   return { ok: true, message };
 }
 
+function describeProject() {
+  const project = scanProject(projectRoot());
+  return {
+    modules: project.modules.map((item) => ({
+      name: item.name,
+      bundle: item.bundle,
+      path: item.projectPath,
+    })),
+    libraries: project.libraries.map((item) => ({
+      name: item.name,
+      bundle: item.bundle,
+      path: item.projectPath,
+    })),
+    contentPacks: project.contentPacks.map((item) => ({
+      id: item.id,
+      owner: item.owner,
+      name: item.name,
+      bundle: item.bundle,
+      path: item.projectPath,
+    })),
+  };
+}
+
 exports.load = function load() {
   console.log('[YZForge] editor extension loaded.');
 };
@@ -222,6 +246,14 @@ exports.unload = function unload() {
 };
 
 exports.methods = {
+  openPanel() {
+    return Editor.Panel.open('yzforge');
+  },
+
+  getProjectSummary() {
+    return describeProject();
+  },
+
   showCreateHelp,
 
   async generateAll() {

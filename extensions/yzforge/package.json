@@ -6,8 +6,26 @@
   "author": "YZForge",
   "package_version": 2,
   "editor": ">=3.8.0",
+  "panels": {
+    "default": {
+      "title": "YZForge",
+      "type": "dockable",
+      "main": "editor/panel/index.js",
+      "size": {
+        "min-width": 420,
+        "min-height": 520,
+        "width": 520,
+        "height": 720
+      }
+    }
+  },
   "contributions": {
     "menu": [
+      {
+        "path": "YZForge",
+        "label": "Open Panel",
+        "message": "open-panel"
+      },
       {
         "path": "YZForge/Create",
         "label": "Create Help",
@@ -25,6 +43,16 @@
       }
     ],
     "messages": {
+      "open-panel": {
+        "methods": [
+          "openPanel"
+        ]
+      },
+      "get-project-summary": {
+        "methods": [
+          "getProjectSummary"
+        ]
+      },
       "show-create-help": {
         "methods": [
           "showCreateHelp"
