@@ -7,6 +7,8 @@ import type { ModuleRef } from './refs';
 import type { ModuleExtensionToken } from './tokens';
 import type { MaybePromise } from './types';
 import type { ModuleAssets } from './assets';
+import type { OpenViewOptions, UiCancelResult, ViewHandle, ViewLayer } from './ui';
+import type { ViewRef } from './refs';
 
 export enum ModuleState {
     Empty = 'empty',
@@ -39,6 +41,18 @@ export interface ModuleContentPackAccess {
 }
 
 export interface ModuleUIAccess {
+    open<TData, TResult>(
+        ref: ViewRef<TData, TResult>,
+        data?: TData,
+        options?: OpenViewOptions,
+    ): Promise<ViewHandle<TResult>>;
+    openForResult<TData, TResult>(
+        ref: ViewRef<TData, TResult>,
+        data?: TData,
+        options?: OpenViewOptions,
+    ): Promise<TResult | UiCancelResult>;
+    close(target: ViewHandle | ViewRef, result?: unknown): Promise<void>;
+    closeLayer?(layer: ViewLayer, reason?: unknown): Promise<void>;
     back?(): Promise<boolean>;
     closeOwned(reason?: unknown): Promise<void>;
     pauseOwned?(): void;

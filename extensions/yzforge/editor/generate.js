@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { generatedText, kebabCase, readJsonc, writeJsonIfChanged, writeTextIfChanged } = require('./fs-utils');
+const { generatedText, kebabCase, readJsonc, toPosix, walk, writeJsonIfChanged, writeTextIfChanged } = require('./fs-utils');
 const { scanProject } = require('./scanner');
 
 function moduleBundleName(name) {
@@ -109,14 +109,104 @@ function renderLibraryEntry(library) {
   ].filter(Boolean).join('\n');
 }
 
-function renderEmptyAssets() {
+function lowerCamelCase(name) {
+  return String(name || '').replace(/^[A-Z]/, (value) => value.toLowerCase());
+}
+
+function withoutExt(filePath) {
+  return filePath.replace(/\.[^.\\/]+$/, '');
+}
+
+function scanFiles(root, extension) {
+  return walk(root, (filePath) => filePath.endsWith(extension) && !filePath.endsWith(`${extension}.meta`))
+    .sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+}
+
+function assetPath(descriptor, filePath) {
+  return toPosix(withoutExt(path.relative(descriptor.dir, filePath)));
+}
+
+function codeImportPath(codeDir, filePath) {
+  let relative = toPosix(withoutExt(path.relative(codeDir, filePath)));
+  if (!relative.startsWith('.')) {
+    relative = `./${relative}`;
+  }
+  return relative;
+}
+
+function inferViewKind(className) {
+  for (const kind of ['Page', 'Paper', 'Popup', 'Toast', 'Top', 'System']) {
+    if (className.startsWith(kind)) {
+      return `ViewKind.${kind}`;
+    }
+  }
+  return 'ViewKind.Page';
+}
+
+function inferRuntimeType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.prefab') return 'Prefab';
+  if (ext === '.json') return 'JsonAsset';
+  return 'Asset';
+}
+
+function renderAssets(descriptor) {
+  const codeDir = path.join(descriptor.dir, 'code');
+  const viewFiles = scanFiles(path.join(descriptor.dir, 'res', 'view'), '.prefab');
+  const partFiles = scanFiles(path.join(descriptor.dir, 'res', 'part'), '.prefab');
+  const runtimeFiles = walk(path.join(descriptor.dir, 'res', 'runtime'), (filePath) => {
+    return !filePath.endsWith('.meta') && !filePath.endsWith('.DS_Store');
+  }).sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+
+  const runtimeTypes = Array.from(new Set(runtimeFiles.map(inferRuntimeType))).sort();
+  const yzforgeImports = ['defineAssets'];
+  if (runtimeFiles.length) yzforgeImports.push('assetRef');
+  if (partFiles.length) yzforgeImports.push('partRef');
+  if (viewFiles.length) yzforgeImports.push('viewRef', 'ViewKind');
+
+  const imports = [];
+  if (runtimeTypes.length) {
+    imports.push(`import { ${runtimeTypes.join(', ')} } from 'cc';`);
+  }
+  imports.push(`import { ${yzforgeImports.join(', ')} } from '../../../yzforge/runtime';`);
+
+  for (const filePath of viewFiles) {
+    const className = path.basename(filePath, '.prefab');
+    const scriptPath = path.join(codeDir, 'view', `${className}.ts`);
+    imports.push(`import { ${className} } from '${codeImportPath(codeDir, scriptPath)}';`);
+  }
+  for (const filePath of partFiles) {
+    const className = path.basename(filePath, '.prefab');
+    const scriptPath = path.join(codeDir, 'part', `${className}.ts`);
+    imports.push(`import { ${className} } from '${codeImportPath(codeDir, scriptPath)}';`);
+  }
+
+  const viewEntries = viewFiles.map((filePath) => {
+    const className = path.basename(filePath, '.prefab');
+    return `        ${lowerCamelCase(className)}: viewRef(${className}, '${assetPath(descriptor, filePath)}', { kind: ${inferViewKind(className)} }),`;
+  });
+  const partEntries = partFiles.map((filePath) => {
+    const className = path.basename(filePath, '.prefab');
+    return `        ${lowerCamelCase(className)}: partRef(${className}, '${assetPath(descriptor, filePath)}'),`;
+  });
+  const runtimeEntries = runtimeFiles.map((filePath) => {
+    const name = path.basename(filePath, path.extname(filePath));
+    return `        ${lowerCamelCase(name)}: assetRef(${inferRuntimeType(filePath)}, '${assetPath(descriptor, filePath)}'),`;
+  });
+
   return [
-    "import { defineAssets } from '../../../yzforge/runtime';",
+    imports.join('\n'),
     '',
     'export const assets = defineAssets({',
-    '    views: {},',
-    '    parts: {},',
-    '    runtime: {},',
+    '    views: {',
+    ...viewEntries,
+    '    },',
+    '    parts: {',
+    ...partEntries,
+    '    },',
+    '    runtime: {',
+    ...runtimeEntries,
+    '    },',
     '});',
   ].join('\n');
 }
@@ -214,7 +304,7 @@ function generate(projectRoot) {
     writeGenerated(`assets/app/contracts/libraries/${library.name}.contract.generated.ts`, library.projectPath, renderContract(library));
     writeGenerated(`assets/app/registry/libraries/${library.name}.ref.generated.ts`, library.projectPath, renderLibraryRef(library));
     writeGenerated(`assets/libraries/${library.name}/code/entry.generated.ts`, library.projectPath, renderLibraryEntry(library));
-    writeGenerated(`assets/libraries/${library.name}/code/assets.generated.ts`, `assets/libraries/${library.name}/res`, renderEmptyAssets());
+    writeGenerated(`assets/libraries/${library.name}/code/assets.generated.ts`, `assets/libraries/${library.name}/res`, renderAssets(library));
     writeGenerated(`assets/libraries/${library.name}/code/config.generated.ts`, `assets/libraries/${library.name}/res/content/config`, renderEmptyConfig());
   }
 
@@ -224,7 +314,7 @@ function generate(projectRoot) {
     writeGenerated(`assets/app/contracts/modules/${module.name}.contract.generated.ts`, module.projectPath, renderContract(module));
     writeGenerated(`assets/app/registry/modules/${module.name}.ref.generated.ts`, module.projectPath, renderModuleRef(module, project.libraries));
     writeGenerated(`assets/modules/${module.name}/code/entry.generated.ts`, module.projectPath, renderModuleEntry(module));
-    writeGenerated(`assets/modules/${module.name}/code/assets.generated.ts`, `assets/modules/${module.name}/res`, renderEmptyAssets());
+    writeGenerated(`assets/modules/${module.name}/code/assets.generated.ts`, `assets/modules/${module.name}/res`, renderAssets(module));
     writeGenerated(`assets/modules/${module.name}/code/config.generated.ts`, `assets/modules/${module.name}/res/content/config`, renderEmptyConfig());
     writeGenerated(`assets/modules/${module.name}/code/content-packs.generated.ts`, `assets/content-packs/${module.name}`, renderModuleContentPacks(module, project.contentPacks));
   }

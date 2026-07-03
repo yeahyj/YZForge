@@ -37,13 +37,39 @@ function validateDescriptor(kind, descriptor, known, issues) {
   }
 }
 
-function validatePublicContract(descriptor, issues) {
+function validateBundleMeta(projectRoot, kind, descriptor, issues) {
+  const label = `${kind}:${descriptor.name || descriptor.id}`;
+  const metaPath = `${descriptor.dir}.meta`;
+  if (!fs.existsSync(metaPath)) {
+    issues.push(`${label} Cocos bundle meta is missing: ${path.relative(projectRoot, metaPath).replace(/\\/g, '/')}.`);
+    return;
+  }
+
+  let meta;
+  try {
+    meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+  } catch (error) {
+    issues.push(`${label} Cocos bundle meta is invalid JSON: ${error.message}.`);
+    return;
+  }
+
+  const userData = meta.userData || {};
+  const expected = expectedBundle(kind, descriptor);
+  if (userData.isBundle !== true) {
+    issues.push(`${label} Cocos bundle meta must set userData.isBundle = true.`);
+  }
+  if (userData.bundleName !== expected) {
+    issues.push(`${label} Cocos bundle meta bundleName must be '${expected}', got '${userData.bundleName}'.`);
+  }
+}
+
+function validatePublicContract(projectRoot, descriptor, issues) {
   const publicFile = path.join(descriptor.dir, descriptor.public || 'code/public.ts');
   if (!fs.existsSync(publicFile)) {
     issues.push(`${descriptor.projectPath} public contract file is missing: ${descriptor.public || 'code/public.ts'}`);
     return;
   }
-  const rel = path.relative(process.cwd(), publicFile).replace(/\\/g, '/');
+  const rel = path.relative(projectRoot, publicFile).replace(/\\/g, '/');
   const content = fs.readFileSync(publicFile, 'utf8');
   const withoutComments = content
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -114,14 +140,17 @@ function validate(projectRoot) {
 
   for (const descriptor of project.modules) {
     validateDescriptor('module', descriptor, known, issues);
-    validatePublicContract(descriptor, issues);
+    validateBundleMeta(projectRoot, 'module', descriptor, issues);
+    validatePublicContract(projectRoot, descriptor, issues);
   }
   for (const descriptor of project.libraries) {
     validateDescriptor('library', descriptor, known, issues);
-    validatePublicContract(descriptor, issues);
+    validateBundleMeta(projectRoot, 'library', descriptor, issues);
+    validatePublicContract(projectRoot, descriptor, issues);
   }
   for (const descriptor of project.contentPacks) {
     validateDescriptor('content-pack', descriptor, known, issues);
+    validateBundleMeta(projectRoot, 'content-pack', descriptor, issues);
     if (!known.modules.has(descriptor.owner)) {
       issues.push(`content-pack:${descriptor.id} owner module '${descriptor.owner}' does not exist.`);
     }

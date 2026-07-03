@@ -143,6 +143,130 @@ function createContentPack(projectRoot, owner, name) {
   return { kind: 'content-pack', owner, name, changed };
 }
 
+function requireModule(projectRoot, owner) {
+  assertPascalName(owner, 'Module owner');
+  const ownerModule = path.join(projectRoot, 'assets', 'modules', owner, 'module.json');
+  if (!fs.existsSync(ownerModule)) {
+    throw new Error(`Owner module does not exist: ${owner}`);
+  }
+}
+
+function createView(projectRoot, owner, name) {
+  requireModule(projectRoot, owner);
+  assertPascalName(name, 'View');
+  const root = `assets/modules/${owner}`;
+  ensureDir(path.join(projectRoot, root, 'code/view'));
+  ensureDir(path.join(projectRoot, root, 'res/view'));
+
+  const changed = [];
+  const write = (relative, content) => {
+    if (writeNewText(projectRoot, relative, content)) changed.push(relative);
+  };
+
+  write(`${root}/code/view/${name}.ts`, [
+    "import { _decorator } from 'cc';",
+    "import { View } from '../../../../yzforge/runtime';",
+    '',
+    'const { ccclass } = _decorator;',
+    '',
+    `@ccclass('${name}')`,
+    `export class ${name} extends View<void, void> {`,
+    '    protected onOpen(): void {',
+    `        this.module.logger.info('${name} opened.');`,
+    '    }',
+    '}',
+    '',
+  ].join('\n'));
+
+  return {
+    kind: 'view',
+    owner,
+    name,
+    prefab: `${root}/res/view/${name}.prefab`,
+    changed,
+  };
+}
+
+function createPart(projectRoot, owner, name) {
+  requireModule(projectRoot, owner);
+  assertPascalName(name, 'Part');
+  const root = `assets/modules/${owner}`;
+  ensureDir(path.join(projectRoot, root, 'code/part'));
+  ensureDir(path.join(projectRoot, root, 'res/part'));
+
+  const changed = [];
+  const write = (relative, content) => {
+    if (writeNewText(projectRoot, relative, content)) changed.push(relative);
+  };
+
+  write(`${root}/code/part/${name}.ts`, [
+    "import { _decorator } from 'cc';",
+    "import { Part } from '../../../../yzforge/runtime';",
+    '',
+    'const { ccclass } = _decorator;',
+    '',
+    `@ccclass('${name}')`,
+    `export class ${name} extends Part<void> {}`,
+    '',
+  ].join('\n'));
+
+  return {
+    kind: 'part',
+    owner,
+    name,
+    prefab: `${root}/res/part/${name}.prefab`,
+    changed,
+  };
+}
+
+function createModuleUnit(projectRoot, owner, name, folder, baseType, bodyLines) {
+  requireModule(projectRoot, owner);
+  assertPascalName(name, baseType);
+  const root = `assets/modules/${owner}`;
+  ensureDir(path.join(projectRoot, root, 'code', folder));
+
+  const changed = [];
+  const write = (relative, content) => {
+    if (writeNewText(projectRoot, relative, content)) changed.push(relative);
+  };
+
+  write(`${root}/code/${folder}/${name}.ts`, [
+    `import { ${baseType} } from '../../../../yzforge/runtime';`,
+    '',
+    `export class ${name} extends ${baseType} {`,
+    ...bodyLines,
+    '}',
+    '',
+  ].join('\n'));
+
+  return {
+    kind: folder,
+    owner,
+    name,
+    changed,
+  };
+}
+
+function createModel(projectRoot, owner, name) {
+  return createModuleUnit(projectRoot, owner, name, 'model', 'Model', []);
+}
+
+function createService(projectRoot, owner, name) {
+  return createModuleUnit(projectRoot, owner, name, 'service', 'Service', [
+    '    public onCreate(): void {',
+    `        this.module.logger.info('${name} created.');`,
+    '    }',
+  ]);
+}
+
+function createFlow(projectRoot, owner, name) {
+  return createModuleUnit(projectRoot, owner, name, 'flow', 'Flow', [
+    '    public async start(): Promise<void> {',
+    `        this.module.logger.info('${name} started.');`,
+    '    }',
+  ]);
+}
+
 function create(projectRoot, kind, args) {
   if (kind === 'module') {
     return createModule(projectRoot, args.name);
@@ -153,12 +277,32 @@ function create(projectRoot, kind, args) {
   if (kind === 'content-pack') {
     return createContentPack(projectRoot, args.owner, args.name);
   }
+  if (kind === 'view') {
+    return createView(projectRoot, args.owner, args.name);
+  }
+  if (kind === 'part') {
+    return createPart(projectRoot, args.owner, args.name);
+  }
+  if (kind === 'model') {
+    return createModel(projectRoot, args.owner, args.name);
+  }
+  if (kind === 'service') {
+    return createService(projectRoot, args.owner, args.name);
+  }
+  if (kind === 'flow') {
+    return createFlow(projectRoot, args.owner, args.name);
+  }
   throw new Error(`Unknown create kind: ${kind}`);
 }
 
 module.exports = {
   create,
   createContentPack,
+  createFlow,
   createLibrary,
+  createModel,
   createModule,
+  createPart,
+  createService,
+  createView,
 };

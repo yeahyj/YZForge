@@ -1,4 +1,4 @@
-import { Component, isValid, Node } from 'cc';
+import { Component, director, isValid, Node } from 'cc';
 import { YZForgeError } from './errors';
 import type { Module } from './module';
 import type { ViewRef } from './refs';
@@ -69,6 +69,15 @@ export function isUiCancelResult(value: unknown): value is UiCancelResult {
 let nextViewId = 0;
 type AnyViewHandle = ViewHandle<any>;
 
+const LAYER_NODE_NAMES: Record<ViewLayer, string> = {
+    [ViewLayer.Page]: 'PageLayer',
+    [ViewLayer.Paper]: 'PaperLayer',
+    [ViewLayer.Popup]: 'PopupLayer',
+    [ViewLayer.Toast]: 'ToastLayer',
+    [ViewLayer.Top]: 'TopLayer',
+    [ViewLayer.System]: 'SystemLayer',
+};
+
 export class UIManager {
     private readonly moduleUis = new Map<string, ModuleUI>();
 
@@ -134,9 +143,11 @@ export class ModuleUI {
         handle.state = ViewState.Opening;
         await view.__yzforgeBeforeOpen(data);
         const layer = this.resolveLayer(ref);
-        const root = this.roots[layer];
+        const root = this.resolveRoot(layer);
         if (root) {
             root.addChild(node);
+        } else {
+            this.module.logger.warn(`UI layer root not found: ${ViewLayer[layer] ?? layer}`);
         }
         handle.state = ViewState.Open;
         this.handles.add(handle as AnyViewHandle);
@@ -216,12 +227,37 @@ export class ModuleUI {
         return ViewLayer.Page;
     }
 
+    private resolveRoot(layer: ViewLayer): Node | undefined {
+        const configured = this.roots[layer];
+        if (configured && isValid(configured)) {
+            return configured;
+        }
+        const scene = director.getScene();
+        if (!scene) {
+            return undefined;
+        }
+        return findChildByName(scene, LAYER_NODE_NAMES[layer]);
+    }
+
     private resolveHandle(target: AnyViewHandle | ViewRef): AnyViewHandle | undefined {
         if ('id' in target) {
             return target;
         }
         return Array.from(this.handles).reverse().find((handle) => handle.ref === target);
     }
+}
+
+function findChildByName(root: Node, name: string): Node | undefined {
+    if (root.name === name) {
+        return root;
+    }
+    for (const child of root.children) {
+        const found = findChildByName(child, name);
+        if (found) {
+            return found;
+        }
+    }
+    return undefined;
 }
 
 export abstract class View<TData = unknown, TResult = unknown> extends Component {

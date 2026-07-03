@@ -5,5 +5,84 @@
   "main": "editor/main.js",
   "author": "YZForge",
   "package_version": 2,
-  "editor": ">=3.8.0"
+  "editor": ">=3.8.0",
+  "contributions": {
+    "menu": [
+      {
+        "path": "YZForge/Create",
+        "label": "Create Help",
+        "message": "show-create-help"
+      },
+      {
+        "path": "YZForge/Generate",
+        "label": "Generate All",
+        "message": "generate-all"
+      },
+      {
+        "path": "YZForge/Validate",
+        "label": "Validate Architecture",
+        "message": "validate-architecture"
+      }
+    ],
+    "messages": {
+      "show-create-help": {
+        "methods": [
+          "showCreateHelp"
+        ]
+      },
+      "generate-all": {
+        "methods": [
+          "generateAll"
+        ]
+      },
+      "validate-architecture": {
+        "methods": [
+          "validateArchitecture"
+        ]
+      },
+      "create-module": {
+        "methods": [
+          "createModule"
+        ]
+      },
+      "create-library": {
+        "methods": [
+          "createLibrary"
+        ]
+      },
+      "create-content-pack": {
+        "methods": [
+          "createContentPack"
+        ]
+      },
+      "create-module-view": {
+        "methods": [
+          "createModuleView"
+        ]
+      },
+      "create-part": {
+        "methods": [
+          "createPart"
+        ]
+      },
+      "create-model": {
+        "methods": [
+          "createModel"
+        ]
+      },
+      "create-service": {
+        "methods": [
+          "createService"
+        ]
+      },
+      "create-flow": {
+        "methods": [
+          "createFlow"
+        ]
+      }
+    },
+    "scene": {
+      "script": "editor/scene.js"
+    }
+  }
 }

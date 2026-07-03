@@ -1,9 +1,292 @@
 'use strict';
 
+const { create } = require('./create');
+const { generate } = require('./generate');
+const { validate } = require('./validate');
+const { kebabCase } = require('./fs-utils');
+
+function projectRoot() {
+  return (global.Editor && Editor.Project && Editor.Project.path) || process.cwd();
+}
+
+function normalizeOptions(first, second) {
+  if (first && typeof first === 'object' && !Array.isArray(first)) {
+    return first;
+  }
+  if (typeof first === 'string') {
+    return second && typeof second === 'object'
+      ? { ...second, name: first }
+      : { name: first };
+  }
+  return {};
+}
+
+function requireName(options, label) {
+  if (!options.name) {
+    throw new Error(`${label} name is required.`);
+  }
+}
+
+function requireOwner(options, label) {
+  if (!options.owner) {
+    throw new Error(`${label} owner module is required.`);
+  }
+}
+
+async function assetDbRequest(method, ...args) {
+  if (!global.Editor || !Editor.Message || typeof Editor.Message.request !== 'function') {
+    return undefined;
+  }
+  return await Editor.Message.request('asset-db', method, ...args);
+}
+
+async function refreshAsset(url) {
+  try {
+    await assetDbRequest('refresh-asset', url);
+    return { url, refreshed: true };
+  } catch (error) {
+    return { url, refreshed: false, error: error.message };
+  }
+}
+
+function bundleTarget(result) {
+  if (result.kind === 'module') {
+    return {
+      url: `db://assets/modules/${result.name}`,
+      bundleName: `yzforge-module-${kebabCase(result.name)}`,
+      priority: 8,
+    };
+  }
+  if (result.kind === 'library') {
+    return {
+      url: `db://assets/libraries/${result.name}`,
+      bundleName: `yzforge-lib-${kebabCase(result.name)}`,
+      priority: 7,
+    };
+  }
+  if (result.kind === 'content-pack') {
+    return {
+      url: `db://assets/content-packs/${result.owner}/${result.name}`,
+      bundleName: `yzforge-content-pack-${kebabCase(result.owner)}-${kebabCase(result.name)}`,
+      priority: 6,
+    };
+  }
+  return undefined;
+}
+
+async function configureBundle(target) {
+  if (!target) {
+    return undefined;
+  }
+
+  await refreshAsset(target.url);
+  const meta = await assetDbRequest('query-asset-meta', target.url);
+  if (!meta) {
+    return {
+      url: target.url,
+      configured: false,
+      reason: 'asset meta is not available yet',
+    };
+  }
+
+  meta.userData = {
+    ...(meta.userData || {}),
+    isBundle: true,
+    bundleName: target.bundleName,
+    priority: meta.userData && meta.userData.priority !== undefined ? meta.userData.priority : target.priority,
+    compressionType: meta.userData && meta.userData.compressionType ? meta.userData.compressionType : {},
+    isRemoteBundle: meta.userData && meta.userData.isRemoteBundle ? meta.userData.isRemoteBundle : {},
+  };
+  await assetDbRequest('save-asset-meta', target.url, meta);
+  await refreshAsset(target.url);
+  return {
+    url: target.url,
+    configured: true,
+    bundleName: target.bundleName,
+  };
+}
+
+async function queryAssetInfo(url) {
+  try {
+    return await assetDbRequest('query-asset-info', url);
+  } catch (error) {
+    return undefined;
+  }
+}
+
+async function createUiPrefab(result, options) {
+  if ((result.kind !== 'view' && result.kind !== 'part') || options.prefab === false) {
+    return undefined;
+  }
+  if (!result.prefab) {
+    return undefined;
+  }
+
+  const targetUrl = `db://${result.prefab}`;
+  const existing = await queryAssetInfo(targetUrl);
+  if (existing && options.overwrite !== true) {
+    return {
+      target: targetUrl,
+      created: false,
+      reason: 'target prefab already exists',
+    };
+  }
+
+  let serialized;
+  try {
+    serialized = await Editor.Message.request('scene', 'execute-scene-script', {
+      name: 'yzforge',
+      method: 'createUiPrefab',
+      args: [{
+        name: result.name,
+        componentName: result.name,
+        requireComponent: options.requireComponent !== false,
+      }],
+    });
+  } catch (error) {
+    return {
+      target: targetUrl,
+      created: false,
+      reason: error.message,
+    };
+  }
+
+  const method = existing && options.overwrite === true ? 'save-asset' : 'create-asset';
+  await assetDbRequest(method, targetUrl, serialized.content);
+  await refreshAsset(targetUrl);
+  return {
+    target: targetUrl,
+    created: !existing,
+    overwritten: Boolean(existing && options.overwrite === true),
+    componentAttached: serialized.componentAttached,
+    warnings: serialized.warnings || [],
+  };
+}
+
+async function postCreate(result, options) {
+  const refreshed = [];
+  if (result.kind === 'module') {
+    refreshed.push(await refreshAsset('db://assets/modules'));
+    refreshed.push(await refreshAsset(`db://assets/modules/${result.name}`));
+  } else if (result.kind === 'library') {
+    refreshed.push(await refreshAsset('db://assets/libraries'));
+    refreshed.push(await refreshAsset(`db://assets/libraries/${result.name}`));
+  } else if (result.kind === 'content-pack') {
+    refreshed.push(await refreshAsset('db://assets/content-packs'));
+    refreshed.push(await refreshAsset(`db://assets/content-packs/${result.owner}/${result.name}`));
+  } else if (result.owner) {
+    refreshed.push(await refreshAsset(`db://assets/modules/${result.owner}`));
+  }
+
+  const prefab = await createUiPrefab(result, options);
+
+  return {
+    ...result,
+    assetDb: {
+      refreshed,
+      bundle: await configureBundle(bundleTarget(result)),
+      prefab,
+    },
+    generated: generate(projectRoot()),
+  };
+}
+
+async function createKind(kind, options) {
+  const root = projectRoot();
+  const result = create(root, kind, options);
+  const completed = await postCreate(result, options);
+  console.log(`[YZForge] created ${kind}:`, completed);
+  return completed;
+}
+
+function showCreateHelp() {
+  const message = [
+    'Use Editor.Message.request with args, for example:',
+    "Editor.Message.request('yzforge', 'create-module', { name: 'Battle' })",
+    "Editor.Message.request('yzforge', 'create-module-view', { owner: 'Battle', name: 'PageBattle' })",
+    "Editor.Message.request('yzforge', 'create-service', { owner: 'Battle', name: 'BattleService' })",
+  ].join('\n');
+  if (global.Editor && Editor.Dialog && typeof Editor.Dialog.info === 'function') {
+    Editor.Dialog.info('YZForge Create', { detail: message });
+  }
+  console.log(`[YZForge]\n${message}`);
+  return { ok: true, message };
+}
+
 exports.load = function load() {
   console.log('[YZForge] editor extension loaded.');
 };
 
 exports.unload = function unload() {
   console.log('[YZForge] editor extension unloaded.');
+};
+
+exports.methods = {
+  showCreateHelp,
+
+  async generateAll() {
+    const result = generate(projectRoot());
+    console.log('[YZForge] generate all:', result);
+    return result;
+  },
+
+  async validateArchitecture() {
+    const result = validate(projectRoot());
+    console.log('[YZForge] validate architecture:', result);
+    return result;
+  },
+
+  async createModule(first, second) {
+    const options = normalizeOptions(first, second);
+    requireName(options, 'Module');
+    return await createKind('module', options);
+  },
+
+  async createLibrary(first, second) {
+    const options = normalizeOptions(first, second);
+    requireName(options, 'Library');
+    return await createKind('library', options);
+  },
+
+  async createContentPack(first, second) {
+    const options = normalizeOptions(first, second);
+    requireOwner(options, 'ContentPack');
+    requireName(options, 'ContentPack');
+    return await createKind('content-pack', options);
+  },
+
+  async createModuleView(first, second) {
+    const options = normalizeOptions(first, second);
+    requireOwner(options, 'View');
+    requireName(options, 'View');
+    return await createKind('view', options);
+  },
+
+  async createPart(first, second) {
+    const options = normalizeOptions(first, second);
+    requireOwner(options, 'Part');
+    requireName(options, 'Part');
+    return await createKind('part', options);
+  },
+
+  async createModel(first, second) {
+    const options = normalizeOptions(first, second);
+    requireOwner(options, 'Model');
+    requireName(options, 'Model');
+    return await createKind('model', options);
+  },
+
+  async createService(first, second) {
+    const options = normalizeOptions(first, second);
+    requireOwner(options, 'Service');
+    requireName(options, 'Service');
+    return await createKind('service', options);
+  },
+
+  async createFlow(first, second) {
+    const options = normalizeOptions(first, second);
+    requireOwner(options, 'Flow');
+    requireName(options, 'Flow');
+    return await createKind('flow', options);
+  },
 };
