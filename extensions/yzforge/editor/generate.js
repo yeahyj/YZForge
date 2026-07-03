@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { generatedText, kebabCase, readJsonc, toPosix, walk, writeJsonIfChanged, writeTextIfChanged } = require('./fs-utils');
+const { generatedText, isTextChanged, kebabCase, readJsonc, toPosix, walk, writeTextIfChanged } = require('./fs-utils');
 const { scanProject } = require('./scanner');
 
 function moduleBundleName(name) {
@@ -17,12 +17,43 @@ function contentPackBundleName(owner, name) {
   return `yzforge-content-pack-${kebabCase(owner)}-${kebabCase(name)}`;
 }
 
-function renderContract(descriptor) {
+function renderContract(descriptor, kind) {
   const publicPath = path.join(descriptor.dir, descriptor.public || 'code/public.ts');
+  let body = 'export {};';
   if (!fs.existsSync(publicPath)) {
-    return 'export {};';
+    return body;
   }
-  return fs.readFileSync(publicPath, 'utf8').trim() || 'export {};';
+  body = fs.readFileSync(publicPath, 'utf8').trim() || 'export {};';
+  if (kind === 'library') {
+    return renderLibraryContract(descriptor, body);
+  }
+  return body;
+}
+
+function renderLibraryContract(library, body) {
+  const tokenMapName = `${library.name}TokenMap`;
+  const match = body.match(new RegExp(`export\\s+interface\\s+${tokenMapName}\\s*{([\\s\\S]*?)}`));
+  if (!match) {
+    return body;
+  }
+
+  const keys = [];
+  const propertyPattern = /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\??\s*:/gm;
+  let property;
+  while ((property = propertyPattern.exec(match[1])) !== null) {
+    keys.push(property[1]);
+  }
+
+  const tokenEntries = keys.map((key) => `    ${key}: '${key}',`);
+  return [
+    "import { defineLibraryTokens } from '../../../yzforge/runtime';",
+    '',
+    body,
+    '',
+    `export const ${library.name}Tokens = defineLibraryTokens<${tokenMapName}>('${library.name}', {`,
+    ...tokenEntries,
+    '});',
+  ].join('\n');
 }
 
 function renderModuleRef(module, libraries) {
@@ -221,11 +252,55 @@ function renderEmptyConfig() {
   ].join('\n');
 }
 
-function renderInstallGenerated() {
+function writeText(projectRoot, relativePath, content, options, changed) {
+  const filePath = path.join(projectRoot, relativePath);
+  const didChange = options.check
+    ? isTextChanged(filePath, content)
+    : writeTextIfChanged(filePath, content);
+  if (didChange) {
+    changed.push(relativePath);
+  }
+}
+
+function writeJson(projectRoot, relativePath, value, options, changed) {
+  writeText(projectRoot, relativePath, `${JSON.stringify(value, null, 2)}\n`, options, changed);
+}
+
+function scanExtensionFiles(projectRoot) {
+  const root = path.join(projectRoot, 'assets', 'app', 'extensions');
+  return scanFiles(root, '.ts')
+    .filter((filePath) => !filePath.endsWith('.generated.ts'))
+    .sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+}
+
+function extensionExportName(filePath) {
+  return `${path.basename(filePath, '.ts')}Extension`;
+}
+
+function renderInstallGenerated(projectRoot) {
+  const extensionFiles = scanExtensionFiles(projectRoot);
+  if (extensionFiles.length === 0) {
+    return [
+      "import type { App } from '../../yzforge/runtime';",
+      '',
+      'export async function installGeneratedExtensions(_app: App): Promise<void> {}',
+    ].join('\n');
+  }
+
+  const imports = extensionFiles.map((filePath) => {
+    const importPath = toPosix(withoutExt(path.relative(path.join(projectRoot, 'assets', 'app', 'bootstrap'), filePath)));
+    return `import { ${extensionExportName(filePath)} } from '${importPath.startsWith('.') ? importPath : `./${importPath}`}';`;
+  });
+  const installLines = extensionFiles.map((filePath) => {
+    return `    await app.extensions.install(${extensionExportName(filePath)});`;
+  });
   return [
     "import type { App } from '../../yzforge/runtime';",
+    ...imports,
     '',
-    'export async function installGeneratedExtensions(_app: App): Promise<void> {}',
+    'export async function installGeneratedExtensions(app: App): Promise<void> {',
+    ...installLines,
+    '}',
   ].join('\n');
 }
 
@@ -264,7 +339,7 @@ function renderModuleContentPacks(module, packs) {
   ].join('\n');
 }
 
-function updateTsconfig(projectRoot) {
+function updateTsconfig(projectRoot, options, changed) {
   const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
   const tsconfig = readJsonc(tsconfigPath);
   tsconfig.compilerOptions = tsconfig.compilerOptions || {};
@@ -285,23 +360,20 @@ function updateTsconfig(projectRoot) {
     'yzforge-contracts/extensions/*': ['assets/app/contracts/extensions/*.contract.generated.ts'],
     'yzforge-shared/*': ['assets/shared/code/*'],
   };
-  writeTextIfChanged(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
+  writeText(projectRoot, 'tsconfig.json', `${JSON.stringify(tsconfig, null, 2)}\n`, options, changed);
 }
 
-function generate(projectRoot) {
+function generate(projectRoot, options = {}) {
   const project = scanProject(projectRoot);
   const changed = [];
   const writeGenerated = (relativePath, source, body) => {
-    const filePath = path.join(projectRoot, relativePath);
-    if (writeTextIfChanged(filePath, generatedText(source, body))) {
-      changed.push(relativePath);
-    }
+    writeText(projectRoot, relativePath, generatedText(source, body), options, changed);
   };
 
   for (const library of project.libraries) {
     library.bundle = library.bundle || libraryBundleName(library.name);
     library.libraries = library.libraries || [];
-    writeGenerated(`assets/app/contracts/libraries/${library.name}.contract.generated.ts`, library.projectPath, renderContract(library));
+    writeGenerated(`assets/app/contracts/libraries/${library.name}.contract.generated.ts`, library.projectPath, renderContract(library, 'library'));
     writeGenerated(`assets/app/registry/libraries/${library.name}.ref.generated.ts`, library.projectPath, renderLibraryRef(library));
     writeGenerated(`assets/libraries/${library.name}/code/entry.generated.ts`, library.projectPath, renderLibraryEntry(library));
     writeGenerated(`assets/libraries/${library.name}/code/assets.generated.ts`, `assets/libraries/${library.name}/res`, renderAssets(library));
@@ -311,7 +383,7 @@ function generate(projectRoot) {
   for (const module of project.modules) {
     module.bundle = module.bundle || moduleBundleName(module.name);
     module.libraries = module.libraries || [];
-    writeGenerated(`assets/app/contracts/modules/${module.name}.contract.generated.ts`, module.projectPath, renderContract(module));
+    writeGenerated(`assets/app/contracts/modules/${module.name}.contract.generated.ts`, module.projectPath, renderContract(module, 'module'));
     writeGenerated(`assets/app/registry/modules/${module.name}.ref.generated.ts`, module.projectPath, renderModuleRef(module, project.libraries));
     writeGenerated(`assets/modules/${module.name}/code/entry.generated.ts`, module.projectPath, renderModuleEntry(module));
     writeGenerated(`assets/modules/${module.name}/code/assets.generated.ts`, `assets/modules/${module.name}/res`, renderAssets(module));
@@ -325,7 +397,7 @@ function generate(projectRoot) {
     .join('\n') || 'export {};';
   writeGenerated('assets/app/registry/entries.generated.ts', 'assets/app/registry', entryExports);
 
-  writeJsonIfChanged(path.join(projectRoot, 'import-map.json'), {
+  writeJson(projectRoot, 'import-map.json', {
     imports: {
       yzforge: './assets/yzforge/runtime/index',
       'yzforge/': './assets/yzforge/runtime/',
@@ -335,19 +407,19 @@ function generate(projectRoot) {
       'yzforge-contracts/': './assets/app/contracts/',
       'yzforge-shared/': './assets/shared/code/',
     },
-  });
-  updateTsconfig(projectRoot);
-  writeGenerated('assets/app/bootstrap/install.generated.ts', 'assets/app/bootstrap', renderInstallGenerated());
+  }, options, changed);
+  updateTsconfig(projectRoot, options, changed);
+  writeGenerated('assets/app/bootstrap/install.generated.ts', 'assets/app/bootstrap', renderInstallGenerated(projectRoot));
 
   for (const pack of project.contentPacks) {
     pack.bundle = pack.bundle || contentPackBundleName(pack.owner, pack.name);
-    writeJsonIfChanged(path.join(pack.dir, 'manifest.generated.json'), {
+    writeJson(projectRoot, toPosix(path.relative(projectRoot, path.join(pack.dir, 'manifest.generated.json'))), {
       schemaVersion: 1,
       id: pack.id,
       owner: pack.owner,
       bundle: pack.bundle,
       refs: {},
-    });
+    }, options, changed);
   }
 
   return {

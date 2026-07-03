@@ -27,6 +27,8 @@ const template = `
           <option value="model" data-i18n="kind_model">Model</option>
           <option value="service" data-i18n="kind_service">Service</option>
           <option value="flow" data-i18n="kind_flow">Flow</option>
+          <option value="event-file" data-i18n="kind_event_file">Event File</option>
+          <option value="extension-stub" data-i18n="kind_extension_stub">Extension Stub</option>
         </select>
       </label>
       <label>
@@ -48,6 +50,7 @@ const template = `
   <section class="section action-row">
     <button id="generate" data-i18n="generate_all">Generate All</button>
     <button id="validate" data-i18n="validate_architecture">Validate</button>
+    <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
   </section>
 
   <section class="section summary">
@@ -166,6 +169,7 @@ select {
 }
 
 button {
+  min-width: 0;
   min-height: 28px;
   padding: 4px 10px;
   color: var(--color-normal-contrast);
@@ -194,7 +198,7 @@ button:disabled {
 
 .action-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -261,6 +265,8 @@ function messageNameForKind(kind) {
     model: 'create-model',
     service: 'create-service',
     flow: 'create-flow',
+    'event-file': 'create-event-file',
+    'extension-stub': 'create-extension-stub',
   }[kind];
 }
 
@@ -288,6 +294,7 @@ module.exports = Editor.Panel.define({
     create: '#create',
     generate: '#generate',
     validate: '#validate',
+    validateStrict: '#validate-strict',
     moduleCount: '#module-count',
     libraryCount: '#library-count',
     packCount: '#pack-count',
@@ -318,6 +325,7 @@ module.exports = Editor.Panel.define({
       for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.validate]) {
         button.disabled = busy;
       }
+      this.$.validateStrict.disabled = busy;
     },
 
     setResult(value) {
@@ -332,7 +340,7 @@ module.exports = Editor.Panel.define({
 
     updateVisibility() {
       const kind = this.$.kind.value;
-      const needsOwner = !['module', 'library'].includes(kind);
+      const needsOwner = !['module', 'library', 'extension-stub'].includes(kind);
       const needsPrefab = ['view', 'part'].includes(kind);
       this.$.ownerRow.classList.toggle('hidden', !needsOwner);
       this.$.prefabRow.classList.toggle('hidden', !needsPrefab);
@@ -405,6 +413,17 @@ module.exports = Editor.Panel.define({
         this.setBusy(false);
       }
     },
+
+    async validateProjectStrict() {
+      this.setBusy(true, 'panel_status_validating');
+      try {
+        this.setResult(await this.call('validate-architecture-strict'));
+      } catch (error) {
+        this.setResult({ ok: false, error: error.message });
+      } finally {
+        this.setBusy(false);
+      }
+    },
   },
   ready() {
     this.translate();
@@ -413,6 +432,7 @@ module.exports = Editor.Panel.define({
     this.$.create.addEventListener('click', () => this.createItem());
     this.$.generate.addEventListener('click', () => this.generateAll());
     this.$.validate.addEventListener('click', () => this.validateProject());
+    this.$.validateStrict.addEventListener('click', () => this.validateProjectStrict());
     this.updateVisibility();
     this.refreshSummary();
   },

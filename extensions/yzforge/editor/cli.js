@@ -10,8 +10,12 @@ async function main() {
   const projectRoot = path.resolve(process.cwd());
 
   if (command === 'generate') {
-    const result = generate(projectRoot);
+    const check = process.argv.includes('--check');
+    const result = generate(projectRoot, { check });
     console.log(JSON.stringify(result, null, 2));
+    if (check && result.changed.length > 0) {
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -26,7 +30,8 @@ async function main() {
   }
 
   if (command === 'validate') {
-    const result = validate(projectRoot);
+    const strict = process.argv.includes('--strict');
+    const result = validate(projectRoot, { strict });
     console.log(JSON.stringify(result, null, 2));
     if (!result.ok) {
       process.exitCode = 1;

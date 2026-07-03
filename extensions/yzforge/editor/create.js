@@ -267,6 +267,77 @@ function createFlow(projectRoot, owner, name) {
   ]);
 }
 
+function createEventFile(projectRoot, owner, name) {
+  requireModule(projectRoot, owner);
+  assertPascalName(name, 'Event');
+  const root = `assets/modules/${owner}`;
+  ensureDir(path.join(projectRoot, root, 'code/events'));
+
+  const changed = [];
+  const write = (relative, content) => {
+    if (writeNewText(projectRoot, relative, content)) changed.push(relative);
+  };
+  const eventId = `${owner}.${name}`;
+  write(`${root}/code/events/${name}.ts`, [
+    `export const ${name} = '${eventId}' as const;`,
+    '',
+    `export interface ${name}Payload {`,
+    '    readonly value?: unknown;',
+    '}',
+    '',
+    `export interface ${name}Events {`,
+    `    readonly [${name}]: ${name}Payload;`,
+    '}',
+    '',
+  ].join('\n'));
+
+  return {
+    kind: 'event-file',
+    owner,
+    name,
+    changed,
+  };
+}
+
+function createExtensionStub(projectRoot, name) {
+  assertPascalName(name, 'Extension');
+  const root = 'assets/app/extensions';
+  ensureDir(path.join(projectRoot, root));
+
+  const changed = [];
+  const write = (relative, content) => {
+    if (writeNewText(projectRoot, relative, content)) changed.push(relative);
+  };
+
+  write(`${root}/${name}.ts`, [
+    "import { defineExtensionToken, type Extension, type ExtensionRegistry } from '../../yzforge/runtime';",
+    '',
+    `export interface ${name}Api {`,
+    '    readonly name: string;',
+    '}',
+    '',
+    `export const ${name}Token = defineExtensionToken<${name}Api>('${name}');`,
+    '',
+    `class ${name}ApiImpl implements ${name}Api {`,
+    `    public readonly name = '${name}';`,
+    '}',
+    '',
+    `export const ${name}Extension: Extension = {`,
+    `    name: '${name}',`,
+    '    install(registry: ExtensionRegistry): void {',
+    `        registry.provide(${name}Token, new ${name}ApiImpl());`,
+    '    },',
+    '};',
+    '',
+  ].join('\n'));
+
+  return {
+    kind: 'extension-stub',
+    name,
+    changed,
+  };
+}
+
 function create(projectRoot, kind, args) {
   if (kind === 'module') {
     return createModule(projectRoot, args.name);
@@ -292,6 +363,12 @@ function create(projectRoot, kind, args) {
   if (kind === 'flow') {
     return createFlow(projectRoot, args.owner, args.name);
   }
+  if (kind === 'event-file') {
+    return createEventFile(projectRoot, args.owner, args.name);
+  }
+  if (kind === 'extension-stub') {
+    return createExtensionStub(projectRoot, args.name);
+  }
   throw new Error(`Unknown create kind: ${kind}`);
 }
 
@@ -299,6 +376,8 @@ module.exports = {
   create,
   createContentPack,
   createFlow,
+  createEventFile,
+  createExtensionStub,
   createLibrary,
   createModel,
   createModule,

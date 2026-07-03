@@ -189,6 +189,9 @@ async function postCreate(result, options) {
   } else if (result.kind === 'content-pack') {
     refreshed.push(await refreshAsset('db://assets/content-packs'));
     refreshed.push(await refreshAsset(`db://assets/content-packs/${result.owner}/${result.name}`));
+  } else if (result.kind === 'extension-stub') {
+    refreshed.push(await refreshAsset('db://assets/app'));
+    refreshed.push(await refreshAsset('db://assets/app/extensions'));
   } else if (result.owner) {
     refreshed.push(await refreshAsset(`db://assets/modules/${result.owner}`));
   }
@@ -277,6 +280,12 @@ exports.methods = {
     return result;
   },
 
+  async validateArchitectureStrict() {
+    const result = validate(projectRoot(), { strict: true });
+    console.log('[YZForge] validate architecture strict:', result);
+    return result;
+  },
+
   async createModule(first, second) {
     const options = normalizeOptions(first, second);
     requireName(options, 'Module');
@@ -329,5 +338,18 @@ exports.methods = {
     requireOwner(options, 'Flow');
     requireName(options, 'Flow');
     return await createKind('flow', options);
+  },
+
+  async createEventFile(first, second) {
+    const options = normalizeOptions(first, second);
+    requireOwner(options, 'Event');
+    requireName(options, 'Event');
+    return await createKind('event-file', options);
+  },
+
+  async createExtensionStub(first, second) {
+    const options = normalizeOptions(first, second);
+    requireName(options, 'Extension');
+    return await createKind('extension-stub', options);
   },
 };

@@ -130,7 +130,75 @@ function validateForbiddenImports(projectRoot, issues) {
   }
 }
 
-function validate(projectRoot) {
+function validateCaseConflicts(projectRoot, issues) {
+  const seen = new Map();
+  for (const filePath of walk(path.join(projectRoot, 'assets'))) {
+    const rel = path.relative(projectRoot, filePath).replace(/\\/g, '/');
+    const key = rel.toLowerCase();
+    const existing = seen.get(key);
+    if (existing && existing !== rel) {
+      issues.push(`Case conflict: ${existing} conflicts with ${rel}.`);
+    } else {
+      seen.set(key, rel);
+    }
+  }
+}
+
+function validateMainScene(projectRoot, issues) {
+  const scenePath = path.join(projectRoot, 'assets', 'app', 'main', 'Main.scene');
+  const scriptPath = path.join(projectRoot, 'assets', 'app', 'main', 'Main.ts');
+  if (!fs.existsSync(scenePath)) {
+    issues.push('Main scene is missing: assets/app/main/Main.scene.');
+    return;
+  }
+  if (!fs.existsSync(scriptPath)) {
+    issues.push('Main component is missing: assets/app/main/Main.ts.');
+  }
+  const content = fs.readFileSync(scenePath, 'utf8');
+  for (const name of ['MainRoot', 'Canvas', 'UIRoot', 'PageLayer', 'PaperLayer', 'PopupLayer', 'ToastLayer', 'TopLayer', 'SystemLayer']) {
+    if (!content.includes(`"_name": "${name}"`)) {
+      issues.push(`Main scene missing node: ${name}.`);
+    }
+  }
+}
+
+function validateStrictCodeRules(projectRoot, issues) {
+  const files = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts'));
+  for (const filePath of files) {
+    const rel = path.relative(projectRoot, filePath).replace(/\\/g, '/');
+    if (rel.startsWith('assets/yzforge/runtime/')) {
+      continue;
+    }
+    const content = fs.readFileSync(filePath, 'utf8');
+    const withoutComments = content
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+
+    if (/\/res\//.test(rel)) {
+      issues.push(`${rel} must not place TypeScript source under res/.`);
+    }
+    if (/^assets\/content-packs\//.test(rel)) {
+      issues.push(`${rel} content packs must not contain TypeScript source.`);
+    }
+    if (/\/code\/model\//.test(rel) && /from\s+['"]cc['"]/.test(withoutComments)) {
+      issues.push(`${rel} model must not import cc.`);
+    }
+    if (/\/code\/service\//.test(rel) && /\bthis\.module\.ui\.(open|openForResult|close|closeLayer|back)\s*\(/.test(withoutComments)) {
+      issues.push(`${rel} service must not directly operate UI; move UI orchestration to Flow.`);
+    }
+    if (/\/code\/service\//.test(rel) && /^\s*(?:private|protected|public)\s+[\w$]+\??\s*:\s*[^;\n]*(?:Node|Component)\b/m.test(withoutComments)) {
+      issues.push(`${rel} service must not keep long-lived Node or Component fields.`);
+    }
+    if (/^assets\/(?:modules|libraries)\//.test(rel) && /\bassetManager\.loadBundle\s*\(/.test(withoutComments)) {
+      issues.push(`${rel} must not call assetManager.loadBundle directly.`);
+    }
+    if (/^assets\/(?:modules|libraries)\//.test(rel) && /\binstantiate\s*\(/.test(withoutComments) && !/\.assets\.instantiate\s*\(/.test(withoutComments)) {
+      issues.push(`${rel} uses manual instantiate; use owner assets.instantiate or track ownership explicitly.`);
+    }
+  }
+}
+
+function validate(projectRoot, options = {}) {
   const project = scanProject(projectRoot);
   const issues = [];
   const known = {
@@ -158,9 +226,15 @@ function validate(projectRoot) {
 
   validateGenerated(projectRoot, issues);
   validateForbiddenImports(projectRoot, issues);
+  if (options.strict) {
+    validateCaseConflicts(projectRoot, issues);
+    validateMainScene(projectRoot, issues);
+    validateStrictCodeRules(projectRoot, issues);
+  }
 
   return {
     ok: issues.length === 0,
+    strict: Boolean(options.strict),
     modules: project.modules.length,
     libraries: project.libraries.length,
     contentPacks: project.contentPacks.length,

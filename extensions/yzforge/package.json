@@ -40,6 +40,11 @@
         "path": "YZForge",
         "label": "i18n:yzforge.validate_architecture",
         "message": "validate-architecture"
+      },
+      {
+        "path": "YZForge",
+        "label": "i18n:yzforge.validate_architecture_strict",
+        "message": "validate-architecture-strict"
       }
     ],
     "messages": {
@@ -66,6 +71,11 @@
       "validate-architecture": {
         "methods": [
           "validateArchitecture"
+        ]
+      },
+      "validate-architecture-strict": {
+        "methods": [
+          "validateArchitectureStrict"
         ]
       },
       "create-module": {
@@ -106,6 +116,16 @@
       "create-flow": {
         "methods": [
           "createFlow"
+        ]
+      },
+      "create-event-file": {
+        "methods": [
+          "createEventFile"
+        ]
+      },
+      "create-extension-stub": {
+        "methods": [
+          "createExtensionStub"
         ]
       }
     },
