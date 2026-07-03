@@ -21,6 +21,18 @@ function resolveComponentClass(name) {
   return js.getClassByName(name) || js.getClassByName(`cc.${name}`);
 }
 
+function createPrefabInfo(prefab, root) {
+  const legacy = cc.legacyCC || cc.cclegacy || globalThis.cclegacy || globalThis.cc;
+  const PrefabInfo = legacy && legacy._PrefabInfo;
+  if (typeof PrefabInfo !== 'function') {
+    throw new Error('legacyCC._PrefabInfo is unavailable.');
+  }
+  const info = new PrefabInfo();
+  info.asset = prefab;
+  info.root = root;
+  return info;
+}
+
 function serializePrefab(options = {}) {
   const name = String(options.name || '').trim();
   if (!name) {
@@ -45,6 +57,7 @@ function serializePrefab(options = {}) {
     const prefab = new Prefab();
     prefab.name = String(options.prefabName || name);
     prefab.data = node;
+    node._prefab = createPrefabInfo(prefab, node);
 
     const serialized = getSerializer()(prefab);
     const content = typeof serialized === 'string'
