@@ -581,6 +581,376 @@ function validatePrefabScriptSources(projectRoot, project, issues) {
   }
 }
 
+function stripCodeComments(content) {
+  return String(content || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+}
+
+function extractImportSpecifiers(content) {
+  const source = stripCodeComments(content);
+  const specs = [];
+  const staticPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+  let match;
+  while ((match = staticPattern.exec(source)) !== null) {
+    specs.push(match[1]);
+  }
+  const dynamicPattern = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  while ((match = dynamicPattern.exec(source)) !== null) {
+    specs.push(match[1]);
+  }
+  return specs;
+}
+
+function resolveExistingImportTarget(filePath) {
+  const candidates = [
+    filePath,
+    `${filePath}.ts`,
+    `${filePath}.tsx`,
+    `${filePath}.js`,
+    `${filePath}.json`,
+    path.join(filePath, 'index.ts'),
+    path.join(filePath, 'index.tsx'),
+    path.join(filePath, 'index.js'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return filePath;
+}
+
+function resolveImportTarget(projectRoot, fromFile, specifier) {
+  if (specifier.startsWith('.')) {
+    return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.resolve(path.dirname(fromFile), specifier))));
+  }
+  if (specifier === 'yzforge') {
+    return 'assets/yzforge/runtime/index.ts';
+  }
+  if (specifier.startsWith('yzforge/modules/')) {
+    const name = specifier.slice('yzforge/modules/'.length).split('/')[0];
+    return `assets/app/registry/modules/${name}.ref.generated.ts`;
+  }
+  if (specifier.startsWith('yzforge/libraries/')) {
+    const name = specifier.slice('yzforge/libraries/'.length).split('/')[0];
+    return `assets/app/registry/libraries/${name}.ref.generated.ts`;
+  }
+  if (specifier.startsWith('yzforge/content-packs/')) {
+    return `assets/app/registry/content-packs/${specifier.slice('yzforge/content-packs/'.length)}.generated.ts`;
+  }
+  if (specifier.startsWith('yzforge-contracts/modules/')) {
+    const name = specifier.slice('yzforge-contracts/modules/'.length).split('/')[0];
+    return `assets/app/contracts/modules/${name}.contract.generated.ts`;
+  }
+  if (specifier.startsWith('yzforge-contracts/libraries/')) {
+    const name = specifier.slice('yzforge-contracts/libraries/'.length).split('/')[0];
+    return `assets/app/contracts/libraries/${name}.contract.generated.ts`;
+  }
+  if (specifier.startsWith('yzforge-contracts/content-packs/')) {
+    const name = specifier.slice('yzforge-contracts/content-packs/'.length).split('/')[0];
+    return `assets/app/contracts/content-packs/${name}.contract.generated.ts`;
+  }
+  if (specifier.startsWith('yzforge-shared/')) {
+    return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', 'shared', 'code', specifier.slice('yzforge-shared/'.length)))));
+  }
+  if (specifier.startsWith('yzforge/')) {
+    return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', 'yzforge', 'runtime', specifier.slice('yzforge/'.length)))));
+  }
+  if (specifier.startsWith('db://assets/')) {
+    return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', specifier.slice('db://assets/'.length)))));
+  }
+  return undefined;
+}
+
+function moduleFromRegistryTarget(targetRel) {
+  const match = targetRel.match(/^assets\/app\/registry\/modules\/([^/.]+)\.ref\.generated\.ts$/);
+  return match ? match[1] : undefined;
+}
+
+function libraryFromRegistryOrContractTarget(targetRel) {
+  const registry = targetRel.match(/^assets\/app\/registry\/libraries\/([^/.]+)\.ref\.generated\.ts$/);
+  if (registry) {
+    return registry[1];
+  }
+  const contract = targetRel.match(/^assets\/app\/contracts\/libraries\/([^/.]+)\.contract\.generated\.ts$/);
+  return contract ? contract[1] : undefined;
+}
+
+function contentPackOwnerFromTarget(targetRel, specifier) {
+  const generated = targetRel.match(/^assets\/modules\/([^/]+)\/code\/content-packs\.generated\.ts$/);
+  if (generated) {
+    return generated[1];
+  }
+  const direct = targetRel.match(/^assets\/content-packs\/([^/]+)\//);
+  if (direct) {
+    return direct[1];
+  }
+  const alias = specifier.match(/^yzforge\/content-packs\/([^/]+)(?:\/|$)/);
+  return alias ? alias[1] : undefined;
+}
+
+function codeScopeFromPath(rel) {
+  let match = rel.match(/^assets\/modules\/([^/]+)\//);
+  if (match) {
+    return { kind: 'module', name: match[1] };
+  }
+  match = rel.match(/^assets\/libraries\/([^/]+)\//);
+  if (match) {
+    return { kind: 'library', name: match[1] };
+  }
+  if (rel.startsWith('assets/shared/')) {
+    return { kind: 'shared', name: 'shared' };
+  }
+  if (rel.startsWith('assets/global/')) {
+    return { kind: 'global', name: 'global' };
+  }
+  if (rel.startsWith('assets/app/registry/') || rel.startsWith('assets/app/contracts/')) {
+    return { kind: 'contract', name: 'app' };
+  }
+  return undefined;
+}
+
+function normalizeList(values) {
+  return Array.from(new Set(values || [])).sort((a, b) => a.localeCompare(b));
+}
+
+function sameNameList(left, right) {
+  return normalizeList(left).join('|') === normalizeList(right).join('|');
+}
+
+function extractStringProperty(content, property) {
+  const match = new RegExp(`\\b${property}\\s*:\\s*['"]([^'"]+)['"]`).exec(content);
+  return match ? match[1] : undefined;
+}
+
+function extractLibraryArray(content) {
+  const match = /\blibraries\s*:\s*\[([\s\S]*?)\]/m.exec(content);
+  if (!match) {
+    return [];
+  }
+  const libraries = [];
+  const refPattern = /\b([A-Za-z_$][\w$]*)Ref\b/g;
+  let ref;
+  while ((ref = refPattern.exec(match[1])) !== null) {
+    libraries.push(ref[1]);
+  }
+  return normalizeList(libraries);
+}
+
+function parseRefOrEntryFile(projectRoot, filePath, label, issues) {
+  const rel = toPosix(path.relative(projectRoot, filePath));
+  if (!fs.existsSync(filePath)) {
+    issues.push(`${label} is missing: ${rel}.`);
+    return undefined;
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  return {
+    rel,
+    name: extractStringProperty(content, 'name'),
+    bundle: extractStringProperty(content, 'bundle'),
+    libraries: extractLibraryArray(content),
+  };
+}
+
+function validateShapeMatchesDescriptor(shape, descriptor, kind, shapeLabel, issues) {
+  if (!shape) {
+    return;
+  }
+  const label = `${kind}:${descriptor.name} ${shapeLabel}`;
+  if (shape.name !== descriptor.name) {
+    issues.push(`${shape.rel} ${label} name must be '${descriptor.name}', got '${shape.name}'.`);
+  }
+  const expected = expectedBundle(kind, descriptor);
+  if (shape.bundle !== expected) {
+    issues.push(`${shape.rel} ${label} bundle must be '${expected}', got '${shape.bundle}'.`);
+  }
+  if (!sameNameList(shape.libraries, descriptor.libraries || [])) {
+    issues.push(`${shape.rel} ${label} libraries must be [${normalizeList(descriptor.libraries || []).join(', ')}], got [${shape.libraries.join(', ')}].`);
+  }
+}
+
+function validateRefEntryConsistency(projectRoot, project, issues) {
+  for (const descriptor of project.modules) {
+    const ref = parseRefOrEntryFile(
+      projectRoot,
+      path.join(projectRoot, 'assets', 'app', 'registry', 'modules', `${descriptor.name}.ref.generated.ts`),
+      `module:${descriptor.name} ModuleRef`,
+      issues,
+    );
+    const entry = parseRefOrEntryFile(
+      projectRoot,
+      path.join(descriptor.dir, descriptor.entry || 'code/entry.generated.ts'),
+      `module:${descriptor.name} ModuleEntry`,
+      issues,
+    );
+    validateShapeMatchesDescriptor(ref, descriptor, 'module', 'ref', issues);
+    validateShapeMatchesDescriptor(entry, descriptor, 'module', 'entry', issues);
+    if (ref && entry && (!sameNameList(ref.libraries, entry.libraries) || ref.name !== entry.name || ref.bundle !== entry.bundle)) {
+      issues.push(`module:${descriptor.name} ModuleRef and ModuleEntry must declare the same name, bundle, and libraries.`);
+    }
+  }
+
+  for (const descriptor of project.libraries) {
+    const ref = parseRefOrEntryFile(
+      projectRoot,
+      path.join(projectRoot, 'assets', 'app', 'registry', 'libraries', `${descriptor.name}.ref.generated.ts`),
+      `library:${descriptor.name} LibraryRef`,
+      issues,
+    );
+    const entry = parseRefOrEntryFile(
+      projectRoot,
+      path.join(descriptor.dir, descriptor.entry || 'code/entry.generated.ts'),
+      `library:${descriptor.name} LibraryEntry`,
+      issues,
+    );
+    validateShapeMatchesDescriptor(ref, descriptor, 'library', 'ref', issues);
+    validateShapeMatchesDescriptor(entry, descriptor, 'library', 'entry', issues);
+    if (ref && entry && (!sameNameList(ref.libraries, entry.libraries) || ref.name !== entry.name || ref.bundle !== entry.bundle)) {
+      issues.push(`library:${descriptor.name} LibraryRef and LibraryEntry must declare the same name, bundle, and libraries.`);
+    }
+  }
+}
+
+function isEntryImportAllowed(projectRoot, descriptor, targetRel) {
+  const descriptorRel = toPosix(path.relative(projectRoot, descriptor.dir));
+  return targetRel.startsWith(`${descriptorRel}/code/`)
+    || targetRel.startsWith('assets/yzforge/runtime/')
+    || targetRel.startsWith('assets/app/registry/')
+    || targetRel.startsWith('assets/app/contracts/')
+    || targetRel.startsWith('assets/shared/');
+}
+
+function validateEntryImports(projectRoot, project, issues) {
+  const descriptors = project.modules.map((descriptor) => ({ kind: 'module', descriptor }))
+    .concat(project.libraries.map((descriptor) => ({ kind: 'library', descriptor })));
+  for (const { kind, descriptor } of descriptors) {
+    const filePath = path.join(descriptor.dir, descriptor.entry || 'code/entry.generated.ts');
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+    const rel = toPosix(path.relative(projectRoot, filePath));
+    for (const specifier of extractImportSpecifiers(fs.readFileSync(filePath, 'utf8'))) {
+      const targetRel = resolveImportTarget(projectRoot, filePath, specifier);
+      if (!targetRel || !isEntryImportAllowed(projectRoot, descriptor, targetRel)) {
+        issues.push(`${rel} imports unsupported ${kind} entry dependency: ${specifier}.`);
+      }
+    }
+  }
+}
+
+function validateLibraryCycles(project, issues) {
+  const graph = new Map(project.libraries.map((library) => [library.name, library.libraries || []]));
+  const visiting = new Set();
+  const visited = new Set();
+  const reported = new Set();
+
+  function visit(name, pathStack) {
+    if (visiting.has(name)) {
+      const start = pathStack.indexOf(name);
+      const cycle = pathStack.slice(start);
+      if (cycle[cycle.length - 1] !== name) {
+        cycle.push(name);
+      }
+      const key = normalizeList(cycle).join('|');
+      if (!reported.has(key)) {
+        reported.add(key);
+        issues.push(`Library dependency cycle: ${cycle.join(' -> ')}.`);
+      }
+      return;
+    }
+    if (visited.has(name)) {
+      return;
+    }
+    visiting.add(name);
+    for (const dependency of graph.get(name) || []) {
+      if (graph.has(dependency)) {
+        visit(dependency, pathStack.concat(dependency));
+      }
+    }
+    visiting.delete(name);
+    visited.add(name);
+  }
+
+  for (const name of graph.keys()) {
+    visit(name, [name]);
+  }
+}
+
+function validateImportBoundaries(projectRoot, project, issues) {
+  const descriptors = new Map();
+  for (const descriptor of project.modules) {
+    descriptors.set(`module:${descriptor.name}`, descriptor);
+  }
+  for (const descriptor of project.libraries) {
+    descriptors.set(`library:${descriptor.name}`, descriptor);
+  }
+
+  const files = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts'));
+  for (const filePath of files) {
+    const rel = toPosix(path.relative(projectRoot, filePath));
+    if (rel.startsWith('assets/yzforge/runtime/')) {
+      continue;
+    }
+    const scope = codeScopeFromPath(rel);
+    if (!scope) {
+      continue;
+    }
+    const descriptor = descriptors.get(`${scope.kind}:${scope.name}`);
+    const declaredLibraries = new Set(descriptor?.libraries || []);
+
+    for (const specifier of extractImportSpecifiers(fs.readFileSync(filePath, 'utf8'))) {
+      const targetRel = resolveImportTarget(projectRoot, filePath, specifier);
+      if (!targetRel) {
+        continue;
+      }
+
+      const targetScope = codeScopeFromPath(targetRel);
+      const usedLibrary = libraryFromRegistryOrContractTarget(targetRel);
+      if ((scope.kind === 'module' || scope.kind === 'library') && usedLibrary && usedLibrary !== scope.name && !declaredLibraries.has(usedLibrary)) {
+        issues.push(`${rel} imports undeclared library '${usedLibrary}'. Add it to ${scope.name} ${scope.kind}.json libraries.`);
+      }
+
+      const packOwner = contentPackOwnerFromTarget(targetRel, specifier);
+      if (packOwner) {
+        if (scope.kind === 'module' && packOwner !== scope.name) {
+          issues.push(`${rel} accesses non-owner ContentPack for '${packOwner}'. Only owner module '${packOwner}' may import it.`);
+        } else if (scope.kind !== 'module' && scope.kind !== 'contract') {
+          issues.push(`${rel} must not access ContentPack owned by '${packOwner}'.`);
+        }
+      }
+
+      if (scope.kind === 'module') {
+        if (targetScope?.kind === 'module' && targetScope.name !== scope.name && !moduleFromRegistryTarget(targetRel)) {
+          issues.push(`${rel} imports another module internal path: ${specifier}`);
+        }
+        if (targetScope?.kind === 'library') {
+          issues.push(`${rel} imports library internal path: ${specifier}`);
+        }
+      } else if (scope.kind === 'library') {
+        if (targetScope?.kind === 'module') {
+          issues.push(`${rel} imports module internal path: ${specifier}`);
+        }
+        if (targetScope?.kind === 'library' && targetScope.name !== scope.name) {
+          issues.push(`${rel} imports another library internal path: ${specifier}`);
+        }
+      } else if (scope.kind === 'shared') {
+        if (targetScope && ['global', 'module', 'library'].includes(targetScope.kind)) {
+          issues.push(`${rel} shared code must not import ${targetScope.kind} scope: ${specifier}`);
+        }
+      } else if (scope.kind === 'global') {
+        if (targetScope && ['module', 'library'].includes(targetScope.kind)) {
+          issues.push(`${rel} global code must not import ${targetScope.kind} internal path: ${specifier}`);
+        }
+      } else if (scope.kind === 'contract') {
+        if (targetScope && ['module', 'library', 'global'].includes(targetScope.kind)) {
+          issues.push(`${rel} registry/contract must not import runtime scope path: ${specifier}`);
+        }
+      }
+    }
+  }
+}
+
 function validateStrictCodeRules(projectRoot, issues) {
   const files = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts'));
   for (const filePath of files) {
@@ -651,6 +1021,10 @@ function validate(projectRoot, options = {}) {
     validateUiGeneratedRefs(projectRoot, project, issues);
     validateContentPackManifest(projectRoot, project, issues);
     validatePrefabScriptSources(projectRoot, project, issues);
+    validateRefEntryConsistency(projectRoot, project, issues);
+    validateEntryImports(projectRoot, project, issues);
+    validateLibraryCycles(project, issues);
+    validateImportBoundaries(projectRoot, project, issues);
     validateStrictCodeRules(projectRoot, issues);
   }
 
