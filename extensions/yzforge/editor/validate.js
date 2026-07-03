@@ -243,6 +243,8 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       const refsPath = path.join(codeDir, 'view', 'refs', `${name}.refs.generated.ts`);
       if (!fs.existsSync(scriptPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing View script: ${toPosix(path.relative(projectRoot, scriptPath))}.`);
+      } else {
+        validatePrefabContainsScript(projectRoot, prefabPath, scriptPath, 'View', issues);
       }
       if (!fs.existsSync(refsPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing generated AutoRefs: ${toPosix(path.relative(projectRoot, refsPath))}.`);
@@ -255,6 +257,8 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       const refsPath = path.join(codeDir, 'part', 'refs', `${name}.refs.generated.ts`);
       if (!fs.existsSync(scriptPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing Part script: ${toPosix(path.relative(projectRoot, scriptPath))}.`);
+      } else {
+        validatePrefabContainsScript(projectRoot, prefabPath, scriptPath, 'Part', issues);
       }
       if (!fs.existsSync(refsPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing generated AutoRefs: ${toPosix(path.relative(projectRoot, refsPath))}.`);
@@ -347,6 +351,236 @@ function validateContentPackManifest(projectRoot, project, issues) {
   }
 }
 
+const UUID_BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const UUID_HEX_CHARS = '0123456789abcdef';
+
+function compactUuid(value) {
+  const compact = String(value || '').split('@')[0].replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(compact)) {
+    return '';
+  }
+  return compact;
+}
+
+function formatUuid(compact) {
+  return [
+    compact.slice(0, 8),
+    compact.slice(8, 12),
+    compact.slice(12, 16),
+    compact.slice(16, 20),
+    compact.slice(20),
+  ].join('-');
+}
+
+function compressUuid(value, min) {
+  const compact = compactUuid(value);
+  if (!compact) {
+    return '';
+  }
+
+  const reserved = min ? 2 : 5;
+  let result = compact.slice(0, reserved);
+  for (let i = reserved; i < compact.length; i += 3) {
+    const lhs = UUID_HEX_CHARS.indexOf(compact[i]);
+    const mid = UUID_HEX_CHARS.indexOf(compact[i + 1]);
+    const rhs = UUID_HEX_CHARS.indexOf(compact[i + 2]);
+    result += UUID_BASE64_KEYS[(lhs << 2) | (mid >> 2)];
+    result += UUID_BASE64_KEYS[((mid & 3) << 4) | rhs];
+  }
+  return result;
+}
+
+function isSerializedCustomType(value) {
+  const type = String(value || '').split('@')[0];
+  if (!type || type.startsWith('cc.') || type.includes('.')) {
+    return false;
+  }
+  if (/^[0-9a-fA-F-]{32,36}$/.test(type)) {
+    return Boolean(compactUuid(type));
+  }
+  return /^[A-Za-z0-9+/]{22,23}$/.test(type);
+}
+
+function buildScriptUuidMap(projectRoot, issues) {
+  const scripts = new Map();
+  const metaFiles = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts.meta'))
+    .sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+
+  for (const metaPath of metaFiles) {
+    const scriptPath = metaPath.slice(0, -'.meta'.length);
+    let meta;
+    try {
+      meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    } catch (error) {
+      issues.push(`${toPosix(path.relative(projectRoot, metaPath))} script meta is invalid JSON: ${error.message}.`);
+      continue;
+    }
+
+    const compact = compactUuid(meta.uuid);
+    if (!compact) {
+      continue;
+    }
+
+    const rel = toPosix(path.relative(projectRoot, scriptPath));
+    const record = {
+      uuid: formatUuid(compact),
+      path: scriptPath,
+      rel,
+    };
+    for (const key of [record.uuid, compact, compressUuid(compact, true), compressUuid(compact, false)]) {
+      if (key) {
+        scripts.set(key, record);
+      }
+    }
+  }
+
+  return scripts;
+}
+
+function scriptSerializedKeys(projectRoot, scriptPath, issues) {
+  const metaPath = `${scriptPath}.meta`;
+  const rel = toPosix(path.relative(projectRoot, scriptPath));
+  if (!fs.existsSync(metaPath)) {
+    issues.push(`${rel} script meta is missing.`);
+    return [];
+  }
+
+  let meta;
+  try {
+    meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+  } catch (error) {
+    issues.push(`${toPosix(path.relative(projectRoot, metaPath))} script meta is invalid JSON: ${error.message}.`);
+    return [];
+  }
+
+  const compact = compactUuid(meta.uuid);
+  if (!compact) {
+    issues.push(`${toPosix(path.relative(projectRoot, metaPath))} script meta uuid is missing or invalid.`);
+    return [];
+  }
+
+  return [formatUuid(compact), compact, compressUuid(compact, true), compressUuid(compact, false)];
+}
+
+function validatePrefabContainsScript(projectRoot, prefabPath, scriptPath, label, issues) {
+  const expected = new Set(scriptSerializedKeys(projectRoot, scriptPath, issues));
+  if (expected.size === 0) {
+    return;
+  }
+
+  const actual = new Set(readSerializedScriptTypes(projectRoot, prefabPath, issues));
+  if (![...expected].some((key) => actual.has(key))) {
+    issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} must mount ${label} script: ${toPosix(path.relative(projectRoot, scriptPath))}.`);
+  }
+}
+
+function collectSerializedTypes(value, types) {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectSerializedTypes(item, types);
+    }
+    return;
+  }
+
+  if (typeof value.__type__ === 'string' && isSerializedCustomType(value.__type__)) {
+    types.add(value.__type__.split('@')[0]);
+  }
+  for (const item of Object.values(value)) {
+    collectSerializedTypes(item, types);
+  }
+}
+
+function readSerializedScriptTypes(projectRoot, assetPath, issues) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(assetPath, 'utf8'));
+  } catch (error) {
+    issues.push(`${toPosix(path.relative(projectRoot, assetPath))} serialized asset JSON cannot be parsed: ${error.message}.`);
+    return [];
+  }
+
+  const types = new Set();
+  collectSerializedTypes(data, types);
+  return [...types].sort();
+}
+
+function scanSerializedAssets(root) {
+  return walk(root, (filePath) => {
+    return (filePath.endsWith('.prefab') || filePath.endsWith('.scene')) && !filePath.endsWith('.meta');
+  }).sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+}
+
+function allowedScriptSourcePrefixes(kind, descriptor) {
+  const prefixes = [
+    'assets/shared/',
+    'assets/yzforge/runtime/',
+  ];
+
+  if (kind === 'module') {
+    prefixes.push(`assets/modules/${descriptor.name}/`);
+    prefixes.push('assets/global/');
+  } else if (kind === 'library') {
+    prefixes.push(`assets/libraries/${descriptor.name}/`);
+  } else {
+    prefixes.push(`assets/modules/${descriptor.owner}/`);
+  }
+
+  for (const library of descriptor.libraries || []) {
+    prefixes.push(`assets/libraries/${library}/`);
+  }
+
+  return prefixes;
+}
+
+function isAllowedScriptSource(sourceRel, prefixes) {
+  return prefixes.some((prefix) => sourceRel === prefix.slice(0, -1) || sourceRel.startsWith(prefix));
+}
+
+function validateSerializedScriptSources(projectRoot, owner, assetPaths, scriptUuidMap, issues) {
+  const prefixes = allowedScriptSourcePrefixes(owner.kind, owner.descriptor);
+  for (const assetPath of assetPaths) {
+    const assetRel = toPosix(path.relative(projectRoot, assetPath));
+    for (const type of readSerializedScriptTypes(projectRoot, assetPath, issues)) {
+      const script = scriptUuidMap.get(type);
+      if (!script) {
+        issues.push(`${assetRel} references unknown script uuid: ${type}.`);
+        continue;
+      }
+      if (!isAllowedScriptSource(script.rel, prefixes)) {
+        issues.push(`${assetRel} references script outside allowed scope: ${script.rel}.`);
+      }
+    }
+  }
+}
+
+function validatePrefabScriptSources(projectRoot, project, issues) {
+  const scriptUuidMap = buildScriptUuidMap(projectRoot, issues);
+
+  for (const descriptor of project.modules) {
+    validateSerializedScriptSources(projectRoot, {
+      kind: 'module',
+      descriptor,
+    }, scanSerializedAssets(path.join(descriptor.dir, 'res')), scriptUuidMap, issues);
+  }
+
+  for (const descriptor of project.libraries) {
+    validateSerializedScriptSources(projectRoot, {
+      kind: 'library',
+      descriptor,
+    }, scanSerializedAssets(path.join(descriptor.dir, 'res')), scriptUuidMap, issues);
+  }
+
+  for (const descriptor of project.contentPacks) {
+    validateSerializedScriptSources(projectRoot, {
+      kind: 'content-pack',
+      descriptor,
+    }, scanSerializedAssets(path.join(descriptor.dir, 'res')), scriptUuidMap, issues);
+  }
+}
+
 function validateStrictCodeRules(projectRoot, issues) {
   const files = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts'));
   for (const filePath of files) {
@@ -416,6 +650,7 @@ function validate(projectRoot, options = {}) {
     validateMainScene(projectRoot, issues);
     validateUiGeneratedRefs(projectRoot, project, issues);
     validateContentPackManifest(projectRoot, project, issues);
+    validatePrefabScriptSources(projectRoot, project, issues);
     validateStrictCodeRules(projectRoot, issues);
   }
 
