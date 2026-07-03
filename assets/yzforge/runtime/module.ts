@@ -55,7 +55,7 @@ export interface ModuleUIAccess {
     closeLayer?(layer: ViewLayer, reason?: unknown): Promise<void>;
     back?(): Promise<boolean>;
     closeOwned(reason?: unknown): Promise<void>;
-    pauseOwned?(): void;
+    pauseOwned?(): Promise<void>;
     resumeOwned?(): void;
 }
 

@@ -39,7 +39,7 @@ export class ModuleNavigator {
         if (previous && previous !== target) {
             if (mode === EnterMode.Push) {
                 await previous.instance.__yzforgePause();
-                previous.instance.ui.pauseOwned?.();
+                await previous.instance.ui.pauseOwned?.();
                 this.stack.push(previous);
             } else {
                 await previous.instance.__yzforgeExit();
