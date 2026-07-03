@@ -66,6 +66,8 @@ export function isUiCancelResult(value: unknown): value is UiCancelResult {
     return Boolean(value) && typeof value === 'object' && (value as UiCancelResult).cancelled === true;
 }
 
+export type ComponentType<TComponent extends Component> = new (...args: any[]) => TComponent;
+
 let nextViewId = 0;
 type AnyViewHandle = ViewHandle<any>;
 
@@ -260,11 +262,51 @@ function findChildByName(root: Node, name: string): Node | undefined {
     return undefined;
 }
 
+function parseAutoRefName(name: string): string | undefined {
+    const match = /^@([A-Za-z_$][\w$]*)(?::[A-Za-z_$][\w$.]*)?$/.exec(name);
+    return match ? match[1] : undefined;
+}
+
+function findAutoRefNode(root: Node, key: string): Node | undefined {
+    if (parseAutoRefName(root.name) === key) {
+        return root;
+    }
+    for (const child of root.children) {
+        const found = findAutoRefNode(child, key);
+        if (found) {
+            return found;
+        }
+    }
+    return undefined;
+}
+
+export function bindAutoRefNode(root: Node, key: string): Node {
+    const node = findAutoRefNode(root, key);
+    if (!node) {
+        throw new YZForgeError(`AutoRef node not found: ${key}`, 'ui.autoref_node_missing');
+    }
+    return node;
+}
+
+export function bindAutoRefComponent<TComponent extends Component>(
+    root: Node,
+    key: string,
+    type: ComponentType<TComponent>,
+): TComponent {
+    const node = bindAutoRefNode(root, key);
+    const component = node.getComponent(type);
+    if (!component) {
+        throw new YZForgeError(`AutoRef component not found: ${key}`, 'ui.autoref_component_missing');
+    }
+    return component;
+}
+
 export abstract class View<TData = unknown, TResult = unknown> extends Component {
     private ownerModule?: Module;
     private viewHandle?: ViewHandle<TResult>;
     private resultResolver?: (value: TResult | UiCancelResult) => void;
     private readonly disposers: Array<() => void> = [];
+    private refsBound = false;
 
     public get module(): Module {
         if (!this.ownerModule) {
@@ -286,6 +328,7 @@ export abstract class View<TData = unknown, TResult = unknown> extends Component
     }
 
     public async __yzforgeBeforeOpen(data: TData | undefined): Promise<void> {
+        this.__yzforgeBindRefs();
         await this.beforeOpen(data as TData);
     }
 
@@ -344,9 +387,34 @@ export abstract class View<TData = unknown, TResult = unknown> extends Component
     protected beforeClose(_reason: unknown): MaybePromise<void> {}
     protected onClose(_result: TResult | undefined): MaybePromise<void> {}
     protected onDispose(): void {}
+    protected onBindRefs(): void {}
+
+    private __yzforgeBindRefs(): void {
+        if (this.refsBound) {
+            return;
+        }
+        this.refsBound = true;
+        this.onBindRefs();
+    }
 }
 
 export abstract class Part<TData = unknown> extends Component {
+    private refsBound = false;
+
+    public async __yzforgeInit(data: TData): Promise<void> {
+        this.__yzforgeBindRefs();
+        await this.init(data);
+    }
+
     public async init(_data: TData): Promise<void> {}
     public dispose(): void {}
+    protected onBindRefs(): void {}
+
+    private __yzforgeBindRefs(): void {
+        if (this.refsBound) {
+            return;
+        }
+        this.refsBound = true;
+        this.onBindRefs();
+    }
 }

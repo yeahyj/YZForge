@@ -165,12 +165,12 @@ function createView(projectRoot, owner, name) {
 
   write(`${root}/code/view/${name}.ts`, [
     "import { _decorator } from 'cc';",
-    "import { View } from '../../../../yzforge/runtime';",
+    `import { ${name}Refs } from './refs/${name}.refs.generated';`,
     '',
     'const { ccclass } = _decorator;',
     '',
     `@ccclass('${name}')`,
-    `export class ${name} extends View<void, void> {`,
+    `export class ${name} extends ${name}Refs<void, void> {`,
     '    protected onOpen(): void {',
     `        this.module.logger.info('${name} opened.');`,
     '    }',
@@ -201,12 +201,12 @@ function createPart(projectRoot, owner, name) {
 
   write(`${root}/code/part/${name}.ts`, [
     "import { _decorator } from 'cc';",
-    "import { Part } from '../../../../yzforge/runtime';",
+    `import { ${name}Refs } from './refs/${name}.refs.generated';`,
     '',
     'const { ccclass } = _decorator;',
     '',
     `@ccclass('${name}')`,
-    `export class ${name} extends Part<void> {}`,
+    `export class ${name} extends ${name}Refs<void> {}`,
     '',
   ].join('\n'));
 

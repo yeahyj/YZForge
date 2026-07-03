@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { isPascalCase, kebabCase, verifyGeneratedHash, walk } = require('./fs-utils');
+const { isPascalCase, kebabCase, toPosix, verifyGeneratedHash, walk } = require('./fs-utils');
 const { scanProject } = require('./scanner');
 
 function expectedBundle(kind, descriptor) {
@@ -162,6 +162,108 @@ function validateMainScene(projectRoot, issues) {
   }
 }
 
+const AUTO_REF_COMPONENTS = new Set([
+  'Animation',
+  'Button',
+  'Camera',
+  'Canvas',
+  'Component',
+  'EditBox',
+  'Graphics',
+  'Label',
+  'Layout',
+  'Mask',
+  'Node',
+  'PageView',
+  'ProgressBar',
+  'RichText',
+  'ScrollView',
+  'Slider',
+  'Sprite',
+  'Toggle',
+  'ToggleContainer',
+  'UIOpacity',
+  'UITransform',
+  'VideoPlayer',
+  'Widget',
+]);
+
+function parseAutoRefMarker(name) {
+  const match = /^@([A-Za-z_$][\w$]*)(?::([A-Za-z_$][\w$.]*))?$/.exec(String(name || ''));
+  if (!match) {
+    return undefined;
+  }
+  const component = match[2] ? match[2].replace(/^cc\./, '') : undefined;
+  return {
+    key: match[1],
+    component,
+  };
+}
+
+function validateAutoRefMarkers(prefabPath, issues) {
+  let records;
+  try {
+    const data = JSON.parse(fs.readFileSync(prefabPath, 'utf8'));
+    records = Array.isArray(data) ? data : [data];
+  } catch (error) {
+    issues.push(`${toPosix(prefabPath)} prefab JSON cannot be parsed: ${error.message}.`);
+    return;
+  }
+
+  const seen = new Set();
+  for (const record of records) {
+    if (!record || typeof record !== 'object' || typeof record._name !== 'string') {
+      continue;
+    }
+    const marker = parseAutoRefMarker(record._name);
+    if (!marker) {
+      continue;
+    }
+    if (seen.has(marker.key)) {
+      issues.push(`${toPosix(prefabPath)} has duplicate AutoRef marker: @${marker.key}.`);
+    }
+    seen.add(marker.key);
+    if (marker.component && !AUTO_REF_COMPONENTS.has(marker.component)) {
+      issues.push(`${toPosix(prefabPath)} has unsupported AutoRef component marker: ${record._name}.`);
+    }
+  }
+}
+
+function scanPrefabs(root) {
+  return walk(root, (filePath) => filePath.endsWith('.prefab') && !filePath.endsWith('.prefab.meta'))
+    .sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+}
+
+function validateUiGeneratedRefs(projectRoot, project, issues) {
+  for (const descriptor of project.modules) {
+    const codeDir = path.join(descriptor.dir, 'code');
+    for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res', 'view'))) {
+      const name = path.basename(prefabPath, '.prefab');
+      const scriptPath = path.join(codeDir, 'view', `${name}.ts`);
+      const refsPath = path.join(codeDir, 'view', 'refs', `${name}.refs.generated.ts`);
+      if (!fs.existsSync(scriptPath)) {
+        issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing View script: ${toPosix(path.relative(projectRoot, scriptPath))}.`);
+      }
+      if (!fs.existsSync(refsPath)) {
+        issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing generated AutoRefs: ${toPosix(path.relative(projectRoot, refsPath))}.`);
+      }
+      validateAutoRefMarkers(prefabPath, issues);
+    }
+    for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res', 'part'))) {
+      const name = path.basename(prefabPath, '.prefab');
+      const scriptPath = path.join(codeDir, 'part', `${name}.ts`);
+      const refsPath = path.join(codeDir, 'part', 'refs', `${name}.refs.generated.ts`);
+      if (!fs.existsSync(scriptPath)) {
+        issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing Part script: ${toPosix(path.relative(projectRoot, scriptPath))}.`);
+      }
+      if (!fs.existsSync(refsPath)) {
+        issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing generated AutoRefs: ${toPosix(path.relative(projectRoot, refsPath))}.`);
+      }
+      validateAutoRefMarkers(prefabPath, issues);
+    }
+  }
+}
+
 function validateStrictCodeRules(projectRoot, issues) {
   const files = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts'));
   for (const filePath of files) {
@@ -229,6 +331,7 @@ function validate(projectRoot, options = {}) {
   if (options.strict) {
     validateCaseConflicts(projectRoot, issues);
     validateMainScene(projectRoot, issues);
+    validateUiGeneratedRefs(projectRoot, project, issues);
     validateStrictCodeRules(projectRoot, issues);
   }
 

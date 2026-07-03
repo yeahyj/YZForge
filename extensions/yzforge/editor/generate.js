@@ -181,6 +181,148 @@ function inferRuntimeType(filePath) {
   return 'Asset';
 }
 
+const AUTO_REF_COMPONENTS = new Set([
+  'Animation',
+  'Button',
+  'Camera',
+  'Canvas',
+  'Component',
+  'EditBox',
+  'Graphics',
+  'Label',
+  'Layout',
+  'Mask',
+  'PageView',
+  'ProgressBar',
+  'RichText',
+  'ScrollView',
+  'Slider',
+  'Sprite',
+  'Toggle',
+  'ToggleContainer',
+  'UIOpacity',
+  'UITransform',
+  'VideoPlayer',
+  'Widget',
+]);
+
+function parseAutoRefMarker(name, prefabPath) {
+  const match = /^@([A-Za-z_$][\w$]*)(?::([A-Za-z_$][\w$.]*))?$/.exec(String(name || ''));
+  if (!match) {
+    return undefined;
+  }
+  let component = match[2] ? match[2].replace(/^cc\./, '') : undefined;
+  if (component === 'Node') {
+    component = undefined;
+  }
+  if (component && !AUTO_REF_COMPONENTS.has(component)) {
+    throw new Error(`${toPosix(prefabPath)} has unsupported AutoRef component marker: ${name}`);
+  }
+  return {
+    key: match[1],
+    component,
+  };
+}
+
+function scanAutoRefs(prefabPath) {
+  let records;
+  try {
+    const data = JSON.parse(fs.readFileSync(prefabPath, 'utf8'));
+    records = Array.isArray(data) ? data : [data];
+  } catch (error) {
+    throw new Error(`${toPosix(prefabPath)} prefab JSON cannot be parsed: ${error.message}`);
+  }
+
+  const refs = [];
+  for (const record of records) {
+    if (!record || typeof record !== 'object' || typeof record._name !== 'string') {
+      continue;
+    }
+    const marker = parseAutoRefMarker(record._name, prefabPath);
+    if (marker) {
+      refs.push(marker);
+    }
+  }
+
+  const seen = new Set();
+  for (const ref of refs) {
+    if (seen.has(ref.key)) {
+      throw new Error(`${toPosix(prefabPath)} has duplicate AutoRef marker: @${ref.key}`);
+    }
+    seen.add(ref.key);
+  }
+
+  return refs.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function renderAutoRefsBase(baseType, className, refs) {
+  const ccImports = new Set();
+  const runtimeImports = [baseType];
+  if (refs.length > 0) {
+    runtimeImports.push('bindAutoRefComponent', 'bindAutoRefNode');
+  }
+  for (const ref of refs) {
+    ccImports.add(ref.component || 'Node');
+  }
+
+  const imports = [];
+  if (ccImports.size > 0) {
+    imports.push(`import { ${Array.from(ccImports).sort().join(', ')} } from 'cc';`);
+  }
+  imports.push(`import { ${runtimeImports.join(', ')} } from '../../../../../yzforge/runtime';`);
+
+  const typeParams = baseType === 'View'
+    ? '<TData = unknown, TResult = unknown>'
+    : '<TData = unknown>';
+  const extendsType = baseType === 'View'
+    ? 'View<TData, TResult>'
+    : 'Part<TData>';
+
+  const lines = [
+    ...imports,
+    '',
+    `export abstract class ${className}${typeParams} extends ${extendsType} {`,
+  ];
+  for (const ref of refs) {
+    lines.push(`    protected ${ref.key}!: ${ref.component || 'Node'};`);
+  }
+  if (refs.length > 0) {
+    lines.push('', '    protected override onBindRefs(): void {');
+    for (const ref of refs) {
+      if (ref.component) {
+        lines.push(`        this.${ref.key} = bindAutoRefComponent(this.node, '${ref.key}', ${ref.component});`);
+      } else {
+        lines.push(`        this.${ref.key} = bindAutoRefNode(this.node, '${ref.key}');`);
+      }
+    }
+    lines.push('    }');
+  }
+  lines.push('}');
+  return lines.join('\n');
+}
+
+function writeAutoRefs(projectRoot, descriptor, writeGenerated) {
+  const codeDir = path.join(descriptor.dir, 'code');
+  for (const filePath of scanFiles(path.join(descriptor.dir, 'res', 'view'), '.prefab')) {
+    const className = path.basename(filePath, '.prefab');
+    const output = path.join(codeDir, 'view', 'refs', `${className}.refs.generated.ts`);
+    writeGenerated(
+      toPosix(path.relative(projectRoot, output)),
+      toPosix(path.relative(projectRoot, filePath)),
+      renderAutoRefsBase('View', `${className}Refs`, scanAutoRefs(filePath)),
+    );
+  }
+  for (const filePath of scanFiles(path.join(descriptor.dir, 'res', 'part'), '.prefab')) {
+    const className = path.basename(filePath, '.prefab');
+    const output = path.join(codeDir, 'part', 'refs', `${className}.refs.generated.ts`);
+    writeGenerated(
+      toPosix(path.relative(projectRoot, output)),
+      toPosix(path.relative(projectRoot, filePath)),
+      renderAutoRefsBase('Part', `${className}Refs`, scanAutoRefs(filePath)),
+    );
+  }
+}
+
 function renderAssets(descriptor) {
   const codeDir = path.join(descriptor.dir, 'code');
   const viewFiles = scanFiles(path.join(descriptor.dir, 'res', 'view'), '.prefab');
@@ -385,6 +527,7 @@ function generate(projectRoot, options = {}) {
     module.libraries = module.libraries || [];
     writeGenerated(`assets/app/contracts/modules/${module.name}.contract.generated.ts`, module.projectPath, renderContract(module, 'module'));
     writeGenerated(`assets/app/registry/modules/${module.name}.ref.generated.ts`, module.projectPath, renderModuleRef(module, project.libraries));
+    writeAutoRefs(projectRoot, module, writeGenerated);
     writeGenerated(`assets/modules/${module.name}/code/entry.generated.ts`, module.projectPath, renderModuleEntry(module));
     writeGenerated(`assets/modules/${module.name}/code/assets.generated.ts`, `assets/modules/${module.name}/res`, renderAssets(module));
     writeGenerated(`assets/modules/${module.name}/code/config.generated.ts`, `assets/modules/${module.name}/res/content/config`, renderEmptyConfig());
