@@ -1,14 +1,14 @@
 {
   "name": "yzforge",
   "version": "0.1.0",
-  "description": "YZForge Cocos Creator governance framework",
+  "description": "i18n:yzforge.description",
   "main": "editor/main.js",
   "author": "YZForge",
   "package_version": 2,
   "editor": ">=3.8.0",
   "panels": {
     "default": {
-      "title": "YZForge",
+      "title": "i18n:yzforge.panel_title",
       "type": "dockable",
       "main": "editor/panel/index.js",
       "size": {
@@ -23,22 +23,22 @@
     "menu": [
       {
         "path": "YZForge",
-        "label": "Open Panel",
+        "label": "i18n:yzforge.open_panel",
         "message": "open-panel"
       },
       {
-        "path": "YZForge/Create",
-        "label": "Create Help",
+        "path": "YZForge",
+        "label": "i18n:yzforge.create_help",
         "message": "show-create-help"
       },
       {
-        "path": "YZForge/Generate",
-        "label": "Generate All",
+        "path": "YZForge",
+        "label": "i18n:yzforge.generate_all",
         "message": "generate-all"
       },
       {
-        "path": "YZForge/Validate",
-        "label": "Validate Architecture",
+        "path": "YZForge",
+        "label": "i18n:yzforge.validate_architecture",
         "message": "validate-architecture"
       }
     ],

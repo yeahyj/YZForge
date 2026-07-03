@@ -5,9 +5,23 @@ const { generate } = require('./generate');
 const { validate } = require('./validate');
 const { scanProject } = require('./scanner');
 const { kebabCase } = require('./fs-utils');
+const en = require('../i18n/en');
+const zh = require('../i18n/zh');
 
 function projectRoot() {
   return (global.Editor && Editor.Project && Editor.Project.path) || process.cwd();
+}
+
+function locale() {
+  const language = global.Editor && Editor.I18n && typeof Editor.I18n.getLanguage === 'function'
+    ? Editor.I18n.getLanguage()
+    : 'en';
+  return String(language || '').toLowerCase().startsWith('zh') ? zh : en;
+}
+
+function t(key) {
+  const current = locale();
+  return current[key] || en[key] || key;
 }
 
 function normalizeOptions(first, second) {
@@ -201,14 +215,9 @@ async function createKind(kind, options) {
 }
 
 function showCreateHelp() {
-  const message = [
-    'Use Editor.Message.request with args, for example:',
-    "Editor.Message.request('yzforge', 'create-module', { name: 'Battle' })",
-    "Editor.Message.request('yzforge', 'create-module-view', { owner: 'Battle', name: 'PageBattle' })",
-    "Editor.Message.request('yzforge', 'create-service', { owner: 'Battle', name: 'BattleService' })",
-  ].join('\n');
+  const message = t('create_help_detail');
   if (global.Editor && Editor.Dialog && typeof Editor.Dialog.info === 'function') {
-    Editor.Dialog.info('YZForge Create', { detail: message });
+    Editor.Dialog.info(t('create_help_title'), { detail: message });
   }
   console.log(`[YZForge]\n${message}`);
   return { ok: true, message };

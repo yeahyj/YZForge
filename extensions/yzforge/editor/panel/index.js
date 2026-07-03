@@ -1,64 +1,67 @@
 'use strict';
 
+const en = require('../../i18n/en');
+const zh = require('../../i18n/zh');
+
 const template = `
 <section class="shell">
   <header class="topbar">
     <div>
       <h1>YZForge</h1>
-      <p id="status">Ready</p>
+      <p id="status" data-i18n="panel_status_ready">Ready</p>
     </div>
-    <button id="refresh" class="icon-button" title="Refresh project summary">Refresh</button>
+    <button id="refresh" class="icon-button" data-i18n="panel_refresh" data-i18n-title="panel_refresh_title" title="Refresh project summary">Refresh</button>
   </header>
 
   <section class="section">
-    <div class="section-title">Create</div>
+    <div class="section-title" data-i18n="panel_create">Create</div>
     <div class="form-grid">
       <label>
-        <span>Kind</span>
+        <span data-i18n="panel_kind">Kind</span>
         <select id="kind">
-          <option value="module">Module</option>
-          <option value="library">Library</option>
-          <option value="content-pack">ContentPack</option>
-          <option value="view">Module View</option>
-          <option value="part">Part</option>
-          <option value="model">Model</option>
-          <option value="service">Service</option>
-          <option value="flow">Flow</option>
+          <option value="module" data-i18n="kind_module">Module</option>
+          <option value="library" data-i18n="kind_library">Library</option>
+          <option value="content-pack" data-i18n="kind_content_pack">ContentPack</option>
+          <option value="view" data-i18n="kind_view">Module View</option>
+          <option value="part" data-i18n="kind_part">Part</option>
+          <option value="model" data-i18n="kind_model">Model</option>
+          <option value="service" data-i18n="kind_service">Service</option>
+          <option value="flow" data-i18n="kind_flow">Flow</option>
         </select>
       </label>
       <label>
-        <span>Name</span>
-        <input id="name" placeholder="PascalCase" />
+        <span data-i18n="panel_name">Name</span>
+        <input id="name" data-i18n-placeholder="panel_placeholder_pascal" placeholder="PascalCase" />
       </label>
       <label id="owner-row">
-        <span>Owner</span>
+        <span data-i18n="panel_owner">Owner</span>
         <select id="owner"></select>
       </label>
     </div>
     <div id="prefab-row" class="options-row">
-      <label><input id="prefab" type="checkbox" checked /> Prefab</label>
-      <label><input id="overwrite" type="checkbox" /> Overwrite</label>
+      <label><input id="prefab" type="checkbox" checked /> <span data-i18n="panel_prefab">Prefab</span></label>
+      <label><input id="overwrite" type="checkbox" /> <span data-i18n="panel_overwrite">Overwrite</span></label>
     </div>
-    <button id="create" class="primary">Create</button>
+    <button id="create" class="primary" data-i18n="panel_create">Create</button>
   </section>
 
   <section class="section action-row">
-    <button id="generate">Generate All</button>
-    <button id="validate">Validate</button>
+    <button id="generate" data-i18n="generate_all">Generate All</button>
+    <button id="validate" data-i18n="validate_architecture">Validate</button>
   </section>
 
   <section class="section summary">
-    <div class="section-title">Project</div>
+    <div class="section-title" data-i18n="panel_project">Project</div>
     <div class="summary-grid">
-      <div><strong id="module-count">0</strong><span>Modules</span></div>
-      <div><strong id="library-count">0</strong><span>Libraries</span></div>
-      <div><strong id="pack-count">0</strong><span>Packs</span></div>
+      <div><strong id="module-count">0</strong><span data-i18n="panel_modules">Modules</span></div>
+      <div><strong id="library-count">0</strong><span data-i18n="panel_libraries">Libraries</span></div>
+      <div><strong id="pack-count">0</strong><span data-i18n="panel_packs">Packs</span></div>
     </div>
     <div id="module-list" class="list"></div>
   </section>
 
   <section class="section result">
-    <div class="section-title">Result</div>
+    <div class="section-title" data-i18n="panel_result">Result</div>
     <pre id="result"></pre>
   </section>
 </section>
@@ -261,10 +264,18 @@ function messageNameForKind(kind) {
   }[kind];
 }
 
+function getLocale() {
+  const language = Editor.I18n && typeof Editor.I18n.getLanguage === 'function'
+    ? Editor.I18n.getLanguage()
+    : 'en';
+  return String(language || '').toLowerCase().startsWith('zh') ? zh : en;
+}
+
 module.exports = Editor.Panel.define({
   template,
   style,
   $: {
+    shell: '.shell',
     status: '#status',
     refresh: '#refresh',
     kind: '#kind',
@@ -284,8 +295,26 @@ module.exports = Editor.Panel.define({
     result: '#result',
   },
   methods: {
+    t(key) {
+      return (this.locale && this.locale[key]) || en[key] || key;
+    },
+
+    translate() {
+      this.locale = getLocale();
+      for (const element of this.$.shell.querySelectorAll('[data-i18n]')) {
+        element.textContent = this.t(element.dataset.i18n);
+      }
+      for (const element of this.$.shell.querySelectorAll('[data-i18n-title]')) {
+        element.setAttribute('title', this.t(element.dataset.i18nTitle));
+      }
+      for (const element of this.$.shell.querySelectorAll('[data-i18n-placeholder]')) {
+        element.setAttribute('placeholder', this.t(element.dataset.i18nPlaceholder));
+      }
+    },
+
     setBusy(busy, label) {
-      this.$.status.textContent = label || (busy ? 'Working' : 'Ready');
+      const key = label || (busy ? 'panel_status_working' : 'panel_status_ready');
+      this.$.status.textContent = this.t(key);
       for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.validate]) {
         button.disabled = busy;
       }
@@ -310,14 +339,14 @@ module.exports = Editor.Panel.define({
     },
 
     async refreshSummary(options = {}) {
-      this.setBusy(true, 'Refreshing');
+      this.setBusy(true, 'panel_status_refreshing');
       try {
         const summary = await this.call('get-project-summary');
         const modules = summary.modules || [];
         this.$.moduleCount.textContent = String(modules.length);
         this.$.libraryCount.textContent = String((summary.libraries || []).length);
         this.$.packCount.textContent = String((summary.contentPacks || []).length);
-        this.$.moduleList.textContent = modules.map((item) => item.name).join(', ') || 'No modules';
+        this.$.moduleList.textContent = modules.map((item) => item.name).join(', ') || this.t('panel_no_modules');
         this.$.owner.innerHTML = modules
           .map((item) => `<option value="${item.name}">${item.name}</option>`)
           .join('');
@@ -342,7 +371,7 @@ module.exports = Editor.Panel.define({
         prefab: this.$.prefab.checked,
         overwrite: this.$.overwrite.checked,
       };
-      this.setBusy(true, `Creating ${kind}`);
+      this.setBusy(true, 'panel_status_creating');
       try {
         const result = await this.call(message, payload);
         this.setResult(result);
@@ -355,7 +384,7 @@ module.exports = Editor.Panel.define({
     },
 
     async generateAll() {
-      this.setBusy(true, 'Generating');
+      this.setBusy(true, 'panel_status_generating');
       try {
         this.setResult(await this.call('generate-all'));
         await this.refreshSummary({ silentResult: true });
@@ -367,7 +396,7 @@ module.exports = Editor.Panel.define({
     },
 
     async validateProject() {
-      this.setBusy(true, 'Validating');
+      this.setBusy(true, 'panel_status_validating');
       try {
         this.setResult(await this.call('validate-architecture'));
       } catch (error) {
@@ -378,6 +407,7 @@ module.exports = Editor.Panel.define({
     },
   },
   ready() {
+    this.translate();
     this.$.kind.addEventListener('change', () => this.updateVisibility());
     this.$.refresh.addEventListener('click', () => this.refreshSummary());
     this.$.create.addEventListener('click', () => this.createItem());
