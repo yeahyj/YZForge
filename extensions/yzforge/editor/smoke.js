@@ -201,6 +201,10 @@ function expectValidationIssue(projectRoot, expected) {
   const result = validate(projectRoot, { strict: true });
   assert(!result.ok, `Expected strict validate to fail with: ${expected}`);
   assert(result.issues.some((issue) => issue.includes(expected)), `Expected issue '${expected}', got:\n${result.issues.join('\n')}`);
+  assert(
+    result.issueDetails?.some((issue) => issue.message.includes(expected)),
+    `Expected structured issue '${expected}', got:\n${JSON.stringify(result.issueDetails, null, 2)}`,
+  );
   return result;
 }
 
@@ -238,6 +242,20 @@ function smoke(options = {}) {
     const regenerated = generate(projectRoot);
     assert(regenerated.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected regenerate to restore cleaned module assets.');
     assertOkValidation(projectRoot);
+
+    writeText(projectRoot, 'assets/modules/Battle/code/service/BadImport.ts', [
+      'import {',
+      '    SharedFx,',
+      "} from '../../../libraries/BattleCore/code/SharedFx';",
+      '',
+      'export const value = SharedFx;',
+      '',
+    ].join('\n'));
+    const importViolation = expectValidationIssue(projectRoot, 'imports library internal path');
+    const importDetail = importViolation.issueDetails.find((issue) => issue.message.includes('imports library internal path'));
+    assert(importDetail.path === 'assets/modules/Battle/code/service/BadImport.ts', 'Expected import issue path to point at BadImport.ts.');
+    assert(importDetail.line === 1, 'Expected import issue to include line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadImport.ts'));
 
     fs.appendFileSync(path.join(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts'), '// tampered\n', 'utf8');
     expectValidationIssue(projectRoot, 'generated hash mismatch');

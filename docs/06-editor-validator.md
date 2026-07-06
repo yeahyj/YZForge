@@ -301,3 +301,5 @@ yzforge validate --strict
 - `validate` 阻断明显架构错误。
 - `validate --strict` 打开实验性规则和更强检查。
 - CI 必须运行 `generate --check` 和 `validate`。
+
+Validator 返回值同时保留面向脚本的 `issues: string[]` 和面向编辑器面板的 `issueDetails`。`issueDetails` 至少包含 `message`、`code`、`severity`，能解析到资源时还包含 `path`、`url`，AST import 检查可额外提供 `line`、`column`、`specifier` 和 `target`。

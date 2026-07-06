@@ -5,6 +5,76 @@ const path = require('path');
 const { isPascalCase, kebabCase, toPosix, verifyGeneratedHash, walk } = require('./fs-utils');
 const { scanProject } = require('./scanner');
 
+const COCOS_TYPESCRIPT_PATH = 'D:/Applications/Cocos/Editor/Creator/3.8.8/resources/app.asar.unpacked/node_modules/typescript/lib/typescript.js';
+let typescriptModule;
+let typeScriptLoaded = false;
+
+function loadTypeScript() {
+  if (typeScriptLoaded) {
+    return typescriptModule;
+  }
+  typeScriptLoaded = true;
+  for (const candidate of ['typescript', COCOS_TYPESCRIPT_PATH]) {
+    try {
+      typescriptModule = require(candidate);
+      return typescriptModule;
+    } catch (error) {
+      // Keep the validator usable in plain Node environments without TypeScript.
+    }
+  }
+  return undefined;
+}
+
+function assetUrlForPath(rel) {
+  return rel && rel.startsWith('assets/') ? `db://${rel}` : undefined;
+}
+
+function extractIssuePath(projectRoot, message) {
+  const normalized = toPosix(message);
+  const root = toPosix(projectRoot);
+  const rootIndex = normalized.indexOf(`${root}/`);
+  if (rootIndex >= 0) {
+    const rel = normalized.slice(rootIndex + root.length + 1).match(/^[^\s:'")]+/)?.[0];
+    return rel ? rel.replace(/[.,]+$/, '') : undefined;
+  }
+  const match = normalized.match(/\b((?:assets|extensions|docs)\/[^\s:'")]+|(?:import-map|tsconfig)\.json)\b/);
+  return match ? match[1].replace(/[.,]+$/, '') : undefined;
+}
+
+function issueCode(message) {
+  if (/generated hash mismatch/.test(message)) return 'generated.hash_mismatch';
+  if (/imports? .*internal path|registry\/contract must not import|unsupported .* entry dependency/.test(message)) return 'import.boundary';
+  if (/missing generated AutoRefs|AutoRef/.test(message)) return 'ui.autoref';
+  if (/must mount .* script|references script outside allowed scope|references unknown script uuid/.test(message)) return 'prefab.script_source';
+  if (/Cocos bundle meta/.test(message)) return 'bundle.meta';
+  if (/public contract/.test(message)) return 'contract.public';
+  if (/Main scene|Main component/.test(message)) return 'main.scene';
+  return 'validator.issue';
+}
+
+function createIssueCollector(projectRoot) {
+  const issues = [];
+  issues.details = [];
+  const pushMessage = Array.prototype.push.bind(issues);
+  issues.push = (message, detail = {}) => {
+    const text = String(message);
+    const rel = detail.path || extractIssuePath(projectRoot, text);
+    pushMessage(text);
+    issues.details.push({
+      severity: detail.severity || 'error',
+      code: detail.code || issueCode(text),
+      message: text,
+      ...(rel ? { path: toPosix(rel), url: assetUrlForPath(toPosix(rel)) } : {}),
+      ...(detail.line !== undefined ? { line: detail.line } : {}),
+      ...(detail.column !== undefined ? { column: detail.column } : {}),
+      ...(detail.specifier ? { specifier: detail.specifier } : {}),
+      ...(detail.target ? { target: detail.target } : {}),
+    });
+    return issues.length;
+  };
+  return issues;
+}
+
 function expectedBundle(kind, descriptor) {
   if (kind === 'module') {
     return `yzforge-module-${kebabCase(descriptor.name)}`;
@@ -109,22 +179,22 @@ function validateForbiddenImports(projectRoot, issues) {
       continue;
     }
     const content = fs.readFileSync(filePath, 'utf8');
-    const importLines = content.match(/^import\s+.*$/gm) || [];
+    const importRecords = extractImportRecords(content, rel);
     const moduleMatch = rel.match(/^assets\/modules\/([^/]+)\//);
     const libraryMatch = rel.match(/^assets\/libraries\/([^/]+)\//);
     if (/assetManager\.loadBundle|resources\.load/.test(content)) {
       issues.push(`${rel} uses forbidden dynamic resource loading API.`);
     }
-    for (const line of importLines) {
-      const target = (line.match(/from\s+['"]([^'"]+)['"]/) || [])[1] || '';
+    for (const record of importRecords) {
+      const target = record.specifier;
       if (moduleMatch && target.includes('/modules/') && !target.includes(`/modules/${moduleMatch[1]}/`)) {
-        issues.push(`${rel} imports another module internal path: ${target}`);
+        pushImportIssue(issues, rel, `imports another module internal path: ${target}`, record);
       }
       if (moduleMatch && target.includes('/libraries/') && !target.includes('/registry/libraries/') && !target.startsWith('yzforge/libraries/')) {
-        issues.push(`${rel} imports library internal path: ${target}`);
+        pushImportIssue(issues, rel, `imports library internal path: ${target}`, record);
       }
       if (libraryMatch && target.includes('/modules/')) {
-        issues.push(`${rel} imports module internal path: ${target}`);
+        pushImportIssue(issues, rel, `imports module internal path: ${target}`, record);
       }
     }
   }
@@ -598,18 +668,76 @@ function stripCodeComments(content) {
 }
 
 function extractImportSpecifiers(content) {
+  return extractImportRecords(content).map((record) => record.specifier);
+}
+
+function fallbackImportRecords(content) {
   const source = stripCodeComments(content);
-  const specs = [];
+  const records = [];
   const staticPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?['"]([^'"]+)['"]/g;
   let match;
   while ((match = staticPattern.exec(source)) !== null) {
-    specs.push(match[1]);
+    records.push({ specifier: match[1], kind: 'static', line: undefined, column: undefined });
   }
   const dynamicPattern = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   while ((match = dynamicPattern.exec(source)) !== null) {
-    specs.push(match[1]);
+    records.push({ specifier: match[1], kind: 'dynamic', line: undefined, column: undefined });
   }
-  return specs;
+  return records;
+}
+
+function sourceLocation(sourceFile, node) {
+  const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+  return {
+    line: position.line + 1,
+    column: position.character + 1,
+  };
+}
+
+function extractImportRecords(content, fileName = 'source.ts') {
+  const ts = loadTypeScript();
+  if (!ts) {
+    return fallbackImportRecords(content);
+  }
+
+  const sourceFile = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const records = [];
+  const addRecord = (node, specifier, kind, typeOnly = false) => {
+    records.push({
+      specifier,
+      kind,
+      typeOnly,
+      ...sourceLocation(sourceFile, node),
+    });
+  };
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      addRecord(node, node.moduleSpecifier.text, 'import', Boolean(node.importClause?.isTypeOnly));
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      addRecord(node, node.moduleSpecifier.text, 'export', Boolean(node.isTypeOnly));
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [argument] = node.arguments;
+      if (argument && ts.isStringLiteral(argument)) {
+        addRecord(node, argument.text, 'dynamic');
+      }
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      addRecord(node, node.argument.literal.text, 'import-type', true);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return records;
+}
+
+function pushImportIssue(issues, rel, message, record, targetRel) {
+  issues.push(`${rel} ${message}`, {
+    path: rel,
+    line: record.line,
+    column: record.column,
+    specifier: record.specifier,
+    target: targetRel,
+    code: 'import.boundary',
+  });
 }
 
 function resolveExistingImportTarget(filePath) {
@@ -840,10 +968,10 @@ function validateEntryImports(projectRoot, project, issues) {
       continue;
     }
     const rel = toPosix(path.relative(projectRoot, filePath));
-    for (const specifier of extractImportSpecifiers(fs.readFileSync(filePath, 'utf8'))) {
-      const targetRel = resolveImportTarget(projectRoot, filePath, specifier);
+    for (const record of extractImportRecords(fs.readFileSync(filePath, 'utf8'), rel)) {
+      const targetRel = resolveImportTarget(projectRoot, filePath, record.specifier);
       if (!targetRel || !isEntryImportAllowed(projectRoot, descriptor, targetRel)) {
-        issues.push(`${rel} imports unsupported ${kind} entry dependency: ${specifier}.`);
+        pushImportIssue(issues, rel, `imports unsupported ${kind} entry dependency: ${record.specifier}.`, record, targetRel);
       }
     }
   }
@@ -909,8 +1037,8 @@ function validateImportBoundaries(projectRoot, project, issues) {
     const descriptor = descriptors.get(`${scope.kind}:${scope.name}`);
     const declaredLibraries = new Set(descriptor?.libraries || []);
 
-    for (const specifier of extractImportSpecifiers(fs.readFileSync(filePath, 'utf8'))) {
-      const targetRel = resolveImportTarget(projectRoot, filePath, specifier);
+    for (const record of extractImportRecords(fs.readFileSync(filePath, 'utf8'), rel)) {
+      const targetRel = resolveImportTarget(projectRoot, filePath, record.specifier);
       if (!targetRel) {
         continue;
       }
@@ -918,43 +1046,43 @@ function validateImportBoundaries(projectRoot, project, issues) {
       const targetScope = codeScopeFromPath(targetRel);
       const usedLibrary = libraryFromRegistryOrContractTarget(targetRel);
       if ((scope.kind === 'module' || scope.kind === 'library') && usedLibrary && usedLibrary !== scope.name && !declaredLibraries.has(usedLibrary)) {
-        issues.push(`${rel} imports undeclared library '${usedLibrary}'. Add it to ${scope.name} ${scope.kind}.json libraries.`);
+        pushImportIssue(issues, rel, `imports undeclared library '${usedLibrary}'. Add it to ${scope.name} ${scope.kind}.json libraries.`, record, targetRel);
       }
 
-      const packOwner = contentPackOwnerFromTarget(targetRel, specifier);
+      const packOwner = contentPackOwnerFromTarget(targetRel, record.specifier);
       if (packOwner) {
         if (scope.kind === 'module' && packOwner !== scope.name) {
-          issues.push(`${rel} accesses non-owner ContentPack for '${packOwner}'. Only owner module '${packOwner}' may import it.`);
+          pushImportIssue(issues, rel, `accesses non-owner ContentPack for '${packOwner}'. Only owner module '${packOwner}' may import it.`, record, targetRel);
         } else if (scope.kind !== 'module' && scope.kind !== 'contract') {
-          issues.push(`${rel} must not access ContentPack owned by '${packOwner}'.`);
+          pushImportIssue(issues, rel, `must not access ContentPack owned by '${packOwner}'.`, record, targetRel);
         }
       }
 
       if (scope.kind === 'module') {
         if (targetScope?.kind === 'module' && targetScope.name !== scope.name && !moduleFromRegistryTarget(targetRel)) {
-          issues.push(`${rel} imports another module internal path: ${specifier}`);
+          pushImportIssue(issues, rel, `imports another module internal path: ${record.specifier}`, record, targetRel);
         }
         if (targetScope?.kind === 'library') {
-          issues.push(`${rel} imports library internal path: ${specifier}`);
+          pushImportIssue(issues, rel, `imports library internal path: ${record.specifier}`, record, targetRel);
         }
       } else if (scope.kind === 'library') {
         if (targetScope?.kind === 'module') {
-          issues.push(`${rel} imports module internal path: ${specifier}`);
+          pushImportIssue(issues, rel, `imports module internal path: ${record.specifier}`, record, targetRel);
         }
         if (targetScope?.kind === 'library' && targetScope.name !== scope.name) {
-          issues.push(`${rel} imports another library internal path: ${specifier}`);
+          pushImportIssue(issues, rel, `imports another library internal path: ${record.specifier}`, record, targetRel);
         }
       } else if (scope.kind === 'shared') {
         if (targetScope && ['global', 'module', 'library'].includes(targetScope.kind)) {
-          issues.push(`${rel} shared code must not import ${targetScope.kind} scope: ${specifier}`);
+          pushImportIssue(issues, rel, `shared code must not import ${targetScope.kind} scope: ${record.specifier}`, record, targetRel);
         }
       } else if (scope.kind === 'global') {
         if (targetScope && ['module', 'library'].includes(targetScope.kind)) {
-          issues.push(`${rel} global code must not import ${targetScope.kind} internal path: ${specifier}`);
+          pushImportIssue(issues, rel, `global code must not import ${targetScope.kind} internal path: ${record.specifier}`, record, targetRel);
         }
       } else if (scope.kind === 'contract') {
         if (targetScope && ['module', 'library', 'global'].includes(targetScope.kind)) {
-          issues.push(`${rel} registry/contract must not import runtime scope path: ${specifier}`);
+          pushImportIssue(issues, rel, `registry/contract must not import runtime scope path: ${record.specifier}`, record, targetRel);
         }
       }
     }
@@ -999,7 +1127,7 @@ function validateStrictCodeRules(projectRoot, issues) {
 
 function validate(projectRoot, options = {}) {
   const project = scanProject(projectRoot);
-  const issues = [];
+  const issues = createIssueCollector(projectRoot);
   const known = {
     modules: new Set(project.modules.map((item) => item.name)),
     libraries: new Set(project.libraries.map((item) => item.name)),
@@ -1045,6 +1173,7 @@ function validate(projectRoot, options = {}) {
     libraries: project.libraries.length,
     contentPacks: project.contentPacks.length,
     issues,
+    issueDetails: issues.details,
   };
 }
 

@@ -177,7 +177,7 @@ function withGeneratedDetails(result) {
 function withValidationDetails(result) {
   return {
     ...result,
-    issueDetails: (result.issues || []).map(issueDetail),
+    issueDetails: result.issueDetails || (result.issues || []).map(issueDetail),
   };
 }
 
