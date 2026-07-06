@@ -17,6 +17,8 @@ export interface EnterModuleOptions {
     readonly cancelPendingEnter?: boolean;
 }
 
+export type NavigateModuleOptions = Omit<EnterModuleOptions, 'mode'>;
+
 export interface NavigationModuleSnapshot {
     readonly name: string;
     readonly bundleName: string;
@@ -76,6 +78,28 @@ export class ModuleNavigator {
         const task = this.enterTask.then(run, run);
         this.enterTask = task.catch(() => undefined);
         return await task as LoadedModule<TModule>;
+    }
+
+    public async replace<TModule extends Module, TParams>(
+        ref: ModuleRef<TParams>,
+        params?: TParams,
+        options: NavigateModuleOptions = {},
+    ): Promise<LoadedModule<TModule>> {
+        return await this.enter<TModule, TParams>(ref, params, {
+            ...options,
+            mode: EnterMode.Replace,
+        });
+    }
+
+    public async push<TModule extends Module, TParams>(
+        ref: ModuleRef<TParams>,
+        params?: TParams,
+        options: NavigateModuleOptions = {},
+    ): Promise<LoadedModule<TModule>> {
+        return await this.enter<TModule, TParams>(ref, params, {
+            ...options,
+            mode: EnterMode.Push,
+        });
     }
 
     public async back(): Promise<boolean> {
