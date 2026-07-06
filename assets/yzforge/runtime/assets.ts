@@ -10,6 +10,23 @@ interface LoadedAssetRecord {
     releaseWhenLoaded?: boolean;
 }
 
+export type AssetRecordState = 'loading' | 'loaded' | 'release-pending';
+
+export interface AssetRecordSnapshot {
+    readonly key: string;
+    readonly path: string;
+    readonly type: string;
+    readonly refCount: number;
+    readonly state: AssetRecordState;
+}
+
+export interface AssetScopeSnapshot {
+    readonly ownerName: string;
+    readonly loadedCount: number;
+    readonly trackedNodeCount: number;
+    readonly assets: readonly AssetRecordSnapshot[];
+}
+
 export interface InstantiateOptions {
     readonly parent?: Node | null;
     readonly active?: boolean;
@@ -40,6 +57,23 @@ export class AssetScope {
 
     public getRefCount(ref: LoadableAssetRef): number {
         return this.loaded.get(this.assetKey(ref))?.refCount ?? 0;
+    }
+
+    public has(ref: LoadableAssetRef): boolean {
+        return this.loaded.has(this.assetKey(ref));
+    }
+
+    public listLoaded(): AssetRecordSnapshot[] {
+        return Array.from(this.loaded.entries()).map(([key, record]) => this.snapshotRecord(key, record));
+    }
+
+    public snapshot(): AssetScopeSnapshot {
+        return {
+            ownerName: this.ownerName,
+            loadedCount: this.getLoadedCount(),
+            trackedNodeCount: this.getTrackedNodeCount(),
+            assets: this.listLoaded(),
+        };
     }
 
     public async preload<TAsset extends Asset>(ref: LoadableAssetRef<TAsset>): Promise<TAsset> {
@@ -127,10 +161,24 @@ export class AssetScope {
     public release(ref: LoadableAssetRef, count = 1): void {
         const key = this.assetKey(ref);
         const record = this.loaded.get(key);
+        const releaseCount = Math.max(1, count);
         if (!record) {
+            this.logger?.warn(`Asset release ignored because it was not loaded: ${this.ownerName}/${ref.path}`, {
+                path: ref.path,
+                type: ref.type?.name ?? 'Asset',
+                releaseCount,
+            });
             return;
         }
-        record.refCount = Math.max(0, record.refCount - Math.max(1, count));
+        if (record.refCount > 0 && releaseCount > record.refCount) {
+            this.logger?.warn(`Asset release exceeded refCount: ${this.ownerName}/${ref.path}`, {
+                path: ref.path,
+                type: ref.type?.name ?? 'Asset',
+                refCount: record.refCount,
+                releaseCount,
+            });
+        }
+        record.refCount = Math.max(0, record.refCount - releaseCount);
         if (record.refCount > 0) {
             return;
         }
@@ -155,6 +203,21 @@ export class AssetScope {
 
     private assetKey(ref: LoadableAssetRef): string {
         return `${ref.path}::${ref.type?.name ?? 'Asset'}`;
+    }
+
+    private snapshotRecord(key: string, record: LoadedAssetRecord): AssetRecordSnapshot {
+        const state: AssetRecordState = record.releaseWhenLoaded
+            ? 'release-pending'
+            : record.asset
+                ? 'loaded'
+                : 'loading';
+        return {
+            key,
+            path: record.ref.path,
+            type: record.ref.type?.name ?? 'Asset',
+            refCount: record.refCount,
+            state,
+        };
     }
 
     private releaseRecord(key: string, record: LoadedAssetRecord): void {

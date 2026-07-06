@@ -18,6 +18,14 @@ interface BundleRecord {
     task?: Promise<AssetManager.Bundle>;
 }
 
+export interface BundleRecordSnapshot {
+    readonly name: string;
+    readonly state: BundleState;
+    readonly refCount: number;
+    readonly loaded: boolean;
+    readonly loading: boolean;
+}
+
 export interface BundleManagerOptions {
     readonly unload?: 'immediate' | 'manual';
 }
@@ -29,6 +37,7 @@ export interface LoadBundleOptions {
 export interface ReleaseBundleOptions {
     readonly unload?: boolean;
     readonly force?: boolean;
+    readonly count?: number;
 }
 
 export class BundleManager {
@@ -45,6 +54,24 @@ export class BundleManager {
 
     public getRefCount(bundleName: string): number {
         return this.records.get(bundleName)?.refCount ?? 0;
+    }
+
+    public snapshot(bundleName: string): BundleRecordSnapshot {
+        const record = this.records.get(bundleName);
+        if (!record) {
+            return {
+                name: bundleName,
+                state: BundleState.Empty,
+                refCount: 0,
+                loaded: Boolean(assetManager.getBundle(bundleName)),
+                loading: false,
+            };
+        }
+        return this.snapshotRecord(bundleName, record);
+    }
+
+    public snapshots(): BundleRecordSnapshot[] {
+        return Array.from(this.records.entries()).map(([name, record]) => this.snapshotRecord(name, record));
     }
 
     public async preloadBundle(bundleName: string): Promise<AssetManager.Bundle> {
@@ -112,10 +139,18 @@ export class BundleManager {
     public async releaseBundle(bundleName: string, options: ReleaseBundleOptions = {}): Promise<void> {
         const record = this.records.get(bundleName);
         if (!record) {
+            this.logger?.warn(`Bundle release ignored because it was not managed: ${bundleName}`);
             return;
         }
+        const releaseCount = Math.max(1, options.count ?? 1);
         if (!options.force && record.refCount > 0) {
-            record.refCount -= 1;
+            if (releaseCount > record.refCount) {
+                this.logger?.warn(`Bundle release exceeded refCount: ${bundleName}`, {
+                    refCount: record.refCount,
+                    releaseCount,
+                });
+            }
+            record.refCount = Math.max(0, record.refCount - releaseCount);
         }
         if (record.refCount > 0 || !record.bundle) {
             return;
@@ -138,5 +173,15 @@ export class BundleManager {
 
     public async unloadBundle(bundleName: string): Promise<void> {
         await this.releaseBundle(bundleName, { force: true });
+    }
+
+    private snapshotRecord(name: string, record: BundleRecord): BundleRecordSnapshot {
+        return {
+            name,
+            state: record.state,
+            refCount: record.refCount,
+            loaded: Boolean(record.bundle),
+            loading: Boolean(record.task),
+        };
     }
 }
