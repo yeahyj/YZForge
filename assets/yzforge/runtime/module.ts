@@ -1,6 +1,6 @@
 import type { App } from './app';
 import type { ConfigScope } from './config';
-import type { ContentPackRecordSnapshot, LoadedContentPack, UnloadContentPackOptions } from './content-pack';
+import type { ContentPackLoadPlan, ContentPackRecordSnapshot, LoadedContentPack, UnloadContentPackOptions } from './content-pack';
 import { EventBus } from './event-bus';
 import { YZForgeError } from './errors';
 import type { Logger } from './logger';
@@ -38,6 +38,7 @@ export interface ModuleLibraryAccess {
 
 export interface ModuleContentPackAccess {
     load<TRefs, TConfig>(ref: ContentPackRef<TRefs, TConfig>): Promise<LoadedContentPack<TRefs, TConfig>>;
+    explain?<TRefs, TConfig>(ref: ContentPackRef<TRefs, TConfig>): ContentPackLoadPlan;
     get?<TRefs, TConfig>(ref: ContentPackRef<TRefs, TConfig>): LoadedContentPack<TRefs, TConfig> | undefined;
     getRefCount?(id: string): number;
     snapshot?(id: string): ContentPackRecordSnapshot | undefined;

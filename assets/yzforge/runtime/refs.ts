@@ -18,6 +18,24 @@ export interface ModuleRef<TParams = unknown> extends NamedRef {
     readonly __params?: TParams;
 }
 
+export type ContentPackManifestRefKind = 'asset' | 'config' | 'unknown';
+
+export interface ContentPackManifestRef {
+    readonly kind: ContentPackManifestRefKind;
+    readonly path?: string;
+    readonly type?: string;
+    readonly table?: string;
+}
+
+export interface ContentPackManifest {
+    readonly schemaVersion: 1;
+    readonly id: string;
+    readonly owner: string;
+    readonly name?: string;
+    readonly bundle: string;
+    readonly refs: Readonly<Record<string, ContentPackManifestRef>>;
+}
+
 export interface ContentPackRef<TRefs = unknown, TConfig = unknown> {
     readonly kind: 'content-pack';
     readonly id: string;
@@ -26,6 +44,7 @@ export interface ContentPackRef<TRefs = unknown, TConfig = unknown> {
     readonly bundle: string;
     readonly libraries: readonly LibraryRef[];
     readonly refs: TRefs;
+    readonly manifest: ContentPackManifest;
     readonly __config?: TConfig;
 }
 
@@ -98,13 +117,74 @@ export function defineLibraryRef<TTokens = unknown>(
 }
 
 export function defineContentPack<TRefs = unknown, TConfig = unknown>(
-    options: Omit<ContentPackRef<TRefs, TConfig>, 'kind'>,
+    options: Omit<ContentPackRef<TRefs, TConfig>, 'kind' | 'manifest'> & {
+        readonly manifest?: ContentPackManifest;
+    },
 ): ContentPackRef<TRefs, TConfig> {
+    const libraries = options.libraries ?? [];
+    const manifest = options.manifest ?? createContentPackManifest({
+        id: options.id,
+        owner: options.owner,
+        name: options.name,
+        bundle: options.bundle,
+        refs: options.refs,
+    });
     return {
         ...options,
         kind: 'content-pack',
-        libraries: options.libraries ?? [],
+        libraries,
+        manifest,
     };
+}
+
+function createContentPackManifest(options: {
+    readonly id: string;
+    readonly owner: string;
+    readonly name?: string;
+    readonly bundle: string;
+    readonly refs: unknown;
+}): ContentPackManifest {
+    return {
+        schemaVersion: 1,
+        id: options.id,
+        owner: options.owner,
+        name: options.name,
+        bundle: options.bundle,
+        refs: describeContentPackRefs(options.refs),
+    };
+}
+
+function describeContentPackRefs(refs: unknown): Readonly<Record<string, ContentPackManifestRef>> {
+    if (!refs || typeof refs !== 'object') {
+        return {};
+    }
+    const values = refs as Record<string, unknown>;
+    const manifestRefs: Record<string, ContentPackManifestRef> = {};
+    for (const key of Object.keys(values)) {
+        manifestRefs[key] = describeContentPackRef(values[key]);
+    }
+    return manifestRefs;
+}
+
+function describeContentPackRef(value: unknown): ContentPackManifestRef {
+    const ref = value as Partial<ContentPackAssetRef> | Partial<ContentPackConfigRef> | undefined;
+    if (!ref || typeof ref !== 'object') {
+        return { kind: 'unknown' };
+    }
+    if (ref.kind === 'content-pack-asset') {
+        return {
+            kind: 'asset',
+            path: ref.path,
+            type: ref.type?.name ?? 'Asset',
+        };
+    }
+    if (ref.kind === 'content-pack-config') {
+        return {
+            kind: 'config',
+            table: ref.table,
+        };
+    }
+    return { kind: 'unknown' };
 }
 
 export function assetRef<TAsset extends Asset>(

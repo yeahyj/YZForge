@@ -525,10 +525,13 @@ export const BattleLevel001ContentPack = defineContentPack({
 使用：
 
 ```ts
+const plan = this.contentPacks.explain(BattleLevel001ContentPack);
 const contentPack = await this.contentPacks.load(BattleLevel001ContentPack);
 const levelRoot = await contentPack.assets.load(contentPack.refs.levelRoot);
 await this.useFlow(BattleFlow).startLevel(contentPack);
 ```
+
+`explain(ref)` 不加载资源，只返回 bundle、依赖 Library 和由 refs 解释出的 manifest，方便编辑器面板、日志和调试快照提前展示将要加载的内容。
 
 ## LoadedContentPack
 
@@ -537,6 +540,7 @@ export interface LoadedContentPack<TConfig = unknown> {
     readonly ref: ContentPackRef;
     readonly bundleName: string;
     readonly refs: ContentPackAssetRefs;
+    readonly manifest: ContentPackManifest;
     readonly assets: ContentPackAssetScope;
     readonly config: ContentPackConfigScope<TConfig>;
     unload(): Promise<void>;

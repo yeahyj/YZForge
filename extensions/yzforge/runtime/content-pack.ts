@@ -3,12 +3,22 @@ import { ContentPackAssetScope, type AssetScopeSnapshot } from './assets';
 import type { App } from './app';
 import type { ConfigScope } from './config';
 import { YZForgeError } from './errors';
-import type { ContentPackRef } from './refs';
+import type { ContentPackManifest, ContentPackRef } from './refs';
+
+export interface ContentPackLoadPlan {
+    readonly id: string;
+    readonly owner: string;
+    readonly name?: string;
+    readonly bundleName: string;
+    readonly dependencies: readonly string[];
+    readonly manifest: ContentPackManifest;
+}
 
 export interface LoadedContentPack<TRefs = unknown, TConfig = unknown> {
     readonly ref: ContentPackRef<TRefs, TConfig>;
     readonly bundleName: string;
     readonly refs: TRefs;
+    readonly manifest: ContentPackManifest;
     readonly assets: ContentPackAssetScope;
     readonly config: ConfigScope | Record<string, unknown>;
     unload(): Promise<void>;
@@ -21,6 +31,7 @@ export interface ContentPackRecordSnapshot {
     readonly bundleName: string;
     readonly refCount: number;
     readonly dependencies: readonly string[];
+    readonly manifest: ContentPackManifest;
     readonly assets: AssetScopeSnapshot;
 }
 
@@ -49,12 +60,7 @@ export class ContentPackManager {
     public async load<TRefs, TConfig>(
         ref: ContentPackRef<TRefs, TConfig>,
     ): Promise<LoadedContentPack<TRefs, TConfig>> {
-        if (ref.owner !== this.ownerModuleName) {
-            throw new YZForgeError(`ContentPack owner mismatch: ${ref.id}`, 'content_pack.owner_mismatch', {
-                expected: this.ownerModuleName,
-                actual: ref.owner,
-            });
-        }
+        this.assertOwner(ref);
         const existing = this.records.get(ref.id);
         if (existing) {
             existing.refCount += 1;
@@ -79,6 +85,11 @@ export class ContentPackManager {
         } finally {
             this.inFlight.delete(ref.id);
         }
+    }
+
+    public explain<TRefs, TConfig>(ref: ContentPackRef<TRefs, TConfig>): ContentPackLoadPlan {
+        this.assertOwner(ref);
+        return explainContentPack(ref);
     }
 
     public getRefCount(id: string): number {
@@ -117,6 +128,7 @@ export class ContentPackManager {
                 ref,
                 bundleName: ref.bundle,
                 refs: ref.refs,
+                manifest: ref.manifest,
                 assets,
                 config: {},
                 unload: async () => this.unload(ref.id),
@@ -170,6 +182,15 @@ export class ContentPackManager {
         }
     }
 
+    private assertOwner(ref: ContentPackRef): void {
+        if (ref.owner !== this.ownerModuleName) {
+            throw new YZForgeError(`ContentPack owner mismatch: ${ref.id}`, 'content_pack.owner_mismatch', {
+                expected: this.ownerModuleName,
+                actual: ref.owner,
+            });
+        }
+    }
+
     private snapshotRecord(record: ContentPackRecord): ContentPackRecordSnapshot {
         return {
             id: record.ref.id,
@@ -178,7 +199,19 @@ export class ContentPackManager {
             bundleName: record.ref.bundle,
             refCount: record.refCount,
             dependencies: record.ref.libraries.map((library) => library.name),
+            manifest: record.ref.manifest,
             assets: record.assets.snapshot(),
         };
     }
+}
+
+export function explainContentPack(ref: ContentPackRef): ContentPackLoadPlan {
+    return {
+        id: ref.id,
+        owner: ref.owner,
+        name: ref.name,
+        bundleName: ref.bundle,
+        dependencies: ref.libraries.map((library) => library.name),
+        manifest: ref.manifest,
+    };
 }
