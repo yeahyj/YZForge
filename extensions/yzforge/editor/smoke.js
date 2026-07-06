@@ -409,6 +409,19 @@ function smoke(options = {}) {
       '@confirm:Button',
     ]));
 
+    writeText(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', serializedPrefab('10000000-0000-4000-8000-000000000001', [
+      '@title:Label',
+    ]));
+    const staleRefsViolation = expectValidationIssue(projectRoot, 'is stale for assets/modules/Battle/res/view/PageBattle.prefab');
+    const staleRefsDetail = staleRefsViolation.issueDetails.find((issue) => issue.message.includes('is stale for assets/modules/Battle/res/view/PageBattle.prefab'));
+    assert(staleRefsDetail.code === 'ui.autoref_stale', 'Expected stale AutoRefs issue code.');
+    assert(staleRefsDetail.target === 'assets/modules/Battle/res/view/PageBattle.prefab', 'Expected stale AutoRefs target prefab.');
+    writeText(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', serializedPrefab('10000000-0000-4000-8000-000000000001', [
+      '@title:Label',
+      '@confirm:Button',
+    ]));
+    assertOkValidation(projectRoot);
+
     fs.appendFileSync(path.join(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts'), '// tampered\n', 'utf8');
     expectValidationIssue(projectRoot, 'generated hash mismatch');
     const refs = generate(projectRoot);

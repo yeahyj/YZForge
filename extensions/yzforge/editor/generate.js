@@ -649,4 +649,6 @@ module.exports = {
   generate,
   libraryBundleName,
   moduleBundleName,
+  renderAutoRefsBase,
+  scanAutoRefs,
 };

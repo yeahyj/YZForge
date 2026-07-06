@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { isPascalCase, kebabCase, toPosix, verifyGeneratedHash, walk } = require('./fs-utils');
+const { generatedText, isPascalCase, isTextChanged, kebabCase, toPosix, verifyGeneratedHash, walk } = require('./fs-utils');
+const { renderAutoRefsBase, scanAutoRefs } = require('./generate');
 const { scanProject } = require('./scanner');
 
 const COCOS_TYPESCRIPT_PATH = 'D:/Applications/Cocos/Editor/Creator/3.8.8/resources/app.asar.unpacked/node_modules/typescript/lib/typescript.js';
@@ -317,10 +318,11 @@ function validateAutoRefMarkers(projectRoot, prefabPath, issues) {
     records = Array.isArray(data) ? data : [data];
   } catch (error) {
     issues.push(`${rel} prefab JSON cannot be parsed: ${error.message}.`);
-    return;
+    return false;
   }
 
   const seen = new Set();
+  let ok = true;
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
     if (!record || typeof record !== 'object' || typeof record._name !== 'string') {
@@ -331,6 +333,7 @@ function validateAutoRefMarkers(projectRoot, prefabPath, issues) {
       continue;
     }
     if (seen.has(marker.key)) {
+      ok = false;
       issues.push(`${rel} has duplicate AutoRef marker: @${marker.key}.`, {
         path: rel,
         code: 'ui.autoref_duplicate',
@@ -338,6 +341,7 @@ function validateAutoRefMarkers(projectRoot, prefabPath, issues) {
     }
     seen.add(marker.key);
     if (marker.component && !AUTO_REF_COMPONENTS.has(marker.component)) {
+      ok = false;
       issues.push(`${rel} has unsupported AutoRef component marker: ${record._name}.`, {
         path: rel,
         code: 'ui.autoref_component_unsupported',
@@ -345,17 +349,46 @@ function validateAutoRefMarkers(projectRoot, prefabPath, issues) {
       continue;
     }
     if (marker.component && !nodeHasComponent(records, index, marker.component)) {
+      ok = false;
       issues.push(`${rel} AutoRef marker ${record._name} requires ${marker.component} component on the same node.`, {
         path: rel,
         code: 'ui.autoref_component_missing',
       });
     }
   }
+  return ok;
 }
 
 function scanPrefabs(root) {
   return walk(root, (filePath) => filePath.endsWith('.prefab') && !filePath.endsWith('.prefab.meta'))
     .sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+}
+
+function validateAutoRefsGeneratedFresh(projectRoot, prefabPath, refsPath, baseType, issues) {
+  const prefabRel = toPosix(path.relative(projectRoot, prefabPath));
+  const refsRel = toPosix(path.relative(projectRoot, refsPath));
+  const className = path.basename(prefabPath, '.prefab');
+  let expected;
+  try {
+    expected = generatedText(
+      prefabRel,
+      renderAutoRefsBase(baseType, `${className}Refs`, scanAutoRefs(prefabPath)),
+    );
+  } catch (error) {
+    issues.push(`${prefabRel} AutoRefs cannot be generated: ${error.message}.`, {
+      path: prefabRel,
+      code: 'ui.autoref_generate_failed',
+    });
+    return;
+  }
+
+  if (isTextChanged(refsPath, expected)) {
+    issues.push(`${refsRel} is stale for ${prefabRel}. Run YZForge Generate All.`, {
+      path: refsRel,
+      code: 'ui.autoref_stale',
+      target: prefabRel,
+    });
+  }
 }
 
 function validateUiGeneratedRefs(projectRoot, project, issues) {
@@ -371,10 +404,12 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       } else {
         validatePrefabContainsScript(projectRoot, prefabPath, scriptPath, 'View', issues);
       }
+      const markersOk = validateAutoRefMarkers(projectRoot, prefabPath, issues);
       if (!fs.existsSync(refsPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing generated AutoRefs: ${toPosix(path.relative(projectRoot, refsPath))}.`);
+      } else if (markersOk) {
+        validateAutoRefsGeneratedFresh(projectRoot, prefabPath, refsPath, 'View', issues);
       }
-      validateAutoRefMarkers(projectRoot, prefabPath, issues);
     }
     for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res', 'part'))) {
       const name = path.basename(prefabPath, '.prefab');
@@ -385,10 +420,12 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       } else {
         validatePrefabContainsScript(projectRoot, prefabPath, scriptPath, 'Part', issues);
       }
+      const markersOk = validateAutoRefMarkers(projectRoot, prefabPath, issues);
       if (!fs.existsSync(refsPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing generated AutoRefs: ${toPosix(path.relative(projectRoot, refsPath))}.`);
+      } else if (markersOk) {
+        validateAutoRefsGeneratedFresh(projectRoot, prefabPath, refsPath, 'Part', issues);
       }
-      validateAutoRefMarkers(projectRoot, prefabPath, issues);
     }
   }
 }
