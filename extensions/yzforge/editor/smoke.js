@@ -24,6 +24,11 @@ function writeText(projectRoot, relativePath, content) {
   fs.writeFileSync(filePath, content.endsWith('\n') ? content : `${content}\n`, 'utf8');
 }
 
+function updateText(projectRoot, relativePath, update) {
+  const filePath = path.join(projectRoot, relativePath);
+  writeText(projectRoot, relativePath, update(fs.readFileSync(filePath, 'utf8')));
+}
+
 function writeJson(projectRoot, relativePath, value) {
   writeText(projectRoot, relativePath, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -259,6 +264,27 @@ function smoke(options = {}) {
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
     const validation = assertOkValidation(projectRoot);
+
+    updateText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', (content) => {
+      return content.replace(
+        "pageBattle: viewRef(PageBattle, 'res/view/PageBattle', { kind: ViewKind.Page })",
+        "pageBattle: viewRef(PageBattle, 'res/view/PageBattle', { kind: ViewKind.Popup })",
+      );
+    });
+    const policyViolation = expectValidationIssue(projectRoot, 'ViewKind for PageBattle conflicts with prefab name');
+    const policyDetail = policyViolation.issueDetails.find((issue) => issue.message.includes('ViewKind for PageBattle'));
+    assert(policyDetail.code === 'ui.policy_kind_mismatch', 'Expected ViewPolicy mismatch issue code.');
+    assert(policyDetail.target === 'assets/modules/Battle/res/view/PageBattle.prefab', 'Expected ViewPolicy mismatch target prefab.');
+    const policyRepair = generate(projectRoot);
+    assert(policyRepair.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected generate to repair stale ViewPolicy.');
+    assertOkValidation(projectRoot);
+
+    writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/prefab/PageInjected.prefab', serializedPrefab('10000000-0000-4000-8000-000000000003'));
+    const contentPackUiViolation = expectValidationIssue(projectRoot, 'ContentPack must not provide UIManager View prefab');
+    const contentPackUiDetail = contentPackUiViolation.issueDetails.find((issue) => issue.message.includes('ContentPack must not provide UIManager View prefab'));
+    assert(contentPackUiDetail.code === 'content_pack.ui_view_prefab', 'Expected ContentPack UI prefab issue code.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/content-packs/Battle/Level001/res/prefab/PageInjected.prefab'));
+    assertOkValidation(projectRoot);
 
     const cleanPreview = cleanGenerated(projectRoot, { dryRun: true });
     assert(cleanPreview.files.includes('assets/app/global/code/assets.generated.ts'), 'Expected clean preview to include Global assets.');

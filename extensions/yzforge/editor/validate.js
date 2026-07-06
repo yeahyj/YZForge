@@ -46,6 +46,7 @@ function issueCode(message) {
   if (/generated hash mismatch/.test(message)) return 'generated.hash_mismatch';
   if (/imports? .*internal path|registry\/contract must not import|unsupported .* entry dependency/.test(message)) return 'import.boundary';
   if (/missing generated AutoRefs|AutoRef/.test(message)) return 'ui.autoref';
+  if (/ViewPolicy|ViewKind|ViewLayer|ViewStackMode|UIManager View/.test(message)) return 'ui.policy';
   if (/must mount .* script|references script outside allowed scope|references unknown script uuid/.test(message)) return 'prefab.script_source';
   if (/Cocos bundle meta/.test(message)) return 'bundle.meta';
   if (/public contract/.test(message)) return 'contract.public';
@@ -259,6 +260,47 @@ const AUTO_REF_COMPONENTS = new Set([
   'Widget',
 ]);
 
+const VIEW_POLICY_KINDS = ['Page', 'Paper', 'Popup', 'Toast', 'Top', 'System'];
+const VIEW_POLICY_LAYERS = ['Page', 'Paper', 'Popup', 'Toast', 'Top', 'System'];
+const VIEW_POLICY_STACKS = ['Single', 'Stack', 'Queue', 'Free'];
+const VIEW_POLICY_DEFAULT_STACK = {
+  Page: 'Single',
+  Paper: 'Stack',
+  Popup: 'Stack',
+  Toast: 'Queue',
+  Top: 'Free',
+  System: 'Single',
+};
+
+function inferViewKindName(className) {
+  for (const kind of VIEW_POLICY_KINDS) {
+    if (className.startsWith(kind)) {
+      return kind;
+    }
+  }
+  return 'Page';
+}
+
+function enumValueName(value, enumName, allowed) {
+  const normalized = String(value || '').trim().replace(/,$/, '');
+  const enumPattern = new RegExp(`^${enumName}\\.([A-Za-z_$][\\w$]*)$`);
+  const enumMatch = normalized.match(enumPattern);
+  if (enumMatch) {
+    return enumMatch[1];
+  }
+  const stringMatch = normalized.match(/^['"]([^'"]+)['"]$/);
+  if (stringMatch) {
+    const text = stringMatch[1];
+    return allowed.find((item) => item === text || item.toLowerCase() === text);
+  }
+  return undefined;
+}
+
+function extractObjectProperty(source, property) {
+  const match = new RegExp(`\\b${property}\\s*:\\s*([^,}\\n]+)`).exec(source);
+  return match ? match[1].trim() : undefined;
+}
+
 function parseAutoRefMarker(name) {
   const match = /^@([A-Za-z_$][\w$]*)(?::([A-Za-z_$][\w$.]*))?$/.exec(String(name || ''));
   if (!match) {
@@ -391,10 +433,100 @@ function validateAutoRefsGeneratedFresh(projectRoot, prefabPath, refsPath, baseT
   }
 }
 
+function generatedViewPolicy(content, className) {
+  const escapedClass = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`viewRef\\(\\s*${escapedClass}\\s*,\\s*['"]([^'"]+)['"]\\s*,\\s*\\{([\\s\\S]*?)\\}\\s*\\)`, 'm');
+  const match = content.match(pattern);
+  if (!match) {
+    return undefined;
+  }
+  return {
+    path: match[1],
+    body: match[2],
+  };
+}
+
+function validateGeneratedViewPolicy(projectRoot, descriptor, prefabPath, assetsPath, issues) {
+  const prefabRel = toPosix(path.relative(projectRoot, prefabPath));
+  const assetsRel = toPosix(path.relative(projectRoot, assetsPath));
+  if (!fs.existsSync(assetsPath)) {
+    issues.push(`${prefabRel} missing generated assets manifest: ${assetsRel}.`, {
+      path: prefabRel,
+      code: 'ui.policy_manifest_missing',
+      target: assetsRel,
+    });
+    return;
+  }
+
+  const className = path.basename(prefabPath, '.prefab');
+  const expectedAssetPath = contentPackAssetPath(descriptor, prefabPath);
+  const policy = generatedViewPolicy(fs.readFileSync(assetsPath, 'utf8'), className);
+  if (!policy) {
+    issues.push(`${assetsRel} missing ViewRef for ${className}.`, {
+      path: assetsRel,
+      code: 'ui.policy_ref_missing',
+      target: prefabRel,
+    });
+    return;
+  }
+  if (policy.path !== expectedAssetPath) {
+    issues.push(`${assetsRel} ViewRef path for ${className} must be '${expectedAssetPath}', got '${policy.path}'.`, {
+      path: assetsRel,
+      code: 'ui.policy_path_mismatch',
+      target: prefabRel,
+    });
+  }
+
+  const expectedKind = inferViewKindName(className);
+  const rawKind = extractObjectProperty(policy.body, 'kind');
+  const actualKind = rawKind ? enumValueName(rawKind, 'ViewKind', VIEW_POLICY_KINDS) : undefined;
+  if (!actualKind) {
+    issues.push(`${assetsRel} ViewPolicy for ${className} must declare a valid ViewKind.`, {
+      path: assetsRel,
+      code: 'ui.policy_kind_invalid',
+      target: prefabRel,
+    });
+  } else if (actualKind !== expectedKind) {
+    issues.push(`${assetsRel} ViewKind for ${className} conflicts with prefab name; expected ViewKind.${expectedKind}, got ${rawKind}.`, {
+      path: assetsRel,
+      code: 'ui.policy_kind_mismatch',
+      target: prefabRel,
+    });
+  }
+
+  const rawLayer = extractObjectProperty(policy.body, 'layer');
+  if (rawLayer && !enumValueName(rawLayer, 'ViewLayer', VIEW_POLICY_LAYERS)) {
+    issues.push(`${assetsRel} ViewLayer for ${className} is invalid: ${rawLayer}.`, {
+      path: assetsRel,
+      code: 'ui.policy_layer_invalid',
+      target: prefabRel,
+    });
+  }
+
+  const rawStack = extractObjectProperty(policy.body, 'stack');
+  if (rawStack) {
+    const actualStack = enumValueName(rawStack, 'ViewStackMode', VIEW_POLICY_STACKS);
+    if (!actualStack) {
+      issues.push(`${assetsRel} ViewStackMode for ${className} is invalid: ${rawStack}.`, {
+        path: assetsRel,
+        code: 'ui.policy_stack_invalid',
+        target: prefabRel,
+      });
+    } else if (actualKind && actualStack !== VIEW_POLICY_DEFAULT_STACK[actualKind]) {
+      issues.push(`${assetsRel} ViewStackMode for ${className} conflicts with ViewKind.${actualKind}; expected ViewStackMode.${VIEW_POLICY_DEFAULT_STACK[actualKind]}, got ${rawStack}.`, {
+        path: assetsRel,
+        code: 'ui.policy_stack_mismatch',
+        target: prefabRel,
+      });
+    }
+  }
+}
+
 function validateUiGeneratedRefs(projectRoot, project, issues) {
   const descriptors = project.global ? [project.global, ...project.modules] : project.modules;
   for (const descriptor of descriptors) {
     const codeDir = path.join(descriptor.dir, 'code');
+    const assetsPath = path.join(codeDir, 'assets.generated.ts');
     for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res', 'view'))) {
       const name = path.basename(prefabPath, '.prefab');
       const scriptPath = path.join(codeDir, 'view', `${name}.ts`);
@@ -410,6 +542,7 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       } else if (markersOk) {
         validateAutoRefsGeneratedFresh(projectRoot, prefabPath, refsPath, 'View', issues);
       }
+      validateGeneratedViewPolicy(projectRoot, descriptor, prefabPath, assetsPath, issues);
     }
     for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res', 'part'))) {
       const name = path.basename(prefabPath, '.prefab');
@@ -749,6 +882,32 @@ function validatePrefabScriptSources(projectRoot, project, issues) {
       kind: 'content-pack',
       descriptor,
     }, scanSerializedAssets(path.join(descriptor.dir, 'res')), scriptUuidMap, issues);
+  }
+}
+
+function validateContentPackDoesNotProvideUiViews(projectRoot, project, issues) {
+  const scriptUuidMap = buildScriptUuidMap(projectRoot, issues);
+  for (const descriptor of project.contentPacks) {
+    for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res', 'prefab'))) {
+      const rel = toPosix(path.relative(projectRoot, prefabPath));
+      const name = path.basename(prefabPath, '.prefab');
+      if (VIEW_POLICY_KINDS.some((kind) => name.startsWith(kind))) {
+        issues.push(`${rel} ContentPack must not provide UIManager View prefab; move View prefabs to owner Module res/view.`, {
+          path: rel,
+          code: 'content_pack.ui_view_prefab',
+        });
+      }
+      for (const type of readSerializedScriptTypes(projectRoot, prefabPath, issues)) {
+        const script = scriptUuidMap.get(type);
+        if (script && /\/code\/view\//.test(script.rel)) {
+          issues.push(`${rel} ContentPack must not mount UIManager View script: ${script.rel}.`, {
+            path: rel,
+            code: 'content_pack.ui_view_script',
+            target: script.rel,
+          });
+        }
+      }
+    }
   }
 }
 
@@ -1484,6 +1643,7 @@ function validate(projectRoot, options = {}) {
     validateUiGeneratedRefs(projectRoot, project, issues);
     validateContentPackManifest(projectRoot, project, issues);
     validatePrefabScriptSources(projectRoot, project, issues);
+    validateContentPackDoesNotProvideUiViews(projectRoot, project, issues);
     validateRefEntryConsistency(projectRoot, project, issues);
     validateEntryImports(projectRoot, project, issues);
     validateLibraryCycles(project, issues);
