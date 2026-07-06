@@ -778,6 +778,128 @@ function isLongLivedNodeType(ts, sourceFile, node) {
     || /\bcc\.(?:Node|Component)\b/.test(typeText);
 }
 
+function isThisMethodCall(ts, sourceFile, node, method) {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) {
+    return false;
+  }
+  return node.expression.name.text === method && node.expression.expression.getText(sourceFile) === 'this';
+}
+
+function isCallNamed(ts, node, names) {
+  return ts.isCallExpression(node)
+    && ts.isIdentifier(node.expression)
+    && names.has(node.expression.text);
+}
+
+function isUnmanagedNodeOn(ts, sourceFile, node) {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) {
+    return false;
+  }
+  if (node.expression.name.text !== 'on') {
+    return false;
+  }
+  const target = node.expression.expression.getText(sourceFile);
+  return target === 'this.node' || /\.node$/.test(target);
+}
+
+function isInsideThisAddDisposer(ts, sourceFile, node) {
+  let current = node.parent;
+  while (current) {
+    if (isThisMethodCall(ts, sourceFile, current, 'addDisposer')) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function assignedIdentifier(ts, node) {
+  const parent = node.parent;
+  if (parent && ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+    return parent.name.text;
+  }
+  if (parent && ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(parent.left)) {
+    return parent.left.text;
+  }
+  return undefined;
+}
+
+function collectManagedTimerNames(ts, sourceFile) {
+  const managed = new Set();
+  const visitDisposer = (node) => {
+    if (isCallNamed(ts, node, new Set(['clearInterval', 'clearTimeout']))) {
+      const [target] = node.arguments;
+      if (target && ts.isIdentifier(target)) {
+        managed.add(target.text);
+      }
+    }
+    ts.forEachChild(node, visitDisposer);
+  };
+  const visit = (node) => {
+    if (isThisMethodCall(ts, sourceFile, node, 'addDisposer')) {
+      for (const argument of node.arguments) {
+        visitDisposer(argument);
+      }
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return managed;
+}
+
+function validateViewAstRules(ts, sourceFile, rel, issues) {
+  const managedTimers = collectManagedTimerNames(ts, sourceFile);
+  const timerCalls = new Set(['setInterval', 'setTimeout']);
+  const visit = (node) => {
+    if (isUnmanagedNodeOn(ts, sourceFile, node)) {
+      pushNodeIssue(
+        issues,
+        rel,
+        'view must use this.listen instead of direct Node.on.',
+        'view.listener_unmanaged',
+        sourceFile,
+        node,
+      );
+    }
+    if (isCallNamed(ts, node, timerCalls) && !isInsideThisAddDisposer(ts, sourceFile, node)) {
+      const timerName = assignedIdentifier(ts, node);
+      if (!timerName || !managedTimers.has(timerName)) {
+        pushNodeIssue(
+          issues,
+          rel,
+          'view timers must be cleaned with addDisposer.',
+          'view.timer_unmanaged',
+          sourceFile,
+          node,
+        );
+      }
+    }
+    if (isThisMethodCall(ts, sourceFile, node, 'schedule') || isThisMethodCall(ts, sourceFile, node, 'scheduleOnce')) {
+      pushNodeIssue(
+        issues,
+        rel,
+        'view schedules must be cleaned with addDisposer.',
+        'view.schedule_unmanaged',
+        sourceFile,
+        node,
+      );
+    }
+    if (isCallNamed(ts, node, new Set(['tween'])) && !isInsideThisAddDisposer(ts, sourceFile, node)) {
+      pushNodeIssue(
+        issues,
+        rel,
+        'view tween must be cleaned with addDisposer.',
+        'view.tween_unmanaged',
+        sourceFile,
+        node,
+      );
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+}
+
 function validateStrictAstRules(rel, content, issues) {
   const parsed = parseTypeScriptFile(content, rel);
   if (!parsed) {
@@ -786,7 +908,8 @@ function validateStrictAstRules(rel, content, issues) {
   const { ts, sourceFile } = parsed;
   const isModel = /\/code\/model\//.test(rel);
   const isService = /\/code\/service\//.test(rel);
-  if (!isModel && !isService) {
+  const isView = /\/code\/view\//.test(rel);
+  if (!isModel && !isService && !isView) {
     return true;
   }
 
@@ -829,6 +952,10 @@ function validateStrictAstRules(rel, content, issues) {
       ts.forEachChild(node, visit);
     };
     visit(sourceFile);
+  }
+
+  if (isView) {
+    validateViewAstRules(ts, sourceFile, rel, issues);
   }
 
   return true;
@@ -1210,6 +1337,18 @@ function validateStrictCodeRules(projectRoot, issues) {
     }
     if (!astChecked && /\/code\/service\//.test(rel) && /^\s*(?:private|protected|public)\s+[\w$]+\??\s*:\s*[^;\n]*(?:Node|Component)\b/m.test(withoutComments)) {
       issues.push(`${rel} service must not keep long-lived Node or Component fields.`);
+    }
+    if (!astChecked && /\/code\/view\//.test(rel) && /\.node\.on\s*\(/.test(withoutComments)) {
+      issues.push(`${rel} view must use this.listen instead of direct Node.on.`);
+    }
+    if (!astChecked && /\/code\/view\//.test(rel) && /\b(?:setInterval|setTimeout)\s*\(/.test(withoutComments)) {
+      issues.push(`${rel} view timers must be cleaned with addDisposer.`);
+    }
+    if (!astChecked && /\/code\/view\//.test(rel) && /\bthis\.schedule(?:Once)?\s*\(/.test(withoutComments)) {
+      issues.push(`${rel} view schedules must be cleaned with addDisposer.`);
+    }
+    if (!astChecked && /\/code\/view\//.test(rel) && /\btween\s*\(/.test(withoutComments)) {
+      issues.push(`${rel} view tween must be cleaned with addDisposer.`);
     }
     if (/^assets\/(?:modules|libraries)\//.test(rel) && /\bassetManager\.loadBundle\s*\(/.test(withoutComments)) {
       issues.push(`${rel} must not call assetManager.loadBundle directly.`);

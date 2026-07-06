@@ -302,6 +302,75 @@ function smoke(options = {}) {
     assert(nodeDetail.line === 5, 'Expected service node field issue to include field line number.');
     fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadServiceNode.ts'));
 
+    writeText(projectRoot, 'assets/modules/Battle/code/view/BadViewListener.ts', [
+      'export class BadViewListener {',
+      '    public bind(): void {',
+      "        this.node.on('touch-end', () => undefined);",
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    const listenerViolation = expectValidationIssue(projectRoot, 'view must use this.listen');
+    const listenerDetail = listenerViolation.issueDetails.find((issue) => issue.message.includes('view must use this.listen'));
+    assert(listenerDetail.code === 'view.listener_unmanaged', 'Expected view listener issue code.');
+    assert(listenerDetail.line === 3, 'Expected view listener issue to include call line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/view/BadViewListener.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/view/BadViewTimer.ts', [
+      'export class BadViewTimer {',
+      '    public start(): void {',
+      '        setInterval(() => undefined, 1000);',
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    const timerViolation = expectValidationIssue(projectRoot, 'view timers must be cleaned');
+    const timerDetail = timerViolation.issueDetails.find((issue) => issue.message.includes('view timers must be cleaned'));
+    assert(timerDetail.code === 'view.timer_unmanaged', 'Expected view timer issue code.');
+    assert(timerDetail.line === 3, 'Expected view timer issue to include call line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/view/BadViewTimer.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/view/GoodViewTimer.ts', [
+      'export class GoodViewTimer {',
+      '    public start(): void {',
+      '        const timer = setInterval(() => undefined, 1000);',
+      '        this.addDisposer(() => clearInterval(timer));',
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    assertOkValidation(projectRoot);
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/view/GoodViewTimer.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/view/BadViewSchedule.ts', [
+      'export class BadViewSchedule {',
+      '    public start(): void {',
+      '        this.schedule(() => undefined, 1);',
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    const scheduleViolation = expectValidationIssue(projectRoot, 'view schedules must be cleaned');
+    const scheduleDetail = scheduleViolation.issueDetails.find((issue) => issue.message.includes('view schedules must be cleaned'));
+    assert(scheduleDetail.code === 'view.schedule_unmanaged', 'Expected view schedule issue code.');
+    assert(scheduleDetail.line === 3, 'Expected view schedule issue to include call line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/view/BadViewSchedule.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/view/BadViewTween.ts', [
+      "import { tween } from 'cc';",
+      'export class BadViewTween {',
+      '    public start(): void {',
+      '        tween(this.node).start();',
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    const tweenViolation = expectValidationIssue(projectRoot, 'view tween must be cleaned');
+    const tweenDetail = tweenViolation.issueDetails.find((issue) => issue.message.includes('view tween must be cleaned'));
+    assert(tweenDetail.code === 'view.tween_unmanaged', 'Expected view tween issue code.');
+    assert(tweenDetail.line === 4, 'Expected view tween issue to include call line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/view/BadViewTween.ts'));
+
     fs.appendFileSync(path.join(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts'), '// tampered\n', 'utf8');
     expectValidationIssue(projectRoot, 'generated hash mismatch');
     const refs = generate(projectRoot);
