@@ -13,7 +13,7 @@ const template = `
     <button id="refresh" class="icon-button" data-i18n="panel_refresh" data-i18n-title="panel_refresh_title" title="Refresh project summary">Refresh</button>
   </header>
 
-  <section class="section">
+  <section class="section create-section">
     <div class="section-title" data-i18n="panel_create">Create</div>
     <div class="form-grid">
       <label>
@@ -41,32 +41,13 @@ const template = `
         <select id="owner"></select>
       </label>
     </div>
-    <div id="prefab-row" class="options-row">
-      <label><input id="prefab" type="checkbox" checked /> <span data-i18n="panel_prefab">Prefab</span></label>
-      <label><input id="overwrite" type="checkbox" /> <span data-i18n="panel_overwrite">Overwrite</span></label>
+    <div class="create-footer">
+      <div id="prefab-row" class="options-row">
+        <label><input id="prefab" type="checkbox" checked /> <span data-i18n="panel_prefab">Prefab</span></label>
+        <label><input id="overwrite" type="checkbox" /> <span data-i18n="panel_overwrite">Overwrite</span></label>
+      </div>
+      <button id="create" class="primary" data-i18n="panel_create">Create</button>
     </div>
-    <button id="create" class="primary" data-i18n="panel_create">Create</button>
-  </section>
-
-  <section class="section action-row">
-    <button id="generate" data-i18n="generate_all">Generate All</button>
-    <button id="clean" data-i18n="clean_generated" data-i18n-title="clean_generated_title">Safe Clean</button>
-    <button id="validate" data-i18n="validate_architecture">Validate</button>
-    <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
-  </section>
-
-  <section class="section action-row">
-    <button id="diagnostics" data-i18n="panel_diagnostics">Diagnostics</button>
-    <button id="runtime-snapshot" data-i18n="runtime_snapshot">Runtime Snapshot</button>
-    <button id="generate-check" data-i18n="generate_check">Generate Check</button>
-    <button id="clean-preview" data-i18n="clean_preview">Clean Preview</button>
-  </section>
-
-  <section class="section clean-options">
-    <label data-i18n-title="clean_scripts_title">
-      <input id="clean-scripts" type="checkbox" />
-      <span data-i18n="clean_scripts">Include generated TS</span>
-    </label>
   </section>
 
   <section class="section summary">
@@ -77,6 +58,24 @@ const template = `
       <div><strong id="pack-count">0</strong><span data-i18n="panel_packs">Packs</span></div>
     </div>
     <div id="module-list" class="list"></div>
+  </section>
+
+  <section class="section tools">
+    <div class="section-title" data-i18n="panel_workbench">Workbench</div>
+    <div class="tool-grid">
+      <button id="generate" class="command-primary" data-i18n="generate_all">Generate All</button>
+      <button id="generate-check" data-i18n="generate_check">Generate Check</button>
+      <button id="validate" data-i18n="validate_architecture">Validate</button>
+      <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
+      <button id="diagnostics" data-i18n="panel_diagnostics">Diagnostics</button>
+      <button id="runtime-snapshot" data-i18n="runtime_snapshot">Runtime Snapshot</button>
+      <button id="clean-preview" data-i18n="clean_preview">Clean Preview</button>
+      <button id="clean" data-i18n="clean_generated" data-i18n-title="clean_generated_title">Safe Clean</button>
+    </div>
+    <label class="clean-toggle" data-i18n-title="clean_scripts_title">
+      <input id="clean-scripts" type="checkbox" />
+      <span data-i18n="clean_scripts">Include generated TS</span>
+    </label>
   </section>
 
   <section class="section result">
@@ -97,10 +96,10 @@ const style = `
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   height: 100%;
-  padding: 12px;
+  padding: 10px;
   background: var(--color-normal-fill);
 }
 
@@ -109,7 +108,7 @@ const style = `
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 8px;
+  padding: 2px 0 8px;
   border-bottom: 1px solid var(--color-normal-border);
 }
 
@@ -127,7 +126,7 @@ p {
 
 .section {
   border: 1px solid var(--color-normal-border);
-  border-radius: 6px;
+  border-radius: 5px;
   padding: 10px;
   background: var(--color-normal-fill-emphasis);
 }
@@ -142,8 +141,12 @@ p {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+#owner-row {
+  grid-column: 1 / -1;
 }
 
 label {
@@ -169,8 +172,9 @@ select {
 
 .options-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 14px;
-  margin: 10px 0;
+  min-height: 28px;
 }
 
 .options-row label {
@@ -204,29 +208,48 @@ button:disabled {
 }
 
 .primary {
-  width: 100%;
+  min-width: 92px;
   border-color: var(--color-primary-border);
   background: var(--color-primary-fill);
+}
+
+.command-primary {
+  border-color: var(--color-primary-border);
 }
 
 .icon-button {
   flex: none;
 }
 
-.action-row {
+.create-footer {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr auto;
+  align-items: center;
   gap: 8px;
+  margin-top: 10px;
 }
 
-.clean-options label {
+.create-footer .primary {
+  justify-self: end;
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.clean-toggle {
   display: flex;
   grid-template-columns: none;
   align-items: center;
   gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-normal-border);
 }
 
-.clean-options input {
+.clean-toggle input {
   width: auto;
   min-height: auto;
 }
@@ -241,7 +264,7 @@ button:disabled {
   display: grid;
   gap: 2px;
   padding: 8px;
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--color-normal-fill);
 }
 
@@ -280,7 +303,7 @@ button:disabled {
   align-items: center;
   gap: 6px;
   padding: 5px 6px;
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--color-normal-fill);
 }
 
@@ -306,12 +329,24 @@ pre {
   overflow: auto;
   white-space: pre-wrap;
   color: var(--color-normal-contrast);
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--color-normal-fill);
 }
 
 .hidden {
   display: none;
+}
+
+@media (max-width: 360px) {
+  .form-grid,
+  .create-footer,
+  .tool-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .primary {
+    width: 100%;
+  }
 }
 `;
 

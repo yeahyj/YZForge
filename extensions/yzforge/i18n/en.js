@@ -38,6 +38,7 @@ module.exports = {
   panel_refresh_title: 'Refresh project summary',
   panel_create: 'Create',
   panel_diagnostics: 'Diagnostics',
+  panel_workbench: 'Workbench',
   panel_kind: 'Kind',
   panel_name: 'Name',
   panel_owner: 'Owner',
