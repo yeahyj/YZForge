@@ -15,30 +15,47 @@ const template = `
 
   <section class="section create-section">
     <div class="section-title" data-i18n="panel_create">Create</div>
+    <div class="create-tabs" role="tablist">
+      <button type="button" class="create-tab active" data-create-group="structure" data-i18n="create_group_structure">Structure</button>
+      <button type="button" class="create-tab" data-create-group="ui" data-i18n="create_group_ui">UI</button>
+      <button type="button" class="create-tab" data-create-group="module-code" data-i18n="create_group_module_code">Module Code</button>
+      <button type="button" class="create-tab" data-create-group="app" data-i18n="create_group_app">App</button>
+    </div>
     <div class="form-grid">
       <label>
         <span data-i18n="panel_kind">Kind</span>
         <select id="kind">
-          <option value="module" data-i18n="kind_module">Module</option>
-          <option value="library" data-i18n="kind_library">Library</option>
-          <option value="content-pack" data-i18n="kind_content_pack">ContentPack</option>
-          <option value="view" data-i18n="kind_view">Module View</option>
-          <option value="global-view" data-i18n="kind_global_view">Global View</option>
-          <option value="part" data-i18n="kind_part">Part</option>
-          <option value="model" data-i18n="kind_model">Model</option>
-          <option value="service" data-i18n="kind_service">Service</option>
-          <option value="flow" data-i18n="kind_flow">Flow</option>
-          <option value="event-file" data-i18n="kind_event_file">Event File</option>
-          <option value="extension-stub" data-i18n="kind_extension_stub">Extension Stub</option>
+          <option value="module" data-create-group="structure" data-i18n="kind_module">Module</option>
+          <option value="library" data-create-group="structure" data-i18n="kind_library">Library</option>
+          <option value="content-pack" data-create-group="structure" data-i18n="kind_content_pack">ContentPack</option>
+          <option value="view" data-create-group="ui" data-i18n="kind_view">Module View</option>
+          <option value="global-view" data-create-group="ui" data-i18n="kind_global_view">Global View</option>
+          <option value="part" data-create-group="ui" data-i18n="kind_part">Part</option>
+          <option value="model" data-create-group="module-code" data-i18n="kind_model">Model</option>
+          <option value="service" data-create-group="module-code" data-i18n="kind_service">Service</option>
+          <option value="flow" data-create-group="module-code" data-i18n="kind_flow">Flow</option>
+          <option value="event-file" data-create-group="module-code" data-i18n="kind_event_file">Event File</option>
+          <option value="extension-stub" data-create-group="app" data-i18n="kind_extension_stub">Extension Stub</option>
         </select>
       </label>
-      <label>
-        <span data-i18n="panel_name">Name</span>
-        <input id="name" data-i18n-placeholder="panel_placeholder_pascal" placeholder="PascalCase" />
+      <label id="view-kind-row">
+        <span data-i18n="panel_view_kind">View Kind</span>
+        <select id="view-kind">
+          <option value="Page" data-i18n="view_kind_page">Page</option>
+          <option value="Paper" data-i18n="view_kind_paper">Paper</option>
+          <option value="Popup" data-i18n="view_kind_popup">Popup</option>
+          <option value="Toast" data-i18n="view_kind_toast">Toast</option>
+          <option value="Top" data-i18n="view_kind_top">Top</option>
+          <option value="System" data-i18n="view_kind_system">System</option>
+        </select>
       </label>
       <label id="owner-row">
         <span data-i18n="panel_owner">Owner</span>
         <select id="owner"></select>
+      </label>
+      <label>
+        <span data-i18n="panel_name">Name</span>
+        <input id="name" data-i18n-placeholder="panel_placeholder_pascal" placeholder="PascalCase" />
       </label>
     </div>
     <div class="create-footer">
@@ -62,20 +79,36 @@ const template = `
 
   <section class="section tools">
     <div class="section-title" data-i18n="panel_workbench">Workbench</div>
-    <div class="tool-grid">
-      <button id="generate" class="command-primary" data-i18n="generate_all">Generate All</button>
-      <button id="generate-check" data-i18n="generate_check">Generate Check</button>
-      <button id="validate" data-i18n="validate_architecture">Validate</button>
-      <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
-      <button id="diagnostics" data-i18n="panel_diagnostics">Diagnostics</button>
-      <button id="runtime-snapshot" data-i18n="runtime_snapshot">Runtime Snapshot</button>
-      <button id="clean-preview" data-i18n="clean_preview">Clean Preview</button>
-      <button id="clean" data-i18n="clean_generated" data-i18n-title="clean_generated_title">Safe Clean</button>
+    <div class="command-groups">
+      <div class="command-group">
+        <div class="command-title" data-i18n="workbench_generate">Generate</div>
+        <div class="tool-row">
+          <button id="generate" class="command-primary" data-i18n="generate_all">Generate All</button>
+          <button id="generate-check" data-i18n="generate_check">Generate Check</button>
+        </div>
+      </div>
+      <div class="command-group">
+        <div class="command-title" data-i18n="workbench_validate">Validate</div>
+        <div class="tool-row">
+          <button id="validate" data-i18n="validate_architecture">Validate</button>
+          <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
+          <button id="diagnostics" data-i18n="panel_diagnostics">Diagnostics</button>
+          <button id="smoke-test" data-i18n="smoke_test">Smoke Test</button>
+          <button id="runtime-snapshot" data-i18n="runtime_snapshot">Runtime Snapshot</button>
+        </div>
+      </div>
+      <div class="command-group">
+        <div class="command-title" data-i18n="workbench_clean">Clean</div>
+        <div class="tool-row">
+          <button id="clean-preview" data-i18n="clean_preview">Clean Preview</button>
+          <button id="clean" data-i18n="clean_generated" data-i18n-title="clean_generated_title">Safe Clean</button>
+        </div>
+        <label class="clean-toggle" data-i18n-title="clean_scripts_title">
+          <input id="clean-scripts" type="checkbox" />
+          <span data-i18n="clean_scripts">Include generated TS</span>
+        </label>
+      </div>
     </div>
-    <label class="clean-toggle" data-i18n-title="clean_scripts_title">
-      <input id="clean-scripts" type="checkbox" />
-      <span data-i18n="clean_scripts">Include generated TS</span>
-    </label>
   </section>
 
   <section class="section result">
@@ -100,6 +133,7 @@ const style = `
   min-width: 0;
   height: 100%;
   padding: 10px;
+  overflow: auto;
   background: var(--color-normal-fill);
 }
 
@@ -139,10 +173,41 @@ p {
   text-transform: uppercase;
 }
 
+.create-section {
+  display: grid;
+  gap: 10px;
+  flex: none;
+}
+
+.create-section .section-title {
+  margin-bottom: 0;
+}
+
+.create-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.create-tab {
+  min-height: 26px;
+  padding: 3px 6px;
+  color: var(--color-normal-contrast-weaker);
+  border-color: transparent;
+  background: var(--color-normal-fill);
+}
+
+.create-tab.active {
+  color: var(--color-primary-contrast);
+  border-color: var(--color-primary-border);
+  background: var(--color-primary-fill);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  min-height: 0;
 }
 
 #owner-row {
@@ -226,14 +291,36 @@ button:disabled {
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
 }
 
 .create-footer .primary {
   justify-self: end;
 }
 
-.tool-grid {
+.command-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.command-group {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-normal-border);
+}
+
+.command-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.command-title {
+  color: var(--color-normal-contrast-weaker);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tool-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
@@ -284,11 +371,6 @@ button:disabled {
   overflow: auto;
 }
 
-.result {
-  flex: 1;
-  min-height: 0;
-}
-
 .result-list {
   display: grid;
   gap: 4px;
@@ -322,8 +404,8 @@ button:disabled {
 
 pre {
   box-sizing: border-box;
-  height: calc(100% - 24px);
   min-height: 140px;
+  max-height: 260px;
   margin: 0;
   padding: 8px;
   overflow: auto;
@@ -337,10 +419,11 @@ pre {
   display: none;
 }
 
-@media (max-width: 360px) {
+@media (max-width: 420px) {
+  .create-tabs,
   .form-grid,
   .create-footer,
-  .tool-grid {
+  .tool-row {
     grid-template-columns: 1fr;
   }
 
@@ -349,6 +432,10 @@ pre {
   }
 }
 `;
+
+const DEFAULT_CREATE_GROUP = 'structure';
+const VIEW_KIND_PREFIXES = ['Page', 'Paper', 'Popup', 'Toast', 'Top', 'System'];
+const MODULE_UNIT_SUFFIXES = ['Model', 'Service', 'Flow'];
 
 function messageNameForKind(kind) {
   return {
@@ -366,11 +453,111 @@ function messageNameForKind(kind) {
   }[kind];
 }
 
+function isViewCreateKind(kind) {
+  return kind === 'view' || kind === 'global-view';
+}
+
+function kindNeedsOwner(kind) {
+  return !['module', 'library', 'global-view', 'extension-stub'].includes(kind);
+}
+
+function kindSupportsPrefab(kind) {
+  return ['view', 'global-view', 'part'].includes(kind);
+}
+
+function knownKindPrefix(name) {
+  return VIEW_KIND_PREFIXES.find((prefix) => name.startsWith(prefix) && name.length > prefix.length);
+}
+
+function knownUnitSuffix(name) {
+  return MODULE_UNIT_SUFFIXES.find((suffix) => name.endsWith(suffix) && name.length > suffix.length);
+}
+
 function getLocale() {
   const language = Editor.I18n && typeof Editor.I18n.getLanguage === 'function'
     ? Editor.I18n.getLanguage()
     : 'en';
   return String(language || '').toLowerCase().startsWith('zh') ? zh : en;
+}
+
+function pascalCaseName(value) {
+  const words = String(value || '')
+    .trim()
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+  if (words.length === 0) {
+    return '';
+  }
+  return words.map((word) => {
+    const head = word.charAt(0).toUpperCase();
+    const tail = word.slice(1);
+    return `${head}${tail}`;
+  }).join('');
+}
+
+function withViewKindPrefix(name, viewKind) {
+  if (!name) {
+    return '';
+  }
+  const prefix = VIEW_KIND_PREFIXES.includes(viewKind) ? viewKind : 'Page';
+  const existingPrefix = knownKindPrefix(name);
+  const core = existingPrefix ? name.slice(existingPrefix.length) : name;
+  return `${prefix}${core}`;
+}
+
+function withPartPrefix(name) {
+  if (!name || name.startsWith('Part')) {
+    return name;
+  }
+  return `Part${name}`;
+}
+
+function withUnitSuffix(name, suffix) {
+  if (!name) {
+    return '';
+  }
+  const existingSuffix = knownUnitSuffix(name);
+  const core = existingSuffix ? name.slice(0, -existingSuffix.length) : name;
+  return core ? `${core}${suffix}` : name;
+}
+
+function normalizeCreateName(kind, value, viewKind) {
+  const name = pascalCaseName(value);
+  if (isViewCreateKind(kind)) {
+    return withViewKindPrefix(name, viewKind);
+  }
+  if (kind === 'part') {
+    return withPartPrefix(name);
+  }
+  if (kind === 'model') {
+    return withUnitSuffix(name, 'Model');
+  }
+  if (kind === 'service') {
+    return withUnitSuffix(name, 'Service');
+  }
+  if (kind === 'flow') {
+    return withUnitSuffix(name, 'Flow');
+  }
+  return name;
+}
+
+function placeholderKeyForKind(kind) {
+  if (isViewCreateKind(kind)) {
+    return 'panel_placeholder_view';
+  }
+  if (kind === 'part') {
+    return 'panel_placeholder_part';
+  }
+  if (kind === 'model') {
+    return 'panel_placeholder_model';
+  }
+  if (kind === 'service') {
+    return 'panel_placeholder_service';
+  }
+  if (kind === 'flow') {
+    return 'panel_placeholder_flow';
+  }
+  return 'panel_placeholder_pascal';
 }
 
 module.exports = Editor.Panel.define({
@@ -381,6 +568,8 @@ module.exports = Editor.Panel.define({
     status: '#status',
     refresh: '#refresh',
     kind: '#kind',
+    viewKind: '#view-kind',
+    viewKindRow: '#view-kind-row',
     name: '#name',
     owner: '#owner',
     ownerRow: '#owner-row',
@@ -393,6 +582,7 @@ module.exports = Editor.Panel.define({
     validate: '#validate',
     validateStrict: '#validate-strict',
     diagnostics: '#diagnostics',
+    smokeTest: '#smoke-test',
     runtimeSnapshot: '#runtime-snapshot',
     generateCheck: '#generate-check',
     cleanPreview: '#clean-preview',
@@ -425,11 +615,36 @@ module.exports = Editor.Panel.define({
     setBusy(busy, label) {
       const key = label || (busy ? 'panel_status_working' : 'panel_status_ready');
       this.$.status.textContent = this.t(key);
-      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate, this.$.diagnostics, this.$.runtimeSnapshot, this.$.generateCheck, this.$.cleanPreview]) {
+      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate, this.$.diagnostics, this.$.smokeTest, this.$.runtimeSnapshot, this.$.generateCheck, this.$.cleanPreview]) {
+        button.disabled = busy;
+      }
+      for (const button of this.$.shell.querySelectorAll('.create-tab')) {
         button.disabled = busy;
       }
       this.$.cleanScripts.disabled = busy;
       this.$.validateStrict.disabled = busy;
+    },
+
+    setCreateGroup(group) {
+      const targetGroup = group || DEFAULT_CREATE_GROUP;
+      const options = Array.from(this.$.kind.options);
+      const activeOptions = options.filter((option) => option.dataset.createGroup === targetGroup);
+      if (activeOptions.length === 0) {
+        return;
+      }
+
+      for (const option of options) {
+        const visible = option.dataset.createGroup === targetGroup;
+        option.hidden = !visible;
+        option.disabled = !visible;
+      }
+      if (!activeOptions.some((option) => option.value === this.$.kind.value)) {
+        this.$.kind.value = activeOptions[0].value;
+      }
+      for (const button of this.$.shell.querySelectorAll('.create-tab')) {
+        button.classList.toggle('active', button.dataset.createGroup === targetGroup);
+      }
+      this.updateVisibility();
     },
 
     cleanOptions() {
@@ -565,10 +780,21 @@ module.exports = Editor.Panel.define({
 
     updateVisibility() {
       const kind = this.$.kind.value;
-      const needsOwner = !['module', 'library', 'global-view', 'extension-stub'].includes(kind);
-      const needsPrefab = ['view', 'global-view', 'part'].includes(kind);
+      const needsOwner = kindNeedsOwner(kind);
+      const needsPrefab = kindSupportsPrefab(kind);
+      const needsViewKind = isViewCreateKind(kind);
+      const placeholder = this.t(placeholderKeyForKind(kind)).replace('{kind}', this.$.viewKind.value);
       this.$.ownerRow.classList.toggle('hidden', !needsOwner);
       this.$.prefabRow.classList.toggle('hidden', !needsPrefab);
+      this.$.viewKindRow.classList.toggle('hidden', !needsViewKind);
+      this.$.name.setAttribute('placeholder', placeholder);
+    },
+
+    normalizeNameField() {
+      const normalized = normalizeCreateName(this.$.kind.value, this.$.name.value, this.$.viewKind.value);
+      if (normalized) {
+        this.$.name.value = normalized;
+      }
     },
 
     async refreshSummary(options = {}) {
@@ -580,9 +806,13 @@ module.exports = Editor.Panel.define({
         this.$.libraryCount.textContent = String((summary.libraries || []).length);
         this.$.packCount.textContent = String((summary.contentPacks || []).length);
         this.$.moduleList.textContent = modules.map((item) => item.name).join(', ') || this.t('panel_no_modules');
-        this.$.owner.innerHTML = modules
-          .map((item) => `<option value="${item.name}">${item.name}</option>`)
-          .join('');
+        const selectedOwner = this.$.owner.value;
+        this.$.owner.innerHTML = modules.length > 0
+          ? modules.map((item) => `<option value="${item.name}">${item.name}</option>`).join('')
+          : `<option value="">${this.t('panel_no_modules')}</option>`;
+        if (selectedOwner && modules.some((item) => item.name === selectedOwner)) {
+          this.$.owner.value = selectedOwner;
+        }
         if (!options.silentResult) {
           this.setResult(summary);
         }
@@ -596,14 +826,20 @@ module.exports = Editor.Panel.define({
 
     async createItem() {
       const kind = this.$.kind.value;
-      const name = this.$.name.value.trim();
+      const name = normalizeCreateName(kind, this.$.name.value, this.$.viewKind.value);
+      this.$.name.value = name;
       const message = messageNameForKind(kind);
       const payload = {
         name,
-        owner: this.$.owner.value,
         prefab: this.$.prefab.checked,
         overwrite: this.$.overwrite.checked,
       };
+      if (kindNeedsOwner(kind)) {
+        payload.owner = this.$.owner.value;
+      }
+      if (isViewCreateKind(kind)) {
+        payload.viewKind = this.$.viewKind.value;
+      }
       this.setBusy(true, 'panel_status_creating');
       try {
         const result = await this.call(message, payload);
@@ -687,6 +923,17 @@ module.exports = Editor.Panel.define({
       }
     },
 
+    async smokeTest() {
+      this.setBusy(true, 'panel_status_smoking');
+      try {
+        this.setResult(await this.call('smoke-test'));
+      } catch (error) {
+        this.setResult(this.errorResult(error));
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
     async generateCheck() {
       this.setBusy(true, 'panel_status_generating');
       try {
@@ -711,7 +958,18 @@ module.exports = Editor.Panel.define({
   },
   ready() {
     this.translate();
-    this.$.kind.addEventListener('change', () => this.updateVisibility());
+    for (const button of this.$.shell.querySelectorAll('.create-tab')) {
+      button.addEventListener('click', () => this.setCreateGroup(button.dataset.createGroup));
+    }
+    this.$.kind.addEventListener('change', () => {
+      this.updateVisibility();
+      this.normalizeNameField();
+    });
+    this.$.viewKind.addEventListener('change', () => {
+      this.updateVisibility();
+      this.normalizeNameField();
+    });
+    this.$.name.addEventListener('blur', () => this.normalizeNameField());
     this.$.refresh.addEventListener('click', () => this.refreshSummary());
     this.$.create.addEventListener('click', () => this.createItem());
     this.$.generate.addEventListener('click', () => this.generateAll());
@@ -719,10 +977,11 @@ module.exports = Editor.Panel.define({
     this.$.validate.addEventListener('click', () => this.validateProject());
     this.$.validateStrict.addEventListener('click', () => this.validateProjectStrict());
     this.$.diagnostics.addEventListener('click', () => this.runDiagnostics());
+    this.$.smokeTest.addEventListener('click', () => this.smokeTest());
     this.$.runtimeSnapshot.addEventListener('click', () => this.runtimeSnapshot());
     this.$.generateCheck.addEventListener('click', () => this.generateCheck());
     this.$.cleanPreview.addEventListener('click', () => this.cleanPreview());
-    this.updateVisibility();
+    this.setCreateGroup(DEFAULT_CREATE_GROUP);
     this.refreshSummary();
   },
   beforeClose() {},

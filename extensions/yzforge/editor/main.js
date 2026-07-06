@@ -1,10 +1,13 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { cleanGenerated: cleanGeneratedFiles, collectGeneratedFiles } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { validate } = require('./validate');
 const { scanProject } = require('./scanner');
+const { smoke } = require('./smoke');
 const { kebabCase, toPosix } = require('./fs-utils');
 const en = require('../i18n/en');
 const zh = require('../i18n/zh');
@@ -35,6 +38,75 @@ function normalizeOptions(first, second) {
       : { name: first };
   }
   return {};
+}
+
+const VIEW_KIND_PREFIXES = ['Page', 'Paper', 'Popup', 'Toast', 'Top', 'System'];
+const MODULE_UNIT_SUFFIXES = ['Model', 'Service', 'Flow'];
+
+function pascalCaseName(value) {
+  const words = String(value || '')
+    .trim()
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+  if (words.length === 0) {
+    return '';
+  }
+  return words.map((word) => {
+    return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+  }).join('');
+}
+
+function knownKindPrefix(name) {
+  return VIEW_KIND_PREFIXES.find((prefix) => name.startsWith(prefix) && name.length > prefix.length);
+}
+
+function knownUnitSuffix(name) {
+  return MODULE_UNIT_SUFFIXES.find((suffix) => name.endsWith(suffix) && name.length > suffix.length);
+}
+
+function normalizeViewName(name, viewKind) {
+  if (!name) {
+    return '';
+  }
+  const prefix = VIEW_KIND_PREFIXES.includes(viewKind) ? viewKind : 'Page';
+  const existingPrefix = knownKindPrefix(name);
+  const core = existingPrefix ? name.slice(existingPrefix.length) : name;
+  return `${prefix}${core}`;
+}
+
+function normalizePartName(name) {
+  return name && !name.startsWith('Part') ? `Part${name}` : name;
+}
+
+function normalizeUnitName(name, suffix) {
+  if (!name) {
+    return '';
+  }
+  const existingSuffix = knownUnitSuffix(name);
+  const core = existingSuffix ? name.slice(0, -existingSuffix.length) : name;
+  return core ? `${core}${suffix}` : name;
+}
+
+function normalizeCreateOptions(kind, options = {}) {
+  const next = { ...options };
+  if (next.owner) {
+    next.owner = pascalCaseName(next.owner);
+  }
+  if (next.name) {
+    next.name = pascalCaseName(next.name);
+    if (kind === 'view' || kind === 'global-view') {
+      next.name = normalizeViewName(next.name, next.viewKind);
+    } else if (kind === 'part') {
+      next.name = normalizePartName(next.name);
+    } else if (kind === 'model') {
+      next.name = normalizeUnitName(next.name, 'Model');
+    } else if (kind === 'service') {
+      next.name = normalizeUnitName(next.name, 'Service');
+    } else if (kind === 'flow') {
+      next.name = normalizeUnitName(next.name, 'Flow');
+    }
+  }
+  return next;
 }
 
 function requireName(options, label) {
@@ -113,7 +185,7 @@ async function configureBundle(target) {
     compressionType: meta.userData && meta.userData.compressionType ? meta.userData.compressionType : {},
     isRemoteBundle: meta.userData && meta.userData.isRemoteBundle ? meta.userData.isRemoteBundle : {},
   };
-  await assetDbRequest('save-asset-meta', target.url, meta);
+  await assetDbRequest('save-asset-meta', meta.uuid || target.url, meta);
   await refreshAsset(target.url);
   return {
     url: target.url,
@@ -139,8 +211,37 @@ function pathFromAssetUrl(url) {
   return normalized.startsWith('db://') ? normalized.slice('db://'.length) : undefined;
 }
 
+function normalizePrefabContent(serialized) {
+  if (serialized === undefined || serialized === null) {
+    throw new Error('Prefab serializer returned empty content.');
+  }
+  const raw = serialized && typeof serialized === 'object' && 'content' in serialized
+    ? serialized.content
+    : serialized;
+  const content = typeof raw === 'string'
+    ? raw
+    : JSON.stringify(raw, null, 2);
+  JSON.parse(content);
+  return content;
+}
+
+function writePrefabFileFallback(targetUrl, content) {
+  if (!targetUrl.startsWith('db://assets/')) {
+    return false;
+  }
+  const relative = targetUrl.slice('db://'.length);
+  const filePath = path.join(projectRoot(), relative);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content.endsWith('\n') ? content : `${content}\n`, 'utf8');
+  return true;
+}
+
 function hasEditorAssetDb() {
   return Boolean(global.Editor && Editor.Message && typeof Editor.Message.request === 'function');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function fileDetail(relativePath) {
@@ -574,6 +675,50 @@ async function collectRuntimeSnapshot() {
   }
 }
 
+async function sceneRequest(method, args = []) {
+  return await Editor.Message.request('scene', 'execute-scene-script', {
+    name: 'yzforge',
+    method,
+    args,
+  });
+}
+
+async function waitForSceneComponent(componentName, options = {}) {
+  if (!componentName || options.requireComponent === false) {
+    return {
+      componentName,
+      available: true,
+      attempts: 0,
+    };
+  }
+
+  const attempts = options.attempts || 8;
+  const delayMs = options.delayMs || 300;
+  let lastReason;
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      if (await sceneRequest('hasComponentClass', [componentName])) {
+        return {
+          componentName,
+          available: true,
+          attempts: index + 1,
+        };
+      }
+      lastReason = 'component class is not registered yet';
+    } catch (error) {
+      lastReason = error.message;
+    }
+    await sleep(delayMs);
+  }
+
+  return {
+    componentName,
+    available: false,
+    attempts,
+    reason: lastReason,
+  };
+}
+
 async function createUiPrefab(result, options) {
   if (!['view', 'global-view', 'part'].includes(result.kind) || options.prefab === false) {
     return undefined;
@@ -592,17 +737,38 @@ async function createUiPrefab(result, options) {
     };
   }
 
+  const componentReady = await waitForSceneComponent(result.name, {
+    requireComponent: options.requireComponent !== false,
+  });
+  if (!componentReady.available) {
+    return {
+      target: targetUrl,
+      created: false,
+      reason: `Component class is not available in scene process: ${result.name}. ${componentReady.reason || ''}`.trim(),
+      componentReady,
+    };
+  }
+
   let serialized;
   try {
-    serialized = await Editor.Message.request('scene', 'execute-scene-script', {
-      name: 'yzforge',
-      method: 'createUiPrefab',
-      args: [{
+    serialized = await sceneRequest('createUiPrefab', [{
         name: result.name,
         componentName: result.name,
+        kind: result.kind,
+        viewKind: options.viewKind || result.viewKind,
         requireComponent: options.requireComponent !== false,
-      }],
-    });
+    }]);
+  } catch (error) {
+    return {
+      target: targetUrl,
+      created: false,
+      reason: error.message,
+    };
+  }
+
+  let content;
+  try {
+    content = normalizePrefabContent(serialized);
   } catch (error) {
     return {
       target: targetUrl,
@@ -612,14 +778,25 @@ async function createUiPrefab(result, options) {
   }
 
   const method = existing && options.overwrite === true ? 'save-asset' : 'create-asset';
-  await assetDbRequest(method, targetUrl, serialized.content);
+  let saveMethod = `asset-db:${method}`;
+  try {
+    await assetDbRequest(method, targetUrl, content);
+  } catch (error) {
+    if (!writePrefabFileFallback(targetUrl, content)) {
+      throw error;
+    }
+    saveMethod = `fs-write (${error.message})`;
+  }
   await refreshAsset(targetUrl);
   return {
     target: targetUrl,
     created: !existing,
     overwritten: Boolean(existing && options.overwrite === true),
     componentAttached: serialized.componentAttached,
+    componentReady,
+    viewKind: serialized.viewKind,
     warnings: serialized.warnings || [],
+    saveMethod,
   };
 }
 
@@ -644,6 +821,7 @@ async function postCreate(result, options) {
     refreshed.push(await refreshAsset(`db://assets/modules/${result.owner}`));
   }
 
+  refreshed.push(...await refreshCreatedAssets((result.changed || []).map(asAssetUrl)));
   const prefab = await createUiPrefab(result, options);
   const generated = withGeneratedDetails(generate(projectRoot()));
   const createdUrls = changedAssetUrls(result, generated, prefab);
@@ -668,13 +846,14 @@ async function postCreate(result, options) {
 
 async function createKind(kind, options) {
   const root = projectRoot();
+  const normalizedOptions = normalizeCreateOptions(kind, options);
   try {
-    const result = create(root, kind, options);
-    const completed = await postCreate(result, options);
+    const result = create(root, kind, normalizedOptions);
+    const completed = await postCreate(result, normalizedOptions);
     console.log(`[YZForge] created ${kind}:`, completed);
     return completed;
   } catch (error) {
-    const failed = createFailureResult(kind, options, error);
+    const failed = createFailureResult(kind, normalizedOptions, error);
     console.warn(`[YZForge] create ${kind} failed:`, failed);
     return failed;
   }
@@ -769,6 +948,15 @@ exports.methods = {
   async runtimeSnapshot() {
     const result = await collectRuntimeSnapshot();
     console.log('[YZForge] runtime snapshot:', result);
+    return result;
+  },
+
+  async smokeTest(first) {
+    const options = normalizeOptions(first);
+    const result = smoke({
+      keep: options.keep === true,
+    });
+    console.log('[YZForge] smoke test:', result);
     return result;
   },
 

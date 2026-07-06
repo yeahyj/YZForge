@@ -58,9 +58,28 @@ function scanContentPacks(projectRoot) {
   return packs.sort((a, b) => `${a.owner}.${a.name}`.localeCompare(`${b.owner}.${b.name}`));
 }
 
+function hasAnyFile(dir) {
+  if (!fs.existsSync(dir)) {
+    return false;
+  }
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const child = path.join(dir, entry.name);
+    if (entry.isFile()) {
+      return true;
+    }
+    if (entry.isDirectory() && hasAnyFile(child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function scanGlobal(projectRoot) {
   const dir = path.join(projectRoot, 'assets', 'app', 'global');
   if (!fs.existsSync(dir)) {
+    return undefined;
+  }
+  if (!hasAnyFile(path.join(dir, 'code')) && !hasAnyFile(path.join(dir, 'res'))) {
     return undefined;
   }
   return {

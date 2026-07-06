@@ -100,30 +100,149 @@ function markerComponent(name) {
   return component === 'Node' ? undefined : component;
 }
 
+function uiTransformRecord(nodeId, width = 120, height = 40) {
+  return {
+    __type__: 'cc.UITransform',
+    node: { __id__: nodeId },
+    _contentSize: {
+      __type__: 'cc.Size',
+      width,
+      height,
+    },
+    _anchorPoint: {
+      __type__: 'cc.Vec2',
+      x: 0.5,
+      y: 0.5,
+    },
+  };
+}
+
+function spriteRecord(nodeId) {
+  return {
+    __type__: 'cc.Sprite',
+    node: { __id__: nodeId },
+    _color: {
+      __type__: 'cc.Color',
+      r: 255,
+      g: 255,
+      b: 255,
+      a: 255,
+    },
+    _spriteFrame: {
+      __uuid__: '7d8f9b89-4fd1-4c9f-a3ab-38ec7cded7ca@f9941',
+      __expectedType__: 'cc.SpriteFrame',
+    },
+  };
+}
+
+function labelRecord(nodeId, text = 'Text') {
+  return {
+    __type__: 'cc.Label',
+    node: { __id__: nodeId },
+    _string: text,
+    _fontSize: 20,
+    _lineHeight: 28,
+    _horizontalAlign: 1,
+    _verticalAlign: 1,
+  };
+}
+
+function buttonRecord(nodeId) {
+  return {
+    __type__: 'cc.Button',
+    node: { __id__: nodeId },
+    clickEvents: [],
+    _interactable: true,
+    _transition: 0,
+    _target: { __id__: nodeId },
+  };
+}
+
 function serializedPrefab(scriptUuid, markers = [], options = {}) {
   const records = [
-    { __type__: 'cc.Prefab', _name: 'Prefab' },
-    { __type__: 'cc.Node', _name: 'Root' },
-    { __type__: compressScriptUuid(scriptUuid) },
+    {
+      __type__: 'cc.Prefab',
+      _name: 'Prefab',
+      data: { __id__: 1 },
+    },
+    {
+      __type__: 'cc.Node',
+      _name: 'Root',
+      _children: [],
+      _components: [],
+      _prefab: null,
+    },
   ];
+  const root = records[1];
+  const rootTransformId = records.length;
+  records.push(uiTransformRecord(1, options.rootWidth || 640, options.rootHeight || 360));
+  root._components.push({ __id__: rootTransformId });
+
+  const scriptId = records.length;
+  records.push({
+    __type__: compressScriptUuid(scriptUuid),
+    node: { __id__: 1 },
+    _enabled: true,
+  });
+  root._components.push({ __id__: scriptId });
+
   for (const name of markers) {
     const component = options.omitMarkerComponents ? undefined : markerComponent(name);
-    if (!component) {
-      records.push({ __type__: 'cc.Node', _name: name });
-      continue;
-    }
     const nodeId = records.length;
-    const componentId = nodeId + 1;
-    records.push({
+    const node = {
       __type__: 'cc.Node',
       _name: name,
-      _components: [{ __id__: componentId }],
-    });
-    records.push({
-      __type__: `cc.${component}`,
-      node: { __id__: nodeId },
-    });
+      _parent: { __id__: 1 },
+      _children: [],
+      _components: [],
+      _prefab: null,
+    };
+    records.push(node);
+    root._children.push({ __id__: nodeId });
+
+    const transformId = records.length;
+    records.push(uiTransformRecord(nodeId, component === 'Button' ? 160 : 120, component === 'Button' ? 48 : 40));
+    node._components.push({ __id__: transformId });
+
+    if (!component) {
+      continue;
+    }
+    if (component === 'Sprite') {
+      const spriteId = records.length;
+      records.push(spriteRecord(nodeId));
+      node._components.push({ __id__: spriteId });
+    } else if (component === 'Label') {
+      const labelId = records.length;
+      records.push(labelRecord(nodeId, name));
+      node._components.push({ __id__: labelId });
+    } else if (component === 'Button') {
+      const spriteId = records.length;
+      records.push(spriteRecord(nodeId));
+      node._components.push({ __id__: spriteId });
+      const buttonId = records.length;
+      records.push(buttonRecord(nodeId));
+      node._components.push({ __id__: buttonId });
+    } else {
+      const componentId = records.length;
+      records.push({
+        __type__: `cc.${component}`,
+        node: { __id__: nodeId },
+      });
+      node._components.push({ __id__: componentId });
+    }
   }
+
+  const prefabInfoId = records.length;
+  root._prefab = { __id__: prefabInfoId };
+  records.push({
+    __type__: 'cc.PrefabInfo',
+    root: { __id__: 1 },
+    asset: { __id__: 0 },
+    fileId: '',
+    instance: null,
+    targetOverrides: null,
+    nestedPrefabInstanceRoots: null,
+  });
   return `${JSON.stringify(records, null, 2)}\n`;
 }
 
@@ -264,6 +383,31 @@ function smoke(options = {}) {
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
     const validation = assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', (records) => {
+      records[1]._prefab = null;
+    });
+    const prefabInfoViolation = expectValidationIssue(projectRoot, 'prefab root must contain cc.PrefabInfo');
+    const prefabInfoDetail = prefabInfoViolation.issueDetails.find((issue) => issue.message.includes('cc.PrefabInfo'));
+    assert(prefabInfoDetail.code === 'prefab.info_missing', 'Expected PrefabInfo issue code.');
+    writeText(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', serializedPrefab('10000000-0000-4000-8000-000000000001', [
+      '@title:Label',
+      '@confirm:Button',
+    ]));
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', (records) => {
+      records[2]._contentSize.width = 2;
+      records[2]._contentSize.height = 2;
+    });
+    const sizeViolation = expectValidationIssue(projectRoot, 'prefab root UITransform size is too small');
+    const sizeDetail = sizeViolation.issueDetails.find((issue) => issue.message.includes('root UITransform size is too small'));
+    assert(sizeDetail.code === 'ui.root_transform_too_small', 'Expected root UITransform size issue code.');
+    writeText(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', serializedPrefab('10000000-0000-4000-8000-000000000001', [
+      '@title:Label',
+      '@confirm:Button',
+    ]));
+    assertOkValidation(projectRoot);
 
     updateText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', (content) => {
       return content.replace(

@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { isPascalCase, kebabCase, writeJsonIfChanged, writeTextIfChanged } = require('./fs-utils');
+const { generatedText, isPascalCase, kebabCase, writeJsonIfChanged, writeTextIfChanged } = require('./fs-utils');
+const { renderAutoRefsBase } = require('./generate');
 
 function assertPascalName(name, label) {
   if (!isPascalCase(name)) {
@@ -28,6 +29,12 @@ function writeNewJson(projectRoot, relativePath, value) {
     return false;
   }
   return writeJsonIfChanged(filePath, value);
+}
+
+function writeEmptyAutoRefs(projectRoot, relativePath, source, baseType, className, changed) {
+  if (writeNewText(projectRoot, relativePath, generatedText(source, renderAutoRefsBase(baseType, className, [])))) {
+    changed.push(relativePath);
+  }
 }
 
 function createModule(projectRoot, name) {
@@ -151,7 +158,7 @@ function requireModule(projectRoot, owner) {
   }
 }
 
-function createView(projectRoot, owner, name) {
+function createView(projectRoot, owner, name, viewKind) {
   requireModule(projectRoot, owner);
   assertPascalName(name, 'View');
   const root = `assets/modules/${owner}`;
@@ -177,17 +184,26 @@ function createView(projectRoot, owner, name) {
     '}',
     '',
   ].join('\n'));
+  writeEmptyAutoRefs(
+    projectRoot,
+    `${root}/code/view/refs/${name}.refs.generated.ts`,
+    `${root}/res/view/${name}.prefab`,
+    'View',
+    `${name}Refs`,
+    changed,
+  );
 
   return {
     kind: 'view',
     owner,
     name,
+    viewKind,
     prefab: `${root}/res/view/${name}.prefab`,
     changed,
   };
 }
 
-function createGlobalView(projectRoot, name) {
+function createGlobalView(projectRoot, name, viewKind) {
   assertPascalName(name, 'Global View');
   const root = 'assets/app/global';
   ensureDir(path.join(projectRoot, root, 'code/view'));
@@ -214,10 +230,19 @@ function createGlobalView(projectRoot, name) {
     '}',
     '',
   ].join('\n'));
+  writeEmptyAutoRefs(
+    projectRoot,
+    `${root}/code/view/refs/${name}.refs.generated.ts`,
+    `${root}/res/view/${name}.prefab`,
+    'View',
+    `${name}Refs`,
+    changed,
+  );
 
   return {
     kind: 'global-view',
     name,
+    viewKind,
     prefab: `${root}/res/view/${name}.prefab`,
     changed,
   };
@@ -245,6 +270,14 @@ function createPart(projectRoot, owner, name) {
     `export class ${name} extends ${name}Refs<void> {}`,
     '',
   ].join('\n'));
+  writeEmptyAutoRefs(
+    projectRoot,
+    `${root}/code/part/refs/${name}.refs.generated.ts`,
+    `${root}/res/part/${name}.prefab`,
+    'Part',
+    `${name}Refs`,
+    changed,
+  );
 
   return {
     kind: 'part',
@@ -385,10 +418,10 @@ function create(projectRoot, kind, args) {
     return createContentPack(projectRoot, args.owner, args.name);
   }
   if (kind === 'view') {
-    return createView(projectRoot, args.owner, args.name);
+    return createView(projectRoot, args.owner, args.name, args.viewKind);
   }
   if (kind === 'global-view') {
-    return createGlobalView(projectRoot, args.name);
+    return createGlobalView(projectRoot, args.name, args.viewKind);
   }
   if (kind === 'part') {
     return createPart(projectRoot, args.owner, args.name);

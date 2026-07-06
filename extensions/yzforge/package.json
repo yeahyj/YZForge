@@ -50,6 +50,11 @@
         "path": "YZForge",
         "label": "i18n:yzforge.validate_architecture_strict",
         "message": "validate-architecture-strict"
+      },
+      {
+        "path": "YZForge",
+        "label": "i18n:yzforge.smoke_test",
+        "message": "smoke-test"
       }
     ],
     "messages": {
@@ -96,6 +101,11 @@
       "runtime-snapshot": {
         "methods": [
           "runtimeSnapshot"
+        ]
+      },
+      "smoke-test": {
+        "methods": [
+          "smokeTest"
         ]
       },
       "focus-asset": {

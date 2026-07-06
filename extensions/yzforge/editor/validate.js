@@ -352,6 +352,136 @@ function nodeHasComponent(records, nodeIndex, component) {
   });
 }
 
+function readSerializedRecords(projectRoot, assetPath, issues) {
+  const rel = toPosix(path.relative(projectRoot, assetPath));
+  try {
+    const data = JSON.parse(fs.readFileSync(assetPath, 'utf8'));
+    return Array.isArray(data) ? data : [data];
+  } catch (error) {
+    issues.push(`${rel} serialized asset JSON cannot be parsed: ${error.message}.`, {
+      path: rel,
+      code: 'prefab.json_invalid',
+    });
+    return undefined;
+  }
+}
+
+function findNodeComponent(records, nodeIndex, component) {
+  const componentIds = new Set(nodeComponentIds(records[nodeIndex]));
+  for (const id of componentIds) {
+    if (serializedComponentName(records[id]) === component) {
+      return records[id];
+    }
+  }
+  return records.find((record) => {
+    return serializedComponentName(record) === component && componentBelongsToNode(record, nodeIndex);
+  });
+}
+
+function uiTransformSize(record) {
+  const size = record && record._contentSize;
+  return {
+    width: Number(size && size.width),
+    height: Number(size && size.height),
+  };
+}
+
+function hasUsableSize(size, minWidth, minHeight) {
+  return Number.isFinite(size.width)
+    && Number.isFinite(size.height)
+    && size.width >= minWidth
+    && size.height >= minHeight;
+}
+
+function validatePrefabOpenableStructure(projectRoot, prefabPath, role, issues) {
+  const rel = toPosix(path.relative(projectRoot, prefabPath));
+  const records = readSerializedRecords(projectRoot, prefabPath, issues);
+  if (!records) {
+    return;
+  }
+
+  const prefabRecord = records[0];
+  const rootIndex = serializedRefId(prefabRecord && prefabRecord.data);
+  if (serializedComponentName(prefabRecord) !== 'Prefab' || rootIndex === undefined) {
+    issues.push(`${rel} must be a serialized cc.Prefab with a root data node.`, {
+      path: rel,
+      code: 'prefab.root_missing',
+    });
+    return;
+  }
+
+  const root = records[rootIndex];
+  if (serializedComponentName(root) !== 'Node') {
+    issues.push(`${rel} prefab root data must reference a cc.Node.`, {
+      path: rel,
+      code: 'prefab.root_invalid',
+    });
+    return;
+  }
+
+  const prefabInfoIndex = serializedRefId(root._prefab);
+  const prefabInfo = prefabInfoIndex !== undefined ? records[prefabInfoIndex] : undefined;
+  if (serializedComponentName(prefabInfo) !== 'PrefabInfo') {
+    issues.push(`${rel} prefab root must contain cc.PrefabInfo. Recreate this prefab through Cocos/YZForge.`, {
+      path: rel,
+      code: 'prefab.info_missing',
+    });
+  } else if (serializedRefId(prefabInfo.root) !== rootIndex || serializedRefId(prefabInfo.asset) !== 0) {
+    issues.push(`${rel} cc.PrefabInfo root/asset reference is invalid.`, {
+      path: rel,
+      code: 'prefab.info_invalid',
+    });
+  }
+
+  const rootTransform = findNodeComponent(records, rootIndex, 'UITransform');
+  if (!rootTransform) {
+    issues.push(`${rel} ${role} prefab root must have UITransform.`, {
+      path: rel,
+      code: 'ui.root_transform_missing',
+    });
+  } else {
+    const rootMin = role === 'Part' ? 16 : 32;
+    const size = uiTransformSize(rootTransform);
+    if (!hasUsableSize(size, rootMin, rootMin)) {
+      issues.push(`${rel} ${role} prefab root UITransform size is too small: ${size.width}x${size.height}.`, {
+        path: rel,
+        code: 'ui.root_transform_too_small',
+      });
+    }
+  }
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (serializedComponentName(record) !== 'Node') {
+      continue;
+    }
+    const hasRenderable = nodeHasComponent(records, index, 'Sprite')
+      || nodeHasComponent(records, index, 'Button')
+      || nodeHasComponent(records, index, 'Label');
+    if (!hasRenderable) {
+      continue;
+    }
+
+    const transform = findNodeComponent(records, index, 'UITransform');
+    if (!transform) {
+      issues.push(`${rel} renderable UI node '${record._name || index}' must have UITransform.`, {
+        path: rel,
+        code: 'ui.render_transform_missing',
+      });
+      continue;
+    }
+
+    const size = uiTransformSize(transform);
+    const min = nodeHasComponent(records, index, 'Label') && !nodeHasComponent(records, index, 'Button') ? 8 : 16;
+    if (!hasUsableSize(size, min, min)) {
+      issues.push(`${rel} renderable UI node '${record._name || index}' has invalid UITransform size: ${size.width}x${size.height}.`, {
+        path: rel,
+        code: 'ui.render_transform_too_small',
+      });
+    }
+  }
+}
+
 function validateAutoRefMarkers(projectRoot, prefabPath, issues) {
   const rel = toPosix(path.relative(projectRoot, prefabPath));
   let records;
@@ -531,6 +661,7 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       const name = path.basename(prefabPath, '.prefab');
       const scriptPath = path.join(codeDir, 'view', `${name}.ts`);
       const refsPath = path.join(codeDir, 'view', 'refs', `${name}.refs.generated.ts`);
+      validatePrefabOpenableStructure(projectRoot, prefabPath, 'View', issues);
       if (!fs.existsSync(scriptPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing View script: ${toPosix(path.relative(projectRoot, scriptPath))}.`);
       } else {
@@ -548,6 +679,7 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       const name = path.basename(prefabPath, '.prefab');
       const scriptPath = path.join(codeDir, 'part', `${name}.ts`);
       const refsPath = path.join(codeDir, 'part', 'refs', `${name}.refs.generated.ts`);
+      validatePrefabOpenableStructure(projectRoot, prefabPath, 'Part', issues);
       if (!fs.existsSync(scriptPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing Part script: ${toPosix(path.relative(projectRoot, scriptPath))}.`);
       } else {
