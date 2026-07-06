@@ -344,6 +344,30 @@ async function collectProjectDiagnostics() {
   };
 }
 
+async function collectRuntimeSnapshot() {
+  if (!global.Editor || !Editor.Message || typeof Editor.Message.request !== 'function') {
+    return {
+      ok: false,
+      running: false,
+      reason: 'Editor.Message.request is unavailable',
+    };
+  }
+
+  try {
+    return await Editor.Message.request('scene', 'execute-scene-script', {
+      name: 'yzforge',
+      method: 'getRuntimeSnapshot',
+      args: [],
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      running: false,
+      reason: error.message,
+    };
+  }
+}
+
 async function createUiPrefab(result, options) {
   if (!['view', 'global-view', 'part'].includes(result.kind) || options.prefab === false) {
     return undefined;
@@ -519,6 +543,12 @@ exports.methods = {
   async projectDiagnostics() {
     const result = await collectProjectDiagnostics();
     console.log('[YZForge] project diagnostics:', result);
+    return result;
+  },
+
+  async runtimeSnapshot() {
+    const result = await collectRuntimeSnapshot();
+    console.log('[YZForge] runtime snapshot:', result);
     return result;
   },
 

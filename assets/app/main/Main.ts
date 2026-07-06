@@ -1,6 +1,6 @@
 import { _decorator, Component } from 'cc';
-import { createApp, type App } from '../../yzforge/runtime';
-import { installGeneratedExtensions } from '../bootstrap/install.generated';
+import type { App } from '../../yzforge/runtime';
+import { clearYZForgeApp, createYZForgeApp } from '../bootstrap/app';
 
 const { ccclass } = _decorator;
 
@@ -13,8 +13,12 @@ export class Main extends Component {
     }
 
     private async startApp(): Promise<void> {
-        this.app = createApp();
-        await installGeneratedExtensions(this.app);
+        this.app = await createYZForgeApp();
         await this.app.start();
+    }
+
+    protected onDestroy(): void {
+        clearYZForgeApp(this.app);
+        this.app = undefined;
     }
 }

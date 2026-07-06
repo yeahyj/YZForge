@@ -57,6 +57,7 @@ const template = `
 
   <section class="section action-row">
     <button id="diagnostics" data-i18n="panel_diagnostics">Diagnostics</button>
+    <button id="runtime-snapshot" data-i18n="runtime_snapshot">Runtime Snapshot</button>
     <button id="generate-check" data-i18n="generate_check">Generate Check</button>
     <button id="clean-preview" data-i18n="clean_preview">Clean Preview</button>
   </section>
@@ -338,6 +339,7 @@ module.exports = Editor.Panel.define({
     validate: '#validate',
     validateStrict: '#validate-strict',
     diagnostics: '#diagnostics',
+    runtimeSnapshot: '#runtime-snapshot',
     generateCheck: '#generate-check',
     cleanPreview: '#clean-preview',
     moduleCount: '#module-count',
@@ -368,7 +370,7 @@ module.exports = Editor.Panel.define({
     setBusy(busy, label) {
       const key = label || (busy ? 'panel_status_working' : 'panel_status_ready');
       this.$.status.textContent = this.t(key);
-      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate, this.$.diagnostics, this.$.generateCheck, this.$.cleanPreview]) {
+      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate, this.$.diagnostics, this.$.runtimeSnapshot, this.$.generateCheck, this.$.cleanPreview]) {
         button.disabled = busy;
       }
       this.$.validateStrict.disabled = busy;
@@ -579,6 +581,17 @@ module.exports = Editor.Panel.define({
       }
     },
 
+    async runtimeSnapshot() {
+      this.setBusy(true, 'panel_status_diagnosing');
+      try {
+        this.setResult(await this.call('runtime-snapshot'));
+      } catch (error) {
+        this.setResult({ ok: false, error: error.message });
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
     async generateCheck() {
       this.setBusy(true, 'panel_status_generating');
       try {
@@ -611,6 +624,7 @@ module.exports = Editor.Panel.define({
     this.$.validate.addEventListener('click', () => this.validateProject());
     this.$.validateStrict.addEventListener('click', () => this.validateProjectStrict());
     this.$.diagnostics.addEventListener('click', () => this.runDiagnostics());
+    this.$.runtimeSnapshot.addEventListener('click', () => this.runtimeSnapshot());
     this.$.generateCheck.addEventListener('click', () => this.generateCheck());
     this.$.cleanPreview.addEventListener('click', () => this.cleanPreview());
     this.updateVisibility();

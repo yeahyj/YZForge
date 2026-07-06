@@ -33,6 +33,26 @@ function createPrefabInfo(prefab, root) {
   return info;
 }
 
+function runtimeApp() {
+  return typeof globalThis !== 'undefined' ? globalThis.__YZFORGE_APP__ : undefined;
+}
+
+function getRuntimeSnapshot() {
+  const app = runtimeApp();
+  if (!app || typeof app.snapshot !== 'function') {
+    return {
+      ok: false,
+      running: false,
+      reason: 'YZForge App is not available in the scene process.',
+    };
+  }
+  return {
+    ok: true,
+    running: true,
+    snapshot: app.snapshot(),
+  };
+}
+
 function serializePrefab(options = {}) {
   const name = String(options.name || '').trim();
   if (!name) {
@@ -80,5 +100,9 @@ function serializePrefab(options = {}) {
 exports.methods = {
   createUiPrefab(options) {
     return serializePrefab(options);
+  },
+
+  getRuntimeSnapshot() {
+    return getRuntimeSnapshot();
   },
 };

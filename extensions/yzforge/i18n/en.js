@@ -19,6 +19,7 @@ module.exports = {
   generate_check: 'Generate Check',
   clean_generated: 'Clean Generated',
   clean_preview: 'Clean Preview',
+  runtime_snapshot: 'Runtime Snapshot',
   validate_architecture: 'Validate Architecture',
   validate_architecture_strict: 'Validate Strict',
   panel_status_ready: 'Ready',

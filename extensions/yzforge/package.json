@@ -93,6 +93,11 @@
           "projectDiagnostics"
         ]
       },
+      "runtime-snapshot": {
+        "methods": [
+          "runtimeSnapshot"
+        ]
+      },
       "focus-asset": {
         "methods": [
           "focusAsset"

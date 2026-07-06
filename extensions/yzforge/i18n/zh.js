@@ -55,6 +55,7 @@ module.exports = {
   kind_extension_stub: '扩展桩',
   generate_check: '检查生成物',
   clean_preview: '预览清理',
+  runtime_snapshot: '运行时快照',
   panel_diagnostics: '诊断',
   panel_status_diagnosing: '诊断中',
 };
