@@ -134,6 +134,11 @@ interface OpenToken {
     readonly layerVersion: number;
 }
 
+interface CachedNodeRecord {
+    readonly node: Node;
+    readonly ref: ViewRef<unknown, unknown>;
+}
+
 const LAYER_NODE_NAMES: Record<ViewLayer, string> = {
     [ViewLayer.Page]: 'PageLayer',
     [ViewLayer.Paper]: 'PaperLayer',
@@ -283,6 +288,15 @@ export class UIManager {
         await this.moduleUis.get(module.name)?.closeOwned(reason);
     }
 
+    public async disposeModule(moduleName: string, reason?: unknown): Promise<void> {
+        const ui = this.moduleUis.get(moduleName);
+        if (!ui) {
+            return;
+        }
+        await ui.dispose(reason);
+        this.moduleUis.delete(moduleName);
+    }
+
     public installBackKeyHandler(handler: BackKeyHandler, options: BackKeyOptions = {}): void {
         this.backKeyHandler = handler;
         this.backKeys = new Set(options.keys ?? DEFAULT_BACK_KEYS);
@@ -323,6 +337,7 @@ export class ModuleUI {
     private readonly queueTasks = new Map<ViewLayer, Promise<void>>();
     private readonly keyVersions = new Map<string, number>();
     private readonly layerVersions = new Map<ViewLayer, number>();
+    private readonly nodeCache = new Map<string, CachedNodeRecord>();
     private popupMask?: Node;
     private maskTarget?: AnyViewHandle;
 
@@ -381,11 +396,19 @@ export class ModuleUI {
         token: OpenToken,
     ): Promise<ViewHandle<TResult>> {
         let node: Node | undefined;
+        let nodeFromCache = false;
         try {
             this.ensureOpenAllowed(token);
-            node = await this.module.assets.instantiate(ref, {
-                acquireAsset: policy.cache !== 'asset',
-            });
+            node = policy.cache === 'node' ? this.takeCachedNode(token.key) : undefined;
+            if (node) {
+                nodeFromCache = true;
+                node.active = true;
+                this.module.assets.trackNode(node);
+            } else {
+                node = await this.module.assets.instantiate(ref, {
+                    acquireAsset: policy.cache !== 'asset',
+                });
+            }
             this.ensureOpenAllowed(token);
             const component = node.getComponent(ref.component);
             if (!component) {
@@ -437,7 +460,7 @@ export class ModuleUI {
             if (node && isValid(node)) {
                 this.module.assets.destroyNode(node);
             }
-            if (policy.cache !== 'asset') {
+            if (policy.cache !== 'asset' && (!nodeFromCache || policy.cache === 'node')) {
                 this.module.assets.release(ref);
             }
             throw error;
@@ -518,8 +541,12 @@ export class ModuleUI {
         handle.state = ViewState.Closing;
         await handle.view.__yzforgeClose(result);
         this.handles.delete(handle);
-        if (isValid(handle.node)) {
+        if (handle.policy.cache === 'node' && isValid(handle.node)) {
+            this.cacheNode(handle);
+        } else if (isValid(handle.node)) {
             this.module.assets.destroyNode(handle.node);
+        } else if (handle.policy.cache === 'node') {
+            this.module.assets.release(handle.ref);
         }
         if (handle.policy.cache === 'none') {
             this.module.assets.release(handle.ref);
@@ -547,6 +574,13 @@ export class ModuleUI {
                 await this.close(handle, isUiCancelResult(reason) ? reason : { cancelled: true, reason }, { force: true });
             }
         }
+    }
+
+    public async dispose(reason?: unknown): Promise<void> {
+        this.cancelLayerOpens();
+        await this.closeOwned(reason);
+        this.clearNodeCache();
+        this.destroyPopupMask();
     }
 
     public async pauseOwned(): Promise<void> {
@@ -739,6 +773,46 @@ export class ModuleUI {
         for (const item of layers) {
             this.layerVersions.set(item, this.layerVersion(item) + 1);
         }
+    }
+
+    private takeCachedNode(key: string): Node | undefined {
+        const cached = this.nodeCache.get(key);
+        if (!cached) {
+            return undefined;
+        }
+        this.nodeCache.delete(key);
+        if (isValid(cached.node)) {
+            return cached.node;
+        }
+        this.module.assets.release(cached.ref);
+        return undefined;
+    }
+
+    private cacheNode(handle: AnyViewHandle): void {
+        const existing = this.nodeCache.get(handle.key);
+        if (existing && existing.node !== handle.node) {
+            this.destroyCachedNode(existing);
+        }
+        handle.node.removeFromParent();
+        handle.node.active = false;
+        this.nodeCache.set(handle.key, {
+            node: handle.node,
+            ref: handle.ref,
+        });
+    }
+
+    private clearNodeCache(): void {
+        for (const cached of Array.from(this.nodeCache.values())) {
+            this.destroyCachedNode(cached);
+        }
+        this.nodeCache.clear();
+    }
+
+    private destroyCachedNode(cached: CachedNodeRecord): void {
+        if (isValid(cached.node)) {
+            this.module.assets.destroyNode(cached.node);
+        }
+        this.module.assets.release(cached.ref);
     }
 
     private updatePopupMask(): void {

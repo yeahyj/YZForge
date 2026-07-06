@@ -91,7 +91,7 @@ export class App {
             return;
         }
         await this.navigator.detach(handle);
-        await handle.instance.ui.closeOwned('module_unload');
+        await this.ui.disposeModule(ref.name, 'module_unload');
         await handle.contentPacks.unloadAll?.();
         await handle.instance.__yzforgeUnload();
         handle.assets.releaseAll();
@@ -151,7 +151,7 @@ export class App {
             this.modules.set(ref.name, handle);
             return handle;
         } catch (error) {
-            await instance?.ui.closeOwned?.('module_load_failed');
+            await this.ui.disposeModule(ref.name, 'module_load_failed');
             await instance?.contentPacks.unloadAll?.();
             await instance?.libraries.releaseAll?.();
             assets?.releaseAll();
