@@ -65,6 +65,9 @@ function hasAnyFile(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const child = path.join(dir, entry.name);
     if (entry.isFile()) {
+      if (entry.name.endsWith('.meta') || entry.name === '.DS_Store') {
+        continue;
+      }
       return true;
     }
     if (entry.isDirectory() && hasAnyFile(child)) {

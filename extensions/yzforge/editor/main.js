@@ -185,7 +185,7 @@ async function configureBundle(target) {
     compressionType: meta.userData && meta.userData.compressionType ? meta.userData.compressionType : {},
     isRemoteBundle: meta.userData && meta.userData.isRemoteBundle ? meta.userData.isRemoteBundle : {},
   };
-  await assetDbRequest('save-asset-meta', meta.uuid || target.url, meta);
+  await assetDbRequest('save-asset-meta', meta.uuid || target.url, JSON.stringify(meta));
   await refreshAsset(target.url);
   return {
     url: target.url,
@@ -242,6 +242,32 @@ function hasEditorAssetDb() {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function settleWithTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      resolve({
+        ok: false,
+        timeout: true,
+        error: `${label} timed out after ${ms}ms`,
+      });
+    }, ms);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve(promise)
+        .then((value) => ({ ok: true, value }))
+        .catch((error) => ({
+          ok: false,
+          error: error && error.message ? error.message : String(error),
+        })),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function fileDetail(relativePath) {
@@ -494,10 +520,11 @@ async function selectAsset(url) {
   }
 
   let info;
-  try {
-    info = await queryAssetInfo(url);
-  } catch (error) {
-    result.warnings.push(`query asset info failed: ${error.message}`);
+  const infoResult = await settleWithTimeout(queryAssetInfo(url), 3000, `query asset info ${url}`);
+  if (infoResult.ok) {
+    info = infoResult.value;
+  } else {
+    result.warnings.push(infoResult.error);
   }
 
   const uuid = info && (info.uuid || info.id);
@@ -518,11 +545,11 @@ async function selectAsset(url) {
     result.warnings.push(`select asset failed: ${error.message}`);
   }
 
-  try {
-    await assetDbRequest('open-asset', uuid);
+  const openResult = await settleWithTimeout(assetDbRequest('open-asset', uuid), 5000, `open asset ${url}`);
+  if (openResult.ok) {
     result.opened = true;
-  } catch (error) {
-    result.warnings.push(`open asset failed: ${error.message}`);
+  } else {
+    result.warnings.push(openResult.error);
   }
 
   return result;
@@ -826,10 +853,11 @@ async function postCreate(result, options) {
   const generated = withGeneratedDetails(generate(projectRoot()));
   const createdUrls = changedAssetUrls(result, generated, prefab);
   refreshed.push(...await refreshCreatedAssets(createdUrls));
+  const bundle = await configureBundle(bundleTarget(result));
   const focus = await selectAsset(preferredAssetUrl(result, prefab));
   const assetDb = {
     refreshed,
-    bundle: await configureBundle(bundleTarget(result)),
+    bundle,
     prefab,
     focus,
   };
