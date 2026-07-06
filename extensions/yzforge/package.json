@@ -98,6 +98,11 @@
           "createModuleView"
         ]
       },
+      "create-global-view": {
+        "methods": [
+          "createGlobalView"
+        ]
+      },
       "create-part": {
         "methods": [
           "createPart"

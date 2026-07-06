@@ -4,7 +4,7 @@ const { create } = require('./create');
 const { generate } = require('./generate');
 const { validate } = require('./validate');
 const { scanProject } = require('./scanner');
-const { kebabCase } = require('./fs-utils');
+const { kebabCase, toPosix } = require('./fs-utils');
 const en = require('../i18n/en');
 const zh = require('../i18n/zh');
 
@@ -129,8 +129,101 @@ async function queryAssetInfo(url) {
   }
 }
 
+function asAssetUrl(relativePath) {
+  return relativePath ? `db://${toPosix(relativePath)}` : undefined;
+}
+
+async function selectAsset(url) {
+  const result = {
+    url,
+    selected: false,
+    opened: false,
+    warnings: [],
+  };
+  if (!url) {
+    result.warnings.push('asset url is empty');
+    return result;
+  }
+
+  let info;
+  try {
+    info = await queryAssetInfo(url);
+  } catch (error) {
+    result.warnings.push(`query asset info failed: ${error.message}`);
+  }
+
+  const uuid = info && (info.uuid || info.id);
+  result.uuid = uuid;
+  if (!uuid) {
+    result.warnings.push('asset uuid is not available yet');
+    return result;
+  }
+
+  try {
+    if (global.Editor && Editor.Selection && typeof Editor.Selection.select === 'function') {
+      Editor.Selection.select('asset', uuid);
+      result.selected = true;
+    } else {
+      result.warnings.push('Editor.Selection.select is unavailable');
+    }
+  } catch (error) {
+    result.warnings.push(`select asset failed: ${error.message}`);
+  }
+
+  try {
+    await assetDbRequest('open-asset', uuid);
+    result.opened = true;
+  } catch (error) {
+    result.warnings.push(`open asset failed: ${error.message}`);
+  }
+
+  return result;
+}
+
+function preferredAssetUrl(result, prefab) {
+  if (prefab && prefab.target) {
+    return prefab.target;
+  }
+  if (result.kind === 'module') {
+    return asAssetUrl(`assets/modules/${result.name}/module.json`);
+  }
+  if (result.kind === 'library') {
+    return asAssetUrl(`assets/libraries/${result.name}/library.json`);
+  }
+  if (result.kind === 'content-pack') {
+    return asAssetUrl(`assets/content-packs/${result.owner}/${result.name}/content-pack.json`);
+  }
+  if (result.changed && result.changed[0]) {
+    return asAssetUrl(result.changed[0]);
+  }
+  return undefined;
+}
+
+function changedAssetUrls(result, generated, prefab) {
+  const urls = new Set();
+  for (const relative of result.changed || []) {
+    urls.add(asAssetUrl(relative));
+  }
+  for (const relative of generated.changed || []) {
+    urls.add(asAssetUrl(relative));
+  }
+  if (prefab && prefab.target) {
+    urls.add(prefab.target);
+  }
+  urls.delete(undefined);
+  return Array.from(urls);
+}
+
+async function refreshCreatedAssets(urls) {
+  const refreshed = [];
+  for (const url of urls) {
+    refreshed.push(await refreshAsset(url));
+  }
+  return refreshed;
+}
+
 async function createUiPrefab(result, options) {
-  if ((result.kind !== 'view' && result.kind !== 'part') || options.prefab === false) {
+  if (!['view', 'global-view', 'part'].includes(result.kind) || options.prefab === false) {
     return undefined;
   }
   if (!result.prefab) {
@@ -192,11 +285,18 @@ async function postCreate(result, options) {
   } else if (result.kind === 'extension-stub') {
     refreshed.push(await refreshAsset('db://assets/app'));
     refreshed.push(await refreshAsset('db://assets/app/extensions'));
+  } else if (result.kind === 'global-view') {
+    refreshed.push(await refreshAsset('db://assets/app'));
+    refreshed.push(await refreshAsset('db://assets/app/global'));
   } else if (result.owner) {
     refreshed.push(await refreshAsset(`db://assets/modules/${result.owner}`));
   }
 
   const prefab = await createUiPrefab(result, options);
+  const generated = generate(projectRoot());
+  const createdUrls = changedAssetUrls(result, generated, prefab);
+  refreshed.push(...await refreshCreatedAssets(createdUrls));
+  const focus = await selectAsset(preferredAssetUrl(result, prefab));
 
   return {
     ...result,
@@ -204,8 +304,9 @@ async function postCreate(result, options) {
       refreshed,
       bundle: await configureBundle(bundleTarget(result)),
       prefab,
+      focus,
     },
-    generated: generate(projectRoot()),
+    generated,
   };
 }
 
@@ -310,6 +411,12 @@ exports.methods = {
     requireOwner(options, 'View');
     requireName(options, 'View');
     return await createKind('view', options);
+  },
+
+  async createGlobalView(first, second) {
+    const options = normalizeOptions(first, second);
+    requireName(options, 'Global View');
+    return await createKind('global-view', options);
   },
 
   async createPart(first, second) {

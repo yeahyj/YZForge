@@ -117,6 +117,7 @@ function createSmokeProject(projectRoot) {
     create(projectRoot, 'library', { name: 'BattleCore' }),
     create(projectRoot, 'content-pack', { owner: 'Battle', name: 'Level001' }),
     create(projectRoot, 'view', { owner: 'Battle', name: 'PageBattle' }),
+    create(projectRoot, 'global-view', { name: 'ToastNotice' }),
     create(projectRoot, 'part', { owner: 'Battle', name: 'PartReward' }),
     create(projectRoot, 'event-file', { owner: 'Battle', name: 'BattleStarted' }),
     create(projectRoot, 'extension-stub', { name: 'Analytics' }),
@@ -146,11 +147,13 @@ function createSmokeProject(projectRoot) {
     partReward: '10000000-0000-4000-8000-000000000002',
     levelActor: '10000000-0000-4000-8000-000000000003',
     sharedFx: '10000000-0000-4000-8000-000000000004',
+    toastNotice: '10000000-0000-4000-8000-000000000005',
   };
   writeScriptMeta(projectRoot, 'assets/modules/Battle/code/view/PageBattle.ts', uuids.pageBattle);
   writeScriptMeta(projectRoot, 'assets/modules/Battle/code/part/PartReward.ts', uuids.partReward);
   writeScriptMeta(projectRoot, 'assets/modules/Battle/code/runtime/LevelActor.ts', uuids.levelActor);
   writeScriptMeta(projectRoot, 'assets/libraries/BattleCore/code/SharedFx.ts', uuids.sharedFx);
+  writeScriptMeta(projectRoot, 'assets/app/global/code/view/ToastNotice.ts', uuids.toastNotice);
 
   writeText(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', serializedPrefab(uuids.pageBattle, [
     '@title:Label',
@@ -158,6 +161,9 @@ function createSmokeProject(projectRoot) {
   ]));
   writeText(projectRoot, 'assets/modules/Battle/res/part/PartReward.prefab', serializedPrefab(uuids.partReward, [
     '@amount:Label',
+  ]));
+  writeText(projectRoot, 'assets/app/global/res/view/ToastNotice.prefab', serializedPrefab(uuids.toastNotice, [
+    '@message:Label',
   ]));
   writeText(projectRoot, 'assets/libraries/BattleCore/res/prefab/SharedFx.prefab', serializedPrefab(uuids.sharedFx));
   writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/prefab/LevelRoot.prefab', serializedPrefab(uuids.levelActor));
@@ -169,6 +175,8 @@ function assertGeneratedOutput(projectRoot) {
   requireText(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts', 'protected title!: Label;');
   requireText(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts', "bindAutoRefComponent(this.node, 'confirm', Button)");
   requireText(projectRoot, 'assets/modules/Battle/code/part/refs/PartReward.refs.generated.ts', 'protected amount!: Label;');
+  requireText(projectRoot, 'assets/app/global/code/view/refs/ToastNotice.refs.generated.ts', 'protected message!: Label;');
+  requireText(projectRoot, 'assets/app/global/code/assets.generated.ts', "toastNotice: viewRef(ToastNotice, 'res/view/ToastNotice'");
   requireText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', "pageBattle: viewRef(PageBattle, 'res/view/PageBattle'");
   requireText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', "partReward: partRef(PartReward, 'res/part/PartReward')");
   requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', 'export const BattleLevel001ContentPack = defineContentPack');

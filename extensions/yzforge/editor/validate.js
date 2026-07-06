@@ -235,7 +235,8 @@ function scanPrefabs(root) {
 }
 
 function validateUiGeneratedRefs(projectRoot, project, issues) {
-  for (const descriptor of project.modules) {
+  const descriptors = project.global ? [project.global, ...project.modules] : project.modules;
+  for (const descriptor of descriptors) {
     const codeDir = path.join(descriptor.dir, 'code');
     for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res', 'view'))) {
       const name = path.basename(prefabPath, '.prefab');
@@ -521,11 +522,13 @@ function allowedScriptSourcePrefixes(kind, descriptor) {
 
   if (kind === 'module') {
     prefixes.push(`assets/modules/${descriptor.name}/`);
-    prefixes.push('assets/global/');
+    prefixes.push('assets/app/global/');
   } else if (kind === 'library') {
     prefixes.push(`assets/libraries/${descriptor.name}/`);
-  } else {
+  } else if (kind === 'content-pack') {
     prefixes.push(`assets/modules/${descriptor.owner}/`);
+  } else if (kind === 'global') {
+    prefixes.push('assets/app/global/');
   }
 
   for (const library of descriptor.libraries || []) {
@@ -558,6 +561,13 @@ function validateSerializedScriptSources(projectRoot, owner, assetPaths, scriptU
 
 function validatePrefabScriptSources(projectRoot, project, issues) {
   const scriptUuidMap = buildScriptUuidMap(projectRoot, issues);
+
+  if (project.global) {
+    validateSerializedScriptSources(projectRoot, {
+      kind: 'global',
+      descriptor: project.global,
+    }, scanSerializedAssets(path.join(project.global.dir, 'res')), scriptUuidMap, issues);
+  }
 
   for (const descriptor of project.modules) {
     validateSerializedScriptSources(projectRoot, {
@@ -702,7 +712,7 @@ function codeScopeFromPath(rel) {
   if (rel.startsWith('assets/shared/')) {
     return { kind: 'shared', name: 'shared' };
   }
-  if (rel.startsWith('assets/global/')) {
+  if (rel.startsWith('assets/app/global/')) {
     return { kind: 'global', name: 'global' };
   }
   if (rel.startsWith('assets/app/registry/') || rel.startsWith('assets/app/contracts/')) {

@@ -599,6 +599,12 @@ function generate(projectRoot, options = {}) {
     writeGenerated(`assets/modules/${module.name}/code/content-packs.generated.ts`, `assets/content-packs/${module.name}`, renderModuleContentPacks(module, project.contentPacks));
   }
 
+  if (project.global) {
+    writeAutoRefs(projectRoot, project.global, writeGenerated);
+    writeGenerated('assets/app/global/code/assets.generated.ts', 'assets/app/global/res', renderAssets(project.global));
+    writeGenerated('assets/app/global/code/config.generated.ts', 'assets/app/global/res/content/config', renderEmptyConfig());
+  }
+
   const entryExports = project.modules
     .map((module) => `export { ${module.name}Ref } from './modules/${module.name}.ref.generated';`)
     .concat(project.libraries.map((library) => `export { ${library.name}Ref } from './libraries/${library.name}.ref.generated';`))
@@ -630,6 +636,7 @@ function generate(projectRoot, options = {}) {
   }
 
   return {
+    global: Boolean(project.global),
     modules: project.modules.length,
     libraries: project.libraries.length,
     contentPacks: project.contentPacks.length,

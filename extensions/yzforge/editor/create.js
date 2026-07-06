@@ -187,6 +187,42 @@ function createView(projectRoot, owner, name) {
   };
 }
 
+function createGlobalView(projectRoot, name) {
+  assertPascalName(name, 'Global View');
+  const root = 'assets/app/global';
+  ensureDir(path.join(projectRoot, root, 'code/view'));
+  ensureDir(path.join(projectRoot, root, 'res/view'));
+  ensureDir(path.join(projectRoot, root, 'res/part'));
+  ensureDir(path.join(projectRoot, root, 'res/runtime'));
+  ensureDir(path.join(projectRoot, root, 'res/content'));
+  ensureDir(path.join(projectRoot, root, 'res/sound'));
+
+  const changed = [];
+  const write = (relative, content) => {
+    if (writeNewText(projectRoot, relative, content)) changed.push(relative);
+  };
+
+  write(`${root}/code/view/${name}.ts`, [
+    "import { _decorator } from 'cc';",
+    `import { ${name}Refs } from './refs/${name}.refs.generated';`,
+    '',
+    'const { ccclass } = _decorator;',
+    '',
+    `@ccclass('${name}')`,
+    `export class ${name} extends ${name}Refs<void, void> {`,
+    '    protected onOpen(): void {}',
+    '}',
+    '',
+  ].join('\n'));
+
+  return {
+    kind: 'global-view',
+    name,
+    prefab: `${root}/res/view/${name}.prefab`,
+    changed,
+  };
+}
+
 function createPart(projectRoot, owner, name) {
   requireModule(projectRoot, owner);
   assertPascalName(name, 'Part');
@@ -351,6 +387,9 @@ function create(projectRoot, kind, args) {
   if (kind === 'view') {
     return createView(projectRoot, args.owner, args.name);
   }
+  if (kind === 'global-view') {
+    return createGlobalView(projectRoot, args.name);
+  }
   if (kind === 'part') {
     return createPart(projectRoot, args.owner, args.name);
   }
@@ -378,6 +417,7 @@ module.exports = {
   createFlow,
   createEventFile,
   createExtensionStub,
+  createGlobalView,
   createLibrary,
   createModel,
   createModule,

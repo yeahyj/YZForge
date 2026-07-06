@@ -25,7 +25,10 @@ async function main() {
     const name = process.argv[4];
     const ownerIndex = process.argv.indexOf('--owner');
     const owner = ownerIndex >= 0 ? process.argv[ownerIndex + 1] : process.argv[5];
-    const result = create(projectRoot, kind, { name, owner });
+    const options = kind === 'global-view'
+      ? { name, owner: undefined }
+      : { name, owner };
+    const result = create(projectRoot, kind, options);
     console.log(JSON.stringify(result, null, 2));
     return;
   }

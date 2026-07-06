@@ -23,6 +23,7 @@ const template = `
           <option value="library" data-i18n="kind_library">Library</option>
           <option value="content-pack" data-i18n="kind_content_pack">ContentPack</option>
           <option value="view" data-i18n="kind_view">Module View</option>
+          <option value="global-view" data-i18n="kind_global_view">Global View</option>
           <option value="part" data-i18n="kind_part">Part</option>
           <option value="model" data-i18n="kind_model">Model</option>
           <option value="service" data-i18n="kind_service">Service</option>
@@ -261,6 +262,7 @@ function messageNameForKind(kind) {
     library: 'create-library',
     'content-pack': 'create-content-pack',
     view: 'create-module-view',
+    'global-view': 'create-global-view',
     part: 'create-part',
     model: 'create-model',
     service: 'create-service',
@@ -340,8 +342,8 @@ module.exports = Editor.Panel.define({
 
     updateVisibility() {
       const kind = this.$.kind.value;
-      const needsOwner = !['module', 'library', 'extension-stub'].includes(kind);
-      const needsPrefab = ['view', 'part'].includes(kind);
+      const needsOwner = !['module', 'library', 'global-view', 'extension-stub'].includes(kind);
+      const needsPrefab = ['view', 'global-view', 'part'].includes(kind);
       this.$.ownerRow.classList.toggle('hidden', !needsOwner);
       this.$.prefabRow.classList.toggle('hidden', !needsPrefab);
     },

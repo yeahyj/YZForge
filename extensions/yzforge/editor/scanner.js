@@ -58,8 +58,23 @@ function scanContentPacks(projectRoot) {
   return packs.sort((a, b) => `${a.owner}.${a.name}`.localeCompare(`${b.owner}.${b.name}`));
 }
 
+function scanGlobal(projectRoot) {
+  const dir = path.join(projectRoot, 'assets', 'app', 'global');
+  if (!fs.existsSync(dir)) {
+    return undefined;
+  }
+  return {
+    kind: 'global',
+    name: 'Global',
+    filePath: path.join(dir, 'code'),
+    projectPath: 'assets/app/global',
+    dir,
+  };
+}
+
 function scanProject(projectRoot) {
   return {
+    global: scanGlobal(projectRoot),
     modules: scanModules(projectRoot),
     libraries: scanLibraries(projectRoot),
     contentPacks: scanContentPacks(projectRoot),
@@ -68,6 +83,7 @@ function scanProject(projectRoot) {
 
 module.exports = {
   scanContentPacks,
+  scanGlobal,
   scanLibraries,
   scanModules,
   scanProject,
