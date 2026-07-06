@@ -17,6 +17,25 @@ export interface EnterModuleOptions {
     readonly cancelPendingEnter?: boolean;
 }
 
+export interface NavigationModuleSnapshot {
+    readonly name: string;
+    readonly bundleName: string;
+    readonly state: ModuleState;
+}
+
+export interface NavigationStackEntrySnapshot {
+    readonly module: NavigationModuleSnapshot;
+    readonly restoreUiOnBack: boolean;
+}
+
+export interface NavigatorSnapshot {
+    readonly active?: NavigationModuleSnapshot;
+    readonly stackDepth: number;
+    readonly stack: readonly NavigationStackEntrySnapshot[];
+    readonly transitioning: boolean;
+    readonly serial: number;
+}
+
 interface NavigationStackEntry {
     readonly module: LoadedModule<Module>;
     readonly restoreUiOnBack: boolean;
@@ -27,6 +46,7 @@ export class ModuleNavigator {
     private current?: LoadedModule<Module>;
     private enterTask: Promise<LoadedModule<Module> | undefined> = Promise.resolve(undefined);
     private enterSerial = 0;
+    private transitionDepth = 0;
 
     public constructor(private readonly app: App) {}
 
@@ -46,7 +66,12 @@ export class ModuleNavigator {
         const serial = options.cancelPendingEnter === false ? 0 : ++this.enterSerial;
         const run = async (): Promise<LoadedModule<Module>> => {
             this.ensureCurrent(serial);
-            return await this.enterNow(ref, params, options, serial) as LoadedModule<Module>;
+            this.beginTransition();
+            try {
+                return await this.enterNow(ref, params, options, serial) as LoadedModule<Module>;
+            } finally {
+                this.endTransition();
+            }
         };
         const task = this.enterTask.then(run, run);
         this.enterTask = task.catch(() => undefined);
@@ -54,39 +79,62 @@ export class ModuleNavigator {
     }
 
     public async back(): Promise<boolean> {
-        const current = this.current;
-        if (!current) {
-            return false;
-        }
-        if (await current.instance.ui.back?.()) {
-            return true;
-        }
+        this.beginTransition();
+        try {
+            const current = this.current;
+            if (!current) {
+                return false;
+            }
+            if (await current.instance.ui.back?.()) {
+                return true;
+            }
 
-        await this.exitCurrentForBack(current);
-        const previous = this.stack.pop();
-        if (!previous) {
-            this.current = undefined;
+            await this.exitCurrentForBack(current);
+            const previous = this.stack.pop();
+            if (!previous) {
+                this.current = undefined;
+                return true;
+            }
+            this.current = previous.module;
+            if (previous.restoreUiOnBack) {
+                previous.module.instance.ui.resumeOwned?.();
+            }
+            await previous.module.instance.__yzforgeResume();
             return true;
+        } finally {
+            this.endTransition();
         }
-        this.current = previous.module;
-        if (previous.restoreUiOnBack) {
-            previous.module.instance.ui.resumeOwned?.();
-        }
-        await previous.module.instance.__yzforgeResume();
-        return true;
     }
 
     public async detach(handle: LoadedModule): Promise<void> {
-        if (this.current === handle) {
-            this.current = undefined;
+        this.beginTransition();
+        try {
+            if (this.current === handle) {
+                this.current = undefined;
+            }
+            const index = this.stack.findIndex((entry) => entry.module === handle);
+            if (index >= 0) {
+                this.stack.splice(index, 1);
+            }
+            if (handle.instance.state === ModuleState.Active || handle.instance.state === ModuleState.Paused) {
+                await handle.instance.__yzforgeExit();
+            }
+        } finally {
+            this.endTransition();
         }
-        const index = this.stack.findIndex((entry) => entry.module === handle);
-        if (index >= 0) {
-            this.stack.splice(index, 1);
-        }
-        if (handle.instance.state === ModuleState.Active || handle.instance.state === ModuleState.Paused) {
-            await handle.instance.__yzforgeExit();
-        }
+    }
+
+    public snapshot(): NavigatorSnapshot {
+        return {
+            active: this.current ? this.snapshotModule(this.current) : undefined,
+            stackDepth: this.stack.length,
+            stack: this.stack.map((entry) => ({
+                module: this.snapshotModule(entry.module),
+                restoreUiOnBack: entry.restoreUiOnBack,
+            })),
+            transitioning: this.transitionDepth > 0,
+            serial: this.enterSerial,
+        };
     }
 
     private async enterNow<TModule extends Module, TParams>(
@@ -209,5 +257,21 @@ export class ModuleNavigator {
             await previous.instance.__yzforgeEnter();
         }
         this.current = previous;
+    }
+
+    private beginTransition(): void {
+        this.transitionDepth += 1;
+    }
+
+    private endTransition(): void {
+        this.transitionDepth = Math.max(0, this.transitionDepth - 1);
+    }
+
+    private snapshotModule(handle: LoadedModule<Module>): NavigationModuleSnapshot {
+        return {
+            name: handle.ref.name,
+            bundleName: handle.bundleName,
+            state: handle.instance.state,
+        };
     }
 }

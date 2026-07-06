@@ -8,7 +8,7 @@ import { GlobalRoot } from './global-root';
 import { LibraryRegistry, type LibraryRecordSnapshot, ModuleLibraryManager } from './library';
 import { Logger } from './logger';
 import type { LoadedModule, Module } from './module';
-import { ModuleNavigator, type EnterModuleOptions } from './navigator';
+import { ModuleNavigator, type EnterModuleOptions, type NavigatorSnapshot } from './navigator';
 import type { ModuleRef } from './refs';
 import { SharedRegistry } from './shared-registry';
 import type { ExtensionToken } from './tokens';
@@ -31,6 +31,7 @@ export interface AppRuntimeSnapshot {
     readonly bundles: readonly BundleRecordSnapshot[];
     readonly libraries: readonly LibraryRecordSnapshot[];
     readonly modules: readonly ModuleRuntimeSnapshot[];
+    readonly navigator: NavigatorSnapshot;
     readonly ui: readonly ViewSnapshot[];
 }
 
@@ -126,6 +127,7 @@ export class App {
             bundles: this.bundles.snapshots(),
             libraries: this.libraries.snapshots(),
             modules: Array.from(this.modules.values()).map((handle) => this.snapshotModule(handle)),
+            navigator: this.navigator.snapshot(),
             ui: this.ui.snapshots(),
         };
     }
