@@ -1,9 +1,10 @@
 import type { App } from './app';
 import type { ConfigScope } from './config';
+import type { LoadedContentPack, UnloadContentPackOptions } from './content-pack';
 import { EventBus } from './event-bus';
 import { YZForgeError } from './errors';
 import type { Logger } from './logger';
-import type { ModuleRef } from './refs';
+import type { ContentPackRef, ModuleRef } from './refs';
 import type { ModuleExtensionToken } from './tokens';
 import type { MaybePromise } from './types';
 import type { ModuleAssets } from './assets';
@@ -36,7 +37,10 @@ export interface ModuleLibraryAccess {
 }
 
 export interface ModuleContentPackAccess {
-    load(ref: unknown): Promise<unknown>;
+    load<TRefs, TConfig>(ref: ContentPackRef<TRefs, TConfig>): Promise<LoadedContentPack<TRefs, TConfig>>;
+    get?<TRefs, TConfig>(ref: ContentPackRef<TRefs, TConfig>): LoadedContentPack<TRefs, TConfig> | undefined;
+    getRefCount?(id: string): number;
+    unload?(id: string, options?: UnloadContentPackOptions): Promise<void>;
     unloadAll?(): Promise<void>;
 }
 
