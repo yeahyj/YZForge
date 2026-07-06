@@ -126,6 +126,14 @@ export type ComponentType<TComponent extends Component> = new (...args: any[]) =
 let nextViewId = 0;
 type AnyViewHandle = ViewHandle<any>;
 
+interface OpenToken {
+    readonly key: string;
+    readonly layer: ViewLayer;
+    readonly path: string;
+    readonly keyVersion: number;
+    readonly layerVersion: number;
+}
+
 const LAYER_NODE_NAMES: Record<ViewLayer, string> = {
     [ViewLayer.Page]: 'PageLayer',
     [ViewLayer.Paper]: 'PaperLayer',
@@ -137,6 +145,7 @@ const LAYER_NODE_NAMES: Record<ViewLayer, string> = {
 
 const VIEW_KINDS = [ViewKind.Page, ViewKind.Paper, ViewKind.Popup, ViewKind.Toast, ViewKind.Top, ViewKind.System];
 const VIEW_STACK_MODES = [ViewStackMode.Single, ViewStackMode.Stack, ViewStackMode.Queue, ViewStackMode.Free];
+const VIEW_LAYERS = [ViewLayer.Page, ViewLayer.Paper, ViewLayer.Popup, ViewLayer.Toast, ViewLayer.Top, ViewLayer.System];
 const DEFAULT_BACK_KEYS = [KeyCode.MOBILE_BACK, KeyCode.ESCAPE] as const;
 
 const DEFAULT_POLICY_BY_KIND: Record<ViewKind, ResolvedViewPolicy> = {
@@ -310,8 +319,10 @@ export class UIManager {
 
 export class ModuleUI {
     private readonly handles = new Set<AnyViewHandle>();
+    private readonly pendingOpens = new Map<string, Promise<AnyViewHandle>>();
     private readonly queueTasks = new Map<ViewLayer, Promise<void>>();
-    private readonly queueVersions = new Map<ViewLayer, number>();
+    private readonly keyVersions = new Map<string, number>();
+    private readonly layerVersions = new Map<ViewLayer, number>();
     private popupMask?: Node;
     private maskTarget?: AnyViewHandle;
 
@@ -331,15 +342,25 @@ export class ModuleUI {
         if (duplicate) {
             return await this.resolveDuplicate(duplicate, ref, data, options, policy);
         }
-
-        if (policy.stack === ViewStackMode.Queue) {
-            return await this.enqueueOpen(ref, data, options, policy, key);
+        const pending = this.pendingOpens.get(key);
+        if (pending) {
+            return await this.resolvePendingDuplicate(pending, ref, data, options, policy, key);
         }
 
-        return await this.openImmediate(ref, data, options, policy, key);
+        const task = policy.stack === ViewStackMode.Queue
+            ? this.enqueueOpen(ref, data, options, policy, key)
+            : this.openWithPolicy(ref, data, options, policy, key);
+        this.pendingOpens.set(key, task as Promise<AnyViewHandle>);
+        try {
+            return await task;
+        } finally {
+            if (this.pendingOpens.get(key) === task) {
+                this.pendingOpens.delete(key);
+            }
+        }
     }
 
-    private async openImmediate<TData, TResult>(
+    private async openWithPolicy<TData, TResult>(
         ref: ViewRef<TData, TResult>,
         data: TData | undefined,
         options: OpenViewOptions,
@@ -349,12 +370,23 @@ export class ModuleUI {
         if (policy.stack === ViewStackMode.Single) {
             await this.closeLayer(policy.layer, { cancelled: true, reason: 'single_view_replaced' }, { force: true });
         }
+        return await this.openImmediate(ref, data, options, policy, this.createOpenToken(policy.layer, key, ref.path));
+    }
 
+    private async openImmediate<TData, TResult>(
+        ref: ViewRef<TData, TResult>,
+        data: TData | undefined,
+        options: OpenViewOptions,
+        policy: ResolvedViewPolicy,
+        token: OpenToken,
+    ): Promise<ViewHandle<TResult>> {
         let node: Node | undefined;
         try {
+            this.ensureOpenAllowed(token);
             node = await this.module.assets.instantiate(ref, {
                 acquireAsset: policy.cache !== 'asset',
             });
+            this.ensureOpenAllowed(token);
             const component = node.getComponent(ref.component);
             if (!component) {
                 this.module.assets.destroyNode(node);
@@ -368,7 +400,7 @@ export class ModuleUI {
             const id = `view-${++nextViewId}`;
             const handle: ViewHandle<TResult> = {
                 id,
-                key,
+                key: token.key,
                 ref: ref as unknown as ViewRef<unknown, TResult>,
                 layer: policy.layer,
                 policy,
@@ -384,6 +416,7 @@ export class ModuleUI {
             view.__yzforgeBind(this.module, handle);
             handle.state = ViewState.Opening;
             await view.__yzforgeBeforeOpen(data);
+            this.ensureOpenAllowed(token);
             const root = this.resolveRoot(policy.layer);
             if (root) {
                 root.addChild(node);
@@ -394,9 +427,13 @@ export class ModuleUI {
             this.handles.add(handle as AnyViewHandle);
             this.focus(handle);
             await view.__yzforgeOpen(data);
+            this.ensureOpenAllowed(token);
             this.updatePopupMask();
             return handle;
         } catch (error) {
+            if (error instanceof YZForgeError && error.code === 'ui.view_open_cancelled') {
+                this.module.logger.debug(`View open cancelled: ${token.path}`, error.details);
+            }
             if (node && isValid(node)) {
                 this.module.assets.destroyNode(node);
             }
@@ -415,7 +452,7 @@ export class ModuleUI {
         key: string,
     ): Promise<ViewHandle<TResult>> {
         const previous = this.queueTasks.get(policy.layer) ?? Promise.resolve();
-        const version = this.queueVersion(policy.layer);
+        const token = this.createOpenToken(policy.layer, key, ref.path);
         let resolveOpened!: (handle: ViewHandle<TResult>) => void;
         let rejectOpened!: (error: unknown) => void;
         const opened = new Promise<ViewHandle<TResult>>((resolve, reject) => {
@@ -427,10 +464,8 @@ export class ModuleUI {
             .catch(() => undefined)
             .then(async () => {
                 try {
-                    if (this.queueVersion(policy.layer) !== version) {
-                        throw new YZForgeError(`Queued view open was cancelled: ${ref.path}`, 'ui.view_queue_cancelled');
-                    }
-                    const handle = await this.openImmediate(ref, data, options, policy, key);
+                    this.ensureOpenAllowed(token);
+                    const handle = await this.openImmediate(ref, data, options, policy, token);
                     resolveOpened(handle);
                     await handle.view.__yzforgeWaitResult();
                 } catch (error) {
@@ -454,8 +489,15 @@ export class ModuleUI {
         data?: TData,
         options: OpenViewOptions = {},
     ): Promise<TResult | UiCancelResult> {
-        const handle = await this.open(ref, data, options);
-        return await handle.view.__yzforgeWaitResult();
+        try {
+            const handle = await this.open(ref, data, options);
+            return await handle.view.__yzforgeWaitResult();
+        } catch (error) {
+            if (isOpenCancelledError(error)) {
+                return { cancelled: true, reason: (error as YZForgeError).code };
+            }
+            throw error;
+        }
     }
 
     public async close<TResult>(
@@ -491,7 +533,7 @@ export class ModuleUI {
         reason?: unknown,
         options: CloseViewOptions = {},
     ): Promise<void> {
-        this.cancelQueuedOpens(layer);
+        this.cancelLayerOpens(layer);
         const handles = this.sortedHandles().filter((handle) => handle.layer === layer);
         for (const handle of handles.reverse()) {
             await this.close(handle, reason, options);
@@ -499,7 +541,7 @@ export class ModuleUI {
     }
 
     public async closeOwned(reason?: unknown): Promise<void> {
-        this.cancelQueuedOpens();
+        this.cancelLayerOpens();
         for (const handle of this.sortedHandles().reverse()) {
             if (handle.policy.closeWithOwner) {
                 await this.close(handle, isUiCancelResult(reason) ? reason : { cancelled: true, reason }, { force: true });
@@ -508,7 +550,7 @@ export class ModuleUI {
     }
 
     public async pauseOwned(): Promise<void> {
-        this.cancelQueuedOpens();
+        this.cancelLayerOpens();
         for (const handle of this.sortedHandles()) {
             if (handle.state !== ViewState.Open) {
                 continue;
@@ -579,6 +621,28 @@ export class ModuleUI {
         return duplicate as ViewHandle<TResult>;
     }
 
+    private async resolvePendingDuplicate<TData, TResult>(
+        pending: Promise<AnyViewHandle>,
+        ref: ViewRef<TData, TResult>,
+        data: TData | undefined,
+        options: OpenViewOptions,
+        policy: ResolvedViewPolicy,
+        key: string,
+    ): Promise<ViewHandle<TResult>> {
+        const mode = options.duplicate ?? policy.duplicate;
+        if (mode === 'reject') {
+            throw new YZForgeError(`View is already opening: ${ref.path}`, 'ui.view_duplicate_rejected');
+        }
+        if (mode === 'reopen') {
+            this.cancelKeyOpen(key);
+            this.pendingOpens.delete(key);
+            return await this.open(ref, data, { ...options, duplicate: 'reject' });
+        }
+        const handle = await pending as ViewHandle<TResult>;
+        this.focus(handle);
+        return handle;
+    }
+
     private resolvePolicy(ref: ViewRef, options: OpenViewOptions): ResolvedViewPolicy {
         const rawKind = options.policy?.kind ?? ref.policy.kind ?? ViewKind.Page;
         const kind = this.normalizeKind(rawKind);
@@ -639,14 +703,41 @@ export class ModuleUI {
         return Array.from(this.handles);
     }
 
-    private queueVersion(layer: ViewLayer): number {
-        return this.queueVersions.get(layer) ?? 0;
+    private createOpenToken(layer: ViewLayer, key: string, path: string): OpenToken {
+        return {
+            key,
+            layer,
+            path,
+            keyVersion: this.keyVersion(key),
+            layerVersion: this.layerVersion(layer),
+        };
     }
 
-    private cancelQueuedOpens(layer?: ViewLayer): void {
-        const layers = layer !== undefined ? [layer] : Array.from(this.queueTasks.keys());
+    private ensureOpenAllowed(token: OpenToken): void {
+        if (this.keyVersion(token.key) !== token.keyVersion || this.layerVersion(token.layer) !== token.layerVersion) {
+            throw new YZForgeError(`View open was cancelled: ${token.path}`, 'ui.view_open_cancelled', {
+                key: token.key,
+                layer: token.layer,
+            });
+        }
+    }
+
+    private keyVersion(key: string): number {
+        return this.keyVersions.get(key) ?? 0;
+    }
+
+    private layerVersion(layer: ViewLayer): number {
+        return this.layerVersions.get(layer) ?? 0;
+    }
+
+    private cancelKeyOpen(key: string): void {
+        this.keyVersions.set(key, this.keyVersion(key) + 1);
+    }
+
+    private cancelLayerOpens(layer?: ViewLayer): void {
+        const layers = layer !== undefined ? [layer] : VIEW_LAYERS;
         for (const item of layers) {
-            this.queueVersions.set(item, this.queueVersion(item) + 1);
+            this.layerVersions.set(item, this.layerVersion(item) + 1);
         }
     }
 
@@ -762,6 +853,10 @@ function stopKeyboardEvent(event: EventKeyboard): void {
     event.propagationStopped = true;
     event.propagationImmediateStopped = true;
     event.rawEvent?.preventDefault();
+}
+
+function isOpenCancelledError(error: unknown): error is YZForgeError {
+    return error instanceof YZForgeError && error.code === 'ui.view_open_cancelled';
 }
 
 function parseAutoRefName(name: string): string | undefined {
