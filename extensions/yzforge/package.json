@@ -38,6 +38,11 @@
       },
       {
         "path": "YZForge",
+        "label": "i18n:yzforge.clean_generated",
+        "message": "clean-generated"
+      },
+      {
+        "path": "YZForge",
         "label": "i18n:yzforge.validate_architecture",
         "message": "validate-architecture"
       },
@@ -66,6 +71,16 @@
       "generate-all": {
         "methods": [
           "generateAll"
+        ]
+      },
+      "clean-generated": {
+        "methods": [
+          "cleanGenerated"
+        ]
+      },
+      "focus-asset": {
+        "methods": [
+          "focusAsset"
         ]
       },
       "validate-architecture": {

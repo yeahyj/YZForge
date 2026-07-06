@@ -1,5 +1,6 @@
 'use strict';
 
+const { cleanGenerated: cleanGeneratedFiles, collectGeneratedFiles } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { validate } = require('./validate');
@@ -133,6 +134,65 @@ function asAssetUrl(relativePath) {
   return relativePath ? `db://${toPosix(relativePath)}` : undefined;
 }
 
+function hasEditorAssetDb() {
+  return Boolean(global.Editor && Editor.Message && typeof Editor.Message.request === 'function');
+}
+
+function fileDetail(relativePath) {
+  const normalized = toPosix(relativePath);
+  return {
+    path: normalized,
+    url: normalized.startsWith('assets/') ? asAssetUrl(normalized) : undefined,
+  };
+}
+
+function extractIssuePath(issue) {
+  const normalized = toPosix(issue);
+  const root = toPosix(projectRoot());
+  const rootIndex = normalized.indexOf(`${root}/`);
+  if (rootIndex >= 0) {
+    const rel = normalized.slice(rootIndex + root.length + 1).match(/^[^\s:'")]+/)?.[0];
+    return rel ? rel.replace(/[.,]+$/, '') : undefined;
+  }
+
+  const match = normalized.match(/\b((?:assets|extensions|docs)\/[^\s:'")]+|(?:import-map|tsconfig)\.json)\b/);
+  return match ? match[1].replace(/[.,]+$/, '') : undefined;
+}
+
+function issueDetail(issue) {
+  const path = extractIssuePath(issue);
+  return {
+    message: issue,
+    ...(path ? fileDetail(path) : {}),
+  };
+}
+
+function withGeneratedDetails(result) {
+  return {
+    ...result,
+    changedDetails: (result.changed || []).map(fileDetail),
+  };
+}
+
+function withValidationDetails(result) {
+  return {
+    ...result,
+    issueDetails: (result.issues || []).map(issueDetail),
+  };
+}
+
+function withCleanDetails(result) {
+  return {
+    ...result,
+    fileDetails: (result.files || []).map(fileDetail),
+    removedDetails: (result.removed || []).map(fileDetail),
+    failedDetails: (result.failed || []).map((item) => ({
+      ...item,
+      ...fileDetail(item.path),
+    })),
+  };
+}
+
 async function selectAsset(url) {
   const result = {
     url,
@@ -222,6 +282,53 @@ async function refreshCreatedAssets(urls) {
   return refreshed;
 }
 
+async function cleanGeneratedAssets(options = {}) {
+  const root = projectRoot();
+  const dryRun = Boolean(options.dryRun || options.check);
+  const files = collectGeneratedFiles(root);
+  if (dryRun) {
+    return withCleanDetails({
+      ok: true,
+      dryRun: true,
+      count: files.length,
+      files,
+      removed: [],
+      failed: [],
+    });
+  }
+
+  if (!hasEditorAssetDb()) {
+    return withCleanDetails(cleanGeneratedFiles(root));
+  }
+
+  const removed = [];
+  const failed = [];
+  for (const relative of files) {
+    try {
+      await assetDbRequest('delete-asset', asAssetUrl(relative));
+      removed.push(relative);
+    } catch (error) {
+      failed.push({
+        path: relative,
+        reason: error.message,
+      });
+    }
+  }
+  await refreshAsset('db://assets/app');
+  await refreshAsset('db://assets/modules');
+  await refreshAsset('db://assets/libraries');
+  await refreshAsset('db://assets/content-packs');
+
+  return withCleanDetails({
+    ok: failed.length === 0,
+    dryRun: false,
+    count: removed.length,
+    files,
+    removed,
+    failed,
+  });
+}
+
 async function createUiPrefab(result, options) {
   if (!['view', 'global-view', 'part'].includes(result.kind) || options.prefab === false) {
     return undefined;
@@ -293,7 +400,7 @@ async function postCreate(result, options) {
   }
 
   const prefab = await createUiPrefab(result, options);
-  const generated = generate(projectRoot());
+  const generated = withGeneratedDetails(generate(projectRoot()));
   const createdUrls = changedAssetUrls(result, generated, prefab);
   refreshed.push(...await refreshCreatedAssets(createdUrls));
   const focus = await selectAsset(preferredAssetUrl(result, prefab));
@@ -370,19 +477,32 @@ exports.methods = {
   showCreateHelp,
 
   async generateAll() {
-    const result = generate(projectRoot());
+    const result = withGeneratedDetails(generate(projectRoot()));
     console.log('[YZForge] generate all:', result);
     return result;
   },
 
+  async cleanGenerated(first) {
+    const options = normalizeOptions(first);
+    const result = await cleanGeneratedAssets(options);
+    console.log('[YZForge] clean generated:', result);
+    return result;
+  },
+
+  async focusAsset(first) {
+    const options = normalizeOptions(first);
+    const url = options.url || asAssetUrl(options.path);
+    return await selectAsset(url);
+  },
+
   async validateArchitecture() {
-    const result = validate(projectRoot());
+    const result = withValidationDetails(validate(projectRoot()));
     console.log('[YZForge] validate architecture:', result);
     return result;
   },
 
   async validateArchitectureStrict() {
-    const result = validate(projectRoot(), { strict: true });
+    const result = withValidationDetails(validate(projectRoot(), { strict: true }));
     console.log('[YZForge] validate architecture strict:', result);
     return result;
   },

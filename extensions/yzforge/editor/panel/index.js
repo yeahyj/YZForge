@@ -50,6 +50,7 @@ const template = `
 
   <section class="section action-row">
     <button id="generate" data-i18n="generate_all">Generate All</button>
+    <button id="clean" data-i18n="clean_generated">Clean Generated</button>
     <button id="validate" data-i18n="validate_architecture">Validate</button>
     <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
   </section>
@@ -66,6 +67,7 @@ const template = `
 
   <section class="section result">
     <div class="section-title" data-i18n="panel_result">Result</div>
+    <div id="result-list" class="result-list"></div>
     <pre id="result"></pre>
   </section>
 </section>
@@ -199,7 +201,7 @@ button:disabled {
 
 .action-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -236,6 +238,37 @@ button:disabled {
 .result {
   flex: 1;
   min-height: 0;
+}
+
+.result-list {
+  display: grid;
+  gap: 4px;
+  max-height: 120px;
+  margin-bottom: 8px;
+  overflow: auto;
+}
+
+.result-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  background: var(--color-normal-fill);
+}
+
+.result-row span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-normal-contrast-weaker);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-row button {
+  min-height: 24px;
+  padding: 2px 8px;
 }
 
 pre {
@@ -295,12 +328,14 @@ module.exports = Editor.Panel.define({
     overwrite: '#overwrite',
     create: '#create',
     generate: '#generate',
+    clean: '#clean',
     validate: '#validate',
     validateStrict: '#validate-strict',
     moduleCount: '#module-count',
     libraryCount: '#library-count',
     packCount: '#pack-count',
     moduleList: '#module-list',
+    resultList: '#result-list',
     result: '#result',
   },
   methods: {
@@ -324,13 +359,70 @@ module.exports = Editor.Panel.define({
     setBusy(busy, label) {
       const key = label || (busy ? 'panel_status_working' : 'panel_status_ready');
       this.$.status.textContent = this.t(key);
-      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.validate]) {
+      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate]) {
         button.disabled = busy;
       }
       this.$.validateStrict.disabled = busy;
     },
 
+    resultRows(value) {
+      if (!value || typeof value !== 'object') {
+        return [];
+      }
+      if (Array.isArray(value.issueDetails) && value.issueDetails.length > 0) {
+        return value.issueDetails.map((item) => ({
+          label: item.message || item.path,
+          url: item.url,
+          path: item.path,
+        }));
+      }
+      if (Array.isArray(value.removedDetails) && value.removedDetails.length > 0) {
+        return value.removedDetails.map((item) => ({
+          label: item.path,
+          url: item.url,
+          path: item.path,
+        }));
+      }
+      if (Array.isArray(value.changedDetails) && value.changedDetails.length > 0) {
+        return value.changedDetails.map((item) => ({
+          label: item.path,
+          url: item.url,
+          path: item.path,
+        }));
+      }
+      if (value.generated && Array.isArray(value.generated.changedDetails) && value.generated.changedDetails.length > 0) {
+        return value.generated.changedDetails.map((item) => ({
+          label: item.path,
+          url: item.url,
+          path: item.path,
+        }));
+      }
+      if (Array.isArray(value.fileDetails) && value.fileDetails.length > 0) {
+        return value.fileDetails.map((item) => ({
+          label: item.path,
+          url: item.url,
+          path: item.path,
+        }));
+      }
+      return [];
+    },
+
     setResult(value) {
+      this.$.resultList.innerHTML = '';
+      for (const row of this.resultRows(value)) {
+        const item = document.createElement('div');
+        item.className = 'result-row';
+        const label = document.createElement('span');
+        label.textContent = row.label || row.path || row.url || '';
+        item.appendChild(label);
+        if (row.url || row.path) {
+          const button = document.createElement('button');
+          button.textContent = this.t('panel_locate');
+          button.addEventListener('click', () => this.locateResult(row));
+          item.appendChild(button);
+        }
+        this.$.resultList.appendChild(item);
+      }
       this.$.result.textContent = typeof value === 'string'
         ? value
         : JSON.stringify(value, null, 2);
@@ -338,6 +430,20 @@ module.exports = Editor.Panel.define({
 
     async call(message, payload) {
       return await Editor.Message.request('yzforge', message, payload);
+    },
+
+    async locateResult(row) {
+      try {
+        const result = await this.call('focus-asset', {
+          url: row.url,
+          path: row.path,
+        });
+        this.$.status.textContent = result && result.selected
+          ? this.t('panel_status_ready')
+          : this.t('panel_status_working');
+      } catch (error) {
+        this.setResult({ ok: false, error: error.message, target: row });
+      }
     },
 
     updateVisibility() {
@@ -405,6 +511,18 @@ module.exports = Editor.Panel.define({
       }
     },
 
+    async cleanGenerated() {
+      this.setBusy(true, 'panel_status_cleaning');
+      try {
+        this.setResult(await this.call('clean-generated', { dryRun: false }));
+        await this.refreshSummary({ silentResult: true });
+      } catch (error) {
+        this.setResult({ ok: false, error: error.message });
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
     async validateProject() {
       this.setBusy(true, 'panel_status_validating');
       try {
@@ -433,6 +551,7 @@ module.exports = Editor.Panel.define({
     this.$.refresh.addEventListener('click', () => this.refreshSummary());
     this.$.create.addEventListener('click', () => this.createItem());
     this.$.generate.addEventListener('click', () => this.generateAll());
+    this.$.clean.addEventListener('click', () => this.cleanGenerated());
     this.$.validate.addEventListener('click', () => this.validateProject());
     this.$.validateStrict.addEventListener('click', () => this.validateProjectStrict());
     this.updateVisibility();

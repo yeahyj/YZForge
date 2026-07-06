@@ -3,6 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { cleanGenerated } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { kebabCase, toPosix } = require('./fs-utils');
@@ -227,6 +228,16 @@ function smoke(options = {}) {
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
     const validation = assertOkValidation(projectRoot);
+
+    const cleanPreview = cleanGenerated(projectRoot, { dryRun: true });
+    assert(cleanPreview.files.includes('assets/app/global/code/assets.generated.ts'), 'Expected clean preview to include Global assets.');
+    assert(cleanPreview.files.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected clean preview to include Module assets.');
+    const clean = cleanGenerated(projectRoot);
+    assert(clean.ok, `Clean generated failed:\n${JSON.stringify(clean.failed, null, 2)}`);
+    assert(!fs.existsSync(path.join(projectRoot, 'assets/modules/Battle/code/assets.generated.ts')), 'Expected generated module assets to be removed.');
+    const regenerated = generate(projectRoot);
+    assert(regenerated.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected regenerate to restore cleaned module assets.');
+    assertOkValidation(projectRoot);
 
     fs.appendFileSync(path.join(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts'), '// tampered\n', 'utf8');
     expectValidationIssue(projectRoot, 'generated hash mismatch');

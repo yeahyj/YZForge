@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const { cleanGenerated } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { smoke } = require('./smoke');
@@ -30,6 +31,16 @@ async function main() {
       : { name, owner };
     const result = create(projectRoot, kind, options);
     console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === 'clean-generated') {
+    const dryRun = process.argv.includes('--dry-run') || process.argv.includes('--check');
+    const result = cleanGenerated(projectRoot, { dryRun });
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
