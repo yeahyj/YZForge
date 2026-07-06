@@ -1,5 +1,5 @@
 import type { AssetManager } from 'cc';
-import { LibraryAssets } from './assets';
+import { LibraryAssets, type AssetScopeSnapshot } from './assets';
 import type { App } from './app';
 import type { LibraryEntry } from './entry-registry';
 import { YZForgeError } from './errors';
@@ -13,6 +13,16 @@ export interface LoadedLibrary<TTokens = unknown> {
     readonly config: LibraryEntry['config'];
     use<TKey extends keyof TTokens>(token: LibraryToken<TTokens, TKey>): TTokens[TKey];
     unload(): Promise<void>;
+}
+
+export interface LibraryRecordSnapshot {
+    readonly name: string;
+    readonly bundleName: string;
+    readonly owners: readonly string[];
+    readonly ownerCount: number;
+    readonly dependencies: readonly string[];
+    readonly tokenInstanceCount: number;
+    readonly assets: AssetScopeSnapshot;
 }
 
 interface LibraryRecord {
@@ -63,6 +73,15 @@ export class LibraryRegistry {
 
     public get<TTokens>(ref: LibraryRef<TTokens>): LoadedLibrary<TTokens> | undefined {
         return this.records.get(ref.name)?.handle as LoadedLibrary<TTokens> | undefined;
+    }
+
+    public snapshot(name: string): LibraryRecordSnapshot | undefined {
+        const record = this.records.get(name);
+        return record ? this.snapshotRecord(record) : undefined;
+    }
+
+    public snapshots(): LibraryRecordSnapshot[] {
+        return Array.from(this.records.values()).map((record) => this.snapshotRecord(record));
     }
 
     public async releaseOwner(ownerKey: string): Promise<void> {
@@ -179,6 +198,18 @@ export class LibraryRegistry {
             this.ownerRefs.set(ownerKey, refs);
         }
         refs.add(libraryName);
+    }
+
+    private snapshotRecord(record: LibraryRecord): LibraryRecordSnapshot {
+        return {
+            name: record.ref.name,
+            bundleName: record.ref.bundle,
+            owners: Array.from(record.owners),
+            ownerCount: record.owners.size,
+            dependencies: record.ref.libraries.map((library) => library.name),
+            tokenInstanceCount: record.tokenInstances.size,
+            assets: record.assets.snapshot(),
+        };
     }
 }
 

@@ -1,5 +1,5 @@
 import type { AssetManager } from 'cc';
-import { ContentPackAssetScope } from './assets';
+import { ContentPackAssetScope, type AssetScopeSnapshot } from './assets';
 import type { App } from './app';
 import type { ConfigScope } from './config';
 import { YZForgeError } from './errors';
@@ -12,6 +12,16 @@ export interface LoadedContentPack<TRefs = unknown, TConfig = unknown> {
     readonly assets: ContentPackAssetScope;
     readonly config: ConfigScope | Record<string, unknown>;
     unload(): Promise<void>;
+}
+
+export interface ContentPackRecordSnapshot {
+    readonly id: string;
+    readonly owner: string;
+    readonly name?: string;
+    readonly bundleName: string;
+    readonly refCount: number;
+    readonly dependencies: readonly string[];
+    readonly assets: AssetScopeSnapshot;
 }
 
 interface ContentPackRecord {
@@ -77,6 +87,15 @@ export class ContentPackManager {
 
     public get<TRefs, TConfig>(ref: ContentPackRef<TRefs, TConfig>): LoadedContentPack<TRefs, TConfig> | undefined {
         return this.records.get(ref.id)?.handle as LoadedContentPack<TRefs, TConfig> | undefined;
+    }
+
+    public snapshot(id: string): ContentPackRecordSnapshot | undefined {
+        const record = this.records.get(id);
+        return record ? this.snapshotRecord(record) : undefined;
+    }
+
+    public snapshots(): ContentPackRecordSnapshot[] {
+        return Array.from(this.records.values()).map((record) => this.snapshotRecord(record));
     }
 
     private async create<TRefs, TConfig>(
@@ -149,5 +168,17 @@ export class ContentPackManager {
         if (version !== this.unloadVersion) {
             throw new YZForgeError(`ContentPack load was cancelled: ${ref.id}`, 'content_pack.load_cancelled');
         }
+    }
+
+    private snapshotRecord(record: ContentPackRecord): ContentPackRecordSnapshot {
+        return {
+            id: record.ref.id,
+            owner: record.ref.owner,
+            name: record.ref.name,
+            bundleName: record.ref.bundle,
+            refCount: record.refCount,
+            dependencies: record.ref.libraries.map((library) => library.name),
+            assets: record.assets.snapshot(),
+        };
     }
 }
