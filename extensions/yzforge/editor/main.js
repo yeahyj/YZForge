@@ -196,12 +196,25 @@ function withValidationDetails(result) {
 }
 
 function withCleanDetails(result) {
+  const files = result.files || [];
+  const protectedFiles = result.protected || [];
+  const removed = result.removed || [];
+  const failed = result.failed || [];
   return {
     ...result,
-    fileDetails: (result.files || []).map(fileDetail),
-    protectedDetails: (result.protected || []).map(fileDetail),
-    removedDetails: (result.removed || []).map(fileDetail),
-    failedDetails: (result.failed || []).map((item) => ({
+    summary: {
+      total: typeof result.total === 'number' ? result.total : files.length + protectedFiles.length,
+      cleanable: files.length,
+      protected: protectedFiles.length,
+      removed: removed.length,
+      failed: failed.length,
+      dryRun: result.dryRun === true,
+      includeScripts: result.includeScripts === true,
+    },
+    fileDetails: files.map(fileDetail),
+    protectedDetails: protectedFiles.map(fileDetail),
+    removedDetails: removed.map(fileDetail),
+    failedDetails: failed.map((item) => ({
       ...item,
       ...fileDetail(item.path),
     })),
@@ -459,12 +472,17 @@ async function refreshCreatedAssets(urls) {
 async function cleanGeneratedAssets(options = {}) {
   const root = projectRoot();
   const dryRun = Boolean(options.dryRun || options.check);
+  const includeScripts = options.includeScripts === true || options.force === true;
   const allFiles = collectGeneratedFiles(root);
-  const plan = editorCleanPlan(allFiles, options);
+  const plan = editorCleanPlan(allFiles, {
+    ...options,
+    includeScripts,
+  });
   if (dryRun) {
     return withCleanDetails({
       ok: true,
       dryRun: true,
+      includeScripts,
       count: plan.files.length,
       total: allFiles.length,
       files: plan.files,
@@ -476,11 +494,12 @@ async function cleanGeneratedAssets(options = {}) {
 
   if (!hasEditorAssetDb()) {
     const result = cleanGeneratedFiles(root, {
-      includeScripts: options.includeScripts === true || options.force === true,
+      includeScripts,
     });
     return withCleanDetails({
       ...result,
       total: allFiles.length,
+      includeScripts,
       protected: plan.protected,
     });
   }
@@ -506,6 +525,7 @@ async function cleanGeneratedAssets(options = {}) {
   return withCleanDetails({
     ok: failed.length === 0,
     dryRun: false,
+    includeScripts,
     count: removed.length,
     total: allFiles.length,
     files: plan.files,
@@ -730,8 +750,12 @@ exports.methods = {
     return result;
   },
 
-  async cleanGeneratedPreview() {
-    const result = await cleanGeneratedAssets({ dryRun: true });
+  async cleanGeneratedPreview(first) {
+    const options = normalizeOptions(first);
+    const result = await cleanGeneratedAssets({
+      ...options,
+      dryRun: true,
+    });
     console.log('[YZForge] clean generated preview:', result);
     return result;
   },

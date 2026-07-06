@@ -50,7 +50,7 @@ const template = `
 
   <section class="section action-row">
     <button id="generate" data-i18n="generate_all">Generate All</button>
-    <button id="clean" data-i18n="clean_generated">Clean Generated</button>
+    <button id="clean" data-i18n="clean_generated" data-i18n-title="clean_generated_title">Safe Clean</button>
     <button id="validate" data-i18n="validate_architecture">Validate</button>
     <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
   </section>
@@ -60,6 +60,13 @@ const template = `
     <button id="runtime-snapshot" data-i18n="runtime_snapshot">Runtime Snapshot</button>
     <button id="generate-check" data-i18n="generate_check">Generate Check</button>
     <button id="clean-preview" data-i18n="clean_preview">Clean Preview</button>
+  </section>
+
+  <section class="section clean-options">
+    <label data-i18n-title="clean_scripts_title">
+      <input id="clean-scripts" type="checkbox" />
+      <span data-i18n="clean_scripts">Include generated TS</span>
+    </label>
   </section>
 
   <section class="section summary">
@@ -212,6 +219,18 @@ button:disabled {
   gap: 8px;
 }
 
+.clean-options label {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.clean-options input {
+  width: auto;
+  min-height: auto;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -342,6 +361,7 @@ module.exports = Editor.Panel.define({
     runtimeSnapshot: '#runtime-snapshot',
     generateCheck: '#generate-check',
     cleanPreview: '#clean-preview',
+    cleanScripts: '#clean-scripts',
     moduleCount: '#module-count',
     libraryCount: '#library-count',
     packCount: '#pack-count',
@@ -373,7 +393,14 @@ module.exports = Editor.Panel.define({
       for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate, this.$.diagnostics, this.$.runtimeSnapshot, this.$.generateCheck, this.$.cleanPreview]) {
         button.disabled = busy;
       }
+      this.$.cleanScripts.disabled = busy;
       this.$.validateStrict.disabled = busy;
+    },
+
+    cleanOptions() {
+      return {
+        includeScripts: this.$.cleanScripts.checked === true,
+      };
     },
 
     resultRows(value) {
@@ -429,9 +456,16 @@ module.exports = Editor.Panel.define({
           path: item.path,
         }));
       }
+      if (value.clean && Array.isArray(value.clean.protectedDetails) && value.clean.protectedDetails.length > 0) {
+        return value.clean.protectedDetails.map((item) => ({
+          label: `${this.t('clean_protected')}: ${item.path}`,
+          url: item.url,
+          path: item.path,
+        }));
+      }
       if (Array.isArray(value.protectedDetails) && value.protectedDetails.length > 0) {
         return value.protectedDetails.map((item) => ({
-          label: item.path,
+          label: `${this.t('clean_protected')}: ${item.path}`,
           url: item.url,
           path: item.path,
         }));
@@ -562,7 +596,10 @@ module.exports = Editor.Panel.define({
     async cleanGenerated() {
       this.setBusy(true, 'panel_status_cleaning');
       try {
-        this.setResult(await this.call('clean-generated', { dryRun: false }));
+        this.setResult(await this.call('clean-generated', {
+          dryRun: false,
+          ...this.cleanOptions(),
+        }));
         await this.refreshSummary({ silentResult: true });
       } catch (error) {
         this.setResult(this.errorResult(error));
@@ -629,7 +666,7 @@ module.exports = Editor.Panel.define({
     async cleanPreview() {
       this.setBusy(true, 'panel_status_cleaning');
       try {
-        this.setResult(await this.call('clean-generated-preview'));
+        this.setResult(await this.call('clean-generated-preview', this.cleanOptions()));
       } catch (error) {
         this.setResult(this.errorResult(error));
       } finally {
