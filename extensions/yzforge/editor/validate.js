@@ -911,6 +911,67 @@ function validateContentPackDoesNotProvideUiViews(projectRoot, project, issues) 
   }
 }
 
+function generatedViewPolicies(content) {
+  const policies = new Map();
+  const pattern = /\b([A-Za-z_$][\w$]*)\s*:\s*viewRef\(\s*([A-Za-z_$][\w$]*)\s*,\s*['"][^'"]+['"]\s*,\s*\{([\s\S]*?)\}\s*\)\s*,?/g;
+  let match;
+  while ((match = pattern.exec(content)) !== null) {
+    const rawKind = extractObjectProperty(match[3], 'kind');
+    policies.set(match[1], {
+      className: match[2],
+      kind: rawKind ? enumValueName(rawKind, 'ViewKind', VIEW_POLICY_KINDS) : undefined,
+      rawKind,
+    });
+  }
+  return policies;
+}
+
+function offsetLocation(content, offset) {
+  const before = content.slice(0, offset);
+  const lines = before.split(/\r\n?|\n/);
+  return {
+    line: lines.length,
+    column: lines[lines.length - 1].length + 1,
+  };
+}
+
+function validateOpenForResultTargets(projectRoot, project, issues) {
+  const descriptors = project.global ? [project.global, ...project.modules] : project.modules;
+  for (const descriptor of descriptors) {
+    const codeDir = path.join(descriptor.dir, 'code');
+    const assetsPath = path.join(codeDir, 'assets.generated.ts');
+    if (!fs.existsSync(assetsPath)) {
+      continue;
+    }
+    const policies = generatedViewPolicies(fs.readFileSync(assetsPath, 'utf8'));
+    const toastKeys = new Set(Array.from(policies.entries())
+      .filter(([, policy]) => policy.kind === 'Toast')
+      .map(([key]) => key));
+    if (toastKeys.size === 0) {
+      continue;
+    }
+
+    for (const filePath of walk(codeDir, (item) => item.endsWith('.ts') && !item.endsWith('.generated.ts'))) {
+      const rel = toPosix(path.relative(projectRoot, filePath));
+      const content = fs.readFileSync(filePath, 'utf8');
+      const source = stripCodeComments(content);
+      const pattern = /\bopenForResult\s*\(\s*assets\.views\.([A-Za-z_$][\w$]*)\b/g;
+      let match;
+      while ((match = pattern.exec(source)) !== null) {
+        if (!toastKeys.has(match[1])) {
+          continue;
+        }
+        issues.push(`${rel} must not call openForResult with Toast View '${match[1]}'. Use open or a Popup/Paper result flow.`, {
+          path: rel,
+          code: 'ui.open_for_result_toast',
+          target: toPosix(path.relative(projectRoot, assetsPath)),
+          ...offsetLocation(source, match.index),
+        });
+      }
+    }
+  }
+}
+
 function stripCodeComments(content) {
   return String(content || '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -1644,6 +1705,7 @@ function validate(projectRoot, options = {}) {
     validateContentPackManifest(projectRoot, project, issues);
     validatePrefabScriptSources(projectRoot, project, issues);
     validateContentPackDoesNotProvideUiViews(projectRoot, project, issues);
+    validateOpenForResultTargets(projectRoot, project, issues);
     validateRefEntryConsistency(projectRoot, project, issues);
     validateEntryImports(projectRoot, project, issues);
     validateLibraryCycles(project, issues);

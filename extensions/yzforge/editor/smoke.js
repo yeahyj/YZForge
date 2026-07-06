@@ -286,6 +286,23 @@ function smoke(options = {}) {
     fs.unlinkSync(path.join(projectRoot, 'assets/content-packs/Battle/Level001/res/prefab/PageInjected.prefab'));
     assertOkValidation(projectRoot);
 
+    writeText(projectRoot, 'assets/app/global/code/view/BadToastResult.ts', [
+      "import { assets } from '../assets.generated';",
+      '',
+      'export class BadToastResult {',
+      '    public async run(): Promise<void> {',
+      '        await this.ui.openForResult(assets.views.toastNotice);',
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    const toastResultViolation = expectValidationIssue(projectRoot, 'must not call openForResult with Toast View');
+    const toastResultDetail = toastResultViolation.issueDetails.find((issue) => issue.message.includes('openForResult with Toast View'));
+    assert(toastResultDetail.code === 'ui.open_for_result_toast', 'Expected Toast openForResult issue code.');
+    assert(toastResultDetail.path === 'assets/app/global/code/view/BadToastResult.ts', 'Expected Toast openForResult issue path.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/app/global/code/view/BadToastResult.ts'));
+    assertOkValidation(projectRoot);
+
     const cleanPreview = cleanGenerated(projectRoot, { dryRun: true });
     assert(cleanPreview.files.includes('assets/app/global/code/assets.generated.ts'), 'Expected clean preview to include Global assets.');
     assert(cleanPreview.files.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected clean preview to include Module assets.');
