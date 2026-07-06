@@ -380,6 +380,13 @@ module.exports = Editor.Panel.define({
       if (!value || typeof value !== 'object') {
         return [];
       }
+      if (Array.isArray(value.details) && value.details.length > 0) {
+        return value.details.map((item) => ({
+          label: item.message || item.label || item.path || item.url || item.code,
+          url: item.url,
+          path: item.path,
+        }));
+      }
       if (Array.isArray(value.issueDetails) && value.issueDetails.length > 0) {
         return value.issueDetails.map((item) => ({
           label: item.message || item.path,
@@ -430,6 +437,15 @@ module.exports = Editor.Panel.define({
         }));
       }
       return [];
+    },
+
+    errorResult(error) {
+      return {
+        ok: false,
+        error: error && error.message ? error.message : String(error),
+        details: error && Array.isArray(error.details) ? error.details : [],
+        issueDetails: error && Array.isArray(error.issueDetails) ? error.issueDetails : [],
+      };
     },
 
     setResult(value) {
@@ -495,7 +511,7 @@ module.exports = Editor.Panel.define({
           this.setResult(summary);
         }
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
         this.updateVisibility();
@@ -518,7 +534,7 @@ module.exports = Editor.Panel.define({
         this.setResult(result);
         await this.refreshSummary({ silentResult: true });
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }
@@ -530,7 +546,7 @@ module.exports = Editor.Panel.define({
         this.setResult(await this.call('generate-all'));
         await this.refreshSummary({ silentResult: true });
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }
@@ -542,7 +558,7 @@ module.exports = Editor.Panel.define({
         this.setResult(await this.call('clean-generated', { dryRun: false }));
         await this.refreshSummary({ silentResult: true });
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }
@@ -553,7 +569,7 @@ module.exports = Editor.Panel.define({
       try {
         this.setResult(await this.call('validate-architecture'));
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }
@@ -564,7 +580,7 @@ module.exports = Editor.Panel.define({
       try {
         this.setResult(await this.call('validate-architecture-strict'));
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }
@@ -575,7 +591,7 @@ module.exports = Editor.Panel.define({
       try {
         this.setResult(await this.call('project-diagnostics'));
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }
@@ -586,7 +602,7 @@ module.exports = Editor.Panel.define({
       try {
         this.setResult(await this.call('runtime-snapshot'));
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }
@@ -597,7 +613,7 @@ module.exports = Editor.Panel.define({
       try {
         this.setResult(await this.call('generate-check'));
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }
@@ -608,7 +624,7 @@ module.exports = Editor.Panel.define({
       try {
         this.setResult(await this.call('clean-generated-preview'));
       } catch (error) {
-        this.setResult({ ok: false, error: error.message });
+        this.setResult(this.errorResult(error));
       } finally {
         this.setBusy(false);
       }

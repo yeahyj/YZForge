@@ -134,6 +134,11 @@ function asAssetUrl(relativePath) {
   return relativePath ? `db://${toPosix(relativePath)}` : undefined;
 }
 
+function pathFromAssetUrl(url) {
+  const normalized = toPosix(url);
+  return normalized.startsWith('db://') ? normalized.slice('db://'.length) : undefined;
+}
+
 function hasEditorAssetDb() {
   return Boolean(global.Editor && Editor.Message && typeof Editor.Message.request === 'function');
 }
@@ -143,6 +148,15 @@ function fileDetail(relativePath) {
   return {
     path: normalized,
     url: normalized.startsWith('assets/') ? asAssetUrl(normalized) : undefined,
+  };
+}
+
+function assetUrlDetail(url, extra = {}) {
+  const path = pathFromAssetUrl(url);
+  return {
+    ...extra,
+    ...(path ? { path } : {}),
+    ...(url ? { url } : {}),
   };
 }
 
@@ -190,6 +204,139 @@ function withCleanDetails(result) {
       ...item,
       ...fileDetail(item.path),
     })),
+  };
+}
+
+function pushUniqueDetail(details, seen, detail) {
+  const key = detail.url || detail.path || detail.message || detail.code;
+  if (!key || seen.has(key)) {
+    return;
+  }
+  seen.add(key);
+  details.push(detail);
+}
+
+function createTargetDetails(kind, options = {}) {
+  const name = options.name;
+  const owner = options.owner;
+  const details = [];
+  if (owner) {
+    details.push({
+      ...fileDetail(`assets/modules/${owner}/module.json`),
+      code: 'create.owner_module',
+      message: `assets/modules/${owner}/module.json`,
+    });
+  }
+  if (!name) {
+    return details;
+  }
+  if (kind === 'module') {
+    details.push({ ...fileDetail(`assets/modules/${name}/module.json`), code: 'create.target', message: `assets/modules/${name}/module.json` });
+  } else if (kind === 'library') {
+    details.push({ ...fileDetail(`assets/libraries/${name}/library.json`), code: 'create.target', message: `assets/libraries/${name}/library.json` });
+  } else if (kind === 'content-pack' && owner) {
+    details.push({ ...fileDetail(`assets/content-packs/${owner}/${name}/content-pack.json`), code: 'create.target', message: `assets/content-packs/${owner}/${name}/content-pack.json` });
+  } else if (kind === 'view' && owner) {
+    details.push({ ...fileDetail(`assets/modules/${owner}/code/view/${name}.ts`), code: 'create.target', message: `assets/modules/${owner}/code/view/${name}.ts` });
+    details.push({ ...fileDetail(`assets/modules/${owner}/res/view/${name}.prefab`), code: 'create.prefab_target', message: `assets/modules/${owner}/res/view/${name}.prefab` });
+  } else if (kind === 'global-view') {
+    details.push({ ...fileDetail(`assets/app/global/code/view/${name}.ts`), code: 'create.target', message: `assets/app/global/code/view/${name}.ts` });
+    details.push({ ...fileDetail(`assets/app/global/res/view/${name}.prefab`), code: 'create.prefab_target', message: `assets/app/global/res/view/${name}.prefab` });
+  } else if (kind === 'part' && owner) {
+    details.push({ ...fileDetail(`assets/modules/${owner}/code/part/${name}.ts`), code: 'create.target', message: `assets/modules/${owner}/code/part/${name}.ts` });
+    details.push({ ...fileDetail(`assets/modules/${owner}/res/part/${name}.prefab`), code: 'create.prefab_target', message: `assets/modules/${owner}/res/part/${name}.prefab` });
+  } else if (['model', 'service', 'flow'].includes(kind) && owner) {
+    details.push({ ...fileDetail(`assets/modules/${owner}/code/${kind}/${name}.ts`), code: 'create.target', message: `assets/modules/${owner}/code/${kind}/${name}.ts` });
+  } else if (kind === 'event-file' && owner) {
+    details.push({ ...fileDetail(`assets/modules/${owner}/code/events/${name}.ts`), code: 'create.target', message: `assets/modules/${owner}/code/events/${name}.ts` });
+  } else if (kind === 'extension-stub') {
+    details.push({ ...fileDetail(`assets/app/extensions/${name}.ts`), code: 'create.target', message: `assets/app/extensions/${name}.ts` });
+  }
+  return details;
+}
+
+function createResultDetails(result, generated, assetDb) {
+  const details = [];
+  const seen = new Set();
+  for (const relative of result.changed || []) {
+    pushUniqueDetail(details, seen, {
+      ...fileDetail(relative),
+      code: 'create.source',
+      message: relative,
+    });
+  }
+  for (const item of generated.changedDetails || []) {
+    pushUniqueDetail(details, seen, {
+      ...item,
+      code: 'create.generated',
+      message: item.path,
+    });
+  }
+  const prefab = assetDb && assetDb.prefab;
+  if (prefab && prefab.target) {
+    const status = prefab.created
+      ? 'created'
+      : prefab.overwritten
+        ? 'overwritten'
+        : 'skipped';
+    pushUniqueDetail(details, seen, assetUrlDetail(prefab.target, {
+      code: `create.prefab_${status}`,
+      message: pathFromAssetUrl(prefab.target) || prefab.target,
+      status,
+      reason: prefab.reason,
+    }));
+  }
+  for (const refreshed of assetDb?.refreshed || []) {
+    if (refreshed && refreshed.refreshed === false) {
+      pushUniqueDetail(details, seen, assetUrlDetail(refreshed.url, {
+        code: 'asset_db.refresh_failed',
+        message: refreshed.error || refreshed.url,
+        severity: 'warning',
+      }));
+    }
+  }
+  const bundle = assetDb?.bundle;
+  if (bundle && bundle.configured === false) {
+    pushUniqueDetail(details, seen, assetUrlDetail(bundle.url, {
+      code: 'asset_db.bundle_pending',
+      message: bundle.reason || bundle.url,
+      severity: 'warning',
+    }));
+  }
+  const focus = assetDb?.focus;
+  if (focus && focus.url) {
+    pushUniqueDetail(details, seen, assetUrlDetail(focus.url, {
+      code: focus.selected || focus.opened ? 'asset_db.focus' : 'asset_db.focus_pending',
+      message: pathFromAssetUrl(focus.url) || focus.url,
+      severity: focus.selected || focus.opened ? 'info' : 'warning',
+    }));
+  }
+  return details;
+}
+
+function createFailureResult(kind, options, error) {
+  const message = error && error.message ? error.message : String(error);
+  const targetDetails = createTargetDetails(kind, options);
+  const primary = targetDetails[0] || {};
+  const details = [{
+    ...primary,
+    severity: 'error',
+    code: 'create.failed',
+    message,
+  }, ...targetDetails];
+  return {
+    ok: false,
+    kind,
+    name: options.name,
+    owner: options.owner,
+    error: message,
+    details,
+    issueDetails: [{
+      severity: 'error',
+      code: 'create.failed',
+      message,
+      ...(primary.path ? { path: primary.path, url: primary.url } : {}),
+    }],
   };
 }
 
@@ -443,25 +590,35 @@ async function postCreate(result, options) {
   const createdUrls = changedAssetUrls(result, generated, prefab);
   refreshed.push(...await refreshCreatedAssets(createdUrls));
   const focus = await selectAsset(preferredAssetUrl(result, prefab));
+  const assetDb = {
+    refreshed,
+    bundle: await configureBundle(bundleTarget(result)),
+    prefab,
+    focus,
+  };
 
   return {
+    ok: true,
     ...result,
-    assetDb: {
-      refreshed,
-      bundle: await configureBundle(bundleTarget(result)),
-      prefab,
-      focus,
-    },
+    changedDetails: (result.changed || []).map(fileDetail),
+    details: createResultDetails(result, generated, assetDb),
+    assetDb,
     generated,
   };
 }
 
 async function createKind(kind, options) {
   const root = projectRoot();
-  const result = create(root, kind, options);
-  const completed = await postCreate(result, options);
-  console.log(`[YZForge] created ${kind}:`, completed);
-  return completed;
+  try {
+    const result = create(root, kind, options);
+    const completed = await postCreate(result, options);
+    console.log(`[YZForge] created ${kind}:`, completed);
+    return completed;
+  } catch (error) {
+    const failed = createFailureResult(kind, options, error);
+    console.warn(`[YZForge] create ${kind} failed:`, failed);
+    return failed;
+  }
 }
 
 function showCreateHelp() {
