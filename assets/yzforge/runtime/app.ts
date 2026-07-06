@@ -45,6 +45,7 @@ export class App {
 
     public async start(): Promise<void> {
         await this.global.initialize();
+        this.ui.installBackKeyHandler(async () => this.navigator.back());
         this.logger.info('App started.');
     }
 

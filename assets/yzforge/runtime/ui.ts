@@ -1,4 +1,17 @@
-import { BlockInputEvents, Color, Component, director, Graphics, isValid, Node, UITransform } from 'cc';
+import {
+    BlockInputEvents,
+    Color,
+    Component,
+    director,
+    EventKeyboard,
+    Graphics,
+    input,
+    Input,
+    isValid,
+    KeyCode,
+    Node,
+    UITransform,
+} from 'cc';
 import { YZForgeError } from './errors';
 import type { Module } from './module';
 import type { ViewPolicyLike, ViewRef } from './refs';
@@ -85,6 +98,25 @@ export interface ViewHandle<TResult = unknown> {
     focus(): void;
 }
 
+export interface BackKeyOptions {
+    readonly keys?: readonly KeyCode[];
+    readonly consume?: boolean;
+}
+
+export type BackKeyHandler = () => MaybePromise<boolean>;
+
+export interface ViewSnapshot {
+    readonly id: string;
+    readonly key: string;
+    readonly path: string;
+    readonly owner: string;
+    readonly kind: ViewKind;
+    readonly layer: ViewLayer;
+    readonly state: ViewState;
+    readonly modal: boolean;
+    readonly closeOnBack: boolean;
+}
+
 export function isUiCancelResult(value: unknown): value is UiCancelResult {
     return Boolean(value) && typeof value === 'object' && (value as UiCancelResult).cancelled === true;
 }
@@ -105,6 +137,7 @@ const LAYER_NODE_NAMES: Record<ViewLayer, string> = {
 
 const VIEW_KINDS = [ViewKind.Page, ViewKind.Paper, ViewKind.Popup, ViewKind.Toast, ViewKind.Top, ViewKind.System];
 const VIEW_STACK_MODES = [ViewStackMode.Single, ViewStackMode.Stack, ViewStackMode.Queue, ViewStackMode.Free];
+const DEFAULT_BACK_KEYS = [KeyCode.MOBILE_BACK, KeyCode.ESCAPE] as const;
 
 const DEFAULT_POLICY_BY_KIND: Record<ViewKind, ResolvedViewPolicy> = {
     [ViewKind.Page]: {
@@ -189,6 +222,33 @@ const DEFAULT_POLICY_BY_KIND: Record<ViewKind, ResolvedViewPolicy> = {
 
 export class UIManager {
     private readonly moduleUis = new Map<string, ModuleUI>();
+    private backKeyHandler?: BackKeyHandler;
+    private backKeyInstalled = false;
+    private backKeyHandling = false;
+    private backKeyConsume = true;
+    private backKeys = new Set<KeyCode>(DEFAULT_BACK_KEYS);
+
+    private readonly onBackKeyDown = (event: EventKeyboard): void => {
+        if (!this.backKeyHandler || !this.backKeys.has(event.keyCode)) {
+            return;
+        }
+
+        if (this.backKeyConsume) {
+            stopKeyboardEvent(event);
+        }
+        if (this.backKeyHandling) {
+            return;
+        }
+
+        this.backKeyHandling = true;
+        Promise.resolve(this.backKeyHandler())
+            .catch((error) => {
+                console.error('[YZForge] Back key handler failed.', error);
+            })
+            .then(() => {
+                this.backKeyHandling = false;
+            });
+    };
 
     public constructor(private readonly roots: Partial<Record<ViewLayer, Node>> = {}) {}
 
@@ -212,6 +272,39 @@ export class UIManager {
 
     public async closeModule(module: Module, reason?: unknown): Promise<void> {
         await this.moduleUis.get(module.name)?.closeOwned(reason);
+    }
+
+    public installBackKeyHandler(handler: BackKeyHandler, options: BackKeyOptions = {}): void {
+        this.backKeyHandler = handler;
+        this.backKeys = new Set(options.keys ?? DEFAULT_BACK_KEYS);
+        this.backKeyConsume = options.consume ?? true;
+        if (this.backKeyInstalled) {
+            return;
+        }
+        input.on(Input.EventType.KEY_DOWN, this.onBackKeyDown, this);
+        this.backKeyInstalled = true;
+    }
+
+    public uninstallBackKeyHandler(): void {
+        if (!this.backKeyInstalled) {
+            this.backKeyHandler = undefined;
+            return;
+        }
+        input.off(Input.EventType.KEY_DOWN, this.onBackKeyDown, this);
+        this.backKeyHandler = undefined;
+        this.backKeyInstalled = false;
+        this.backKeyHandling = false;
+    }
+
+    public snapshots(moduleName?: string): ViewSnapshot[] {
+        const uis = moduleName ? [this.moduleUis.get(moduleName)] : Array.from(this.moduleUis.values());
+        const snapshots: ViewSnapshot[] = [];
+        for (const ui of uis) {
+            if (ui) {
+                snapshots.push(...ui.snapshots());
+            }
+        }
+        return snapshots;
     }
 }
 
@@ -388,6 +481,24 @@ export class ModuleUI {
         return true;
     }
 
+    public snapshots(): ViewSnapshot[] {
+        return this.sortedHandles().map((handle) => ({
+            id: handle.id,
+            key: handle.key,
+            path: handle.ref.path,
+            owner: handle.owner.name,
+            kind: handle.policy.kind,
+            layer: handle.layer,
+            state: handle.state,
+            modal: handle.policy.modal,
+            closeOnBack: handle.policy.closeOnBack,
+        }));
+    }
+
+    public top(): ViewHandle | undefined {
+        return this.sortedHandles().reverse().find((handle) => handle.state === ViewState.Open);
+    }
+
     private async resolveDuplicate<TData, TResult>(
         duplicate: AnyViewHandle,
         ref: ViewRef<TData, TResult>,
@@ -454,6 +565,9 @@ export class ModuleUI {
     private focus(handle: AnyViewHandle): void {
         if (isValid(handle.node) && handle.node.parent) {
             handle.node.setSiblingIndex(handle.node.parent.children.length - 1);
+        }
+        if (this.handles.delete(handle)) {
+            this.handles.add(handle);
         }
         if (handle.layer === ViewLayer.Popup) {
             this.updatePopupMask();
@@ -570,6 +684,12 @@ function findChildByName(root: Node, name: string): Node | undefined {
         }
     }
     return undefined;
+}
+
+function stopKeyboardEvent(event: EventKeyboard): void {
+    event.propagationStopped = true;
+    event.propagationImmediateStopped = true;
+    event.rawEvent?.preventDefault();
 }
 
 function parseAutoRefName(name: string): string | undefined {

@@ -7,7 +7,7 @@ import type { ModuleRef } from './refs';
 import type { ModuleExtensionToken } from './tokens';
 import type { MaybePromise } from './types';
 import type { ModuleAssets } from './assets';
-import type { OpenViewOptions, UiCancelResult, ViewHandle, ViewLayer } from './ui';
+import type { OpenViewOptions, UiCancelResult, ViewHandle, ViewLayer, ViewSnapshot } from './ui';
 import type { ViewRef } from './refs';
 
 export enum ModuleState {
@@ -57,6 +57,8 @@ export interface ModuleUIAccess {
     closeOwned(reason?: unknown): Promise<void>;
     pauseOwned?(): Promise<void>;
     resumeOwned?(): void;
+    snapshots(): ViewSnapshot[];
+    top(): ViewHandle | undefined;
 }
 
 export interface ModuleRuntimeContext {
