@@ -263,25 +263,66 @@ function parseAutoRefMarker(name) {
   if (!match) {
     return undefined;
   }
-  const component = match[2] ? match[2].replace(/^cc\./, '') : undefined;
+  let component = match[2] ? match[2].replace(/^cc\./, '') : undefined;
+  if (component === 'Node') {
+    component = undefined;
+  }
   return {
     key: match[1],
     component,
   };
 }
 
-function validateAutoRefMarkers(prefabPath, issues) {
+function serializedRefId(value) {
+  return value && typeof value === 'object' && Number.isInteger(value.__id__)
+    ? value.__id__
+    : undefined;
+}
+
+function serializedComponentName(record) {
+  const type = String(record?.__type__ || '').split('@')[0];
+  return type.replace(/^cc\./, '');
+}
+
+function nodeComponentIds(nodeRecord) {
+  if (!Array.isArray(nodeRecord?._components)) {
+    return [];
+  }
+  return nodeRecord._components
+    .map(serializedRefId)
+    .filter((id) => id !== undefined);
+}
+
+function componentBelongsToNode(record, nodeIndex) {
+  return serializedRefId(record?.node) === nodeIndex || serializedRefId(record?._node) === nodeIndex;
+}
+
+function nodeHasComponent(records, nodeIndex, component) {
+  const componentIds = new Set(nodeComponentIds(records[nodeIndex]));
+  for (const id of componentIds) {
+    if (serializedComponentName(records[id]) === component) {
+      return true;
+    }
+  }
+  return records.some((record) => {
+    return serializedComponentName(record) === component && componentBelongsToNode(record, nodeIndex);
+  });
+}
+
+function validateAutoRefMarkers(projectRoot, prefabPath, issues) {
+  const rel = toPosix(path.relative(projectRoot, prefabPath));
   let records;
   try {
     const data = JSON.parse(fs.readFileSync(prefabPath, 'utf8'));
     records = Array.isArray(data) ? data : [data];
   } catch (error) {
-    issues.push(`${toPosix(prefabPath)} prefab JSON cannot be parsed: ${error.message}.`);
+    issues.push(`${rel} prefab JSON cannot be parsed: ${error.message}.`);
     return;
   }
 
   const seen = new Set();
-  for (const record of records) {
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
     if (!record || typeof record !== 'object' || typeof record._name !== 'string') {
       continue;
     }
@@ -290,11 +331,24 @@ function validateAutoRefMarkers(prefabPath, issues) {
       continue;
     }
     if (seen.has(marker.key)) {
-      issues.push(`${toPosix(prefabPath)} has duplicate AutoRef marker: @${marker.key}.`);
+      issues.push(`${rel} has duplicate AutoRef marker: @${marker.key}.`, {
+        path: rel,
+        code: 'ui.autoref_duplicate',
+      });
     }
     seen.add(marker.key);
     if (marker.component && !AUTO_REF_COMPONENTS.has(marker.component)) {
-      issues.push(`${toPosix(prefabPath)} has unsupported AutoRef component marker: ${record._name}.`);
+      issues.push(`${rel} has unsupported AutoRef component marker: ${record._name}.`, {
+        path: rel,
+        code: 'ui.autoref_component_unsupported',
+      });
+      continue;
+    }
+    if (marker.component && !nodeHasComponent(records, index, marker.component)) {
+      issues.push(`${rel} AutoRef marker ${record._name} requires ${marker.component} component on the same node.`, {
+        path: rel,
+        code: 'ui.autoref_component_missing',
+      });
     }
   }
 }
@@ -320,7 +374,7 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       if (!fs.existsSync(refsPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing generated AutoRefs: ${toPosix(path.relative(projectRoot, refsPath))}.`);
       }
-      validateAutoRefMarkers(prefabPath, issues);
+      validateAutoRefMarkers(projectRoot, prefabPath, issues);
     }
     for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res', 'part'))) {
       const name = path.basename(prefabPath, '.prefab');
@@ -334,7 +388,7 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
       if (!fs.existsSync(refsPath)) {
         issues.push(`${toPosix(path.relative(projectRoot, prefabPath))} missing generated AutoRefs: ${toPosix(path.relative(projectRoot, refsPath))}.`);
       }
-      validateAutoRefMarkers(prefabPath, issues);
+      validateAutoRefMarkers(projectRoot, prefabPath, issues);
     }
   }
 }

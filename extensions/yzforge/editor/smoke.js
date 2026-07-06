@@ -86,13 +86,40 @@ function compressScriptUuid(uuid) {
   return result;
 }
 
-function serializedPrefab(scriptUuid, markers = []) {
-  return `${JSON.stringify([
+function markerComponent(name) {
+  const match = /^@[A-Za-z_$][\w$]*:([A-Za-z_$][\w$.]*)$/.exec(String(name || ''));
+  if (!match) {
+    return undefined;
+  }
+  const component = match[1].replace(/^cc\./, '');
+  return component === 'Node' ? undefined : component;
+}
+
+function serializedPrefab(scriptUuid, markers = [], options = {}) {
+  const records = [
     { __type__: 'cc.Prefab', _name: 'Prefab' },
     { __type__: 'cc.Node', _name: 'Root' },
     { __type__: compressScriptUuid(scriptUuid) },
-    ...markers.map((name) => ({ __type__: 'cc.Node', _name: name })),
-  ], null, 2)}\n`;
+  ];
+  for (const name of markers) {
+    const component = options.omitMarkerComponents ? undefined : markerComponent(name);
+    if (!component) {
+      records.push({ __type__: 'cc.Node', _name: name });
+      continue;
+    }
+    const nodeId = records.length;
+    const componentId = nodeId + 1;
+    records.push({
+      __type__: 'cc.Node',
+      _name: name,
+      _components: [{ __id__: componentId }],
+    });
+    records.push({
+      __type__: `cc.${component}`,
+      node: { __id__: nodeId },
+    });
+  }
+  return `${JSON.stringify(records, null, 2)}\n`;
 }
 
 function setupBaseline(projectRoot) {
@@ -370,6 +397,17 @@ function smoke(options = {}) {
     assert(tweenDetail.code === 'view.tween_unmanaged', 'Expected view tween issue code.');
     assert(tweenDetail.line === 4, 'Expected view tween issue to include call line number.');
     fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/view/BadViewTween.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', serializedPrefab('10000000-0000-4000-8000-000000000001', [
+      '@title:Label',
+    ], { omitMarkerComponents: true }));
+    const componentViolation = expectValidationIssue(projectRoot, 'requires Label component on the same node');
+    const componentDetail = componentViolation.issueDetails.find((issue) => issue.message.includes('requires Label component'));
+    assert(componentDetail.code === 'ui.autoref_component_missing', 'Expected AutoRef component issue code.');
+    writeText(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', serializedPrefab('10000000-0000-4000-8000-000000000001', [
+      '@title:Label',
+      '@confirm:Button',
+    ]));
 
     fs.appendFileSync(path.join(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts'), '// tampered\n', 'utf8');
     expectValidationIssue(projectRoot, 'generated hash mismatch');
