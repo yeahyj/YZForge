@@ -310,6 +310,8 @@ export class UIManager {
 
 export class ModuleUI {
     private readonly handles = new Set<AnyViewHandle>();
+    private readonly queueTasks = new Map<ViewLayer, Promise<void>>();
+    private readonly queueVersions = new Map<ViewLayer, number>();
     private popupMask?: Node;
     private maskTarget?: AnyViewHandle;
 
@@ -330,6 +332,20 @@ export class ModuleUI {
             return await this.resolveDuplicate(duplicate, ref, data, options, policy);
         }
 
+        if (policy.stack === ViewStackMode.Queue) {
+            return await this.enqueueOpen(ref, data, options, policy, key);
+        }
+
+        return await this.openImmediate(ref, data, options, policy, key);
+    }
+
+    private async openImmediate<TData, TResult>(
+        ref: ViewRef<TData, TResult>,
+        data: TData | undefined,
+        options: OpenViewOptions,
+        policy: ResolvedViewPolicy,
+        key: string,
+    ): Promise<ViewHandle<TResult>> {
         if (policy.stack === ViewStackMode.Single) {
             await this.closeLayer(policy.layer, { cancelled: true, reason: 'single_view_replaced' }, { force: true });
         }
@@ -391,6 +407,48 @@ export class ModuleUI {
         }
     }
 
+    private async enqueueOpen<TData, TResult>(
+        ref: ViewRef<TData, TResult>,
+        data: TData | undefined,
+        options: OpenViewOptions,
+        policy: ResolvedViewPolicy,
+        key: string,
+    ): Promise<ViewHandle<TResult>> {
+        const previous = this.queueTasks.get(policy.layer) ?? Promise.resolve();
+        const version = this.queueVersion(policy.layer);
+        let resolveOpened!: (handle: ViewHandle<TResult>) => void;
+        let rejectOpened!: (error: unknown) => void;
+        const opened = new Promise<ViewHandle<TResult>>((resolve, reject) => {
+            resolveOpened = resolve;
+            rejectOpened = reject;
+        });
+
+        const task = previous
+            .catch(() => undefined)
+            .then(async () => {
+                try {
+                    if (this.queueVersion(policy.layer) !== version) {
+                        throw new YZForgeError(`Queued view open was cancelled: ${ref.path}`, 'ui.view_queue_cancelled');
+                    }
+                    const handle = await this.openImmediate(ref, data, options, policy, key);
+                    resolveOpened(handle);
+                    await handle.view.__yzforgeWaitResult();
+                } catch (error) {
+                    rejectOpened(error);
+                }
+            });
+
+        const stored = task.then(() => undefined, () => undefined);
+        this.queueTasks.set(policy.layer, stored);
+        stored.then(() => {
+            if (this.queueTasks.get(policy.layer) === stored) {
+                this.queueTasks.delete(policy.layer);
+            }
+        });
+
+        return await opened;
+    }
+
     public async openForResult<TData, TResult>(
         ref: ViewRef<TData, TResult>,
         data?: TData,
@@ -433,6 +491,7 @@ export class ModuleUI {
         reason?: unknown,
         options: CloseViewOptions = {},
     ): Promise<void> {
+        this.cancelQueuedOpens(layer);
         const handles = this.sortedHandles().filter((handle) => handle.layer === layer);
         for (const handle of handles.reverse()) {
             await this.close(handle, reason, options);
@@ -440,6 +499,7 @@ export class ModuleUI {
     }
 
     public async closeOwned(reason?: unknown): Promise<void> {
+        this.cancelQueuedOpens();
         for (const handle of this.sortedHandles().reverse()) {
             if (handle.policy.closeWithOwner) {
                 await this.close(handle, isUiCancelResult(reason) ? reason : { cancelled: true, reason }, { force: true });
@@ -448,6 +508,7 @@ export class ModuleUI {
     }
 
     public async pauseOwned(): Promise<void> {
+        this.cancelQueuedOpens();
         for (const handle of this.sortedHandles()) {
             if (handle.state !== ViewState.Open) {
                 continue;
@@ -576,6 +637,17 @@ export class ModuleUI {
 
     private sortedHandles(): AnyViewHandle[] {
         return Array.from(this.handles);
+    }
+
+    private queueVersion(layer: ViewLayer): number {
+        return this.queueVersions.get(layer) ?? 0;
+    }
+
+    private cancelQueuedOpens(layer?: ViewLayer): void {
+        const layers = layer !== undefined ? [layer] : Array.from(this.queueTasks.keys());
+        for (const item of layers) {
+            this.queueVersions.set(item, this.queueVersion(item) + 1);
+        }
     }
 
     private updatePopupMask(): void {
