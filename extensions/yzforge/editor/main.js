@@ -329,6 +329,21 @@ async function cleanGeneratedAssets(options = {}) {
   });
 }
 
+async function collectProjectDiagnostics() {
+  const root = projectRoot();
+  const summary = describeProject();
+  const generated = withGeneratedDetails(generate(root, { check: true }));
+  const clean = await cleanGeneratedAssets({ dryRun: true });
+  const validation = withValidationDetails(validate(root, { strict: true }));
+  return {
+    ok: generated.changed.length === 0 && validation.ok,
+    summary,
+    generated,
+    clean,
+    validation,
+  };
+}
+
 async function createUiPrefab(result, options) {
   if (!['view', 'global-view', 'part'].includes(result.kind) || options.prefab === false) {
     return undefined;
@@ -482,10 +497,28 @@ exports.methods = {
     return result;
   },
 
+  async generateCheck() {
+    const result = withGeneratedDetails(generate(projectRoot(), { check: true }));
+    console.log('[YZForge] generate check:', result);
+    return result;
+  },
+
   async cleanGenerated(first) {
     const options = normalizeOptions(first);
     const result = await cleanGeneratedAssets(options);
     console.log('[YZForge] clean generated:', result);
+    return result;
+  },
+
+  async cleanGeneratedPreview() {
+    const result = await cleanGeneratedAssets({ dryRun: true });
+    console.log('[YZForge] clean generated preview:', result);
+    return result;
+  },
+
+  async projectDiagnostics() {
+    const result = await collectProjectDiagnostics();
+    console.log('[YZForge] project diagnostics:', result);
     return result;
   },
 

@@ -55,6 +55,12 @@ const template = `
     <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
   </section>
 
+  <section class="section action-row">
+    <button id="diagnostics" data-i18n="panel_diagnostics">Diagnostics</button>
+    <button id="generate-check" data-i18n="generate_check">Generate Check</button>
+    <button id="clean-preview" data-i18n="clean_preview">Clean Preview</button>
+  </section>
+
   <section class="section summary">
     <div class="section-title" data-i18n="panel_project">Project</div>
     <div class="summary-grid">
@@ -331,6 +337,9 @@ module.exports = Editor.Panel.define({
     clean: '#clean',
     validate: '#validate',
     validateStrict: '#validate-strict',
+    diagnostics: '#diagnostics',
+    generateCheck: '#generate-check',
+    cleanPreview: '#clean-preview',
     moduleCount: '#module-count',
     libraryCount: '#library-count',
     packCount: '#pack-count',
@@ -359,7 +368,7 @@ module.exports = Editor.Panel.define({
     setBusy(busy, label) {
       const key = label || (busy ? 'panel_status_working' : 'panel_status_ready');
       this.$.status.textContent = this.t(key);
-      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate]) {
+      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate, this.$.diagnostics, this.$.generateCheck, this.$.cleanPreview]) {
         button.disabled = busy;
       }
       this.$.validateStrict.disabled = busy;
@@ -392,6 +401,20 @@ module.exports = Editor.Panel.define({
       }
       if (value.generated && Array.isArray(value.generated.changedDetails) && value.generated.changedDetails.length > 0) {
         return value.generated.changedDetails.map((item) => ({
+          label: item.path,
+          url: item.url,
+          path: item.path,
+        }));
+      }
+      if (value.validation && Array.isArray(value.validation.issueDetails) && value.validation.issueDetails.length > 0) {
+        return value.validation.issueDetails.map((item) => ({
+          label: item.message || item.path,
+          url: item.url,
+          path: item.path,
+        }));
+      }
+      if (value.clean && Array.isArray(value.clean.fileDetails) && value.clean.fileDetails.length > 0) {
+        return value.clean.fileDetails.map((item) => ({
           label: item.path,
           url: item.url,
           path: item.path,
@@ -544,6 +567,39 @@ module.exports = Editor.Panel.define({
         this.setBusy(false);
       }
     },
+
+    async runDiagnostics() {
+      this.setBusy(true, 'panel_status_diagnosing');
+      try {
+        this.setResult(await this.call('project-diagnostics'));
+      } catch (error) {
+        this.setResult({ ok: false, error: error.message });
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
+    async generateCheck() {
+      this.setBusy(true, 'panel_status_generating');
+      try {
+        this.setResult(await this.call('generate-check'));
+      } catch (error) {
+        this.setResult({ ok: false, error: error.message });
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
+    async cleanPreview() {
+      this.setBusy(true, 'panel_status_cleaning');
+      try {
+        this.setResult(await this.call('clean-generated-preview'));
+      } catch (error) {
+        this.setResult({ ok: false, error: error.message });
+      } finally {
+        this.setBusy(false);
+      }
+    },
   },
   ready() {
     this.translate();
@@ -554,6 +610,9 @@ module.exports = Editor.Panel.define({
     this.$.clean.addEventListener('click', () => this.cleanGenerated());
     this.$.validate.addEventListener('click', () => this.validateProject());
     this.$.validateStrict.addEventListener('click', () => this.validateProjectStrict());
+    this.$.diagnostics.addEventListener('click', () => this.runDiagnostics());
+    this.$.generateCheck.addEventListener('click', () => this.generateCheck());
+    this.$.cleanPreview.addEventListener('click', () => this.cleanPreview());
     this.updateVisibility();
     this.refreshSummary();
   },

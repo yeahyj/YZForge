@@ -53,4 +53,8 @@ module.exports = {
   kind_flow: '流程',
   kind_event_file: '事件文件',
   kind_extension_stub: '扩展桩',
+  generate_check: '检查生成物',
+  clean_preview: '预览清理',
+  panel_diagnostics: '诊断',
+  panel_status_diagnosing: '诊断中',
 };

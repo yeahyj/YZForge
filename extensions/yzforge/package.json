@@ -73,9 +73,24 @@
           "generateAll"
         ]
       },
+      "generate-check": {
+        "methods": [
+          "generateCheck"
+        ]
+      },
       "clean-generated": {
         "methods": [
           "cleanGenerated"
+        ]
+      },
+      "clean-generated-preview": {
+        "methods": [
+          "cleanGeneratedPreview"
+        ]
+      },
+      "project-diagnostics": {
+        "methods": [
+          "projectDiagnostics"
         ]
       },
       "focus-asset": {
