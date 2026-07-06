@@ -1,21 +1,37 @@
-import { BundleManager } from './bundle-manager';
+import { BundleManager, type BundleRecordSnapshot } from './bundle-manager';
 import { ModuleAssets } from './assets';
-import { ContentPackManager } from './content-pack';
+import type { AssetScopeSnapshot } from './assets';
+import { ContentPackManager, type ContentPackRecordSnapshot } from './content-pack';
 import { EntryRegistry, getDefaultEntryRegistry } from './entry-registry';
 import { ExtensionRegistry } from './extension-registry';
 import { GlobalRoot } from './global-root';
-import { LibraryRegistry, ModuleLibraryManager } from './library';
+import { LibraryRegistry, type LibraryRecordSnapshot, ModuleLibraryManager } from './library';
 import { Logger } from './logger';
 import type { LoadedModule, Module } from './module';
 import { ModuleNavigator, type EnterModuleOptions } from './navigator';
 import type { ModuleRef } from './refs';
 import { SharedRegistry } from './shared-registry';
 import type { ExtensionToken } from './tokens';
-import { UIManager } from './ui';
+import { UIManager, type ViewSnapshot } from './ui';
 
 export interface AppOptions {
     readonly logger?: Logger;
     readonly entries?: EntryRegistry;
+}
+
+export interface ModuleRuntimeSnapshot {
+    readonly name: string;
+    readonly bundleName: string;
+    readonly state: string;
+    readonly assets: AssetScopeSnapshot;
+    readonly contentPacks: readonly ContentPackRecordSnapshot[];
+}
+
+export interface AppRuntimeSnapshot {
+    readonly bundles: readonly BundleRecordSnapshot[];
+    readonly libraries: readonly LibraryRecordSnapshot[];
+    readonly modules: readonly ModuleRuntimeSnapshot[];
+    readonly ui: readonly ViewSnapshot[];
 }
 
 export class App {
@@ -105,6 +121,15 @@ export class App {
         return this.extensions.use(token);
     }
 
+    public snapshot(): AppRuntimeSnapshot {
+        return {
+            bundles: this.bundles.snapshots(),
+            libraries: this.libraries.snapshots(),
+            modules: Array.from(this.modules.values()).map((handle) => this.snapshotModule(handle)),
+            ui: this.ui.snapshots(),
+        };
+    }
+
     private async createModule<TParams>(ref: ModuleRef<TParams>): Promise<LoadedModule> {
         let bundleLoaded = false;
         let instance: Module | undefined;
@@ -161,6 +186,16 @@ export class App {
             }
             throw error;
         }
+    }
+
+    private snapshotModule(handle: LoadedModule): ModuleRuntimeSnapshot {
+        return {
+            name: handle.ref.name,
+            bundleName: handle.bundleName,
+            state: handle.instance.state,
+            assets: handle.assets.snapshot(),
+            contentPacks: handle.contentPacks.snapshots?.() ?? [],
+        };
     }
 }
 
