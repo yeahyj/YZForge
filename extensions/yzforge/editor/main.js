@@ -199,11 +199,38 @@ function withCleanDetails(result) {
   return {
     ...result,
     fileDetails: (result.files || []).map(fileDetail),
+    protectedDetails: (result.protected || []).map(fileDetail),
     removedDetails: (result.removed || []).map(fileDetail),
     failedDetails: (result.failed || []).map((item) => ({
       ...item,
       ...fileDetail(item.path),
     })),
+  };
+}
+
+function isGeneratedScript(relativePath) {
+  return /\.generated\.ts$/.test(toPosix(relativePath));
+}
+
+function editorCleanPlan(files, options = {}) {
+  if (options.includeScripts === true || options.force === true) {
+    return {
+      files,
+      protected: [],
+    };
+  }
+  const protectedFiles = [];
+  const cleanableFiles = [];
+  for (const file of files) {
+    if (isGeneratedScript(file)) {
+      protectedFiles.push(file);
+    } else {
+      cleanableFiles.push(file);
+    }
+  }
+  return {
+    files: cleanableFiles,
+    protected: protectedFiles,
   };
 }
 
@@ -432,25 +459,35 @@ async function refreshCreatedAssets(urls) {
 async function cleanGeneratedAssets(options = {}) {
   const root = projectRoot();
   const dryRun = Boolean(options.dryRun || options.check);
-  const files = collectGeneratedFiles(root);
+  const allFiles = collectGeneratedFiles(root);
+  const plan = editorCleanPlan(allFiles, options);
   if (dryRun) {
     return withCleanDetails({
       ok: true,
       dryRun: true,
-      count: files.length,
-      files,
+      count: plan.files.length,
+      total: allFiles.length,
+      files: plan.files,
+      protected: plan.protected,
       removed: [],
       failed: [],
     });
   }
 
   if (!hasEditorAssetDb()) {
-    return withCleanDetails(cleanGeneratedFiles(root));
+    const result = cleanGeneratedFiles(root, {
+      includeScripts: options.includeScripts === true || options.force === true,
+    });
+    return withCleanDetails({
+      ...result,
+      total: allFiles.length,
+      protected: plan.protected,
+    });
   }
 
   const removed = [];
   const failed = [];
-  for (const relative of files) {
+  for (const relative of plan.files) {
     try {
       await assetDbRequest('delete-asset', asAssetUrl(relative));
       removed.push(relative);
@@ -470,7 +507,9 @@ async function cleanGeneratedAssets(options = {}) {
     ok: failed.length === 0,
     dryRun: false,
     count: removed.length,
-    files,
+    total: allFiles.length,
+    files: plan.files,
+    protected: plan.protected,
     removed,
     failed,
   });

@@ -39,15 +39,18 @@ function isGeneratedJson(projectRoot, filePath) {
   return /^assets\/content-packs\/[^/]+\/[^/]+\/manifest\.generated\.json$/.test(rel);
 }
 
-function isCleanableGeneratedFile(projectRoot, filePath) {
+function isCleanableGeneratedFile(projectRoot, filePath, options = {}) {
+  if (options.includeScripts === false && filePath.endsWith('.generated.ts')) {
+    return false;
+  }
   return isGeneratedTs(filePath) || isGeneratedJson(projectRoot, filePath);
 }
 
-function collectGeneratedFiles(projectRoot) {
+function collectGeneratedFiles(projectRoot, options = {}) {
   const files = [];
   for (const scanRoot of SCAN_ROOTS) {
     const root = path.join(projectRoot, scanRoot);
-    for (const filePath of walk(root, (candidate) => isCleanableGeneratedFile(projectRoot, candidate))) {
+    for (const filePath of walk(root, (candidate) => isCleanableGeneratedFile(projectRoot, candidate, options))) {
       if (!isInsideProject(projectRoot, filePath)) {
         continue;
       }
@@ -58,7 +61,7 @@ function collectGeneratedFiles(projectRoot) {
 }
 
 function cleanGenerated(projectRoot, options = {}) {
-  const files = collectGeneratedFiles(projectRoot);
+  const files = collectGeneratedFiles(projectRoot, options);
   const removed = [];
   const failed = [];
 
@@ -79,7 +82,7 @@ function cleanGenerated(projectRoot, options = {}) {
       failed.push({ path: rel, reason: 'path is outside project root' });
       continue;
     }
-    if (!isCleanableGeneratedFile(projectRoot, filePath)) {
+    if (!isCleanableGeneratedFile(projectRoot, filePath, options)) {
       failed.push({ path: rel, reason: 'file is no longer a YZForge generated file' });
       continue;
     }

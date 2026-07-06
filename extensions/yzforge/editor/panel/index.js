@@ -429,6 +429,13 @@ module.exports = Editor.Panel.define({
           path: item.path,
         }));
       }
+      if (Array.isArray(value.protectedDetails) && value.protectedDetails.length > 0) {
+        return value.protectedDetails.map((item) => ({
+          label: item.path,
+          url: item.url,
+          path: item.path,
+        }));
+      }
       if (Array.isArray(value.fileDetails) && value.fileDetails.length > 0) {
         return value.fileDetails.map((item) => ({
           label: item.path,
