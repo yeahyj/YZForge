@@ -257,6 +257,51 @@ function smoke(options = {}) {
     assert(importDetail.line === 1, 'Expected import issue to include line number.');
     fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadImport.ts'));
 
+    writeText(projectRoot, 'assets/modules/Battle/code/model/BadModel.ts', [
+      "import { Node } from 'cc';",
+      '',
+      'export interface BadModel {',
+      '    readonly node?: Node;',
+      '}',
+      '',
+    ].join('\n'));
+    const modelViolation = expectValidationIssue(projectRoot, 'model must not import cc');
+    const modelDetail = modelViolation.issueDetails.find((issue) => issue.message.includes('model must not import cc'));
+    assert(modelDetail.code === 'model.cc_import', 'Expected model import issue code.');
+    assert(modelDetail.line === 1, 'Expected model import issue to include line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/model/BadModel.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/service/BadServiceUi.ts', [
+      "import { Service } from '../../../../yzforge/runtime';",
+      '',
+      'export class BadServiceUi extends Service {',
+      '    public open(): void {',
+      '        void this.module.ui.open(undefined as never);',
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    const uiViolation = expectValidationIssue(projectRoot, 'service must not directly operate UI');
+    const uiDetail = uiViolation.issueDetails.find((issue) => issue.message.includes('service must not directly operate UI'));
+    assert(uiDetail.code === 'service.ui_direct', 'Expected service UI issue code.');
+    assert(uiDetail.line === 5, 'Expected service UI issue to include call line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadServiceUi.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/service/BadServiceNode.ts', [
+      "import { Node } from 'cc';",
+      "import { Service } from '../../../../yzforge/runtime';",
+      '',
+      'export class BadServiceNode extends Service {',
+      '    private target?: Node;',
+      '}',
+      '',
+    ].join('\n'));
+    const nodeViolation = expectValidationIssue(projectRoot, 'service must not keep long-lived Node or Component fields');
+    const nodeDetail = nodeViolation.issueDetails.find((issue) => issue.message.includes('long-lived Node or Component'));
+    assert(nodeDetail.code === 'service.node_field', 'Expected service node field issue code.');
+    assert(nodeDetail.line === 5, 'Expected service node field issue to include field line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadServiceNode.ts'));
+
     fs.appendFileSync(path.join(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts'), '// tampered\n', 'utf8');
     expectValidationIssue(projectRoot, 'generated hash mismatch');
     const refs = generate(projectRoot);

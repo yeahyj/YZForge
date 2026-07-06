@@ -740,6 +740,100 @@ function pushImportIssue(issues, rel, message, record, targetRel) {
   });
 }
 
+function parseTypeScriptFile(content, fileName) {
+  const ts = loadTypeScript();
+  if (!ts) {
+    return undefined;
+  }
+  return {
+    ts,
+    sourceFile: ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS),
+  };
+}
+
+function pushNodeIssue(issues, rel, message, code, sourceFile, node, extra = {}) {
+  const location = sourceFile && node ? sourceLocation(sourceFile, node) : {};
+  issues.push(`${rel} ${message}`, {
+    path: rel,
+    code,
+    ...location,
+    ...extra,
+  });
+}
+
+function isForbiddenServiceUiCall(ts, sourceFile, node) {
+  if (!ts.isCallExpression(node)) {
+    return false;
+  }
+  const expression = node.expression.getText(sourceFile);
+  return /^(?:this\.module\.ui|this\.ui)\.(?:open|openForResult|close|closeLayer|back)$/.test(expression);
+}
+
+function isLongLivedNodeType(ts, sourceFile, node) {
+  if (!ts.isPropertyDeclaration(node) || !node.type) {
+    return false;
+  }
+  const typeText = node.type.getText(sourceFile);
+  return /(?:^|[<>,\s|&()[\]{}])(?:Node|Component)(?:$|[<>,\s|&()[\]{}])/.test(typeText)
+    || /\bcc\.(?:Node|Component)\b/.test(typeText);
+}
+
+function validateStrictAstRules(rel, content, issues) {
+  const parsed = parseTypeScriptFile(content, rel);
+  if (!parsed) {
+    return false;
+  }
+  const { ts, sourceFile } = parsed;
+  const isModel = /\/code\/model\//.test(rel);
+  const isService = /\/code\/service\//.test(rel);
+  if (!isModel && !isService) {
+    return true;
+  }
+
+  if (isModel) {
+    for (const record of extractImportRecords(content, rel)) {
+      if (record.specifier === 'cc') {
+        issues.push(`${rel} model must not import cc.`, {
+          path: rel,
+          line: record.line,
+          column: record.column,
+          specifier: record.specifier,
+          code: 'model.cc_import',
+        });
+      }
+    }
+  }
+
+  if (isService) {
+    const visit = (node) => {
+      if (isForbiddenServiceUiCall(ts, sourceFile, node)) {
+        pushNodeIssue(
+          issues,
+          rel,
+          'service must not directly operate UI; move UI orchestration to Flow.',
+          'service.ui_direct',
+          sourceFile,
+          node,
+        );
+      }
+      if (isLongLivedNodeType(ts, sourceFile, node)) {
+        pushNodeIssue(
+          issues,
+          rel,
+          'service must not keep long-lived Node or Component fields.',
+          'service.node_field',
+          sourceFile,
+          node,
+        );
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+
+  return true;
+}
+
 function resolveExistingImportTarget(filePath) {
   const candidates = [
     filePath,
@@ -1100,6 +1194,7 @@ function validateStrictCodeRules(projectRoot, issues) {
     const withoutComments = content
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/.*$/gm, '');
+    const astChecked = validateStrictAstRules(rel, content, issues);
 
     if (/\/res\//.test(rel)) {
       issues.push(`${rel} must not place TypeScript source under res/.`);
@@ -1107,13 +1202,13 @@ function validateStrictCodeRules(projectRoot, issues) {
     if (/^assets\/content-packs\//.test(rel)) {
       issues.push(`${rel} content packs must not contain TypeScript source.`);
     }
-    if (/\/code\/model\//.test(rel) && /from\s+['"]cc['"]/.test(withoutComments)) {
+    if (!astChecked && /\/code\/model\//.test(rel) && /from\s+['"]cc['"]/.test(withoutComments)) {
       issues.push(`${rel} model must not import cc.`);
     }
-    if (/\/code\/service\//.test(rel) && /\bthis\.module\.ui\.(open|openForResult|close|closeLayer|back)\s*\(/.test(withoutComments)) {
+    if (!astChecked && /\/code\/service\//.test(rel) && /\bthis\.module\.ui\.(open|openForResult|close|closeLayer|back)\s*\(/.test(withoutComments)) {
       issues.push(`${rel} service must not directly operate UI; move UI orchestration to Flow.`);
     }
-    if (/\/code\/service\//.test(rel) && /^\s*(?:private|protected|public)\s+[\w$]+\??\s*:\s*[^;\n]*(?:Node|Component)\b/m.test(withoutComments)) {
+    if (!astChecked && /\/code\/service\//.test(rel) && /^\s*(?:private|protected|public)\s+[\w$]+\??\s*:\s*[^;\n]*(?:Node|Component)\b/m.test(withoutComments)) {
       issues.push(`${rel} service must not keep long-lived Node or Component fields.`);
     }
     if (/^assets\/(?:modules|libraries)\//.test(rel) && /\bassetManager\.loadBundle\s*\(/.test(withoutComments)) {
