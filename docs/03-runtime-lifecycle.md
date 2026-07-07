@@ -5,10 +5,20 @@
 `App` 是运行时总入口，但不能变成万能大单例。
 
 ```ts
+export enum AppState {
+    Created = 'created',
+    Starting = 'starting',
+    Started = 'started',
+    Disposing = 'disposing',
+    Disposed = 'disposed',
+    Failed = 'failed',
+}
+
 export class App {
     public readonly logger: Logger;
     public readonly lifecycle: AppLifecycle;
     public readonly viewport: ViewportManager;
+    public readonly state: AppState;
 
     public start(options?: AppStartOptions): Promise<void>;
     public preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope>;
@@ -21,11 +31,43 @@ export class App {
     public unloadModule(ref: ModuleRef): Promise<void>;
     public installExtension(extension: Extension): Promise<void>;
     public use<T>(token: ExtensionToken<T>): T;
+    public dispose(reason?: unknown): Promise<void>;
     public snapshot(): AppRuntimeSnapshot;
 }
 ```
 
 `App` 是 facade。`BundleManager`、`LibraryRegistry`、`ExtensionRegistry`、`UIManager`、`OwnershipLedger` 等系统属于内部 `AppKernel`，业务和生成代码不能直接访问。
+
+## App 状态机
+
+`App` 有显式状态，所有 public 生命周期 API 都必须受状态约束：
+
+```text
+Created
+  -> Starting
+  -> Started
+  -> Disposing
+  -> Disposed
+
+Starting
+  -> Disposing
+  -> Failed
+
+Failed
+  -> Disposing
+  -> Disposed
+```
+
+规则：
+
+- `start` 只能从 `Created` 进入。
+- `preloadModule`、`loadModule`、`enterModule` 只能在 `Started` 调用。
+- `unloadModule` 可以在 `Started` 或 `Disposing` 调用，保证 App dispose 可以复用同一条卸载路径。
+- `dispose` 可以从 `Created`、`Starting`、`Started`、`Failed` 调用，且对 `Disposed` 幂等。
+- `dispose` 必须等待正在进行的 `start` 和 module load task 收口，再卸载已注册模块。
+- 非法状态调用抛出 `app.invalid_state`，错误详情包含 API、当前状态和允许状态。
+
+`Main.ts` 不承担状态机职责。它只把 Cocos 节点生命周期转成 `app.start` 和 `app.dispose`。
 
 `App` 负责：
 
@@ -68,19 +110,42 @@ assets/app/bootstrap/install.generated.ts
 read extension refs from app/registry/extensions
 sort by dependency order
 load extension runtime if needed
-call extension.install(app)
-register app-level tokens
-register module-level token factories
+run installBeforeStart / installAfterMainBinding / installBeforeFirstModule
+register app-level tokens through ExtensionContext.provide
+register module-level token factories through ExtensionContext.provideModule
 ```
 
 Extension 接口：
 
 ```ts
+export type ExtensionPhase =
+    | 'before-start'
+    | 'after-main-binding'
+    | 'before-first-module'
+    | 'dispose';
+
+export interface ExtensionContext {
+    readonly app: App;
+    readonly lifecycle: AppLifecycle;
+    readonly viewport: ViewportManager;
+    readonly logger: Logger;
+    readonly phase: ExtensionPhase;
+    provide<T>(token: ExtensionToken<T>, value: T): void;
+    provideModule<T>(
+        token: ModuleExtensionToken<T>,
+        factory: (module: Module) => T,
+    ): void;
+}
+
 export interface Extension {
     readonly name: string;
-    readonly dependencies?: ExtensionRef[];
-    install(app: App): void | Promise<void>;
-    uninstall?(app: App): void | Promise<void>;
+    readonly dependencies?: readonly string[];
+    install?(context: ExtensionContext): void | Promise<void>;
+    installBeforeStart?(context: ExtensionContext): void | Promise<void>;
+    installAfterMainBinding?(context: ExtensionContext): void | Promise<void>;
+    installBeforeFirstModule?(context: ExtensionContext): void | Promise<void>;
+    dispose?(context: ExtensionContext, reason?: unknown): void | Promise<void>;
+    uninstall?(context: ExtensionContext): void | Promise<void>;
 }
 ```
 
@@ -104,6 +169,7 @@ const analytics = this.use(ModuleAnalyticsToken);
 - Module-level token 随 Module 创建和卸载。
 - Extension install 失败时，App 启动失败，并报告 extension name 和 dependency chain。
 - Extension 能力必须通过 token 暴露，不往 `app` 上直接挂 `app.audio`、`app.net` 这类字段。
+- Extension phase 使用事务。某个 phase 失败时，本 phase 中已提供的 app token / module token 会回滚，本 phase 已完成 hook 的 Extension 会按反向顺序 dispose。
 
 ## 启动流程
 

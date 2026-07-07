@@ -50,6 +50,23 @@ extensions/yzforge/runtime-template/*
 
 当前 Main 生命周期已经不再只是清除全局引用。`Main.onDestroy` 必须释放 `App.dispose`，并处理启动中被销毁的竞态。
 
+当前 AppStateMachine 已经落地：
+
+- `AppState` 暴露 `Created`、`Starting`、`Started`、`Disposing`、`Disposed`、`Failed`。
+- `App.state` 和 `AppRuntimeSnapshot.state` 暴露当前状态。
+- `start`、`preloadModule`、`loadModule`、`enterModule`、`unloadModule`、`installExtension`、`use`、`useModuleToken`、`dispose` 都有状态守卫。
+- `dispose` 支持 `Created`、`Starting`、`Started`、`Failed`，并对 `Disposed` 幂等。
+- `dispose` 会等待正在进行的 `start` 和 module load task 收口，再卸载模块。
+- 非法状态调用抛出 `app.invalid_state`。
+
+当前 ExtensionTransaction 已经落地第一版：
+
+- 每个 install phase 都有事务记录。
+- `ExtensionContext.provide` 和 `provideModule` 在 phase 失败时会恢复到 phase 前状态。
+- phase 中已成功执行 hook 的 Extension 会在后续 hook 失败时按反向顺序 dispose。
+- late install 失败会从 registry 中移除该 Extension。
+- phase error 会保留 extension name、phase、dependency chain、cause，并附带 rollback failure 摘要。
+
 当前 Validator 能检查：
 
 - `package.json.exports`、`tsconfig.paths`、`import-map.json` 和 Cocos project setting 是否一致。
@@ -64,9 +81,9 @@ extensions/yzforge/runtime-template/*
 
 下面这些不是当前实现错误，而是我对当前框架仍不满意的地方。它们应该进入下一版硬化设计。
 
-### App 缺少强状态机
+### App 状态机已落地后的剩余遗憾
 
-当前 `App.start`、`loadModule`、`unloadModule`、`dispose` 各自有并发保护，但 App 整体没有统一状态：
+当前已经有统一状态：
 
 ```text
 Created
@@ -77,19 +94,24 @@ Disposed
 Failed
 ```
 
-这导致一些问题只能靠调用顺序和 Main 侧保护解决：
+但我仍不满意这些点：
 
-- `start` 过程中调用 `dispose`。
-- `dispose` 后再次调用 `start`。
-- `dispose` 中仍有 module load task 未完成。
-- `install extension` 失败后 App 是否已经有副作用。
-- `start` 失败后哪些系统已经安装、哪些需要回滚。
+- `start` 失败回滚已经会调用 dispose 路径，但 Extension 安装副作用还不是事务化记录。
+- `preloadModule` 目前没有独立 task map，依赖 ReleaseScope 在释放后登记动作时立即执行。
+- 状态守卫是 runtime API 级别，Validator 还没有用 AST 强制每个新增 public API 都声明状态规则。
+- `Failed` 状态后的二次诊断还比较薄，只能通过原始错误和 snapshot 判断。
 
-硬终局要求：App 的每个 public API 都必须显式声明允许的状态、状态迁移和失败结果。
+后续硬终局要求：每个新增 public API 必须同时增加状态规则、行为 smoke 和文档表格。
 
 ### Extension 安装不是事务
 
-当前 Extension 已经通过 `ExtensionContext` 和 token 收窄能力，但安装过程还不是强事务。
+当前 Extension 已经通过 `ExtensionContext` 和 token 收窄能力，安装 phase 也已经有第一版事务回滚。
+
+剩余遗憾：
+
+- 事务目前覆盖 token side effect 和本 phase hook dispose，还没有统一记录 lifecycle listener、codec、service、system ui provider 等未来扩展点。
+- rollback dispose 使用 Extension 的全局 `dispose/uninstall`，还没有 phase-specific rollback hook。
+- Validator 还没有结构化检查所有 `ExtensionContext` 新增副作用都登记到 transaction。
 
 硬终局要求：
 
@@ -525,12 +547,15 @@ regex 只允许用于补充提示，不作为唯一验收依据。
 
 ### Phase A：App 状态机
 
-目标：
+状态：已实现第一版。
+
+已落地：
 
 - 增加 `AppState`。
 - 所有 public API 加状态断言。
 - `dispose` 支持 Starting / Failed 回滚。
 - Smoke 覆盖重复 start、start 中 dispose、disposed 后 enterModule。
+- `dispose` 等待 pending module load task 后再卸载模块。
 
 验收：
 
@@ -540,14 +565,23 @@ npm run yzforge:smoke
 strict validator sees App state guards
 ```
 
+后续增强：
+
+- Validator 使用 AST 检查新增 public API 是否有状态守卫。
+- `preloadModule` 增加 task map，让 preload 与 dispose 的关系和 module load 一样显式。
+- App failure snapshot 展示最后一次失败 API、状态迁移和错误摘要。
+
 ### Phase B：Extension 事务
 
-目标：
+状态：已实现第一版。
+
+已落地：
 
 - `ExtensionRegistry` 支持 transaction。
 - `ExtensionContext.provide` 等副作用可回滚。
 - 安装失败 dispose 已完成部分。
 - 错误包含 extension name、phase、dependency chain、rollback failures。
+- Smoke 覆盖 phase 失败后 token 回滚和 completed extension rollback dispose。
 
 验收：
 
@@ -557,6 +591,12 @@ previous tokens removed
 installed extensions disposed in reverse order
 App returns to defined state
 ```
+
+后续增强：
+
+- 将 lifecycle listener、codec、service、system ui provider 等副作用纳入同一个 transaction。
+- 为 Extension 增加可选 phase-specific rollback hook。
+- Validator 使用 AST 检查 `ExtensionContext` 新增方法必须有 rollback 记录。
 
 ### Phase C：ToolchainResolver
 
