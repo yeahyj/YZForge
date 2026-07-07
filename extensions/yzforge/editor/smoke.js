@@ -364,6 +364,93 @@ async function assertExtensionRegistryBehavior() {
   assert(phaseError?.details?.dependencyChain?.join(' -> ') === 'Bad -> Core', 'Extension phase failure must include dependency chain.');
 }
 
+async function assertViewResultCloseBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const errors = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/errors.ts');
+  const uiRuntime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/ui.ts', {
+    cc: {
+      Component: class Component {},
+      EventKeyboard: class EventKeyboard {},
+      input: { on() {}, off() {} },
+      Input: { EventType: { KEY_DOWN: 'key-down' } },
+      isValid(value) {
+        return Boolean(value) && value.valid !== false;
+      },
+      KeyCode: { MOBILE_BACK: 6, ESCAPE: 27 },
+      Node: class Node {},
+    },
+    './errors': errors,
+    './layer-registry': {
+      LayerRegistry: class LayerRegistry {
+        constructor(roots = {}) {
+          this.roots = roots;
+        }
+        configure(roots) {
+          this.roots = roots;
+        }
+        get(layer) {
+          return this.roots[layer];
+        }
+        snapshot() {
+          return [];
+        }
+      },
+    },
+    './system-ui': {
+      SystemUI: class SystemUI {
+        updatePopupMask() {}
+        dispose() {}
+        snapshot() {
+          return { popupMaskVisible: false, touchMaskVisible: false };
+        }
+      },
+    },
+    './view-runtime': {
+      ViewRuntime: class ViewRuntime {
+        beforeOpen(view, data) { return view.__yzforgeBeforeOpen(data); }
+        open(view, data) { return view.__yzforgeOpen(data); }
+        beforeClose(view, reason) { return view.__yzforgeBeforeClose(reason); }
+        close(view, result) { return view.__yzforgeClose(result); }
+      },
+    },
+  });
+  const { View } = uiRuntime;
+  assert(typeof View === 'function', 'Expected View runtime export.');
+
+  class ResultView extends View {
+    onClose(result) {
+      this.closedWith = result;
+    }
+  }
+
+  const cancelResult = { cancelled: true, reason: 'module_unload' };
+  const resultView = new ResultView();
+  resultView.__yzforgeBind({}, { ref: { path: 'res/view/ResultView' } });
+  const waitCancel = resultView.__yzforgeWaitResult();
+  await resultView.__yzforgeClose(cancelResult);
+  assert(await waitCancel === cancelResult, 'View close must resolve pending result with cancel payload.');
+  assert(resultView.closedWith === cancelResult, 'View onClose must receive the close result.');
+
+  class FailingCloseView extends View {
+    onClose() {
+      throw new Error('close failed');
+    }
+  }
+
+  const failingView = new FailingCloseView();
+  const closeResult = { ok: true };
+  failingView.__yzforgeBind({}, { ref: { path: 'res/view/FailingCloseView' } });
+  const waitClose = failingView.__yzforgeWaitResult();
+  let closeError;
+  try {
+    await failingView.__yzforgeClose(closeResult);
+  } catch (error) {
+    closeError = error;
+  }
+  assert(await waitClose === closeResult, 'View close must resolve result before reporting lifecycle failures.');
+  assert(closeError?.code === 'ui.view_lifecycle_close_failed', 'View close lifecycle failures must be reported after result resolution.');
+}
+
 function writeBundleMeta(projectRoot, relativeDir, bundleName) {
   writeJson(projectRoot, `${relativeDir}.meta`, {
     userData: {
@@ -884,6 +971,7 @@ async function smoke(options = {}) {
     await assertReleaseScopeBehavior();
     await assertLibraryOwnerAcquireBehavior();
     await assertExtensionRegistryBehavior();
+    await assertViewResultCloseBehavior();
     setupBaseline(projectRoot);
     const created = createSmokeProject(projectRoot);
     const generated = generate(projectRoot);
