@@ -104,7 +104,7 @@ assets/
 
 extensions/
   yzforge/
-    runtime/
+    runtime-template/
     editor/
     package.json
 
@@ -262,7 +262,8 @@ Library 内部手写代码目录不强制固定。`types/`、`system/`、`compon
 
 | 路径 | 作用 | 维护方式 |
 | --- | --- | --- |
-| `extensions/yzforge/runtime/` | 框架运行时代码。 | 手写 |
+| `extensions/yzforge/runtime-template/` | 框架运行时代码模板，是插件分发和同步来源，不参与业务 import。 | 手写 |
+| `assets/yzforge/runtime/` | 项目实际运行时代码，是 `yzforge` import 的唯一目标。 | 由模板同步 |
 | `extensions/yzforge/editor/` | 框架编辑器插件、生成器、Validator。 | 手写 |
 | `extensions/yzforge/package.json` | Cocos Editor 扩展描述文件。 | 手写 |
 | `extensions/yzforge-*` | 官方扩展，例如 audio、storage、net。 | 手写 |
@@ -404,7 +405,7 @@ YZForge 使用 Cocos Import Maps 提供稳定导入路径，并同步生成 `tsc
 推荐别名：
 
 ```text
-yzforge/                 -> extensions/yzforge/runtime/
+yzforge/                 -> assets/yzforge/runtime/
 yzforge/modules/         -> assets/app/registry/modules/
 yzforge/libraries/       -> assets/app/registry/libraries/
 yzforge/content-packs/           -> assets/app/registry/content-packs/
@@ -412,7 +413,9 @@ yzforge-contracts/       -> assets/app/contracts/
 yzforge-shared/          -> assets/shared/code/
 ```
 
-业务代码不直接使用 `db://yzforge-modules/*` 这类临时路径。底层如需兼容 Cocos AssetDB，可由生成器和 Import Maps 统一处理。
+业务代码不直接使用 `db://yzforge-modules/*` 这类内部路径。底层如需兼容 Cocos AssetDB，由生成器和 Import Maps 统一处理。
+
+`extensions/yzforge/runtime-template/` 不能被业务或生成代码 import。它只作为插件携带的模板来源，通过同步命令写入 `assets/yzforge/runtime/`。
 
 ## Main 场景
 

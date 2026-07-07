@@ -116,6 +116,14 @@ function createLibrary(projectRoot, name) {
     `export interface ${name}TokenMap {}`,
     '',
   ].join('\n'));
+  write(`${root}/code/providers.ts`, [
+    "import { defineLibraryProviders } from '../../../yzforge/runtime';",
+    `import type { ${name}TokenMap } from './public';`,
+    '',
+    `export const providers = defineLibraryProviders<${name}TokenMap>({`,
+    '});',
+    '',
+  ].join('\n'));
   return { kind: 'library', name, changed };
 }
 
@@ -379,7 +387,7 @@ function createExtensionStub(projectRoot, name) {
   };
 
   write(`${root}/${name}.ts`, [
-    "import { defineExtensionToken, type Extension, type ExtensionRegistry } from '../../yzforge/runtime';",
+    "import { defineExtensionToken, type Extension, type ExtensionContext } from '../../yzforge/runtime';",
     '',
     `export interface ${name}Api {`,
     '    readonly name: string;',
@@ -393,8 +401,8 @@ function createExtensionStub(projectRoot, name) {
     '',
     `export const ${name}Extension: Extension = {`,
     `    name: '${name}',`,
-    '    install(registry: ExtensionRegistry): void {',
-    `        registry.provide(${name}Token, new ${name}ApiImpl());`,
+    '    installBeforeStart(context: ExtensionContext): void {',
+    `        context.provide(${name}Token, new ${name}ApiImpl());`,
     '    },',
     '};',
     '',

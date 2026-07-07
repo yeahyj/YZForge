@@ -11,6 +11,10 @@ const { validate } = require('./validate');
 
 const UUID_BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const UUID_HEX_CHARS = '0123456789abcdef';
+const MAIN_SCRIPT_UUID = '10000000-0000-4000-8000-000000000010';
+const SCREEN_FITTER_UUID = '10000000-0000-4000-8000-000000000011';
+const FULL_SCREEN_ROOT_UUID = '10000000-0000-4000-8000-000000000012';
+const SAFE_AREA_ROOT_UUID = '10000000-0000-4000-8000-000000000013';
 
 function assert(condition, message) {
   if (!condition) {
@@ -246,21 +250,83 @@ function serializedPrefab(scriptUuid, markers = [], options = {}) {
   return `${JSON.stringify(records, null, 2)}\n`;
 }
 
+function serializedMainScene(mainScriptUuid) {
+  const node = (name, parentId, childIds, componentIds = []) => ({
+    __type__: 'cc.Node',
+    _name: name,
+    _parent: parentId === undefined ? null : { __id__: parentId },
+    _children: childIds.map((childId) => ({ __id__: childId })),
+    _components: componentIds.map((componentId) => ({ __id__: componentId })),
+    _prefab: null,
+  });
+
+  const records = [
+    {
+      __type__: 'cc.SceneAsset',
+      scene: { __id__: 1 },
+    },
+    {
+      __type__: 'cc.Scene',
+      _name: 'Main',
+      _children: [{ __id__: 2 }],
+    },
+    node('MainRoot', 1, [3, 5], [15]),
+    node('WorldRoot', 2, [4]),
+    node('SceneHost', 3, []),
+    node('Canvas', 2, [6], [16]),
+    node('UIRoot', 5, [7, 8, 14]),
+    node('FullscreenLayer', 6, [], [17]),
+    node('SafeAreaRoot', 6, [9, 10, 11, 12, 13], [18]),
+    node('PageLayer', 8, []),
+    node('PaperLayer', 8, []),
+    node('PopupLayer', 8, []),
+    node('ToastLayer', 8, []),
+    node('TopLayer', 8, []),
+    node('SystemLayer', 6, [], [19]),
+    {
+      __type__: compressScriptUuid(mainScriptUuid),
+      node: { __id__: 2 },
+      _enabled: true,
+    },
+    {
+      __type__: 'cc.Canvas',
+      node: { __id__: 5 },
+    },
+    {
+      __type__: compressScriptUuid(FULL_SCREEN_ROOT_UUID),
+      node: { __id__: 7 },
+      _enabled: true,
+    },
+    {
+      __type__: compressScriptUuid(SAFE_AREA_ROOT_UUID),
+      node: { __id__: 8 },
+      _enabled: true,
+    },
+    {
+      __type__: compressScriptUuid(FULL_SCREEN_ROOT_UUID),
+      node: { __id__: 14 },
+      _enabled: true,
+    },
+  ];
+
+  return `${JSON.stringify(records, null, 2)}\n`;
+}
+
 function setupBaseline(projectRoot) {
   writeJson(projectRoot, 'tsconfig.json', { compilerOptions: {} });
+  writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export {};');
   writeText(projectRoot, 'assets/yzforge/runtime/index.ts', 'export {};');
+  for (const root of ['extensions/yzforge/runtime-template', 'assets/yzforge/runtime']) {
+    writeText(projectRoot, `${root}/screen-fitter.ts`, 'export class YZScreenFitter {}');
+    writeText(projectRoot, `${root}/full-screen-root.ts`, 'export class YZFullScreenRoot extends YZScreenFitter {}');
+    writeText(projectRoot, `${root}/safe-area-root.ts`, 'export class YZSafeAreaRoot extends YZScreenFitter {}');
+  }
+  writeScriptMeta(projectRoot, 'assets/yzforge/runtime/screen-fitter.ts', SCREEN_FITTER_UUID);
+  writeScriptMeta(projectRoot, 'assets/yzforge/runtime/full-screen-root.ts', FULL_SCREEN_ROOT_UUID);
+  writeScriptMeta(projectRoot, 'assets/yzforge/runtime/safe-area-root.ts', SAFE_AREA_ROOT_UUID);
   writeText(projectRoot, 'assets/app/main/Main.ts', 'export class Main {}');
-  writeText(projectRoot, 'assets/app/main/Main.scene', JSON.stringify([
-    'MainRoot',
-    'Canvas',
-    'UIRoot',
-    'PageLayer',
-    'PaperLayer',
-    'PopupLayer',
-    'ToastLayer',
-    'TopLayer',
-    'SystemLayer',
-  ].map((name) => ({ _name: name })), null, 2));
+  writeScriptMeta(projectRoot, 'assets/app/main/Main.ts', MAIN_SCRIPT_UUID);
+  writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
 }
 
 function createSmokeProject(projectRoot) {
@@ -275,6 +341,38 @@ function createSmokeProject(projectRoot) {
     create(projectRoot, 'extension-stub', { name: 'Analytics' }),
   ];
 
+  writeText(projectRoot, 'assets/app/extensions/Analytics.ts', [
+    "import { defineExtensionToken, defineModuleExtensionToken, type Extension, type ExtensionContext, type Module } from '../../yzforge/runtime';",
+    '',
+    'export interface AnalyticsApi {',
+    '    readonly name: string;',
+    '}',
+    '',
+    'export interface AnalyticsModuleApi {',
+    '    readonly moduleName: string;',
+    '}',
+    '',
+    "export const AnalyticsToken = defineExtensionToken<AnalyticsApi>('Analytics');",
+    "export const AnalyticsModuleToken = defineModuleExtensionToken<AnalyticsModuleApi>('Analytics.Module');",
+    '',
+    'class AnalyticsApiImpl implements AnalyticsApi {',
+    "    public readonly name = 'Analytics';",
+    '}',
+    '',
+    'class AnalyticsModuleApiImpl implements AnalyticsModuleApi {',
+    '    public constructor(public readonly moduleName: string) {}',
+    '}',
+    '',
+    'export const AnalyticsExtension: Extension = {',
+    "    name: 'Analytics',",
+    '    installBeforeStart(context: ExtensionContext): void {',
+    '        context.provide(AnalyticsToken, new AnalyticsApiImpl());',
+    '        context.provideModule(AnalyticsModuleToken, (module: Module) => new AnalyticsModuleApiImpl(module.name));',
+    '    },',
+    '};',
+    '',
+  ].join('\n'));
+
   updateJson(projectRoot, 'assets/modules/Battle/module.json', (descriptor) => {
     descriptor.libraries = ['BattleCore'];
   });
@@ -286,10 +384,40 @@ function createSmokeProject(projectRoot) {
   writeBundleMeta(projectRoot, 'assets/libraries/BattleCore', 'yzforge-lib-battle-core');
   writeBundleMeta(projectRoot, 'assets/content-packs/Battle/Level001', 'yzforge-content-pack-battle-level001');
 
+  writeText(projectRoot, 'assets/libraries/BattleCore/code/public.ts', [
+    'export interface BattleRules {',
+    '    readonly version: number;',
+    '}',
+    '',
+    'export interface BattleCoreTokenMap {',
+    '    readonly rules: BattleRules;',
+    '}',
+  ].join('\n'));
+  writeText(projectRoot, 'assets/libraries/BattleCore/code/providers.ts', [
+    "import { defineLibraryProviders } from '../../../yzforge/runtime';",
+    "import type { BattleCoreTokenMap } from './public';",
+    '',
+    'export const providers = defineLibraryProviders<BattleCoreTokenMap>({',
+    '    rules: () => ({ version: 1 }),',
+    '});',
+  ].join('\n'));
+
   writeText(projectRoot, 'assets/modules/Battle/code/runtime/LevelActor.ts', 'export class LevelActor {}');
   writeText(projectRoot, 'assets/libraries/BattleCore/code/SharedFx.ts', 'export class SharedFx {}');
   writeText(projectRoot, 'assets/libraries/BattleCore/res/runtime/Rules.json', '{"version":1}');
+  writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
+    primaryKey: 'id',
+    rows: [
+      { id: 'sword', label: 'Sword' },
+    ],
+  }, null, 2));
   writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/runtime/LevelData.json', '{"level":1}');
+  writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/content/config/EnemyWaves.json', JSON.stringify({
+    primaryKey: 'id',
+    rows: [
+      { id: 'wave-1', enemy: 'slime', count: 3 },
+    ],
+  }, null, 2));
   writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/scene/LevelScene.scene', JSON.stringify([
     { __type__: 'cc.SceneAsset' },
   ], null, 2));
@@ -328,24 +456,66 @@ function assertGeneratedOutput(projectRoot) {
   requireText(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts', "bindAutoRefComponent(this.node, 'confirm', Button)");
   requireText(projectRoot, 'assets/modules/Battle/code/part/refs/PartReward.refs.generated.ts', 'protected amount!: Label;');
   requireText(projectRoot, 'assets/app/global/code/view/refs/ToastNotice.refs.generated.ts', 'protected message!: Label;');
-  requireText(projectRoot, 'assets/app/global/code/assets.generated.ts', "toastNotice: viewRef(ToastNotice, 'res/view/ToastNotice'");
-  requireText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', "pageBattle: viewRef(PageBattle, 'res/view/PageBattle'");
+  requireText(projectRoot, 'assets/app/contracts/libraries/BattleCore.contract.generated.ts', 'export const BattleCoreTokens = defineLibraryTokens<BattleCoreTokenMap>');
+  requireText(projectRoot, 'assets/libraries/BattleCore/code/entry.generated.ts', "import { providers } from './providers';");
+  requireText(projectRoot, 'assets/libraries/BattleCore/code/entry.generated.ts', 'tokens: providers,');
+  requireText(projectRoot, 'assets/app/global/code/assets.generated.ts', "toastNotice: viewRef('Global', ToastNotice, 'res/view/ToastNotice'");
+  requireText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle'");
   requireText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', "partReward: partRef(PartReward, 'res/part/PartReward')");
+  requireText(projectRoot, 'assets/modules/Battle/code/config.generated.ts', "battleItems: tableRef({ name: 'res/content/config/BattleItems', primaryKey: 'id' })");
   requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', 'export const BattleLevel001ContentPack = defineContentPack');
   requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', "levelRoot: contentPackAssetRef(Prefab, 'res/prefab/LevelRoot')");
+  requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', "enemyWaves: contentPackConfigRef('res/content/config/EnemyWaves', { primaryKey: 'id' })");
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'AnalyticsExtension');
+  requireText(projectRoot, 'assets/app/extensions/Analytics.ts', 'AnalyticsModuleToken');
 
   const manifest = readJson(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json');
   assert(manifest.id === 'battle.level001', 'ContentPack manifest id mismatch.');
   assert(manifest.refs.levelRoot?.type === 'Prefab', 'ContentPack prefab ref missing from manifest.');
   assert(manifest.refs.levelData?.type === 'JsonAsset', 'ContentPack runtime json ref missing from manifest.');
   assert(manifest.refs.levelScene?.type === 'SceneAsset', 'ContentPack scene ref missing from manifest.');
+  assert(manifest.refs.enemyWaves?.kind === 'config', 'ContentPack config ref missing from manifest.');
+  assert(manifest._generated?.hash, 'ContentPack manifest generated metadata missing hash.');
+  assert(manifest._generated?.source === 'assets/content-packs/Battle/Level001/content-pack.json', 'ContentPack manifest generated source mismatch.');
 }
 
 function assertOkValidation(projectRoot) {
   const result = validate(projectRoot, { strict: true });
   assert(result.ok, `Strict validate failed:\n${result.issues.join('\n')}`);
   return result;
+}
+
+function assertRuntimeLifecycleInvariants() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const appSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/app.ts'), 'utf8');
+  const moduleSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/module.ts'), 'utf8');
+  const navigatorSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/navigator.ts'), 'utf8');
+  const extensionRegistrySource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/extension-registry.ts'), 'utf8');
+  const contentPackSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/content-pack.ts'), 'utf8');
+  const preloadBody = appSource.slice(appSource.indexOf('public async preloadModule'), appSource.indexOf('public async loadModule'));
+  const enterBody = appSource.slice(appSource.indexOf('public async enterModule'), appSource.indexOf('public async unloadModule'));
+  assert(appSource.includes('moduleUnloadTasks'), 'App must keep module unload tasks idempotent.');
+  assert(appSource.includes('module.unload_during_enter'), 'App must reject unloading a module while it is entering.');
+  assert(appSource.includes('module.unload_failed'), 'App must aggregate module unload failures.');
+  assert(preloadBody.includes('this.bundles.preloadBundle'), 'preloadModule must preload the module bundle.');
+  assert(!preloadBody.includes('new entry.type') && !preloadBody.includes('__yzforgeCreate') && !preloadBody.includes('__yzforgeLoad'), 'preloadModule must not create or load Module instances.');
+  assert(appSource.includes('instance = new entry.type()'), 'loadModule/createModule must create Module instances.');
+  assert(appSource.indexOf('await instance.__yzforgeCreate()') < appSource.indexOf('await instance.__yzforgeLoad()'), 'Module load must call onCreate before onLoad.');
+  assert(enterBody.includes('this.navigator.enter') && !enterBody.includes('__yzforgeEnter'), 'App.enterModule must delegate enter lifecycle to ModuleNavigator.');
+  assert(navigatorSource.includes('await target.instance.__yzforgeEnter(params)'), 'ModuleNavigator must call module onEnter.');
+  assert(navigatorSource.includes('target.instance.state = ModuleState.Ready'), 'ModuleNavigator must roll back entering module state on enter failure.');
+  assert(moduleSource.includes('module.lifecycle_unload_failed'), 'Module unload lifecycle must aggregate hook failures.');
+  assert(moduleSource.includes('flow.onDispose'), 'Module unload must dispose flows.');
+  assert(moduleSource.includes('service.onDispose'), 'Module unload must dispose services.');
+  assert(moduleSource.includes('model.onDispose'), 'Module unload must dispose models.');
+  assert(moduleSource.includes('module.onUnload'), 'Module unload must call onUnload after unit disposal.');
+  assert(extensionRegistrySource.includes('extension.phase_failed'), 'Extension phase failure must be wrapped with diagnostic context.');
+  assert(extensionRegistrySource.includes('dependencyChain'), 'Extension failures must expose a dependency chain.');
+  assert(contentPackSource.includes('manifest.generated'), 'ContentPack manifest.generated.json must be loaded at runtime.');
+  assert(contentPackSource.includes('content_pack.manifest_mismatch'), 'ContentPack runtime must validate generated manifest identity.');
+  assert(moduleSource.includes('readonly ui: ModuleUIAccess'), 'Module context must expose ModuleUI through the framework facade.');
+  assert(fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/refs.ts'), 'utf8').includes('readonly owner: string;'), 'ViewRef must carry an owning scope.');
+  assert(fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/ui.ts'), 'utf8').includes('ui.view_owner_mismatch'), 'ModuleUI must reject opening foreign View refs.');
 }
 
 function expectValidationIssue(projectRoot, expected) {
@@ -371,6 +541,7 @@ function smoke(options = {}) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yzforge-smoke-'));
   let completed = false;
   try {
+    assertRuntimeLifecycleInvariants();
     setupBaseline(projectRoot);
     const created = createSmokeProject(projectRoot);
     const generated = generate(projectRoot);
@@ -383,6 +554,213 @@ function smoke(options = {}) {
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
     const validation = assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json', (manifest) => {
+      manifest._generated.hash = '0000000000000000';
+    });
+    const generatedJsonViolation = expectValidationIssue(projectRoot, 'manifest.generated.json generated hash mismatch');
+    const generatedJsonDetail = generatedJsonViolation.issueDetails.find((issue) => issue.message.includes('manifest.generated.json generated hash mismatch'));
+    assert(generatedJsonDetail.code === 'generated.hash_mismatch', 'Expected generated JSON hash issue code.');
+    const manifestRepair = generate(projectRoot);
+    assert(manifestRepair.changed.includes('assets/content-packs/Battle/Level001/manifest.generated.json'), 'Expected generate to repair ContentPack manifest hash.');
+    assertOkValidation(projectRoot);
+
+    writeText(projectRoot, 'assets/app/extensions/BadAppMutation.ts', [
+      "import type { Extension, ExtensionContext } from '../../yzforge/runtime';",
+      '',
+      'export const BadAppMutationExtension: Extension = {',
+      "    name: 'BadAppMutation',",
+      '    installBeforeStart(context: ExtensionContext): void {',
+      '        (context.app as unknown as { audio?: unknown }).audio = {};',
+      '    },',
+      '};',
+      '',
+    ].join('\n'));
+    const extensionMutationViolation = expectValidationIssue(projectRoot, 'Extension must not mutate App fields');
+    const extensionMutationDetail = extensionMutationViolation.issueDetails.find((issue) => issue.message.includes('Extension must not mutate App fields'));
+    assert(extensionMutationDetail.code === 'extension.app_mutation', 'Expected Extension app mutation issue code.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/app/extensions/BadAppMutation.ts'));
+    assertOkValidation(projectRoot);
+
+    writeText(projectRoot, 'assets/app/extensions/BadInternalImport.ts', [
+      "import { LevelActor } from '../../modules/Battle/code/runtime/LevelActor';",
+      "import type { Extension } from '../../yzforge/runtime';",
+      '',
+      'export const BadInternalImportExtension: Extension = {',
+      "    name: 'BadInternalImport',",
+      '    installBeforeStart(): void {',
+      '        void LevelActor;',
+      '    },',
+      '};',
+      '',
+    ].join('\n'));
+    const extensionImportViolation = expectValidationIssue(projectRoot, 'extension code must not import module internal path');
+    const extensionImportDetail = extensionImportViolation.issueDetails.find((issue) => issue.message.includes('extension code must not import module internal path'));
+    assert(extensionImportDetail.code === 'import.boundary', 'Expected Extension import boundary issue code.');
+    assert(extensionImportDetail.path === 'assets/app/extensions/BadInternalImport.ts', 'Expected Extension import boundary path.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/app/extensions/BadInternalImport.ts'));
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/modules/Battle/module.json', (descriptor) => {
+      descriptor.name = 'WrongBattle';
+    });
+    const modulePathViolation = expectValidationIssue(projectRoot, "descriptor path must be 'assets/modules/WrongBattle/module.json'");
+    const modulePathDetail = modulePathViolation.issueDetails.find((issue) => issue.message.includes('assets/modules/WrongBattle/module.json'));
+    assert(modulePathDetail.code === 'descriptor.path_mismatch', 'Expected module descriptor path issue code.');
+    updateJson(projectRoot, 'assets/modules/Battle/module.json', (descriptor) => {
+      descriptor.name = 'Battle';
+    });
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/libraries/BattleCore/library.json', (descriptor) => {
+      descriptor.name = 'WrongBattleCore';
+    });
+    const libraryPathViolation = expectValidationIssue(projectRoot, "descriptor path must be 'assets/libraries/WrongBattleCore/library.json'");
+    const libraryPathDetail = libraryPathViolation.issueDetails.find((issue) => issue.message.includes('assets/libraries/WrongBattleCore/library.json'));
+    assert(libraryPathDetail.code === 'descriptor.path_mismatch', 'Expected library descriptor path issue code.');
+    updateJson(projectRoot, 'assets/libraries/BattleCore/library.json', (descriptor) => {
+      descriptor.name = 'BattleCore';
+    });
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/content-packs/Battle/Level001/content-pack.json', (descriptor) => {
+      descriptor.owner = 'WrongBattle';
+    });
+    const packPathViolation = expectValidationIssue(projectRoot, "descriptor path must be 'assets/content-packs/WrongBattle/Level001/content-pack.json'");
+    const packPathDetail = packPathViolation.issueDetails.find((issue) => issue.message.includes('assets/content-packs/WrongBattle/Level001/content-pack.json'));
+    assert(packPathDetail.code === 'descriptor.path_mismatch', 'Expected ContentPack descriptor path issue code.');
+    updateJson(projectRoot, 'assets/content-packs/Battle/Level001/content-pack.json', (descriptor) => {
+      descriptor.owner = 'Battle';
+    });
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+      tsconfig.compilerOptions.paths.yzforge = ['extensions/yzforge/runtime-template/index.ts'];
+    });
+    const tsconfigPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.yzforge must be ["assets/yzforge/runtime/index.ts"]');
+    const tsconfigPathDetail = tsconfigPathViolation.issueDetails.find((issue) => issue.message.includes('paths.yzforge'));
+    assert(tsconfigPathDetail.code === 'path_map.tsconfig', 'Expected tsconfig path map issue code.');
+    const tsconfigRepair = generate(projectRoot);
+    assert(tsconfigRepair.changed.includes('tsconfig.json'), 'Expected generate to repair tsconfig path map.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'import-map.json', (importMap) => {
+      importMap.imports.yzforge = './extensions/yzforge/runtime-template/index';
+    });
+    const importMapViolation = expectValidationIssue(projectRoot, "import-map.json imports.yzforge must be './assets/yzforge/runtime/index'");
+    const importMapDetail = importMapViolation.issueDetails.find((issue) => issue.message.includes('imports.yzforge'));
+    assert(importMapDetail.code === 'path_map.import_map', 'Expected import-map path issue code.');
+    const importMapRepair = generate(projectRoot);
+    assert(importMapRepair.changed.includes('import-map.json'), 'Expected generate to repair import-map path.');
+    assertOkValidation(projectRoot);
+
+    fs.mkdirSync(path.join(projectRoot, 'assets/modules/Orphan/res'), { recursive: true });
+    const orphanViolation = expectValidationIssue(projectRoot, 'module:Orphan scope directory is missing module.json');
+    const orphanDetail = orphanViolation.issueDetails.find((issue) => issue.message.includes('module:Orphan'));
+    assert(orphanDetail.code === 'scope.descriptor_missing', 'Expected orphan scope issue code.');
+    fs.rmSync(path.join(projectRoot, 'assets/modules/Orphan'), { recursive: true, force: true });
+    assertOkValidation(projectRoot);
+
+    writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export const drift = true;');
+    const runtimeDriftViolation = expectValidationIssue(projectRoot, 'Project runtime file differs from template');
+    const runtimeDriftDetail = runtimeDriftViolation.issueDetails.find((issue) => issue.message.includes('Project runtime file differs from template'));
+    assert(runtimeDriftDetail.code === 'runtime.template_drift', 'Expected runtime template drift issue code.');
+    writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export {};');
+    assertOkValidation(projectRoot);
+
+    const badRuntimeBundleSource = [
+      "import { assetManager } from 'cc';",
+      '',
+      'export function badRuntimeBundleLoad(): void {',
+      "    assetManager.loadBundle('bad-runtime-bundle', () => undefined);",
+      '}',
+      '',
+    ].join('\n');
+    writeText(projectRoot, 'assets/yzforge/runtime/BadBundle.ts', badRuntimeBundleSource);
+    writeText(projectRoot, 'extensions/yzforge/runtime-template/BadBundle.ts', badRuntimeBundleSource);
+    const runtimeBundleViolation = expectValidationIssue(projectRoot, 'Only BundleManager may call assetManager.loadBundle directly');
+    const runtimeBundleDetail = runtimeBundleViolation.issueDetails.find((issue) => issue.message.includes('Only BundleManager'));
+    assert(runtimeBundleDetail.code === 'runtime.bundle_boundary', 'Expected runtime bundle boundary issue code.');
+    assert(runtimeBundleDetail.path === 'assets/yzforge/runtime/BadBundle.ts', 'Expected runtime bundle boundary issue path.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/yzforge/runtime/BadBundle.ts'));
+    fs.unlinkSync(path.join(projectRoot, 'extensions/yzforge/runtime-template/BadBundle.ts'));
+    assertOkValidation(projectRoot);
+
+    writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
+      primaryKey: 'id',
+      rows: [
+        { id: 'sword', label: 'Sword' },
+        { id: 'sword', label: 'Duplicate Sword' },
+      ],
+    }, null, 2));
+    const duplicateConfigViolation = expectValidationIssue(projectRoot, "duplicate config primary key 'sword'");
+    const duplicateConfigDetail = duplicateConfigViolation.issueDetails.find((issue) => issue.message.includes('duplicate config primary key'));
+    assert(duplicateConfigDetail.code === 'config.duplicate_key', 'Expected duplicate config key issue code.');
+    writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
+      primaryKey: 'id',
+      rows: [
+        { id: 'sword', label: 'Sword' },
+      ],
+    }, null, 2));
+    assertOkValidation(projectRoot);
+
+    writeText(projectRoot, 'assets/libraries/BattleCore/code/providers.ts', [
+      "import { defineLibraryProviders } from '../../../yzforge/runtime';",
+      "import type { BattleCoreTokenMap } from './public';",
+      '',
+      'export const providers = defineLibraryProviders<BattleCoreTokenMap>({',
+      '});',
+    ].join('\n'));
+    const providerViolation = expectValidationIssue(projectRoot, 'provider keys must match BattleCoreTokenMap keys');
+    const providerDetail = providerViolation.issueDetails.find((issue) => issue.message.includes('provider keys must match'));
+    assert(providerDetail.code === 'library.providers_mismatch', 'Expected provider mismatch issue code.');
+    writeText(projectRoot, 'assets/libraries/BattleCore/code/providers.ts', [
+      "import { defineLibraryProviders } from '../../../yzforge/runtime';",
+      "import type { BattleCoreTokenMap } from './public';",
+      '',
+      'export const providers = defineLibraryProviders<BattleCoreTokenMap>({',
+      '    rules: () => ({ version: 1 }),',
+      '});',
+    ].join('\n'));
+    assertOkValidation(projectRoot);
+
+    fs.rmSync(path.join(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json'), { force: true });
+    const missingConfigViolation = expectValidationIssue(projectRoot, 'references missing config payload');
+    const missingConfigDetail = missingConfigViolation.issueDetails.find((issue) => issue.message.includes('missing config payload'));
+    assert(missingConfigDetail.code === 'config.payload_missing', 'Expected missing config payload issue code.');
+    writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
+      primaryKey: 'id',
+      rows: [
+        { id: 'sword', label: 'Sword' },
+      ],
+    }, null, 2));
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/app/main/Main.scene', (records) => {
+      const idsByName = new Map(records.map((record, index) => [record?._name, index]));
+      const uiRootId = idsByName.get('UIRoot');
+      const safeAreaRootId = idsByName.get('SafeAreaRoot');
+      const pageLayerId = idsByName.get('PageLayer');
+      records[safeAreaRootId]._children = records[safeAreaRootId]._children.filter((ref) => ref.__id__ !== pageLayerId);
+      records[uiRootId]._children.push({ __id__: pageLayerId });
+      records[pageLayerId]._parent = { __id__: uiRootId };
+    });
+    const mainSceneViolation = expectValidationIssue(projectRoot, 'Main scene node PageLayer must be a direct child of SafeAreaRoot');
+    const mainSceneDetail = mainSceneViolation.issueDetails.find((issue) => issue.message.includes('PageLayer'));
+    assert(mainSceneDetail.code === 'main.scene', 'Expected main scene hierarchy issue code.');
+    writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/app/main/Main.scene', (records) => {
+      const idsByName = new Map(records.map((record, index) => [record?._name, index]));
+      const safeAreaRootId = idsByName.get('SafeAreaRoot');
+      records[safeAreaRootId]._components = [];
+    });
+    const safeAreaComponentViolation = expectValidationIssue(projectRoot, 'Main scene SafeAreaRoot must mount YZSafeAreaRoot component');
+    const safeAreaComponentDetail = safeAreaComponentViolation.issueDetails.find((issue) => issue.message.includes('YZSafeAreaRoot'));
+    assert(safeAreaComponentDetail.code === 'main.scene', 'Expected Main scene safe area component issue code.');
+    writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
+    assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', (records) => {
       records[1]._prefab = null;
@@ -409,10 +787,31 @@ function smoke(options = {}) {
     ]));
     assertOkValidation(projectRoot);
 
+    updateJson(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', (records) => {
+      const nodeId = records.length;
+      records.push({
+        __type__: 'cc.Node',
+        _name: 'PopupMask',
+        _parent: { __id__: 1 },
+        _children: [],
+        _components: [],
+        _prefab: null,
+      });
+      records[1]._children.push({ __id__: nodeId });
+    });
+    const systemMaskViolation = expectValidationIssue(projectRoot, "must not contain SystemUI mask node 'PopupMask'");
+    const systemMaskDetail = systemMaskViolation.issueDetails.find((issue) => issue.message.includes('SystemUI mask node'));
+    assert(systemMaskDetail.code === 'ui.system_mask_prefab', 'Expected SystemUI mask prefab issue code.');
+    writeText(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', serializedPrefab('10000000-0000-4000-8000-000000000001', [
+      '@title:Label',
+      '@confirm:Button',
+    ]));
+    assertOkValidation(projectRoot);
+
     updateText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', (content) => {
       return content.replace(
-        "pageBattle: viewRef(PageBattle, 'res/view/PageBattle', { kind: ViewKind.Page })",
-        "pageBattle: viewRef(PageBattle, 'res/view/PageBattle', { kind: ViewKind.Popup })",
+        "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle', { kind: ViewKind.Page })",
+        "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle', { kind: ViewKind.Popup })",
       );
     });
     const policyViolation = expectValidationIssue(projectRoot, 'ViewKind for PageBattle conflicts with prefab name');
@@ -421,6 +820,19 @@ function smoke(options = {}) {
     assert(policyDetail.target === 'assets/modules/Battle/res/view/PageBattle.prefab', 'Expected ViewPolicy mismatch target prefab.');
     const policyRepair = generate(projectRoot);
     assert(policyRepair.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected generate to repair stale ViewPolicy.');
+    assertOkValidation(projectRoot);
+
+    updateText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', (content) => {
+      return content.replace(
+        "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle', { kind: ViewKind.Page })",
+        "pageBattle: viewRef('OtherModule', PageBattle, 'res/view/PageBattle', { kind: ViewKind.Page })",
+      );
+    });
+    const ownerViolation = expectValidationIssue(projectRoot, "ViewRef owner for PageBattle must be 'Battle'");
+    const ownerDetail = ownerViolation.issueDetails.find((issue) => issue.message.includes('ViewRef owner for PageBattle'));
+    assert(ownerDetail.code === 'ui.policy_owner_mismatch', 'Expected ViewRef owner mismatch issue code.');
+    const ownerRepair = generate(projectRoot);
+    assert(ownerRepair.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected generate to repair stale View owner.');
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/prefab/PageInjected.prefab', serializedPrefab('10000000-0000-4000-8000-000000000003'));
@@ -450,11 +862,14 @@ function smoke(options = {}) {
     const cleanPreview = cleanGenerated(projectRoot, { dryRun: true });
     assert(cleanPreview.files.includes('assets/app/global/code/assets.generated.ts'), 'Expected clean preview to include Global assets.');
     assert(cleanPreview.files.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected clean preview to include Module assets.');
+    assert(cleanPreview.files.includes('assets/content-packs/Battle/Level001/manifest.generated.json'), 'Expected clean preview to include ContentPack manifest.');
     const clean = cleanGenerated(projectRoot);
     assert(clean.ok, `Clean generated failed:\n${JSON.stringify(clean.failed, null, 2)}`);
     assert(!fs.existsSync(path.join(projectRoot, 'assets/modules/Battle/code/assets.generated.ts')), 'Expected generated module assets to be removed.');
+    assert(!fs.existsSync(path.join(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json')), 'Expected generated ContentPack manifest to be removed.');
     const regenerated = generate(projectRoot);
     assert(regenerated.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected regenerate to restore cleaned module assets.');
+    assert(regenerated.changed.includes('assets/content-packs/Battle/Level001/manifest.generated.json'), 'Expected regenerate to restore cleaned ContentPack manifest.');
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/modules/Battle/code/service/BadImport.ts', [
@@ -470,6 +885,18 @@ function smoke(options = {}) {
     assert(importDetail.path === 'assets/modules/Battle/code/service/BadImport.ts', 'Expected import issue path to point at BadImport.ts.');
     assert(importDetail.line === 1, 'Expected import issue to include line number.');
     fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadImport.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/service/BadGlobalImport.ts', [
+      "import { assets as globalAssets } from '../../../../app/global/code/assets.generated';",
+      '',
+      'export const badGlobalView = globalAssets.views.toastNotice;',
+      '',
+    ].join('\n'));
+    const globalImportViolation = expectValidationIssue(projectRoot, 'imports global internal path');
+    const globalImportDetail = globalImportViolation.issueDetails.find((issue) => issue.message.includes('imports global internal path'));
+    assert(globalImportDetail.code === 'import.boundary', 'Expected Global import boundary issue code.');
+    assert(globalImportDetail.target === 'assets/app/global/code/assets.generated.ts', 'Expected Global import boundary target.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadGlobalImport.ts'));
 
     writeText(projectRoot, 'assets/modules/Battle/code/model/BadModel.ts', [
       "import { Node } from 'cc';",
@@ -515,6 +942,38 @@ function smoke(options = {}) {
     assert(nodeDetail.code === 'service.node_field', 'Expected service node field issue code.');
     assert(nodeDetail.line === 5, 'Expected service node field issue to include field line number.');
     fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadServiceNode.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/service/BadSafeArea.ts', [
+      "import { sys } from 'cc';",
+      '',
+      'export class BadSafeArea {',
+      '    public read(): void {',
+      '        sys.getSafeAreaRect();',
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    const safeAreaViolation = expectValidationIssue(projectRoot, 'business code must read safe area through app.viewport.profile');
+    const safeAreaDetail = safeAreaViolation.issueDetails.find((issue) => issue.message.includes('app.viewport.profile'));
+    assert(safeAreaDetail.code === 'viewport.safe_area_direct', 'Expected safe area viewport issue code.');
+    assert(safeAreaDetail.line === 5, 'Expected safe area viewport issue to include call line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadSafeArea.ts'));
+
+    writeText(projectRoot, 'assets/modules/Battle/code/service/BadDesignResolution.ts', [
+      "import { view } from 'cc';",
+      '',
+      'export class BadDesignResolution {',
+      '    public resize(): void {',
+      '        view.setDesignResolutionSize(720, 1280, 0);',
+      '    }',
+      '}',
+      '',
+    ].join('\n'));
+    const designResolutionViolation = expectValidationIssue(projectRoot, 'business code must not change design resolution directly');
+    const designResolutionDetail = designResolutionViolation.issueDetails.find((issue) => issue.message.includes('design resolution'));
+    assert(designResolutionDetail.code === 'viewport.design_resolution_direct', 'Expected design resolution viewport issue code.');
+    assert(designResolutionDetail.line === 5, 'Expected design resolution viewport issue to include call line number.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadDesignResolution.ts'));
 
     writeText(projectRoot, 'assets/modules/Battle/code/view/BadViewListener.ts', [
       'export class BadViewListener {',

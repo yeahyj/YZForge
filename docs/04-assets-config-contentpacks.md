@@ -40,10 +40,10 @@ code/assets.generated.ts
 ```ts
 export const assets = defineAssets({
     views: {
-        pageHome: viewRef(PageHome, 'view/PageHome', {
+        pageHome: viewRef('Home', PageHome, 'view/PageHome', {
             kind: ViewKind.Page,
         }),
-        popupSettings: viewRef(PopupSettings, 'view/PopupSettings', {
+        popupSettings: viewRef('Home', PopupSettings, 'view/PopupSettings', {
             kind: ViewKind.Popup,
             mask: 'dim',
         }),

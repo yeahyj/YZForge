@@ -1,0 +1,15 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "3bbb45da-a2a0-4c2b-a8e8-cb7ea9dcf568",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "isBundle": true,
+    "bundleName": "yzforge-content-pack-start-test2",
+    "priority": 6,
+    "compressionType": {},
+    "isRemoteBundle": {}
+  }
+}

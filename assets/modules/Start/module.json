@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "kind": "module",
+  "name": "Start",
+  "bundle": "yzforge-module-start",
+  "entry": "code/entry.generated.ts",
+  "public": "code/public.ts",
+  "enterParams": "StartEnterParams",
+  "libraries": []
+}

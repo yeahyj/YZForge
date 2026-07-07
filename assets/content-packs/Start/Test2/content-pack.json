@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "kind": "content-pack",
+  "id": "start.test2",
+  "owner": "Start",
+  "name": "Test2",
+  "bundle": "yzforge-content-pack-start-test2",
+  "libraries": []
+}

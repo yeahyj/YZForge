@@ -160,7 +160,7 @@ tsconfig.json compilerOptions.paths
 ```json
 {
   "imports": {
-    "yzforge/": "./extensions/yzforge/runtime/",
+    "yzforge/": "./assets/yzforge/runtime/",
     "yzforge/modules/": "./assets/app/registry/modules/",
     "yzforge/libraries/": "./assets/app/registry/libraries/",
     "yzforge/content-packs/": "./assets/app/registry/content-packs/",

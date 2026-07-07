@@ -1,8 +1,9 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { generatedText, isPascalCase, isTextChanged, kebabCase, toPosix, verifyGeneratedHash, walk } = require('./fs-utils');
+const { generatedJson, generatedText, isPascalCase, isTextChanged, kebabCase, readJsonc, toPosix, verifyGeneratedHash, verifyGeneratedJsonHash, walk } = require('./fs-utils');
 const { renderAutoRefsBase, scanAutoRefs } = require('./generate');
 const { scanProject } = require('./scanner');
 
@@ -89,6 +90,18 @@ function expectedBundle(kind, descriptor) {
 
 function validateDescriptor(kind, descriptor, known, issues) {
   const label = `${kind}:${descriptor.name || descriptor.id}`;
+  const expectedPath = kind === 'module'
+    ? `assets/modules/${descriptor.name}/module.json`
+    : kind === 'library'
+      ? `assets/libraries/${descriptor.name}/library.json`
+      : `assets/content-packs/${descriptor.owner}/${descriptor.name}/content-pack.json`;
+  if (descriptor.projectPath !== expectedPath) {
+    issues.push(`${label} descriptor path must be '${expectedPath}', got '${descriptor.projectPath}'.`, {
+      path: descriptor.projectPath,
+      code: 'descriptor.path_mismatch',
+      target: expectedPath,
+    });
+  }
   if (descriptor.schemaVersion !== 1) {
     issues.push(`${label} schemaVersion must be 1.`);
   }
@@ -98,6 +111,9 @@ function validateDescriptor(kind, descriptor, known, issues) {
   if (!isPascalCase(descriptor.name)) {
     issues.push(`${label} name must be PascalCase.`);
   }
+  if (kind === 'content-pack' && !isPascalCase(descriptor.owner)) {
+    issues.push(`${label} owner must be PascalCase.`);
+  }
   const expected = expectedBundle(kind, descriptor);
   if (descriptor.bundle !== expected) {
     issues.push(`${label} bundle must be '${expected}', got '${descriptor.bundle}'.`);
@@ -106,6 +122,113 @@ function validateDescriptor(kind, descriptor, known, issues) {
     if (!known.libraries.has(library)) {
       issues.push(`${label} declares missing library '${library}'.`);
     }
+  }
+}
+
+function hashFile(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function relativeFiles(root, predicate) {
+  if (!fs.existsSync(root)) {
+    return [];
+  }
+  return walk(root, predicate)
+    .map((filePath) => toPosix(path.relative(root, filePath)))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function validateRuntimeTemplate(projectRoot, issues) {
+  const legacyRuntime = path.join(projectRoot, 'extensions', 'yzforge', 'runtime');
+  const templateRoot = path.join(projectRoot, 'extensions', 'yzforge', 'runtime-template');
+  const projectRuntime = path.join(projectRoot, 'assets', 'yzforge', 'runtime');
+
+  if (fs.existsSync(legacyRuntime)) {
+    issues.push('extensions/yzforge/runtime is deprecated. Rename it to extensions/yzforge/runtime-template.', {
+      path: 'extensions/yzforge/runtime',
+      code: 'runtime.legacy_path',
+    });
+  }
+  if (!fs.existsSync(templateRoot)) {
+    issues.push('Runtime template is missing: extensions/yzforge/runtime-template.', {
+      path: 'extensions/yzforge/runtime-template',
+      code: 'runtime.template_missing',
+    });
+    return;
+  }
+  if (!fs.existsSync(projectRuntime)) {
+    issues.push('Project runtime is missing: assets/yzforge/runtime.', {
+      path: 'assets/yzforge/runtime',
+      code: 'runtime.project_missing',
+    });
+    return;
+  }
+
+  const templateFiles = relativeFiles(templateRoot, (filePath) => filePath.endsWith('.ts'));
+  const projectFiles = relativeFiles(projectRuntime, (filePath) => filePath.endsWith('.ts'));
+  const allFiles = Array.from(new Set(templateFiles.concat(projectFiles))).sort((a, b) => a.localeCompare(b));
+  for (const rel of allFiles) {
+    const templatePath = path.join(templateRoot, rel);
+    const runtimePath = path.join(projectRuntime, rel);
+    const templateExists = fs.existsSync(templatePath);
+    const runtimeExists = fs.existsSync(runtimePath);
+    if (!templateExists) {
+      issues.push(`Project runtime has file missing from template: assets/yzforge/runtime/${rel}.`, {
+        path: `assets/yzforge/runtime/${rel}`,
+        code: 'runtime.template_drift',
+      });
+      continue;
+    }
+    if (!runtimeExists) {
+      issues.push(`Project runtime is missing template file: assets/yzforge/runtime/${rel}.`, {
+        path: `assets/yzforge/runtime/${rel}`,
+        code: 'runtime.template_drift',
+        target: `extensions/yzforge/runtime-template/${rel}`,
+      });
+      continue;
+    }
+    if (hashFile(templatePath) !== hashFile(runtimePath)) {
+      issues.push(`Project runtime file differs from template: assets/yzforge/runtime/${rel}.`, {
+        path: `assets/yzforge/runtime/${rel}`,
+        code: 'runtime.template_drift',
+        target: `extensions/yzforge/runtime-template/${rel}`,
+      });
+    }
+  }
+}
+
+function validateRuntimeBundleBoundary(projectRoot, issues) {
+  const runtimeRoot = path.join(projectRoot, 'assets', 'yzforge', 'runtime');
+  if (!fs.existsSync(runtimeRoot)) {
+    return;
+  }
+  for (const filePath of scanFiles(runtimeRoot, '.ts')) {
+    if (path.basename(filePath) === 'bundle-manager.ts') {
+      continue;
+    }
+    const rel = toPosix(path.relative(projectRoot, filePath));
+    const source = stripCodeComments(fs.readFileSync(filePath, 'utf8'));
+    const pattern = /\bassetManager\s*\.\s*(loadBundle|removeBundle)\s*\(/g;
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+      issues.push(`${rel} Only BundleManager may call assetManager.${match[1]} directly.`, {
+        path: rel,
+        code: 'runtime.bundle_boundary',
+        ...offsetLocation(source, match.index),
+      });
+    }
+  }
+}
+
+function validateOrphanScopes(project, issues) {
+  for (const orphan of project.orphanScopes || []) {
+    const label = orphan.kind === 'content-pack'
+      ? `content-pack:${orphan.owner}/${orphan.name}`
+      : `${orphan.kind}:${orphan.name}`;
+    issues.push(`${label} scope directory is missing ${orphan.expectedDescriptor}: ${orphan.projectPath}.`, {
+      path: orphan.projectPath,
+      code: 'scope.descriptor_missing',
+    });
   }
 }
 
@@ -160,15 +283,138 @@ function validatePublicContract(projectRoot, descriptor, issues) {
   }
 }
 
+function extractLibraryTokenKeys(content, libraryName) {
+  const tokenMapName = `${libraryName}TokenMap`;
+  const match = content.match(new RegExp(`export\\s+interface\\s+${tokenMapName}\\s*{([\\s\\S]*?)}`));
+  if (!match) {
+    return [];
+  }
+  const keys = [];
+  const propertyPattern = /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\??\s*:/gm;
+  let property;
+  while ((property = propertyPattern.exec(match[1])) !== null) {
+    keys.push(property[1]);
+  }
+  return keys.sort();
+}
+
+function findCallObjectBody(content, callee) {
+  const callPattern = new RegExp(`\\b${callee}\\s*(?:<[^>]*>)?\\s*\\(`, 'g');
+  const call = callPattern.exec(content);
+  if (!call) {
+    return undefined;
+  }
+  const open = content.indexOf('{', call.index + call[0].length);
+  if (open < 0) {
+    return undefined;
+  }
+  let depth = 0;
+  let quote;
+  let escaped = false;
+  for (let index = open; index < content.length; index += 1) {
+    const char = content[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return content.slice(open + 1, index);
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractProviderKeys(content) {
+  const body = findCallObjectBody(content, 'defineLibraryProviders');
+  if (body === undefined) {
+    return undefined;
+  }
+  const keys = [];
+  const pattern = /^\s*([A-Za-z_$][\w$]*)\s*:/gm;
+  let match;
+  while ((match = pattern.exec(body)) !== null) {
+    keys.push(match[1]);
+  }
+  return keys.sort();
+}
+
+function sameList(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function validateLibraryProviders(projectRoot, descriptor, issues) {
+  const publicFile = path.join(descriptor.dir, descriptor.public || 'code/public.ts');
+  const providerFile = path.join(descriptor.dir, 'code', 'providers.ts');
+  const providerRel = toPosix(path.relative(projectRoot, providerFile));
+  if (!fs.existsSync(providerFile)) {
+    issues.push(`library:${descriptor.name} providers file is missing: ${providerRel}.`, {
+      path: providerRel,
+      code: 'library.providers_missing',
+    });
+    return;
+  }
+  const publicContent = fs.existsSync(publicFile) ? fs.readFileSync(publicFile, 'utf8') : '';
+  const publicKeys = extractLibraryTokenKeys(publicContent, descriptor.name);
+  const providerKeys = extractProviderKeys(fs.readFileSync(providerFile, 'utf8'));
+  if (!providerKeys) {
+    issues.push(`${providerRel} must export providers via defineLibraryProviders.`, {
+      path: providerRel,
+      code: 'library.providers_invalid',
+    });
+    return;
+  }
+  if (!sameList(providerKeys, publicKeys)) {
+    issues.push(`${providerRel} provider keys must match ${descriptor.name}TokenMap keys. expected [${publicKeys.join(', ')}], got [${providerKeys.join(', ')}].`, {
+      path: providerRel,
+      code: 'library.providers_mismatch',
+    });
+  }
+
+  const entryPath = path.join(descriptor.dir, descriptor.entry || 'code/entry.generated.ts');
+  if (fs.existsSync(entryPath)) {
+    const entryRel = toPosix(path.relative(projectRoot, entryPath));
+    const entry = fs.readFileSync(entryPath, 'utf8');
+    if (!/from\s+['"]\.\/providers['"]/.test(entry) || !/\btokens\s*:\s*providers\b/.test(entry)) {
+      issues.push(`${entryRel} must register library token providers from ./providers.`, {
+        path: entryRel,
+        code: 'library.providers_entry',
+      });
+    }
+  }
+}
+
 function validateGenerated(projectRoot, issues) {
   const generatedFiles = walk(projectRoot, (filePath) => /\.generated\.(ts|json)$/.test(filePath));
   for (const filePath of generatedFiles) {
-    if (!filePath.endsWith('.ts')) {
-      continue;
+    const rel = toPosix(path.relative(projectRoot, filePath));
+    let result;
+    if (filePath.endsWith('.ts')) {
+      result = verifyGeneratedHash(fs.readFileSync(filePath, 'utf8'));
+    } else {
+      try {
+        result = verifyGeneratedJsonHash(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+      } catch (error) {
+        issues.push(`${rel} generated hash mismatch (invalid JSON: ${error.message}).`);
+        continue;
+      }
     }
-    const result = verifyGeneratedHash(fs.readFileSync(filePath, 'utf8'));
     if (!result.ok) {
-      issues.push(`${path.relative(projectRoot, filePath)} generated hash mismatch (${result.reason || `${result.actual} != ${result.expected}`}).`);
+      issues.push(`${rel} generated hash mismatch (${result.reason || `${result.actual} != ${result.expected}`}).`);
     }
   }
 }
@@ -202,6 +448,100 @@ function validateForbiddenImports(projectRoot, issues) {
   }
 }
 
+function validateRuntimeTemplateImports(projectRoot, issues) {
+  const files = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts'));
+  for (const filePath of files) {
+    const rel = toPosix(path.relative(projectRoot, filePath));
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (/extensions[\\/]+yzforge[\\/]+runtime-template|runtime-template/.test(content)) {
+      issues.push(`${rel} must not import or reference runtime-template directly. Use assets/yzforge/runtime through the yzforge alias.`, {
+        path: rel,
+        code: 'runtime.template_import',
+      });
+    }
+  }
+}
+
+function validatePathMaps(projectRoot, issues) {
+  const expectedTsPaths = {
+    yzforge: ['assets/yzforge/runtime/index.ts'],
+    'yzforge/*': ['assets/yzforge/runtime/*'],
+    'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
+    'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
+    'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
+    'yzforge-contracts/modules/*': ['assets/app/contracts/modules/*.contract.generated.ts'],
+    'yzforge-contracts/libraries/*': ['assets/app/contracts/libraries/*.contract.generated.ts'],
+    'yzforge-contracts/content-packs/*': ['assets/app/contracts/content-packs/*.contract.generated.ts'],
+    'yzforge-contracts/extensions/*': ['assets/app/contracts/extensions/*.contract.generated.ts'],
+    'yzforge-shared/*': ['assets/shared/code/*'],
+  };
+  const expectedImports = {
+    yzforge: './assets/yzforge/runtime/index',
+    'yzforge/': './assets/yzforge/runtime/',
+    'yzforge/modules/': './assets/app/registry/modules/',
+    'yzforge/libraries/': './assets/app/registry/libraries/',
+    'yzforge/content-packs/': './assets/app/registry/content-packs/',
+    'yzforge-contracts/': './assets/app/contracts/',
+    'yzforge-shared/': './assets/shared/code/',
+  };
+
+  let tsconfig;
+  try {
+    tsconfig = readJsonc(path.join(projectRoot, 'tsconfig.json'));
+  } catch (error) {
+    issues.push(`tsconfig.json cannot be read: ${error.message}.`, {
+      path: 'tsconfig.json',
+      code: 'path_map.invalid',
+    });
+  }
+  const actualPaths = tsconfig?.compilerOptions?.paths || {};
+  for (const [alias, expected] of Object.entries(expectedTsPaths)) {
+    const actual = actualPaths[alias];
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      issues.push(`tsconfig.json paths.${alias} must be ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}.`, {
+        path: 'tsconfig.json',
+        code: 'path_map.tsconfig',
+        target: alias,
+      });
+    }
+  }
+
+  let importMap;
+  try {
+    importMap = readJsonc(path.join(projectRoot, 'import-map.json'));
+  } catch (error) {
+    issues.push(`import-map.json cannot be read: ${error.message}.`, {
+      path: 'import-map.json',
+      code: 'path_map.invalid',
+    });
+  }
+  const actualImports = importMap?.imports || {};
+  for (const [alias, expected] of Object.entries(expectedImports)) {
+    const actual = actualImports[alias];
+    if (actual !== expected) {
+      issues.push(`import-map.json imports.${alias} must be '${expected}', got '${actual}'.`, {
+        path: 'import-map.json',
+        code: 'path_map.import_map',
+        target: alias,
+      });
+    }
+  }
+
+  const runtimeTsPath = actualPaths.yzforge?.[0];
+  const runtimeImportPath = actualImports.yzforge;
+  if (
+    typeof runtimeTsPath === 'string'
+    && typeof runtimeImportPath === 'string'
+    && runtimeTsPath.replace(/\.ts$/, '') !== runtimeImportPath.replace(/^\.\//, '')
+  ) {
+    issues.push('tsconfig.json and import-map.json must point yzforge to the same runtime entry.', {
+      path: 'import-map.json',
+      code: 'path_map.runtime_mismatch',
+      target: 'yzforge',
+    });
+  }
+}
+
 function validateCaseConflicts(projectRoot, issues) {
   const seen = new Map();
   for (const filePath of walk(path.join(projectRoot, 'assets'))) {
@@ -219,18 +559,171 @@ function validateCaseConflicts(projectRoot, issues) {
 function validateMainScene(projectRoot, issues) {
   const scenePath = path.join(projectRoot, 'assets', 'app', 'main', 'Main.scene');
   const scriptPath = path.join(projectRoot, 'assets', 'app', 'main', 'Main.ts');
+  const sceneRel = 'assets/app/main/Main.scene';
   if (!fs.existsSync(scenePath)) {
-    issues.push('Main scene is missing: assets/app/main/Main.scene.');
+    issues.push('Main scene is missing: assets/app/main/Main.scene.', {
+      path: sceneRel,
+      code: 'main.scene',
+    });
     return;
   }
   if (!fs.existsSync(scriptPath)) {
-    issues.push('Main component is missing: assets/app/main/Main.ts.');
+    issues.push('Main component is missing: assets/app/main/Main.ts.', {
+      path: 'assets/app/main/Main.ts',
+      code: 'main.scene',
+    });
   }
-  const content = fs.readFileSync(scenePath, 'utf8');
-  for (const name of ['MainRoot', 'Canvas', 'UIRoot', 'PageLayer', 'PaperLayer', 'PopupLayer', 'ToastLayer', 'TopLayer', 'SystemLayer']) {
-    if (!content.includes(`"_name": "${name}"`)) {
-      issues.push(`Main scene missing node: ${name}.`);
+
+  let records;
+  try {
+    records = JSON.parse(fs.readFileSync(scenePath, 'utf8'));
+  } catch (error) {
+    issues.push(`Main scene is invalid JSON: ${error.message}.`, {
+      path: sceneRel,
+      code: 'main.scene',
+    });
+    return;
+  }
+  if (!Array.isArray(records)) {
+    issues.push('Main scene must be a Cocos serialized array.', {
+      path: sceneRel,
+      code: 'main.scene',
+    });
+    return;
+  }
+
+  const nodeIdsByName = new Map();
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record || typeof record._name !== 'string') {
+      continue;
     }
+    if (!nodeIdsByName.has(record._name)) {
+      nodeIdsByName.set(record._name, []);
+    }
+    nodeIdsByName.get(record._name).push(index);
+  }
+  const idsFor = (name) => nodeIdsByName.get(name) || [];
+  const requiredNodes = [
+    'MainRoot',
+    'WorldRoot',
+    'SceneHost',
+    'Canvas',
+    'UIRoot',
+    'FullscreenLayer',
+    'SafeAreaRoot',
+    'PageLayer',
+    'PaperLayer',
+    'PopupLayer',
+    'ToastLayer',
+    'TopLayer',
+    'SystemLayer',
+  ];
+  for (const name of requiredNodes) {
+    if (idsFor(name).length === 0) {
+      issues.push(`Main scene missing node: ${name}.`, {
+        path: sceneRel,
+        code: 'main.scene',
+      });
+    }
+  }
+
+  const isDirectChild = (parentId, childId) => {
+    const parent = records[parentId];
+    const child = records[childId];
+    if (!parent || !child) {
+      return false;
+    }
+    const children = Array.isArray(parent._children) ? parent._children : [];
+    return children.some((ref) => ref && ref.__id__ === childId) && child._parent && child._parent.__id__ === parentId;
+  };
+  const hasDirectChild = (parentName, childName) => {
+    return idsFor(parentName).some((parentId) => idsFor(childName).some((childId) => isDirectChild(parentId, childId)));
+  };
+  const requiredEdges = [
+    ['MainRoot', 'WorldRoot'],
+    ['WorldRoot', 'SceneHost'],
+    ['MainRoot', 'Canvas'],
+    ['Canvas', 'UIRoot'],
+    ['UIRoot', 'FullscreenLayer'],
+    ['UIRoot', 'SafeAreaRoot'],
+    ['UIRoot', 'SystemLayer'],
+    ['SafeAreaRoot', 'PageLayer'],
+    ['SafeAreaRoot', 'PaperLayer'],
+    ['SafeAreaRoot', 'PopupLayer'],
+    ['SafeAreaRoot', 'ToastLayer'],
+    ['SafeAreaRoot', 'TopLayer'],
+  ];
+  for (const [parentName, childName] of requiredEdges) {
+    if (idsFor(parentName).length === 0 || idsFor(childName).length === 0) {
+      continue;
+    }
+    if (!hasDirectChild(parentName, childName)) {
+      issues.push(`Main scene node ${childName} must be a direct child of ${parentName}.`, {
+        path: sceneRel,
+        code: 'main.scene',
+      });
+    }
+  }
+
+  const nodeHasComponent = (name, type) => {
+    return idsFor(name).some((nodeId) => {
+      const node = records[nodeId];
+      const components = Array.isArray(node?._components) ? node._components : [];
+      return components.some((ref) => records[ref?.__id__]?.__type__ === type);
+    });
+  };
+  const nodeHasScript = (name, scriptPath) => {
+    const keys = new Set(scriptSerializedKeys(projectRoot, scriptPath, issues));
+    if (keys.size === 0) {
+      return false;
+    }
+    return idsFor(name).some((nodeId) => {
+      const node = records[nodeId];
+      const components = Array.isArray(node?._components) ? node._components : [];
+      return components.some((ref) => keys.has(records[ref?.__id__]?.__type__));
+    });
+  };
+  if (idsFor('Canvas').length > 0 && !nodeHasComponent('Canvas', 'cc.Canvas')) {
+    issues.push('Main scene Canvas node must contain cc.Canvas component.', {
+      path: sceneRel,
+      code: 'main.scene',
+    });
+  }
+
+  if (fs.existsSync(scriptPath) && idsFor('MainRoot').length > 0) {
+    const mainScriptKeys = new Set(scriptSerializedKeys(projectRoot, scriptPath, issues));
+    const mainRootHasScript = idsFor('MainRoot').some((nodeId) => {
+      const node = records[nodeId];
+      const components = Array.isArray(node?._components) ? node._components : [];
+      return components.some((ref) => mainScriptKeys.has(records[ref?.__id__]?.__type__));
+    });
+    if (mainScriptKeys.size > 0 && !mainRootHasScript) {
+      issues.push('Main scene MainRoot must mount Main script: assets/app/main/Main.ts.', {
+        path: sceneRel,
+        code: 'main.scene',
+        target: 'assets/app/main/Main.ts',
+      });
+    }
+  }
+
+  const fullScreenScript = path.join(projectRoot, 'assets', 'yzforge', 'runtime', 'full-screen-root.ts');
+  const safeAreaScript = path.join(projectRoot, 'assets', 'yzforge', 'runtime', 'safe-area-root.ts');
+  for (const name of ['FullscreenLayer', 'SystemLayer']) {
+    if (idsFor(name).length > 0 && !nodeHasScript(name, fullScreenScript)) {
+      issues.push(`Main scene ${name} must mount YZFullScreenRoot component.`, {
+        path: sceneRel,
+        code: 'main.scene',
+        target: 'assets/yzforge/runtime/full-screen-root.ts',
+      });
+    }
+  }
+  if (idsFor('SafeAreaRoot').length > 0 && !nodeHasScript('SafeAreaRoot', safeAreaScript)) {
+    issues.push('Main scene SafeAreaRoot must mount YZSafeAreaRoot component.', {
+      path: sceneRel,
+      code: 'main.scene',
+      target: 'assets/yzforge/runtime/safe-area-root.ts',
+    });
   }
 }
 
@@ -565,14 +1058,15 @@ function validateAutoRefsGeneratedFresh(projectRoot, prefabPath, refsPath, baseT
 
 function generatedViewPolicy(content, className) {
   const escapedClass = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`viewRef\\(\\s*${escapedClass}\\s*,\\s*['"]([^'"]+)['"]\\s*,\\s*\\{([\\s\\S]*?)\\}\\s*\\)`, 'm');
+  const pattern = new RegExp(`viewRef\\(\\s*['"]([^'"]+)['"]\\s*,\\s*${escapedClass}\\s*,\\s*['"]([^'"]+)['"]\\s*,\\s*\\{([\\s\\S]*?)\\}\\s*\\)`, 'm');
   const match = content.match(pattern);
   if (!match) {
     return undefined;
   }
   return {
-    path: match[1],
-    body: match[2],
+    owner: match[1],
+    path: match[2],
+    body: match[3],
   };
 }
 
@@ -598,6 +1092,13 @@ function validateGeneratedViewPolicy(projectRoot, descriptor, prefabPath, assets
       target: prefabRel,
     });
     return;
+  }
+  if (policy.owner !== descriptor.name) {
+    issues.push(`${assetsRel} ViewRef owner for ${className} must be '${descriptor.name}', got '${policy.owner}'.`, {
+      path: assetsRel,
+      code: 'ui.policy_owner_mismatch',
+      target: prefabRel,
+    });
   }
   if (policy.path !== expectedAssetPath) {
     issues.push(`${assetsRel} ViewRef path for ${className} must be '${expectedAssetPath}', got '${policy.path}'.`, {
@@ -695,6 +1196,32 @@ function validateUiGeneratedRefs(projectRoot, project, issues) {
   }
 }
 
+function validateSystemUiMasksNotInBusinessPrefabs(projectRoot, project, issues) {
+  const descriptors = []
+    .concat(project.global ? [project.global] : [])
+    .concat(project.modules)
+    .concat(project.libraries)
+    .concat(project.contentPacks);
+  const forbidden = new Set(['PopupMask', 'YZForgePopupMask', 'TouchMask', 'UITouchMask', 'YZForgeTouchMask']);
+  for (const descriptor of descriptors) {
+    for (const prefabPath of scanPrefabs(path.join(descriptor.dir, 'res'))) {
+      const rel = toPosix(path.relative(projectRoot, prefabPath));
+      const records = readSerializedRecords(projectRoot, prefabPath, issues);
+      if (!records) {
+        continue;
+      }
+      for (const record of records) {
+        if (record && forbidden.has(record._name)) {
+          issues.push(`${rel} must not contain SystemUI mask node '${record._name}'. PopupMask and TouchMask are created by SystemUI.`, {
+            path: rel,
+            code: 'ui.system_mask_prefab',
+          });
+        }
+      }
+    }
+  }
+}
+
 function withoutExt(filePath) {
   return filePath.replace(/\.[^.\\/]+$/, '');
 }
@@ -726,15 +1253,151 @@ function contentPackAssetPath(pack, filePath) {
   return toPosix(withoutExt(path.relative(pack.dir, filePath)));
 }
 
+function configTableRows(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value.rows)) {
+      return value.rows;
+    }
+    if (Array.isArray(value.data)) {
+      return value.data;
+    }
+  }
+  return undefined;
+}
+
+function readConfigTableSpec(projectRoot, filePath, issues) {
+  const rel = toPosix(path.relative(projectRoot, filePath));
+  let payload;
+  try {
+    payload = readJsonc(filePath);
+  } catch (error) {
+    issues.push(`${rel} config table JSON cannot be parsed: ${error.message}.`, {
+      path: rel,
+      code: 'config.json_invalid',
+    });
+    return undefined;
+  }
+
+  const primaryKey = payload && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.primaryKey === 'string'
+    ? payload.primaryKey
+    : 'id';
+  const rows = configTableRows(payload);
+  if (!rows) {
+    issues.push(`${rel} config table must be an array or contain rows[].`, {
+      path: rel,
+      code: 'config.payload_invalid',
+    });
+    return undefined;
+  }
+
+  const seen = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || !(primaryKey in row)) {
+      issues.push(`${rel} config row is missing primary key '${primaryKey}'.`, {
+        path: rel,
+        code: 'config.primary_key_missing',
+      });
+      continue;
+    }
+    const key = row[primaryKey];
+    if (seen.has(key)) {
+      issues.push(`${rel} has duplicate config primary key '${String(key)}' for '${primaryKey}'.`, {
+        path: rel,
+        code: 'config.duplicate_key',
+      });
+    }
+    seen.add(key);
+  }
+
+  return {
+    primaryKey,
+    rows,
+  };
+}
+
+function scanConfigTables(projectRoot, descriptor, issues) {
+  const root = path.join(descriptor.dir, 'res', 'content', 'config');
+  const files = scanFiles(root, '.json');
+  const tables = {};
+  for (const filePath of files) {
+    const key = lowerCamelCase(path.basename(filePath, path.extname(filePath)));
+    const spec = readConfigTableSpec(projectRoot, filePath, issues);
+    if (tables[key]) {
+      issues.push(`${descriptor.projectPath} has duplicate config table key: ${key} (${toPosix(path.relative(projectRoot, filePath))}).`, {
+        path: toPosix(path.relative(projectRoot, filePath)),
+        code: 'config.duplicate_table_key',
+      });
+    }
+    tables[key] = {
+      path: contentPackAssetPath(descriptor, filePath),
+      primaryKey: spec?.primaryKey ?? 'id',
+    };
+  }
+  return tables;
+}
+
+function generatedConfigTableRefs(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return undefined;
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  const refs = {};
+  const pattern = /\b([A-Za-z_$][\w$]*)\s*:\s*tableRef\s*\(\s*\{([\s\S]*?)\}\s*\)/g;
+  let match;
+  while ((match = pattern.exec(content)) !== null) {
+    const body = match[2];
+    const name = extractStringProperty(body, 'name');
+    const primaryKey = extractStringProperty(body, 'primaryKey') || 'id';
+    if (name) {
+      refs[match[1]] = { path: name, primaryKey };
+    }
+  }
+  return refs;
+}
+
+function validateConfigGenerated(projectRoot, descriptor, issues) {
+  const configPath = path.join(descriptor.dir, 'code', 'config.generated.ts');
+  const rel = toPosix(path.relative(projectRoot, configPath));
+  if (!fs.existsSync(configPath)) {
+    issues.push(`${descriptor.projectPath} generated config is missing: ${rel}.`, {
+      path: rel,
+      code: 'config.generated_missing',
+    });
+    return;
+  }
+  const expected = scanConfigTables(projectRoot, descriptor, issues);
+  const actual = generatedConfigTableRefs(configPath) || {};
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    issues.push(`${rel} is stale. Run YZForge Generate All.`, {
+      path: rel,
+      code: 'config.generated_stale',
+    });
+  }
+  for (const [key, ref] of Object.entries(actual)) {
+    const filePath = path.join(descriptor.dir, `${ref.path}.json`);
+    if (!fs.existsSync(filePath)) {
+      issues.push(`${rel} references missing config payload for table '${key}': ${toPosix(path.relative(projectRoot, filePath))}.`, {
+        path: rel,
+        code: 'config.payload_missing',
+        target: toPosix(path.relative(projectRoot, filePath)),
+      });
+    }
+  }
+}
+
 function scanContentPackRefs(pack, projectRoot, issues) {
-  const files = [
+  const assetFiles = [
     ...scanFiles(path.join(pack.dir, 'res', 'prefab'), '.prefab'),
     ...scanFiles(path.join(pack.dir, 'res', 'scene'), '.scene'),
     ...scanRuntimeFiles(path.join(pack.dir, 'res', 'runtime')),
   ].sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+  const configFiles = scanFiles(path.join(pack.dir, 'res', 'content', 'config'), '.json');
 
   const refs = {};
-  for (const filePath of files) {
+  for (const filePath of assetFiles) {
     const key = lowerCamelCase(path.basename(filePath, path.extname(filePath)));
     if (refs[key]) {
       issues.push(`${pack.projectPath} has duplicate ContentPack ref key: ${key} (${toPosix(path.relative(projectRoot, filePath))}).`);
@@ -743,6 +1406,19 @@ function scanContentPackRefs(pack, projectRoot, issues) {
       kind: 'asset',
       type: inferAssetType(filePath),
       path: contentPackAssetPath(pack, filePath),
+    };
+  }
+  for (const filePath of configFiles) {
+    const key = lowerCamelCase(path.basename(filePath, path.extname(filePath)));
+    const spec = readConfigTableSpec(projectRoot, filePath, issues);
+    if (refs[key]) {
+      issues.push(`${pack.projectPath} has duplicate ContentPack ref key: ${key} (${toPosix(path.relative(projectRoot, filePath))}).`);
+    }
+    refs[key] = {
+      kind: 'config',
+      table: contentPackAssetPath(pack, filePath),
+      primaryKey: spec?.primaryKey ?? 'id',
+      codec: 'yzforge-json',
     };
   }
   return refs;
@@ -765,13 +1441,14 @@ function validateContentPackManifest(projectRoot, project, issues) {
       continue;
     }
 
-    const expected = {
+    const expectedBody = {
       schemaVersion: 1,
       id: pack.id,
       owner: pack.owner,
       bundle: pack.bundle || expectedBundle('content-pack', pack),
       refs: scanContentPackRefs(pack, projectRoot, issues),
     };
+    const expected = generatedJson(pack.projectPath, expectedBody);
     if (JSON.stringify(manifest) !== JSON.stringify(expected)) {
       issues.push(`${rel} is stale. Run YZForge Generate All.`);
     }
@@ -1045,7 +1722,7 @@ function validateContentPackDoesNotProvideUiViews(projectRoot, project, issues) 
 
 function generatedViewPolicies(content) {
   const policies = new Map();
-  const pattern = /\b([A-Za-z_$][\w$]*)\s*:\s*viewRef\(\s*([A-Za-z_$][\w$]*)\s*,\s*['"][^'"]+['"]\s*,\s*\{([\s\S]*?)\}\s*\)\s*,?/g;
+  const pattern = /\b([A-Za-z_$][\w$]*)\s*:\s*viewRef\(\s*['"][^'"]+['"]\s*,\s*([A-Za-z_$][\w$]*)\s*,\s*['"][^'"]+['"]\s*,\s*\{([\s\S]*?)\}\s*\)\s*,?/g;
   let match;
   while ((match = pattern.exec(content)) !== null) {
     const rawKind = extractObjectProperty(match[3], 'kind');
@@ -1267,6 +1944,230 @@ function assignedIdentifier(ts, node) {
   return undefined;
 }
 
+function unwrapExpression(ts, node) {
+  let current = node;
+  let changed = true;
+  while (current && changed) {
+    changed = false;
+    if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+      changed = true;
+    } else if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
+      current = current.expression;
+      changed = true;
+    } else if (typeof ts.isNonNullExpression === 'function' && ts.isNonNullExpression(current)) {
+      current = current.expression;
+      changed = true;
+    } else if (typeof ts.isSatisfiesExpression === 'function' && ts.isSatisfiesExpression(current)) {
+      current = current.expression;
+      changed = true;
+    }
+  }
+  return current;
+}
+
+function isAssignmentOperator(ts, kind) {
+  return [
+    ts.SyntaxKind.EqualsToken,
+    ts.SyntaxKind.PlusEqualsToken,
+    ts.SyntaxKind.MinusEqualsToken,
+    ts.SyntaxKind.AsteriskEqualsToken,
+    ts.SyntaxKind.AsteriskAsteriskEqualsToken,
+    ts.SyntaxKind.SlashEqualsToken,
+    ts.SyntaxKind.PercentEqualsToken,
+    ts.SyntaxKind.LessThanLessThanEqualsToken,
+    ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+    ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken,
+    ts.SyntaxKind.AmpersandEqualsToken,
+    ts.SyntaxKind.BarEqualsToken,
+    ts.SyntaxKind.CaretEqualsToken,
+    ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+    ts.SyntaxKind.BarBarEqualsToken,
+    ts.SyntaxKind.QuestionQuestionEqualsToken,
+  ].includes(kind);
+}
+
+function propertyNameText(ts, name) {
+  if (!name) {
+    return undefined;
+  }
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  return undefined;
+}
+
+function expressionIsAlias(ts, node, aliases) {
+  const expression = unwrapExpression(ts, node);
+  return Boolean(expression && ts.isIdentifier(expression) && aliases.has(expression.text));
+}
+
+function isContextAppReference(ts, node, contextAliases, appAliases) {
+  const expression = unwrapExpression(ts, node);
+  if (!expression) {
+    return false;
+  }
+  if (ts.isIdentifier(expression)) {
+    return appAliases.has(expression.text);
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    return expression.name.text === 'app' && expressionIsAlias(ts, expression.expression, contextAliases);
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    const argument = unwrapExpression(ts, expression.argumentExpression);
+    return argument
+      && ts.isStringLiteral(argument)
+      && argument.text === 'app'
+      && expressionIsAlias(ts, expression.expression, contextAliases);
+  }
+  return false;
+}
+
+function expressionTargetsContextApp(ts, node, contextAliases, appAliases) {
+  const expression = unwrapExpression(ts, node);
+  if (!expression) {
+    return false;
+  }
+  if (isContextAppReference(ts, expression, contextAliases, appAliases)) {
+    return true;
+  }
+  if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+    return expressionTargetsContextApp(ts, expression.expression, contextAliases, appAliases);
+  }
+  return false;
+}
+
+function collectExtensionContextAliases(ts, sourceFile) {
+  const contextAliases = new Set(['context']);
+  const appAliases = new Set();
+  const lifecycleHooks = new Set([
+    'install',
+    'installBeforeStart',
+    'installAfterMainBinding',
+    'installBeforeFirstModule',
+    'dispose',
+    'uninstall',
+  ]);
+
+  const parameterLooksLikeExtensionContext = (node) => {
+    if (!ts.isIdentifier(node.name)) {
+      return false;
+    }
+    if (node.type && /\bExtensionContext\b/.test(node.type.getText(sourceFile))) {
+      return true;
+    }
+    if (!node.parent) {
+      return false;
+    }
+    if (ts.isMethodDeclaration(node.parent) && propertyNameText(ts, node.parent.name) && lifecycleHooks.has(propertyNameText(ts, node.parent.name))) {
+      return true;
+    }
+    if (
+      ts.isPropertyAssignment(node.parent)
+      && propertyNameText(ts, node.parent.name)
+      && lifecycleHooks.has(propertyNameText(ts, node.parent.name))
+    ) {
+      return true;
+    }
+    return node.name.text === 'context';
+  };
+
+  const collect = (node) => {
+    if (ts.isParameter(node) && parameterLooksLikeExtensionContext(node)) {
+      contextAliases.add(node.name.text);
+    }
+
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      if (ts.isIdentifier(node.name) && expressionIsAlias(ts, node.initializer, contextAliases)) {
+        contextAliases.add(node.name.text);
+      }
+      if (ts.isIdentifier(node.name) && isContextAppReference(ts, node.initializer, contextAliases, appAliases)) {
+        appAliases.add(node.name.text);
+      }
+      if (ts.isObjectBindingPattern(node.name) && expressionIsAlias(ts, node.initializer, contextAliases)) {
+        for (const element of node.name.elements) {
+          const key = propertyNameText(ts, element.propertyName || element.name);
+          if (key === 'app' && ts.isIdentifier(element.name)) {
+            appAliases.add(element.name.text);
+          }
+        }
+      }
+    }
+
+    ts.forEachChild(node, collect);
+  };
+  collect(sourceFile);
+  return { contextAliases, appAliases };
+}
+
+function isAppMutatorCall(ts, sourceFile, node, contextAliases, appAliases) {
+  if (!ts.isCallExpression(node)) {
+    return false;
+  }
+  const expression = node.expression.getText(sourceFile);
+  if (!/^(?:Object\.assign|Object\.defineProperty|Object\.defineProperties|Reflect\.set|Reflect\.deleteProperty)$/.test(expression)) {
+    return false;
+  }
+  const [target] = node.arguments;
+  return Boolean(target && expressionTargetsContextApp(ts, target, contextAliases, appAliases));
+}
+
+function validateExtensionAstRules(ts, sourceFile, rel, issues) {
+  const { contextAliases, appAliases } = collectExtensionContextAliases(ts, sourceFile);
+  const visit = (node) => {
+    if (
+      ts.isBinaryExpression(node)
+      && isAssignmentOperator(ts, node.operatorToken.kind)
+      && expressionTargetsContextApp(ts, node.left, contextAliases, appAliases)
+    ) {
+      pushNodeIssue(
+        issues,
+        rel,
+        'Extension must not mutate App fields; expose capabilities through ExtensionContext tokens.',
+        'extension.app_mutation',
+        sourceFile,
+        node,
+      );
+    } else if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+      && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
+      && expressionTargetsContextApp(ts, node.operand, contextAliases, appAliases)
+    ) {
+      pushNodeIssue(
+        issues,
+        rel,
+        'Extension must not mutate App fields; expose capabilities through ExtensionContext tokens.',
+        'extension.app_mutation',
+        sourceFile,
+        node,
+      );
+    } else if (
+      node.kind === ts.SyntaxKind.DeleteExpression
+      && expressionTargetsContextApp(ts, node.expression, contextAliases, appAliases)
+    ) {
+      pushNodeIssue(
+        issues,
+        rel,
+        'Extension must not mutate App fields; expose capabilities through ExtensionContext tokens.',
+        'extension.app_mutation',
+        sourceFile,
+        node,
+      );
+    } else if (isAppMutatorCall(ts, sourceFile, node, contextAliases, appAliases)) {
+      pushNodeIssue(
+        issues,
+        rel,
+        'Extension must not mutate App fields; expose capabilities through ExtensionContext tokens.',
+        'extension.app_mutation',
+        sourceFile,
+        node,
+      );
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+}
+
 function collectManagedTimerNames(ts, sourceFile) {
   const managed = new Set();
   const visitDisposer = (node) => {
@@ -1352,8 +2253,13 @@ function validateStrictAstRules(rel, content, issues) {
   const isModel = /\/code\/model\//.test(rel);
   const isService = /\/code\/service\//.test(rel);
   const isView = /\/code\/view\//.test(rel);
-  if (!isModel && !isService && !isView) {
+  const isExtension = /^assets\/app\/extensions\//.test(rel);
+  if (!isModel && !isService && !isView && !isExtension) {
     return true;
+  }
+
+  if (isExtension) {
+    validateExtensionAstRules(ts, sourceFile, rel, issues);
   }
 
   if (isModel) {
@@ -1506,6 +2412,9 @@ function codeScopeFromPath(rel) {
   }
   if (rel.startsWith('assets/app/global/')) {
     return { kind: 'global', name: 'global' };
+  }
+  if (rel.startsWith('assets/app/extensions/')) {
+    return { kind: 'extension', name: 'extension' };
   }
   if (rel.startsWith('assets/app/registry/') || rel.startsWith('assets/app/contracts/')) {
     return { kind: 'contract', name: 'app' };
@@ -1729,6 +2638,9 @@ function validateImportBoundaries(projectRoot, project, issues) {
         if (targetScope?.kind === 'library') {
           pushImportIssue(issues, rel, `imports library internal path: ${record.specifier}`, record, targetRel);
         }
+        if (targetScope?.kind === 'global') {
+          pushImportIssue(issues, rel, `imports global internal path: ${record.specifier}. Use a Global public facade, app token, or event.`, record, targetRel);
+        }
       } else if (scope.kind === 'library') {
         if (targetScope?.kind === 'module') {
           pushImportIssue(issues, rel, `imports module internal path: ${record.specifier}`, record, targetRel);
@@ -1743,6 +2655,10 @@ function validateImportBoundaries(projectRoot, project, issues) {
       } else if (scope.kind === 'global') {
         if (targetScope && ['module', 'library'].includes(targetScope.kind)) {
           pushImportIssue(issues, rel, `global code must not import ${targetScope.kind} internal path: ${record.specifier}`, record, targetRel);
+        }
+      } else if (scope.kind === 'extension') {
+        if (targetScope && ['module', 'library', 'global'].includes(targetScope.kind)) {
+          pushImportIssue(issues, rel, `extension code must not import ${targetScope.kind} internal path: ${record.specifier}`, record, targetRel);
         }
       } else if (scope.kind === 'contract') {
         if (targetScope && ['module', 'library', 'global'].includes(targetScope.kind)) {
@@ -1793,6 +2709,39 @@ function validateStrictCodeRules(projectRoot, issues) {
     if (!astChecked && /\/code\/view\//.test(rel) && /\btween\s*\(/.test(withoutComments)) {
       issues.push(`${rel} view tween must be cleaned with addDisposer.`);
     }
+    if (!astChecked && /^assets\/app\/extensions\//.test(rel)) {
+      const appTarget = String.raw`(?:context\s*(?:\.\s*app|\[\s*['"]app['"]\s*\])|app)`;
+      const appField = String.raw`(?:\s*(?:\.\s*[A-Za-z_$][\w$]*|\[\s*['"][^'"]+['"]\s*\]))+`;
+      const appAssignment = new RegExp(`${appTarget}${appField}\\s*(?:[+\\-*/%&|^?]?=|\\+\\+|--)`);
+      const appMutatorCall = new RegExp(
+        String.raw`\b(?:Object\.assign|Object\.defineProperty|Object\.defineProperties|Reflect\.set|Reflect\.deleteProperty)\s*\(\s*${appTarget}`,
+      );
+      if (appAssignment.test(withoutComments) || appMutatorCall.test(withoutComments)) {
+        issues.push(`${rel} Extension must not mutate App fields; expose capabilities through ExtensionContext tokens.`, {
+          path: rel,
+          code: 'extension.app_mutation',
+        });
+      }
+    }
+    const isBusinessCode = /^assets\/(?:modules|libraries)\//.test(rel) || /^assets\/app\/global\//.test(rel);
+    if (isBusinessCode) {
+      const safeAreaMatch = /\bsys\s*\.\s*getSafeAreaRect\s*\(/.exec(withoutComments);
+      if (safeAreaMatch) {
+        issues.push(`${rel} business code must read safe area through app.viewport.profile, not sys.getSafeAreaRect.`, {
+          path: rel,
+          code: 'viewport.safe_area_direct',
+          ...offsetLocation(withoutComments, safeAreaMatch.index),
+        });
+      }
+      const designResolutionMatch = /\bview\s*\.\s*setDesignResolutionSize\s*\(/.exec(withoutComments);
+      if (designResolutionMatch) {
+        issues.push(`${rel} business code must not change design resolution directly; configure App viewport instead.`, {
+          path: rel,
+          code: 'viewport.design_resolution_direct',
+          ...offsetLocation(withoutComments, designResolutionMatch.index),
+        });
+      }
+    }
     if (/^assets\/(?:modules|libraries)\//.test(rel) && /\bassetManager\.loadBundle\s*\(/.test(withoutComments)) {
       issues.push(`${rel} must not call assetManager.loadBundle directly.`);
     }
@@ -1810,15 +2759,20 @@ function validate(projectRoot, options = {}) {
     libraries: new Set(project.libraries.map((item) => item.name)),
   };
 
+  validateOrphanScopes(project, issues);
+  validateRuntimeTemplate(projectRoot, issues);
   for (const descriptor of project.modules) {
     validateDescriptor('module', descriptor, known, issues);
     validateBundleMeta(projectRoot, 'module', descriptor, issues);
     validatePublicContract(projectRoot, descriptor, issues);
+    validateConfigGenerated(projectRoot, descriptor, issues);
   }
   for (const descriptor of project.libraries) {
     validateDescriptor('library', descriptor, known, issues);
     validateBundleMeta(projectRoot, 'library', descriptor, issues);
     validatePublicContract(projectRoot, descriptor, issues);
+    validateLibraryProviders(projectRoot, descriptor, issues);
+    validateConfigGenerated(projectRoot, descriptor, issues);
   }
   for (const descriptor of project.contentPacks) {
     validateDescriptor('content-pack', descriptor, known, issues);
@@ -1830,10 +2784,14 @@ function validate(projectRoot, options = {}) {
 
   validateGenerated(projectRoot, issues);
   validateForbiddenImports(projectRoot, issues);
+  validateRuntimeTemplateImports(projectRoot, issues);
   if (options.strict) {
     validateCaseConflicts(projectRoot, issues);
+    validatePathMaps(projectRoot, issues);
+    validateRuntimeBundleBoundary(projectRoot, issues);
     validateMainScene(projectRoot, issues);
     validateUiGeneratedRefs(projectRoot, project, issues);
+    validateSystemUiMasksNotInBusinessPrefabs(projectRoot, project, issues);
     validateContentPackManifest(projectRoot, project, issues);
     validatePrefabScriptSources(projectRoot, project, issues);
     validateContentPackDoesNotProvideUiViews(projectRoot, project, issues);

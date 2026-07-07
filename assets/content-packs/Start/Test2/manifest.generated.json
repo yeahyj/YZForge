@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "start.test2",
+  "owner": "Start",
+  "bundle": "yzforge-content-pack-start-test2",
+  "refs": {
+    "testWaves": {
+      "kind": "config",
+      "table": "res/content/config/TestWaves",
+      "primaryKey": "id",
+      "codec": "yzforge-json"
+    }
+  },
+  "_generated": {
+    "generator": "yzforge@0.1.0",
+    "source": "assets/content-packs/Start/Test2/content-pack.json",
+    "hash": "771aba612d74535d"
+  }
+}

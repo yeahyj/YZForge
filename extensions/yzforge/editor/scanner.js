@@ -58,6 +58,66 @@ function scanContentPacks(projectRoot) {
   return packs.sort((a, b) => `${a.owner}.${a.name}`.localeCompare(`${b.owner}.${b.name}`));
 }
 
+function scanOrphanScopes(projectRoot) {
+  const orphans = [];
+  const modulesRoot = path.join(projectRoot, 'assets', 'modules');
+  if (fs.existsSync(modulesRoot)) {
+    for (const entry of fs.readdirSync(modulesRoot, { withFileTypes: true }).filter((item) => item.isDirectory())) {
+      const descriptor = path.join(modulesRoot, entry.name, 'module.json');
+      if (!fs.existsSync(descriptor)) {
+        const dir = path.join(modulesRoot, entry.name);
+        orphans.push({
+          kind: 'module',
+          name: entry.name,
+          dir,
+          projectPath: toPosix(path.relative(projectRoot, dir)),
+          expectedDescriptor: 'module.json',
+        });
+      }
+    }
+  }
+
+  const librariesRoot = path.join(projectRoot, 'assets', 'libraries');
+  if (fs.existsSync(librariesRoot)) {
+    for (const entry of fs.readdirSync(librariesRoot, { withFileTypes: true }).filter((item) => item.isDirectory())) {
+      const descriptor = path.join(librariesRoot, entry.name, 'library.json');
+      if (!fs.existsSync(descriptor)) {
+        const dir = path.join(librariesRoot, entry.name);
+        orphans.push({
+          kind: 'library',
+          name: entry.name,
+          dir,
+          projectPath: toPosix(path.relative(projectRoot, dir)),
+          expectedDescriptor: 'library.json',
+        });
+      }
+    }
+  }
+
+  const packsRoot = path.join(projectRoot, 'assets', 'content-packs');
+  if (fs.existsSync(packsRoot)) {
+    for (const owner of fs.readdirSync(packsRoot, { withFileTypes: true }).filter((item) => item.isDirectory())) {
+      const ownerRoot = path.join(packsRoot, owner.name);
+      for (const pack of fs.readdirSync(ownerRoot, { withFileTypes: true }).filter((item) => item.isDirectory())) {
+        const descriptor = path.join(ownerRoot, pack.name, 'content-pack.json');
+        if (!fs.existsSync(descriptor)) {
+          const dir = path.join(ownerRoot, pack.name);
+          orphans.push({
+            kind: 'content-pack',
+            owner: owner.name,
+            name: pack.name,
+            dir,
+            projectPath: toPosix(path.relative(projectRoot, dir)),
+            expectedDescriptor: 'content-pack.json',
+          });
+        }
+      }
+    }
+  }
+
+  return orphans.sort((a, b) => a.projectPath.localeCompare(b.projectPath));
+}
+
 function hasAnyFile(dir) {
   if (!fs.existsSync(dir)) {
     return false;
@@ -100,6 +160,7 @@ function scanProject(projectRoot) {
     modules: scanModules(projectRoot),
     libraries: scanLibraries(projectRoot),
     contentPacks: scanContentPacks(projectRoot),
+    orphanScopes: scanOrphanScopes(projectRoot),
   };
 }
 
@@ -108,5 +169,6 @@ module.exports = {
   scanGlobal,
   scanLibraries,
   scanModules,
+  scanOrphanScopes,
   scanProject,
 };

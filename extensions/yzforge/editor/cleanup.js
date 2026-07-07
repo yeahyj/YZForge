@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { toPosix, walk } = require('./fs-utils');
+const { toPosix, verifyGeneratedJsonHash, walk } = require('./fs-utils');
 
 const SCAN_ROOTS = [
   'assets/app',
@@ -36,7 +36,18 @@ function isGeneratedTs(filePath) {
 
 function isGeneratedJson(projectRoot, filePath) {
   const rel = relativePath(projectRoot, filePath);
-  return /^assets\/content-packs\/[^/]+\/[^/]+\/manifest\.generated\.json$/.test(rel);
+  if (!/^assets\/content-packs\/[^/]+\/[^/]+\/manifest\.generated\.json$/.test(rel)) {
+    return false;
+  }
+  if (!fs.existsSync(filePath)) {
+    return false;
+  }
+  try {
+    const result = verifyGeneratedJsonHash(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+    return result.ok;
+  } catch (_error) {
+    return false;
+  }
 }
 
 function isCleanableGeneratedFile(projectRoot, filePath, options = {}) {

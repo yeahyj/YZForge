@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "kind": "library",
+  "name": "Test",
+  "bundle": "yzforge-lib-test",
+  "entry": "code/entry.generated.ts",
+  "public": "code/public.ts",
+  "libraries": []
+}

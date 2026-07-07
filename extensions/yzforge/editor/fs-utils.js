@@ -86,6 +86,36 @@ function verifyGeneratedHash(content) {
   };
 }
 
+function generatedJson(source, value) {
+  const body = normalizeLineEndings(JSON.stringify(value, null, 2));
+  return {
+    ...value,
+    _generated: {
+      generator: 'yzforge@0.1.0',
+      source: toPosix(source),
+      hash: hashContent(source, body),
+    },
+  };
+}
+
+function verifyGeneratedJsonHash(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, reason: 'invalid generated JSON' };
+  }
+  const meta = value._generated;
+  if (!meta || typeof meta !== 'object' || !meta.source || !meta.hash) {
+    return { ok: false, reason: 'missing generated metadata' };
+  }
+  const body = { ...value };
+  delete body._generated;
+  const expected = hashContent(meta.source, normalizeLineEndings(JSON.stringify(body, null, 2)));
+  return {
+    ok: expected === meta.hash,
+    expected,
+    actual: meta.hash,
+  };
+}
+
 function kebabCase(name) {
   return String(name)
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
@@ -114,6 +144,7 @@ function walk(root, predicate, results = []) {
 
 module.exports = {
   generatedText,
+  generatedJson,
   isTextChanged,
   isPascalCase,
   kebabCase,
@@ -122,6 +153,7 @@ module.exports = {
   stripJsonComments,
   toPosix,
   verifyGeneratedHash,
+  verifyGeneratedJsonHash,
   walk,
   writeJsonIfChanged,
   writeTextIfChanged,

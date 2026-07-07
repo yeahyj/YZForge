@@ -1,0 +1,9 @@
+{
+  "primaryKey": "id",
+  "rows": [
+    {
+      "id": "start",
+      "label": "Start Item"
+    }
+  ]
+}

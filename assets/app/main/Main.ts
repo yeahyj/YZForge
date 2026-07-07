@@ -14,7 +14,7 @@ export class Main extends Component {
 
     private async startApp(): Promise<void> {
         this.app = await createYZForgeApp();
-        await this.app.start();
+        await this.app.start({ mainRoot: this.node });
     }
 
     protected onDestroy(): void {

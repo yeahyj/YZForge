@@ -1,0 +1,10 @@
+{
+  "primaryKey": "id",
+  "rows": [
+    {
+      "id": "wave-1",
+      "enemy": "slime",
+      "count": 3
+    }
+  ]
+}

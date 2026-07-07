@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { generatedText, isTextChanged, kebabCase, readJsonc, toPosix, walk, writeTextIfChanged } = require('./fs-utils');
+const { generatedJson, generatedText, isTextChanged, kebabCase, readJsonc, toPosix, walk, writeTextIfChanged } = require('./fs-utils');
 const { scanProject } = require('./scanner');
 
 function moduleBundleName(name) {
@@ -127,6 +127,7 @@ function renderLibraryEntry(library) {
     "import { defineLibraryEntry, registerLibraryEntry } from '../../../yzforge/runtime';",
     "import { assets } from './assets.generated';",
     "import { config } from './config.generated';",
+    "import { providers } from './providers';",
     libraryImports,
     '',
     'registerLibraryEntry(defineLibraryEntry({',
@@ -135,7 +136,7 @@ function renderLibraryEntry(library) {
     '    assets,',
     '    config,',
     `    libraries: [${librariesExpr}],`,
-    '    tokens: {},',
+    '    tokens: providers,',
     '}));',
   ].filter(Boolean).join('\n');
 }
@@ -361,7 +362,7 @@ function renderAssets(descriptor) {
 
   const viewEntries = viewFiles.map((filePath) => {
     const className = path.basename(filePath, '.prefab');
-    return `        ${lowerCamelCase(className)}: viewRef(${className}, '${assetPath(descriptor, filePath)}', { kind: ${inferViewKind(className)} }),`;
+    return `        ${lowerCamelCase(className)}: viewRef('${descriptor.name}', ${className}, '${assetPath(descriptor, filePath)}', { kind: ${inferViewKind(className)} }),`;
   });
   const partEntries = partFiles.map((filePath) => {
     const className = path.basename(filePath, '.prefab');
@@ -389,12 +390,64 @@ function renderAssets(descriptor) {
   ].join('\n');
 }
 
-function renderEmptyConfig() {
+function configTableRows(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value.rows)) {
+      return value.rows;
+    }
+    if (Array.isArray(value.data)) {
+      return value.data;
+    }
+  }
+  return undefined;
+}
+
+function readConfigTableSpec(filePath) {
+  const payload = readJsonc(filePath);
+  const primaryKey = payload && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.primaryKey === 'string'
+    ? payload.primaryKey
+    : 'id';
+  return {
+    primaryKey,
+    rows: configTableRows(payload),
+  };
+}
+
+function scanConfigTables(descriptor) {
+  const root = path.join(descriptor.dir, 'res', 'content', 'config');
+  const files = scanFiles(root, '.json');
+  const tables = files.map((filePath) => {
+    const spec = readConfigTableSpec(filePath);
+    return {
+      key: lowerCamelCase(path.basename(filePath, path.extname(filePath))),
+      path: assetPath(descriptor, filePath),
+      primaryKey: spec.primaryKey,
+    };
+  });
+  const seen = new Set();
+  for (const table of tables) {
+    if (seen.has(table.key)) {
+      throw new Error(`${descriptor.projectPath} has duplicate config table key: ${table.key}`);
+    }
+    seen.add(table.key);
+  }
+  return tables;
+}
+
+function renderConfig(descriptor) {
+  const tableLines = scanConfigTables(descriptor).map((table) => {
+    return `        ${table.key}: tableRef({ name: '${table.path}', primaryKey: '${table.primaryKey}' }),`;
+  });
   return [
-    "import { defineConfig } from '../../../yzforge/runtime';",
+    "import { defineConfig, tableRef } from '../../../yzforge/runtime';",
     '',
     'export const config = defineConfig({',
-    '    tables: {},',
+    '    tables: {',
+    ...tableLines,
+    '    },',
     '});',
   ].join('\n');
 }
@@ -457,10 +510,16 @@ function renderModuleContentPacks(module, packs) {
     return 'export const contentPacks = {};';
   }
   const packRefs = new Map(owned.map((pack) => [pack.id, scanContentPackRefs(pack)]));
-  const contentPackTypes = Array.from(new Set(Array.from(packRefs.values()).flat().map((ref) => ref.type))).sort();
+  const allRefs = Array.from(packRefs.values()).flat();
+  const assetRefs = allRefs.filter((ref) => ref.kind === 'asset');
+  const configRefs = allRefs.filter((ref) => ref.kind === 'config');
+  const contentPackTypes = Array.from(new Set(assetRefs.map((ref) => ref.type))).sort();
   const yzforgeImports = ['defineContentPack'];
   if (contentPackTypes.length > 0) {
     yzforgeImports.push('contentPackAssetRef');
+  }
+  if (configRefs.length > 0) {
+    yzforgeImports.push('contentPackConfigRef');
   }
   const imports = owned
     .flatMap((pack) => pack.libraries || [])
@@ -474,7 +533,12 @@ function renderModuleContentPacks(module, packs) {
       ? ['    refs: {},']
       : [
         '    refs: {',
-        ...refs.map((ref) => `        ${ref.key}: contentPackAssetRef(${ref.type}, '${ref.path}'),`),
+        ...refs.map((ref) => {
+          if (ref.kind === 'config') {
+            return `        ${ref.key}: contentPackConfigRef('${ref.table}', { primaryKey: '${ref.primaryKey}' }),`;
+          }
+          return `        ${ref.key}: contentPackAssetRef(${ref.type}, '${ref.path}'),`;
+        }),
         '    },',
       ];
     return [
@@ -502,16 +566,26 @@ function renderModuleContentPacks(module, packs) {
 }
 
 function scanContentPackRefs(pack) {
-  const files = [
+  const assetFiles = [
     ...scanFiles(path.join(pack.dir, 'res', 'prefab'), '.prefab'),
     ...scanFiles(path.join(pack.dir, 'res', 'scene'), '.scene'),
     ...scanRuntimeFiles(path.join(pack.dir, 'res', 'runtime')),
   ].sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+  const configFiles = scanFiles(path.join(pack.dir, 'res', 'content', 'config'), '.json');
 
-  const refs = files.map((filePath) => ({
+  const refs = assetFiles.map((filePath) => ({
+    kind: 'asset',
     key: lowerCamelCase(path.basename(filePath, path.extname(filePath))),
     path: assetPath(pack, filePath),
     type: inferRuntimeType(filePath),
+  })).concat(configFiles.map((filePath) => {
+    const spec = readConfigTableSpec(filePath);
+    return {
+      kind: 'config',
+      key: lowerCamelCase(path.basename(filePath, path.extname(filePath))),
+      table: assetPath(pack, filePath),
+      primaryKey: spec.primaryKey,
+    };
   }));
   const seen = new Set();
   for (const ref of refs) {
@@ -526,11 +600,20 @@ function scanContentPackRefs(pack) {
 function renderContentPackManifest(pack) {
   const refs = {};
   for (const ref of scanContentPackRefs(pack)) {
-    refs[ref.key] = {
-      kind: 'asset',
-      type: ref.type,
-      path: ref.path,
-    };
+    if (ref.kind === 'config') {
+      refs[ref.key] = {
+        kind: 'config',
+        table: ref.table,
+        primaryKey: ref.primaryKey,
+        codec: 'yzforge-json',
+      };
+    } else {
+      refs[ref.key] = {
+        kind: 'asset',
+        type: ref.type,
+        path: ref.path,
+      };
+    }
   }
   return {
     schemaVersion: 1,
@@ -584,7 +667,7 @@ function generate(projectRoot, options = {}) {
     writeGenerated(`assets/app/registry/libraries/${library.name}.ref.generated.ts`, library.projectPath, renderLibraryRef(library));
     writeGenerated(`assets/libraries/${library.name}/code/entry.generated.ts`, library.projectPath, renderLibraryEntry(library));
     writeGenerated(`assets/libraries/${library.name}/code/assets.generated.ts`, `assets/libraries/${library.name}/res`, renderAssets(library));
-    writeGenerated(`assets/libraries/${library.name}/code/config.generated.ts`, `assets/libraries/${library.name}/res/content/config`, renderEmptyConfig());
+    writeGenerated(`assets/libraries/${library.name}/code/config.generated.ts`, `assets/libraries/${library.name}/res/content/config`, renderConfig(library));
   }
 
   for (const module of project.modules) {
@@ -595,14 +678,14 @@ function generate(projectRoot, options = {}) {
     writeAutoRefs(projectRoot, module, writeGenerated);
     writeGenerated(`assets/modules/${module.name}/code/entry.generated.ts`, module.projectPath, renderModuleEntry(module));
     writeGenerated(`assets/modules/${module.name}/code/assets.generated.ts`, `assets/modules/${module.name}/res`, renderAssets(module));
-    writeGenerated(`assets/modules/${module.name}/code/config.generated.ts`, `assets/modules/${module.name}/res/content/config`, renderEmptyConfig());
+    writeGenerated(`assets/modules/${module.name}/code/config.generated.ts`, `assets/modules/${module.name}/res/content/config`, renderConfig(module));
     writeGenerated(`assets/modules/${module.name}/code/content-packs.generated.ts`, `assets/content-packs/${module.name}`, renderModuleContentPacks(module, project.contentPacks));
   }
 
   if (project.global) {
     writeAutoRefs(projectRoot, project.global, writeGenerated);
     writeGenerated('assets/app/global/code/assets.generated.ts', 'assets/app/global/res', renderAssets(project.global));
-    writeGenerated('assets/app/global/code/config.generated.ts', 'assets/app/global/res/content/config', renderEmptyConfig());
+    writeGenerated('assets/app/global/code/config.generated.ts', 'assets/app/global/res/content/config', renderConfig(project.global));
   }
 
   const entryExports = project.modules
@@ -629,7 +712,7 @@ function generate(projectRoot, options = {}) {
     writeJson(
       projectRoot,
       toPosix(path.relative(projectRoot, path.join(pack.dir, 'manifest.generated.json'))),
-      renderContentPackManifest(pack),
+      generatedJson(pack.projectPath, renderContentPackManifest(pack)),
       options,
       changed,
     );
