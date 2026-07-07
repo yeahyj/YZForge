@@ -1,11 +1,21 @@
 'use strict';
 
 const path = require('path');
+const { validateBuildMatrix } = require('./build-matrix');
 const { cleanGenerated } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { smoke } = require('./smoke');
+const { runCocosBuild, runTypecheck } = require('./toolchain');
 const { validate } = require('./validate');
+
+function readOption(args, name, fallback) {
+  const index = args.indexOf(name);
+  if (index < 0) {
+    return fallback;
+  }
+  return args[index + 1] ?? fallback;
+}
 
 async function main() {
   const command = process.argv[2] || 'validate';
@@ -54,9 +64,42 @@ async function main() {
     return;
   }
 
+  if (command === 'validate-build-matrix') {
+    const result = validateBuildMatrix(projectRoot);
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (command === 'smoke') {
     const result = await smoke({ keep: process.argv.includes('--keep') });
     console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === 'typecheck') {
+    const result = runTypecheck(projectRoot, { args: process.argv.slice(3) });
+    if (!result.ok) {
+      process.exitCode = typeof result.status === 'number' ? result.status : 1;
+    }
+    return;
+  }
+
+  if (command === 'cocos-build') {
+    const args = process.argv.slice(3);
+    const result = runCocosBuild(projectRoot, {
+      platform: readOption(args, '--platform', 'web-desktop'),
+      outputName: readOption(args, '--output', 'yzforge-build-matrix'),
+      buildPath: readOption(args, '--build-path', 'project://build'),
+      logDest: readOption(args, '--log', undefined),
+      debug: args.includes('--release') ? false : args.includes('--debug') ? true : true,
+    });
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) {
+      process.exitCode = typeof result.status === 'number' && result.status !== 0 ? result.status : 1;
+    }
     return;
   }
 

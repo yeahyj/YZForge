@@ -1,13 +1,15 @@
-'use strict';
+﻿'use strict';
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
+const { validateBuildMatrix } = require('./build-matrix');
 const { cleanGenerated } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { kebabCase, toPosix } = require('./fs-utils');
+const { loadTypeScript: loadToolchainTypeScript } = require('./toolchain');
 const { validate } = require('./validate');
 
 const UUID_BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -16,8 +18,6 @@ const MAIN_SCRIPT_UUID = '10000000-0000-4000-8000-000000000010';
 const SCREEN_FITTER_UUID = '10000000-0000-4000-8000-000000000011';
 const FULL_SCREEN_ROOT_UUID = '10000000-0000-4000-8000-000000000012';
 const SAFE_AREA_ROOT_UUID = '10000000-0000-4000-8000-000000000013';
-const COCOS_TYPESCRIPT_PATH = 'D:/Applications/Cocos/Editor/Creator/3.8.8/resources/app.asar.unpacked/node_modules/typescript/lib/typescript.js';
-let typescriptModule;
 
 function assert(condition, message) {
   if (!condition) {
@@ -26,18 +26,7 @@ function assert(condition, message) {
 }
 
 function loadTypeScript() {
-  if (typescriptModule) {
-    return typescriptModule;
-  }
-  for (const candidate of ['typescript', COCOS_TYPESCRIPT_PATH]) {
-    try {
-      typescriptModule = require(candidate);
-      return typescriptModule;
-    } catch (error) {
-      // Keep trying known TypeScript locations.
-    }
-  }
-  throw new Error('TypeScript is required for runtime behavior smoke checks.');
+  return loadToolchainTypeScript(path.resolve(__dirname, '..', '..', '..'), { required: true });
 }
 
 function writeText(projectRoot, relativePath, content) {
@@ -117,7 +106,10 @@ function loadRuntimeModule(projectRoot, relativePath, dependencies = {}) {
 
 async function assertReleaseScopeBehavior() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
-  const runtime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/lifetime.ts');
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const runtime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts', {
+    './errors': errors,
+  });
   const { OwnershipLedger, ReleaseScope } = runtime;
   assert(typeof OwnershipLedger === 'function', 'Expected OwnershipLedger runtime export.');
   assert(typeof ReleaseScope === 'function', 'Expected ReleaseScope runtime export.');
@@ -151,6 +143,7 @@ async function assertReleaseScopeBehavior() {
   const afterScopeRelease = ledger.snapshot();
   assert(afterScopeRelease.scopes.every((scope) => scope.released === true), 'OwnershipLedger must mark released scopes.');
   assert(afterScopeRelease.holdings.length === 2, 'OwnershipLedger must not execute resource release actions.');
+  assert(afterScopeRelease.leaks.length === 2, 'OwnershipLedger must expose holdings owned by released scopes as leaks.');
 
   ledger.release(root, 'bundle', 'main');
   assert(ledger.snapshot().holdings.some((item) => item.ownerKey === 'app:root' && item.kind === 'bundle' && item.count === 1), 'OwnershipLedger partial release must decrement count.');
@@ -165,11 +158,142 @@ async function assertReleaseScopeBehavior() {
   assert(rootSnapshot.children.length === 0, 'ReleaseScope release must clear child scopes.');
 }
 
+async function assertAssetReleasePolicyBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const lifetime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts', {
+    './errors': errors,
+  });
+  class Asset {}
+  class Prefab extends Asset {}
+  class Node {
+    constructor(name = 'Node') {
+      this.name = name;
+      this.active = true;
+    }
+
+    addChild() {}
+    destroy() {}
+  }
+  const cc = {
+    Asset,
+    Prefab,
+    Node,
+    instantiate() {
+      return new Node('Instance');
+    },
+    isValid() {
+      return true;
+    },
+  };
+  const assetsRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/assets.ts', {
+    cc,
+    './bundle-manager': {},
+    './errors': errors,
+    './lifetime': lifetime,
+  });
+  const { AssetScope } = assetsRuntime;
+  const { OwnershipLedger, ReleaseScope } = lifetime;
+  const releaseEvents = [];
+  const ledger = new OwnershipLedger();
+  const scope = new ReleaseScope('module', 'Battle', ledger);
+  const bundle = {
+    name: 'yzforge-module-battle',
+    async loadAsset(assetPath) {
+      return new Asset(assetPath);
+    },
+    releaseAsset(assetPath) {
+      releaseEvents.push(assetPath);
+      if (assetPath === 'bad') {
+        throw new Error('release failed');
+      }
+    },
+  };
+  const assetScope = new AssetScope('Battle', bundle, { debug() {}, warn() {} }, scope, ledger);
+  await assetScope.load({ path: 'good', type: Asset });
+  await assetScope.load({ path: 'bad', type: Asset });
+
+  let releaseError;
+  try {
+    await scope.release({ type: 'module_unload' });
+  } catch (error) {
+    releaseError = error;
+  }
+  assert(releaseError?.code === 'release.scope_failed', 'ReleaseScope must aggregate AssetScope release failures.');
+  assert(releaseEvents.join('|') === 'good|bad', 'AssetScope releaseAll must continue after a failed asset release.');
+  assert(assetScope.snapshot().assets.some((item) => item.path === 'bad'), 'Failed asset release must remain visible in AssetScope snapshot.');
+  assert(ledger.snapshot().leaks.some((item) => item.ownerKey === 'module:Battle' && item.kind === 'asset' && item.key.startsWith('bad::')), 'OwnershipLedger must expose failed asset release as leak evidence.');
+}
+
+async function assertBundleCachePolicyBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const lifetime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts', {
+    './errors': errors,
+  });
+  class Asset {}
+  class Bundle {
+    constructor(name) {
+      this.name = name;
+    }
+
+    load(_path, _type, done) {
+      done(null, new Asset());
+    }
+
+    releaseAll() {
+      events.push(`releaseAll:${this.name}`);
+    }
+  }
+  const bundles = new Map();
+  const events = [];
+  const cc = {
+    Asset,
+    assetManager: {
+      getBundle(name) {
+        return bundles.get(name);
+      },
+      loadBundle(name, done) {
+        const bundle = new Bundle(name);
+        bundles.set(name, bundle);
+        done(null, bundle);
+      },
+      removeBundle(bundle) {
+        events.push(`remove:${bundle.name}`);
+        bundles.delete(bundle.name);
+      },
+      releaseAsset() {},
+    },
+  };
+  const bundleRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/bundle-manager.ts', {
+    cc,
+    './errors': errors,
+    './lifetime': lifetime,
+  });
+  const { BundleManager } = bundleRuntime;
+  const { OwnershipLedger, ReleaseScope } = lifetime;
+  const ledger = new OwnershipLedger();
+  const scope = new ReleaseScope('module', 'Battle', ledger);
+  const manager = new BundleManager({ debug() {}, warn() {} }, { cachePolicy: 'keep-hot' }, ledger);
+  await manager.loadBundle('battle', { owner: scope });
+  assert(manager.snapshot('battle').cacheState === 'owned', 'Bundle snapshot must mark owner-held bundles as owned.');
+  await scope.release({ type: 'module_unload' });
+  const hotSnapshot = manager.snapshot('battle');
+  assert(hotSnapshot.cacheState === 'hot' && hotSnapshot.refCount === 0, 'Bundle release should leave zero-ref bundle as hot cache when policy keeps cache.');
+  assert(bundles.has('battle'), 'Hot bundle cache must keep the Cocos bundle loaded.');
+  const purge = await manager.purgeUnusedBundles({ type: 'memory_pressure' });
+  assert(purge.some((item) => item.name === 'battle' && item.purged), 'Bundle purge must report purged hot bundles.');
+  assert(!bundles.has('battle'), 'Bundle purge must remove hot bundle from Cocos assetManager.');
+  assert(events.join('|') === 'releaseAll:battle|remove:battle', 'Bundle purge must release assets before removing the bundle.');
+}
+
 async function assertLibraryOwnerAcquireBehavior() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
-  const errors = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/errors.ts');
-  const lifetime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/lifetime.ts');
-  const libraryRuntime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/library.ts', {
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const lifetime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts', {
+    './errors': errors,
+  });
+  const libraryRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/library.ts', {
     './assets': { LibraryAssets: class LibraryAssets {} },
     './errors': errors,
     './lifetime': lifetime,
@@ -238,9 +362,9 @@ async function assertLibraryOwnerAcquireBehavior() {
 
 async function assertExtensionRegistryBehavior() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
-  const errors = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/errors.ts');
-  const logger = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/logger.ts');
-  const extensionRuntime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/extension-registry.ts', {
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const logger = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/logger.ts');
+  const extensionRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/extension-registry.ts', {
     './errors': errors,
     './logger': logger,
   });
@@ -344,11 +468,24 @@ async function assertExtensionRegistryBehavior() {
   assert(cycleError?.code === 'extension.dependency_cycle', 'Extension dependency cycle must fail with a typed error.');
 
   const failing = new ExtensionRegistry(app, quietLogger);
-  await failing.install({ name: 'Core' });
+  const rollbackEvents = [];
+  const rollbackToken = { id: 'rollback.core' };
+  const badRollbackToken = { id: 'rollback.bad' };
+  await failing.install({
+    name: 'Core',
+    installBeforeStart(context) {
+      rollbackEvents.push(`Core:${context.phase}`);
+      context.provide(rollbackToken, 'core-ready');
+    },
+    dispose(context, reason) {
+      rollbackEvents.push(`Core:${context.phase}:${reason?.type}`);
+    },
+  });
   await failing.install({
     name: 'Bad',
     dependencies: ['Core'],
-    installBeforeStart() {
+    installBeforeStart(context) {
+      context.provide(badRollbackToken, 'bad-leak');
       throw new Error('boom');
     },
   });
@@ -362,12 +499,30 @@ async function assertExtensionRegistryBehavior() {
   assert(phaseError?.details?.extensionName === 'Bad', 'Extension phase failure must include extension name.');
   assert(phaseError?.details?.phase === 'before-start', 'Extension phase failure must include phase.');
   assert(phaseError?.details?.dependencyChain?.join(' -> ') === 'Bad -> Core', 'Extension phase failure must include dependency chain.');
+  assert(
+    rollbackEvents.join('|') === 'Core:before-start|Core:dispose:extension_phase_rollback',
+    'Extension phase failure must dispose completed extensions from the failed transaction.',
+  );
+  let rollbackTokenError;
+  try {
+    failing.use(rollbackToken);
+  } catch (error) {
+    rollbackTokenError = error;
+  }
+  assert(rollbackTokenError?.code === 'extension.token_missing', 'Extension phase rollback must remove tokens provided by completed extensions.');
+  let badRollbackTokenError;
+  try {
+    failing.use(badRollbackToken);
+  } catch (error) {
+    badRollbackTokenError = error;
+  }
+  assert(badRollbackTokenError?.code === 'extension.token_missing', 'Extension phase rollback must remove tokens provided before a failing hook throws.');
 }
 
 async function assertViewResultCloseBehavior() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
-  const errors = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/errors.ts');
-  const uiRuntime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/ui.ts', {
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const uiRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/ui.ts', {
     cc: {
       Component: class Component {},
       EventKeyboard: class EventKeyboard {},
@@ -451,6 +606,250 @@ async function assertViewResultCloseBehavior() {
   assert(closeError?.code === 'ui.view_lifecycle_close_failed', 'View close lifecycle failures must be reported after result resolution.');
 }
 
+async function assertAppStateMachineBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const events = [];
+  const controls = {};
+
+  function createLogger(scope = 'app') {
+    return {
+      info(message) { events.push(`${scope}:info:${message}`); },
+      warn(message) { events.push(`${scope}:warn:${message}`); },
+      debug(message) { events.push(`${scope}:debug:${message}`); },
+      child(name) { return createLogger(`${scope}/${name}`); },
+    };
+  }
+
+  class SmokeReleaseScope {
+    constructor(kind = 'app', key = 'root', parent) {
+      this.kind = kind;
+      this.key = key;
+      this.ownerKey = parent ? `${parent.ownerKey}/${kind}:${key}` : `${kind}:${key}`;
+      this.released = false;
+    }
+
+    child(kind, key) {
+      return new SmokeReleaseScope(kind, key, this);
+    }
+
+    defer() {
+      return () => {};
+    }
+
+    async release(reason) {
+      this.released = true;
+      events.push(`release:${this.ownerKey}:${reason?.type ?? 'unknown'}`);
+    }
+
+    snapshot() {
+      return {
+        ownerKey: this.ownerKey,
+        kind: this.kind,
+        key: this.key,
+        released: this.released,
+        releasing: false,
+        actionCount: 0,
+        children: [],
+      };
+    }
+  }
+
+  class SmokeViewportManager {
+    constructor() {
+      this.profile = {
+        frameWidth: 1280,
+        frameHeight: 720,
+        visibleWidth: 1280,
+        visibleHeight: 720,
+        designWidth: 1280,
+        designHeight: 720,
+        aspectRatio: 1280 / 720,
+        orientation: 'landscape',
+        safeArea: { x: 0, y: 0, width: 1280, height: 720 },
+        safeInsets: { left: 0, right: 0, top: 0, bottom: 0 },
+      };
+    }
+
+    initialize() {
+      events.push('viewport.initialize');
+    }
+
+    dispose() {
+      events.push('viewport.dispose');
+    }
+
+    onChanged() {
+      events.push('viewport.onChanged');
+      return () => events.push('viewport.offChanged');
+    }
+  }
+
+  class SmokeAppKernel {
+    constructor(app) {
+      this.logger = createLogger();
+      this.entries = {
+        waitForModule: async () => ({}),
+        validateModule() {},
+      };
+      this.ownership = {
+        snapshot: () => ({ scopes: [], holdings: [] }),
+      };
+      this.releaseScope = new SmokeReleaseScope();
+      this.configs = {
+        loadScope: async () => ({}),
+      };
+      this.bundles = {
+        snapshots: () => [],
+        preloadBundle: async () => ({}),
+        loadBundle: async () => ({}),
+        purgeUnusedBundles: async (reason) => {
+          events.push(`bundle.purge:${reason?.type ?? 'unknown'}`);
+          return [];
+        },
+      };
+      this.shared = {};
+      this.libraries = {
+        snapshots: () => [],
+        acquire: async () => {},
+      };
+      this.extensions = {
+        install: async (extension) => events.push(`extension.install:${extension.name}`),
+        installBeforeStart: async () => {
+          events.push('extension.before-start');
+          if (controls.beforeStart) {
+            await controls.beforeStart();
+          }
+        },
+        installAfterMainBinding: async () => {
+          events.push('extension.after-main-binding');
+          if (controls.afterMainBinding) {
+            await controls.afterMainBinding();
+          }
+        },
+        installBeforeFirstModule: async () => {
+          events.push('extension.before-first-module');
+          if (controls.beforeFirstModule) {
+            await controls.beforeFirstModule();
+          }
+        },
+        dispose: async (reason) => {
+          events.push(`extension.dispose:${reason?.type ?? 'unknown'}`);
+        },
+        use: () => 'token-value',
+        useModuleToken: () => 'module-token-value',
+      };
+      this.global = {
+        initialize: async () => events.push('global.initialize'),
+        dispose: async () => events.push('global.dispose'),
+      };
+      this.lifecycle = {
+        install: () => events.push('lifecycle.install'),
+        dispose: () => events.push('lifecycle.dispose'),
+        emitViewportChanged: () => events.push('lifecycle.viewport-changed'),
+      };
+      this.viewport = new SmokeViewportManager();
+      this.ui = {
+        configureRoots: () => events.push('ui.configureRoots'),
+        installBackKeyHandler: () => events.push('ui.installBackKeyHandler'),
+        dispose: () => events.push('ui.dispose'),
+        disposeModule: async () => events.push('ui.disposeModule'),
+        createForModule: () => ({}),
+        snapshot: () => ({ layers: [], system: {}, views: [] }),
+      };
+      this.navigator = {
+        enter: async () => ({ ref: { name: 'Entered' } }),
+        detach: async () => events.push('navigator.detach'),
+        snapshot: () => ({ stack: [] }),
+      };
+      this.app = app;
+    }
+  }
+
+  const appRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/app.ts', {
+    './assets': { ModuleAssets: class ModuleAssets {} },
+    './content-pack': { ContentPackManager: class ContentPackManager {} },
+    './kernel': { AppKernel: SmokeAppKernel },
+    './library': { ModuleLibraryManager: class ModuleLibraryManager {} },
+    './main-binding': { createMainBinding: () => ({ layerRoots: {} }) },
+    './module': { ModuleState: { Entering: 'entering' } },
+    './viewport': { ViewportManager: SmokeViewportManager },
+    './errors': errors,
+  });
+  const { App, AppState } = appRuntime;
+  assert(AppState.Created === 'created', 'AppState must expose created state.');
+
+  const ref = { name: 'Battle', bundle: 'yzforge-module-battle', libraries: [] };
+  const app = new App();
+  assert(app.state === AppState.Created, 'App must start in Created state.');
+  assert(app.snapshot().state === AppState.Created, 'App snapshot must expose current state.');
+
+  let invalidLoad;
+  try {
+    await app.loadModule(ref);
+  } catch (error) {
+    invalidLoad = error;
+  }
+  assert(invalidLoad?.code === 'app.invalid_state', 'App.loadModule must fail before start.');
+  assert(invalidLoad?.details?.state === AppState.Created, 'Invalid loadModule must report current App state.');
+
+  await app.start();
+  assert(app.state === AppState.Started, 'App.start must transition to Started.');
+  await app.purgeResourceCache({ type: 'smoke_cache_purge' });
+  assert(events.includes('bundle.purge:smoke_cache_purge'), 'App.purgeResourceCache must delegate to BundleManager purge.');
+
+  let duplicateStart;
+  try {
+    await app.start();
+  } catch (error) {
+    duplicateStart = error;
+  }
+  assert(duplicateStart?.code === 'app.invalid_state', 'App.start must reject duplicate start.');
+  assert(duplicateStart?.details?.state === AppState.Started, 'Duplicate start must report Started state.');
+
+  await app.dispose({ type: 'test_dispose' });
+  assert(app.state === AppState.Disposed, 'App.dispose must transition to Disposed.');
+  await app.dispose({ type: 'repeat_dispose' });
+  assert(app.state === AppState.Disposed, 'App.dispose must be idempotent after Disposed.');
+
+  let enterAfterDispose;
+  try {
+    await app.enterModule(ref);
+  } catch (error) {
+    enterAfterDispose = error;
+  }
+  assert(enterAfterDispose?.code === 'app.invalid_state', 'App.enterModule must fail after dispose.');
+  assert(enterAfterDispose?.details?.state === AppState.Disposed, 'Invalid enterModule must report Disposed state.');
+
+  let releaseStart;
+  controls.beforeStart = () => new Promise((resolve) => {
+    releaseStart = resolve;
+  });
+  const slowApp = new App();
+  const startTask = slowApp.start();
+  await Promise.resolve();
+  assert(slowApp.state === AppState.Starting, 'App must enter Starting while start task is pending.');
+  const disposeTask = slowApp.dispose({ type: 'dispose_during_start' });
+  assert(slowApp.state === AppState.Disposing, 'App.dispose during start must enter Disposing.');
+  releaseStart();
+  await startTask;
+  await disposeTask;
+  assert(slowApp.state === AppState.Disposed, 'App.dispose during start must finish Disposed.');
+
+  controls.beforeStart = async () => {
+    throw new Error('start failed');
+  };
+  const failingApp = new App();
+  let startFailure;
+  try {
+    await failingApp.start();
+  } catch (error) {
+    startFailure = error;
+  }
+  assert(startFailure?.message === 'start failed', 'App.start must surface original start failure after rollback.');
+  assert(failingApp.state === AppState.Disposed, 'App.start failure must rollback to Disposed when cleanup succeeds.');
+}
+
 function writeBundleMeta(projectRoot, relativeDir, bundleName) {
   writeJson(projectRoot, `${relativeDir}.meta`, {
     userData: {
@@ -469,6 +868,21 @@ function writeScriptMeta(projectRoot, relativeScriptPath, uuid) {
     files: [],
     subMetas: {},
     userData: {},
+  });
+}
+
+function writeAssemblyRecord(projectRoot, target, resolved = { type: 'module', id: 'assets/yzforge/runtime/index.ts' }) {
+  writeJson(projectRoot, `temp/programming/packer-driver/targets/${target}/assembly-record.json`, {
+    chunks: {
+      main: {
+        imports: {
+          yzforge: {
+            resolved,
+            messages: [],
+          },
+        },
+      },
+    },
   });
 }
 
@@ -737,11 +1151,151 @@ function mainComponentSource() {
   ].join('\n');
 }
 
+function appStateMachineRuntimeSource() {
+  return [
+    'export enum AppState {',
+    "    Created = 'created',",
+    "    Starting = 'starting',",
+    "    Started = 'started',",
+    "    Disposing = 'disposing',",
+    "    Disposed = 'disposed',",
+    "    Failed = 'failed',",
+    '}',
+    '',
+    'export interface AppRuntimeSnapshot {',
+    '    readonly state: AppState;',
+    '}',
+    '',
+    'export class App {',
+    '    private appState = AppState.Created;',
+    '    private readonly moduleTasks = new Map<string, Promise<unknown>>();',
+    '',
+    '    public get state(): AppState {',
+    '        return this.appState;',
+    '    }',
+    '',
+    '    public async start(): Promise<void> {',
+    "        this.assertState('start', [AppState.Created]);",
+    '    }',
+    '',
+    '    public async preloadModule(): Promise<void> {',
+    "        this.assertState('preloadModule', [AppState.Started]);",
+    '    }',
+    '',
+    '    public async loadModule(): Promise<void> {',
+    "        this.assertState('loadModule', [AppState.Started]);",
+    '    }',
+    '',
+    '    public async enterModule(): Promise<void> {',
+    "        this.assertState('enterModule', [AppState.Started]);",
+    '    }',
+    '',
+    '    public async unloadModule(): Promise<void> {',
+    "        this.assertState('unloadModule', [AppState.Started, AppState.Disposing]);",
+    '    }',
+    '',
+    '    public async installExtension(): Promise<void> {',
+    "        this.assertState('installExtension', [AppState.Created, AppState.Starting, AppState.Started]);",
+    '    }',
+    '',
+    '    public use(): unknown {',
+    "        this.assertState('use', [AppState.Starting, AppState.Started, AppState.Disposing]);",
+    "        return 'token';",
+    '    }',
+    '',
+    '    public useModuleToken(): unknown {',
+    "        this.assertState('useModuleToken', [AppState.Started, AppState.Disposing]);",
+    "        return 'module-token';",
+    '    }',
+    '',
+    '    public async purgeResourceCache(): Promise<void> {',
+    "        this.assertState('purgeResourceCache', [AppState.Started, AppState.Disposing]);",
+    '    }',
+    '',
+    '    public async dispose(): Promise<void> {',
+    "        this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed]);",
+    '        for (const task of Array.from(this.moduleTasks.values())) {',
+    '            await task;',
+    '        }',
+    '    }',
+    '',
+    '    public snapshot(): AppRuntimeSnapshot {',
+    '        return { state: this.appState };',
+    '    }',
+    '',
+    '    private assertState(api: string, allowed: readonly AppState[]): void {',
+    "        throw new Error('app.invalid_state');",
+    '        void api;',
+    '        void allowed;',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function toolchainResolverSmokeSource() {
+  return [
+    "'use strict';",
+    '',
+    'function resolveCocosEditorRoot() { return undefined; }',
+    'function resolveCocosExecutable() { return undefined; }',
+    'function resolveCocosBuildOutputPath() { return undefined; }',
+    'function resolveCocosTypeScript() { return undefined; }',
+    'function resolveCocosEngineAssets() { return undefined; }',
+    'function resolveCocosProjectSettings() { return undefined; }',
+    'function resolveCocosTempAssembly() { return undefined; }',
+    'function runCocosBuild() { return { ok: true }; }',
+    'function runTypecheck() { return { ok: true }; }',
+    '',
+    'module.exports = {',
+    '  resolveCocosEditorRoot,',
+    '  resolveCocosExecutable,',
+    '  resolveCocosBuildOutputPath,',
+    '  resolveCocosTypeScript,',
+    '  resolveCocosEngineAssets,',
+    '  resolveCocosProjectSettings,',
+    '  resolveCocosTempAssembly,',
+    '  runCocosBuild,',
+    '  runTypecheck,',
+    '};',
+    '',
+  ].join('\n');
+}
+
 function setupBaseline(projectRoot) {
   writeJson(projectRoot, 'tsconfig.json', { compilerOptions: {} });
+  writeText(projectRoot, 'extensions/yzforge/editor/toolchain.js', toolchainResolverSmokeSource());
+  writeText(projectRoot, 'extensions/yzforge/editor/cli.js', [
+    "'use strict';",
+    "const { runTypecheck } = require('./toolchain');",
+    "if (process.argv[2] === 'typecheck') { runTypecheck(); }",
+    '',
+  ].join('\n'));
+  writeText(projectRoot, 'extensions/yzforge/editor/generate.js', [
+    "'use strict';",
+    "const { resolveCocosEngineAssets } = require('./toolchain');",
+    'void resolveCocosEngineAssets;',
+    '',
+  ].join('\n'));
+  writeText(projectRoot, 'extensions/yzforge/editor/validate.js', [
+    "'use strict';",
+    "const { loadTypeScript: loadToolchainTypeScript } = require('./toolchain');",
+    'void loadToolchainTypeScript;',
+    '',
+  ].join('\n'));
+  writeText(projectRoot, 'extensions/yzforge/editor/smoke.js', [
+    "'use strict';",
+    "const { loadTypeScript: loadToolchainTypeScript } = require('./toolchain');",
+    'void loadToolchainTypeScript;',
+    '',
+  ].join('\n'));
+  writeText(projectRoot, 'packages/yzforge-runtime/src/index.ts', 'export {};');
   writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export {};');
   writeText(projectRoot, 'assets/yzforge/runtime/index.ts', 'export {};');
-  for (const root of ['extensions/yzforge/runtime-template', 'assets/yzforge/runtime']) {
+  writeText(projectRoot, 'packages/yzforge-runtime/src/app.ts', appStateMachineRuntimeSource());
+  writeText(projectRoot, 'extensions/yzforge/runtime-template/app.ts', appStateMachineRuntimeSource());
+  writeText(projectRoot, 'assets/yzforge/runtime/app.ts', appStateMachineRuntimeSource());
+  for (const root of ['packages/yzforge-runtime/src', 'extensions/yzforge/runtime-template', 'assets/yzforge/runtime']) {
     writeText(projectRoot, `${root}/screen-fitter.ts`, 'export class YZScreenFitter {}');
     writeText(projectRoot, `${root}/full-screen-root.ts`, 'export class YZFullScreenRoot extends YZScreenFitter {}');
     writeText(projectRoot, `${root}/safe-area-root.ts`, 'export class YZSafeAreaRoot extends YZScreenFitter {}');
@@ -911,20 +1465,58 @@ function assertOkValidation(projectRoot) {
   return result;
 }
 
+function assertToolchainResolverInvariants() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const packageJson = readJson(projectRoot, 'package.json');
+  const toolchainSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/toolchain.js'), 'utf8');
+  const cliSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/cli.js'), 'utf8');
+  const generateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/generate.js'), 'utf8');
+  const validateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/validate.js'), 'utf8');
+  const smokeSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/smoke.js'), 'utf8');
+  const forbiddenCocosInstallPath = ['D:', '/Applications/Cocos'].join('');
+  assert(packageJson.scripts?.typecheck === 'node extensions/yzforge/editor/cli.js typecheck', 'typecheck script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:validate:build-matrix'] === 'node extensions/yzforge/editor/cli.js validate-build-matrix', 'BuildMatrixValidator script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:cocos:build:web'] === 'node extensions/yzforge/editor/cli.js cocos-build --platform web-desktop --debug --output yzforge-build-matrix', 'Cocos web build script must route through YZForge CLI.');
+  assert(toolchainSource.includes('resolveCocosEditorRoot'), 'ToolchainResolver must expose Cocos editor root resolution.');
+  assert(toolchainSource.includes('resolveCocosExecutable'), 'ToolchainResolver must expose Cocos executable resolution.');
+  assert(toolchainSource.includes('resolveCocosBuildOutputPath'), 'ToolchainResolver must expose Cocos build output path resolution.');
+  assert(toolchainSource.includes('resolveCocosTypeScript'), 'ToolchainResolver must expose Cocos TypeScript resolution.');
+  assert(toolchainSource.includes('resolveCocosEngineAssets'), 'ToolchainResolver must expose Cocos engine assets resolution.');
+  assert(toolchainSource.includes('runCocosBuild'), 'ToolchainResolver must own Cocos build execution.');
+  assert(toolchainSource.includes('runTypecheck'), 'ToolchainResolver must own typecheck execution.');
+  assert(cliSource.includes("command === 'typecheck'") && cliSource.includes('runTypecheck'), 'CLI must route typecheck through ToolchainResolver.');
+  assert(generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must resolve Cocos engine paths through ToolchainResolver.');
+  assert(validateSource.includes('loadToolchainTypeScript') && !validateSource.includes(forbiddenCocosInstallPath), 'Validator must load TypeScript through ToolchainResolver.');
+  assert(smokeSource.includes('loadToolchainTypeScript') && !smokeSource.includes(forbiddenCocosInstallPath), 'Smoke must load TypeScript through ToolchainResolver.');
+}
+
 function assertRuntimeLifecycleInvariants() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
-  const appSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/app.ts'), 'utf8');
-  const assetsSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/assets.ts'), 'utf8');
-  const kernelSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/kernel.ts'), 'utf8');
-  const moduleSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/module.ts'), 'utf8');
-  const navigatorSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/navigator.ts'), 'utf8');
-  const librarySource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/library.ts'), 'utf8');
-  const extensionRegistrySource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/extension-registry.ts'), 'utf8');
-  const contentPackSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/content-pack.ts'), 'utf8');
-  const runtimeIndexSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/index.ts'), 'utf8');
-  const uiSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/ui.ts'), 'utf8');
+  const appSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/app.ts'), 'utf8');
+  const assetsSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/assets.ts'), 'utf8');
+  const bundleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/bundle-manager.ts'), 'utf8');
+  const kernelSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/kernel.ts'), 'utf8');
+  const lifetimeSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts'), 'utf8');
+  const moduleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/module.ts'), 'utf8');
+  const navigatorSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/navigator.ts'), 'utf8');
+  const librarySource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/library.ts'), 'utf8');
+  const extensionRegistrySource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/extension-registry.ts'), 'utf8');
+  const contentPackSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/content-pack.ts'), 'utf8');
+  const runtimeIndexSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/index.ts'), 'utf8');
+  const uiSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/ui.ts'), 'utf8');
   const preloadBody = appSource.slice(appSource.indexOf('public async preloadModule'), appSource.indexOf('public async loadModule'));
   const enterBody = appSource.slice(appSource.indexOf('public async enterModule'), appSource.indexOf('public async unloadModule'));
+  assert(appSource.includes('export enum AppState'), 'App must expose a public AppState enum.');
+  assert(appSource.includes('private appState = AppState.Created'), 'App must store explicit AppState.');
+  assert(appSource.includes("this.assertState('preloadModule', [AppState.Started])"), 'preloadModule must require Started App state.');
+  assert(appSource.includes("this.assertState('loadModule', [AppState.Started])"), 'loadModule must require Started App state.');
+  assert(appSource.includes("this.assertState('enterModule', [AppState.Started])"), 'enterModule must require Started App state.');
+  assert(appSource.includes("this.assertState('purgeResourceCache', [AppState.Started, AppState.Disposing])"), 'purgeResourceCache must require Started/Disposing App state.');
+  assert(appSource.includes('purgeUnusedBundles'), 'App.purgeResourceCache must delegate to BundleManager.');
+  assert(appSource.includes("this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed])"), 'dispose must accept Created/Starting/Started/Failed states.');
+  assert(appSource.includes("'app.invalid_state'"), 'App state guard must report typed invalid-state errors.');
+  assert(appSource.includes('state: this.appState'), 'App snapshot must expose current App state.');
+  assert(appSource.includes('Array.from(this.moduleTasks.values())'), 'App.dispose must await pending module load tasks before unloading modules.');
   assert(appSource.includes('moduleUnloadTasks'), 'App must keep module unload tasks idempotent.');
   assert(appSource.includes('module.unload_during_enter'), 'App must reject unloading a module while it is entering.');
   assert(appSource.includes('module.unload_failed'), 'App must aggregate module unload failures.');
@@ -932,6 +1524,13 @@ function assertRuntimeLifecycleInvariants() {
   assert(!appSource.includes('public readonly bundles') && !appSource.includes('public readonly extensions'), 'App must not expose runtime system registries as public fields.');
   assert(kernelSource.includes('export class AppKernel'), 'Runtime must define an AppKernel.');
   assert(!runtimeIndexSource.includes("export * from './kernel'"), 'Runtime public barrel must not expose AppKernel.');
+  assert(lifetimeSource.includes('readonly leaks'), 'OwnershipLedger snapshot must expose leak evidence.');
+  assert(lifetimeSource.includes('release.scope_failed'), 'ReleaseScope must aggregate release failures.');
+  assert(assetsSource.includes('asset.release_failed'), 'AssetScope releaseAll must aggregate asset release failures.');
+  assert(!assetsSource.includes('this.loaded.clear()'), 'AssetScope.releaseAll must not hide failed asset releases by clearing all loaded records.');
+  assert(bundleSource.includes('BundleCachePolicy'), 'BundleManager must expose a bundle cache policy.');
+  assert(bundleSource.includes('purgeUnusedBundles'), 'BundleManager must support explicit hot cache purge.');
+  assert(bundleSource.includes('cacheState'), 'Bundle snapshots must expose cache state.');
   assert(preloadBody.includes('kernel.bundles.preloadBundle'), 'preloadModule must preload the module bundle through AppKernel.');
   assert(!preloadBody.includes('new entry.type') && !preloadBody.includes('__yzforgeCreate') && !preloadBody.includes('__yzforgeLoad'), 'preloadModule must not create or load Module instances.');
   assert(appSource.includes('instance = new entry.type()'), 'loadModule/createModule must create Module instances.');
@@ -953,6 +1552,9 @@ function assertRuntimeLifecycleInvariants() {
   assert(extensionRegistrySource.includes('extension.phase_failed'), 'Extension phase failure must be wrapped with diagnostic context.');
   assert(extensionRegistrySource.includes('extension.dependency_missing'), 'Extension dependencies must fail when missing.');
   assert(extensionRegistrySource.includes('extension.dependency_cycle'), 'Extension dependency cycles must fail.');
+  assert(extensionRegistrySource.includes('ExtensionTransaction'), 'ExtensionRegistry must use a transaction for phase side effects.');
+  assert(extensionRegistrySource.includes('rollbackTransaction'), 'ExtensionRegistry must rollback phase token side effects.');
+  assert(extensionRegistrySource.includes('disposeCompletedPhaseExtensions'), 'ExtensionRegistry must dispose completed phase extensions on rollback.');
   assert(extensionRegistrySource.includes('provideModule'), 'ExtensionContext must expose module-scoped token registration.');
   assert(extensionRegistrySource.includes('dependencyChain'), 'Extension failures must expose a dependency chain.');
   assert(contentPackSource.includes('manifest.generated'), 'ContentPack manifest.generated.json must be loaded at runtime.');
@@ -960,7 +1562,7 @@ function assertRuntimeLifecycleInvariants() {
   assert(moduleSource.includes('readonly ui: ModuleUIAccess'), 'Module context must expose ModuleUI through the framework facade.');
   assert(assetsSource.includes("this.ledger?.acquire(this.owner, 'node'"), 'AssetScope must register tracked nodes in OwnershipLedger.');
   assert(assetsSource.includes("this.ledger?.release(this.owner, 'node'"), 'AssetScope must release tracked nodes from OwnershipLedger.');
-  assert(fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/refs.ts'), 'utf8').includes('readonly owner: string;'), 'ViewRef must carry an owning scope.');
+  assert(fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/refs.ts'), 'utf8').includes('readonly owner: string;'), 'ViewRef must carry an owning scope.');
   assert(uiSource.includes('ui.view_owner_mismatch'), 'ModuleUI must reject opening foreign View refs.');
   assert(uiSource.includes("this.ownership?.acquire(this.owner, 'view'"), 'ModuleUI must register opened Views in OwnershipLedger.');
   assert(uiSource.includes("this.ownership?.release(this.owner, 'view'"), 'ModuleUI must release closed Views from OwnershipLedger.');
@@ -998,8 +1600,12 @@ async function smoke(options = {}) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yzforge-smoke-'));
   let completed = false;
   try {
+    assertToolchainResolverInvariants();
     assertRuntimeLifecycleInvariants();
+    await assertAppStateMachineBehavior();
     await assertReleaseScopeBehavior();
+    await assertAssetReleasePolicyBehavior();
+    await assertBundleCachePolicyBehavior();
     await assertLibraryOwnerAcquireBehavior();
     await assertExtensionRegistryBehavior();
     await assertViewResultCloseBehavior();
@@ -1015,6 +1621,30 @@ async function smoke(options = {}) {
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
     const validation = assertOkValidation(projectRoot);
+
+    writeAssemblyRecord(projectRoot, 'editor');
+    writeAssemblyRecord(projectRoot, 'preview');
+    const buildMatrix = validateBuildMatrix(projectRoot, { includeBuild: false });
+    assert(buildMatrix.ok, `BuildMatrixValidator should pass valid editor/preview evidence:\n${buildMatrix.issues.join('\n')}`);
+    writeAssemblyRecord(projectRoot, 'preview', {
+      type: 'error',
+      text: "Failed to resolve 'yzforge'",
+    });
+    const buildMatrixViolation = validateBuildMatrix(projectRoot, { includeBuild: false });
+    assert(!buildMatrixViolation.ok, 'BuildMatrixValidator must fail unresolved preview YZForge import.');
+    assert(buildMatrixViolation.issueDetails[0]?.code === 'cocos.import_resolution', 'Expected BuildMatrixValidator import resolution issue code.');
+    assert(buildMatrixViolation.issueDetails[0]?.target === 'preview', 'Expected BuildMatrixValidator issue target.');
+    writeAssemblyRecord(projectRoot, 'preview');
+    writeText(projectRoot, 'build/web-desktop/assets/main.js', "console.log('build ok');");
+    const buildArtifactMatrix = validateBuildMatrix(projectRoot);
+    const buildArtifactTarget = buildArtifactMatrix.targets.find((item) => item.target === 'build:web-desktop');
+    assert(buildArtifactMatrix.ok && buildArtifactTarget?.status === 'passed', 'BuildMatrixValidator must inspect clean build artifacts.');
+    writeText(projectRoot, 'build/web-desktop/assets/main.js', "import { App } from 'yzforge';\nvoid App;");
+    const buildArtifactViolation = validateBuildMatrix(projectRoot);
+    const buildArtifactDetail = buildArtifactViolation.issueDetails.find((issue) => issue.code === 'build.bare_yzforge_import');
+    assert(!buildArtifactViolation.ok, 'BuildMatrixValidator must fail build artifacts with bare YZForge imports.');
+    assert(buildArtifactDetail?.target === 'build:web-desktop', 'Expected build artifact issue target.');
+    writeText(projectRoot, 'build/web-desktop/assets/main.js', "console.log('build ok');");
 
     updateJson(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json', (manifest) => {
       manifest._generated.hash = '0000000000000000';
@@ -1116,11 +1746,27 @@ async function smoke(options = {}) {
     updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
       tsconfig.compilerOptions.paths.yzforge = ['extensions/yzforge/runtime-template/index.ts'];
     });
-    const tsconfigPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.yzforge must be ["assets/yzforge/runtime/index.ts"]');
+    const tsconfigPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.yzforge must be ["packages/yzforge-runtime/src/index.ts"]');
     const tsconfigPathDetail = tsconfigPathViolation.issueDetails.find((issue) => issue.message.includes('paths.yzforge'));
     assert(tsconfigPathDetail.code === 'path_map.tsconfig', 'Expected tsconfig path map issue code.');
     const tsconfigRepair = generate(projectRoot);
     assert(tsconfigRepair.changed.includes('tsconfig.json'), 'Expected generate to repair tsconfig path map.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+      tsconfig.compilerOptions.paths['db://internal/*'] = [[
+        'D:',
+        '/Applications/Cocos/Editor/Creator/0.0.0/',
+        'resources',
+        '/resources/3d/engine/editor/assets/*',
+      ].join('')];
+    });
+    const cocosInternalPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.db://internal/* must be');
+    const cocosInternalPathDetail = cocosInternalPathViolation.issueDetails.find((issue) => issue.message.includes('paths.db://internal/*'));
+    assert(cocosInternalPathDetail.code === 'path_map.tsconfig', 'Expected Cocos internal path map issue code.');
+    assert(cocosInternalPathDetail.target === 'db://internal/*', 'Expected Cocos internal path map target.');
+    const cocosInternalPathRepair = generate(projectRoot);
+    assert(cocosInternalPathRepair.changed.includes('tsconfig.json'), 'Expected generate to repair Cocos internal path map.');
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'import-map.json', (importMap) => {
@@ -1134,16 +1780,26 @@ async function smoke(options = {}) {
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'package.json', (packageJson) => {
-      packageJson.name = 'YZForge';
-      packageJson.exports['.'] = './extensions/yzforge/runtime-template/index.ts';
+      packageJson.name = 'yzforge';
+      packageJson.exports = { '.': './assets/yzforge/runtime/index.ts' };
     });
-    const packageJsonViolation = expectValidationIssue(projectRoot, "package.json name must be 'yzforge'");
-    const packageJsonDetail = packageJsonViolation.issueDetails.find((issue) => issue.message.includes('package.json name'));
+    const packageJsonViolation = expectValidationIssue(projectRoot, "package.json name must not be 'yzforge'");
+    const packageJsonDetail = packageJsonViolation.issueDetails.find((issue) => issue.message.includes("name must not be 'yzforge'"));
     assert(packageJsonDetail.code === 'path_map.package_json', 'Expected package.json path map issue code.');
-    const packageJsonExportDetail = packageJsonViolation.issueDetails.find((issue) => issue.message.includes('exports.'));
+    const packageJsonExportDetail = packageJsonViolation.issueDetails.find((issue) => issue.message.includes('must not export YZForge runtime paths'));
     assert(packageJsonExportDetail.code === 'path_map.package_json', 'Expected package.json exports issue code.');
     const packageJsonRepair = generate(projectRoot);
     assert(packageJsonRepair.changed.includes('package.json'), 'Expected generate to repair package.json package boundary.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'package.json', (packageJson) => {
+      packageJson.scripts.typecheck = ['node ', 'D:', '/Applications/Cocos/tsc.js'].join('');
+    });
+    const typecheckScriptViolation = expectValidationIssue(projectRoot, "package.json scripts.typecheck must be 'node extensions/yzforge/editor/cli.js typecheck'");
+    const typecheckScriptDetail = typecheckScriptViolation.issueDetails.find((issue) => issue.message.includes('scripts.typecheck'));
+    assert(typecheckScriptDetail.code === 'toolchain.script', 'Expected ToolchainResolver script issue code.');
+    const typecheckScriptRepair = generate(projectRoot);
+    assert(typecheckScriptRepair.changed.includes('package.json'), 'Expected generate to repair typecheck script.');
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'settings/v2/packages/project.json', (settings) => {
@@ -1254,10 +1910,24 @@ async function smoke(options = {}) {
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export const drift = true;');
-    const runtimeDriftViolation = expectValidationIssue(projectRoot, 'Project runtime file differs from template');
-    const runtimeDriftDetail = runtimeDriftViolation.issueDetails.find((issue) => issue.message.includes('Project runtime file differs from template'));
-    assert(runtimeDriftDetail.code === 'runtime.template_drift', 'Expected runtime template drift issue code.');
+    const runtimeDriftViolation = expectValidationIssue(projectRoot, 'Runtime template file differs from runtime source package');
+    const runtimeDriftDetail = runtimeDriftViolation.issueDetails.find((issue) => issue.message.includes('Runtime template file differs from runtime source package'));
+    assert(runtimeDriftDetail.code === 'runtime.package_drift', 'Expected runtime package drift issue code.');
     writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export {};');
+    assertOkValidation(projectRoot);
+
+    updateText(projectRoot, 'packages/yzforge-runtime/src/app.ts', (content) => {
+      return content.replace(
+        "        this.assertState('enterModule', [AppState.Started]);",
+        '        void AppState.Started;',
+      );
+    });
+    const appStateViolation = expectValidationIssue(projectRoot, 'App.enterModule must declare AppState guard AppState.Started');
+    const appStateDetail = appStateViolation.issueDetails.find((issue) => issue.message.includes('App.enterModule must declare AppState guard'));
+    assert(appStateDetail.code === 'app.state_machine', 'Expected App state machine issue code.');
+    for (const root of ['packages/yzforge-runtime/src', 'assets/yzforge/runtime', 'extensions/yzforge/runtime-template']) {
+      writeText(projectRoot, `${root}/app.ts`, appStateMachineRuntimeSource());
+    }
     assertOkValidation(projectRoot);
 
     const badRuntimeBundleSource = [
@@ -1268,14 +1938,12 @@ async function smoke(options = {}) {
       '}',
       '',
     ].join('\n');
-    writeText(projectRoot, 'assets/yzforge/runtime/BadBundle.ts', badRuntimeBundleSource);
-    writeText(projectRoot, 'extensions/yzforge/runtime-template/BadBundle.ts', badRuntimeBundleSource);
+    writeText(projectRoot, 'packages/yzforge-runtime/src/BadBundle.ts', badRuntimeBundleSource);
     const runtimeBundleViolation = expectValidationIssue(projectRoot, 'Only BundleManager may call assetManager.loadBundle directly');
     const runtimeBundleDetail = runtimeBundleViolation.issueDetails.find((issue) => issue.message.includes('Only BundleManager'));
     assert(runtimeBundleDetail.code === 'runtime.bundle_boundary', 'Expected runtime bundle boundary issue code.');
-    assert(runtimeBundleDetail.path === 'assets/yzforge/runtime/BadBundle.ts', 'Expected runtime bundle boundary issue path.');
-    fs.unlinkSync(path.join(projectRoot, 'assets/yzforge/runtime/BadBundle.ts'));
-    fs.unlinkSync(path.join(projectRoot, 'extensions/yzforge/runtime-template/BadBundle.ts'));
+    assert(runtimeBundleDetail.path === 'packages/yzforge-runtime/src/BadBundle.ts', 'Expected runtime bundle boundary issue path.');
+    fs.unlinkSync(path.join(projectRoot, 'packages/yzforge-runtime/src/BadBundle.ts'));
     assertOkValidation(projectRoot);
 
     const badRuntimeBundleTypeSource = [
@@ -1286,14 +1954,12 @@ async function smoke(options = {}) {
       '}',
       '',
     ].join('\n');
-    writeText(projectRoot, 'assets/yzforge/runtime/BadBundleType.ts', badRuntimeBundleTypeSource);
-    writeText(projectRoot, 'extensions/yzforge/runtime-template/BadBundleType.ts', badRuntimeBundleTypeSource);
+    writeText(projectRoot, 'packages/yzforge-runtime/src/BadBundleType.ts', badRuntimeBundleTypeSource);
     const runtimeBundleTypeViolation = expectValidationIssue(projectRoot, 'Only BundleManager may reference AssetManager.Bundle directly');
     const runtimeBundleTypeDetail = runtimeBundleTypeViolation.issueDetails.find((issue) => issue.message.includes('AssetManager.Bundle'));
     assert(runtimeBundleTypeDetail.code === 'runtime.bundle_boundary', 'Expected runtime bundle type boundary issue code.');
-    assert(runtimeBundleTypeDetail.path === 'assets/yzforge/runtime/BadBundleType.ts', 'Expected runtime bundle type boundary issue path.');
-    fs.unlinkSync(path.join(projectRoot, 'assets/yzforge/runtime/BadBundleType.ts'));
-    fs.unlinkSync(path.join(projectRoot, 'extensions/yzforge/runtime-template/BadBundleType.ts'));
+    assert(runtimeBundleTypeDetail.path === 'packages/yzforge-runtime/src/BadBundleType.ts', 'Expected runtime bundle type boundary issue path.');
+    fs.unlinkSync(path.join(projectRoot, 'packages/yzforge-runtime/src/BadBundleType.ts'));
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({

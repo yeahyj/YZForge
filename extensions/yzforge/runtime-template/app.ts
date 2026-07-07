@@ -30,6 +30,15 @@ export interface AppStartOptions {
     readonly viewport?: ViewportConfig;
 }
 
+export enum AppState {
+    Created = 'created',
+    Starting = 'starting',
+    Started = 'started',
+    Disposing = 'disposing',
+    Disposed = 'disposed',
+    Failed = 'failed',
+}
+
 export interface ModuleRuntimeSnapshot {
     readonly name: string;
     readonly bundleName: string;
@@ -39,6 +48,7 @@ export interface ModuleRuntimeSnapshot {
 }
 
 export interface AppRuntimeSnapshot {
+    readonly state: AppState;
     readonly viewport: DeviceProfile;
     readonly releaseScope: ReleaseScopeSnapshot;
     readonly ownership: OwnershipLedgerSnapshot;
@@ -57,6 +67,9 @@ export class App {
     private readonly preloadScopes = new Map<string, ReleaseScope>();
     private beforeFirstModuleExtensionsTask?: Promise<void>;
     private disposeViewportChanged?: () => void;
+    private appState = AppState.Created;
+    private startTask?: Promise<void>;
+    private disposeTask?: Promise<void>;
 
     public constructor(options: AppOptions = {}) {
         this.kernel = new AppKernel(this, options);
@@ -74,7 +87,48 @@ export class App {
         return this.kernel.viewport;
     }
 
+    public get state(): AppState {
+        return this.appState;
+    }
+
     public async start(options: AppStartOptions = {}): Promise<void> {
+        if (this.startTask) {
+            return await this.startTask;
+        }
+        this.assertState('start', [AppState.Created]);
+        this.appState = AppState.Starting;
+        const task = this.startNow(options);
+        this.startTask = task;
+        try {
+            await task;
+            if (this.appState === AppState.Starting) {
+                this.appState = AppState.Started;
+            }
+        } catch (error) {
+            if (this.appState === AppState.Starting) {
+                this.appState = AppState.Disposing;
+                try {
+                    await this.disposeNow({ type: 'app_start_failed', error: describeError(error) }, { awaitStart: false });
+                    this.appState = AppState.Disposed;
+                } catch (disposeError) {
+                    this.appState = AppState.Failed;
+                    throw new YZForgeError('App start failed and rollback failed.', 'app.start_failed_rollback_failed', {
+                        startError: describeError(error),
+                        disposeError: describeError(disposeError),
+                    });
+                }
+            } else if (!this.isCurrentState(AppState.Disposing)) {
+                this.appState = AppState.Failed;
+            }
+            throw error;
+        } finally {
+            if (this.startTask === task) {
+                this.startTask = undefined;
+            }
+        }
+    }
+
+    private async startNow(options: AppStartOptions = {}): Promise<void> {
         const kernel = this.kernel;
         await kernel.extensions.installBeforeStart();
         kernel.main = createMainBinding({ mainRoot: options.mainRoot });
@@ -92,6 +146,7 @@ export class App {
     }
 
     public async preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope> {
+        this.assertState('preloadModule', [AppState.Started]);
         const existing = this.preloadScopes.get(ref.name);
         if (existing && !existing.released) {
             return existing;
@@ -117,6 +172,7 @@ export class App {
     public async loadModule<TModule extends Module, TParams = unknown>(
         ref: ModuleRef<TParams>,
     ): Promise<LoadedModule<TModule>> {
+        this.assertState('loadModule', [AppState.Started]);
         const unloading = this.moduleUnloadTasks.get(ref.name);
         if (unloading) {
             await unloading;
@@ -145,10 +201,12 @@ export class App {
         params?: TParams,
         options?: EnterModuleOptions,
     ): Promise<LoadedModule<TModule>> {
+        this.assertState('enterModule', [AppState.Started]);
         return this.kernel.navigator.enter(ref, params, options);
     }
 
     public async unloadModule(ref: ModuleRef): Promise<void> {
+        this.assertState('unloadModule', [AppState.Started, AppState.Disposing]);
         const running = this.moduleUnloadTasks.get(ref.name);
         if (running) {
             return await running;
@@ -213,18 +271,53 @@ export class App {
     }
 
     public use<TValue>(token: ExtensionToken<TValue>): TValue {
+        this.assertState('use', [AppState.Starting, AppState.Started, AppState.Disposing]);
         return this.kernel.extensions.use(token);
     }
 
     public async installExtension(extension: Extension): Promise<void> {
+        this.assertState('installExtension', [AppState.Created, AppState.Starting, AppState.Started]);
         await this.kernel.extensions.install(extension);
     }
 
     public useModuleToken<TValue>(module: Module, token: ModuleExtensionToken<TValue>): TValue {
+        this.assertState('useModuleToken', [AppState.Started, AppState.Disposing]);
         return this.kernel.extensions.useModuleToken(module, token);
     }
 
+    public async purgeResourceCache(reason: unknown = { type: 'manual_cache_purge' }): Promise<void> {
+        this.assertState('purgeResourceCache', [AppState.Started, AppState.Disposing]);
+        await this.kernel.bundles.purgeUnusedBundles(reason);
+    }
+
     public async dispose(reason: unknown = { type: 'app_dispose' }): Promise<void> {
+        if (this.appState === AppState.Disposed) {
+            return;
+        }
+        if (this.disposeTask) {
+            return await this.disposeTask;
+        }
+        this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed]);
+        this.appState = AppState.Disposing;
+        const task = this.disposeNow(reason);
+        this.disposeTask = task;
+        try {
+            await task;
+            this.appState = AppState.Disposed;
+        } catch (error) {
+            this.appState = AppState.Failed;
+            throw error;
+        } finally {
+            if (this.disposeTask === task) {
+                this.disposeTask = undefined;
+            }
+        }
+    }
+
+    private async disposeNow(reason: unknown, options: { readonly awaitStart?: boolean } = {}): Promise<void> {
+        if (options.awaitStart !== false) {
+            await this.startTask?.catch(() => undefined);
+        }
         const kernel = this.kernel;
         let failure: unknown;
         const run = async (task: () => Promise<void> | void): Promise<void> => {
@@ -234,6 +327,11 @@ export class App {
                 failure = failure ?? error;
             }
         };
+        for (const loading of Array.from(this.moduleTasks.values())) {
+            await run(async () => {
+                await loading;
+            });
+        }
         for (const handle of Array.from(this.modules.values()).reverse()) {
             await run(() => this.unloadModule(handle.ref));
         }
@@ -253,6 +351,7 @@ export class App {
     public snapshot(): AppRuntimeSnapshot {
         const kernel = this.kernel;
         return {
+            state: this.appState,
             viewport: kernel.viewport.profile,
             releaseScope: kernel.releaseScope.snapshot(),
             ownership: kernel.ownership.snapshot(),
@@ -339,6 +438,23 @@ export class App {
             assets: handle.assets.snapshot(),
             contentPacks: handle.contentPacks.snapshots?.() ?? [],
         };
+    }
+
+    private assertState(api: string, allowed: readonly AppState[]): void {
+        for (const state of allowed) {
+            if (this.appState === state) {
+                return;
+            }
+        }
+        throw new YZForgeError(`App.${api} cannot run while App is ${this.appState}.`, 'app.invalid_state', {
+            api,
+            state: this.appState,
+            allowed,
+        });
+    }
+
+    private isCurrentState(state: AppState): boolean {
+        return this.appState === state;
     }
 }
 

@@ -3,6 +3,7 @@ import type { BundleAssetAccess } from './bundle-manager';
 import type { OwnerRef, OwnershipLedger, ReleaseScope } from './lifetime';
 import type { LoadableAssetRef } from './refs';
 import type { Logger } from './logger';
+import { YZForgeError } from './errors';
 
 interface LoadedAssetRecord {
     readonly ref: LoadableAssetRef;
@@ -214,15 +215,32 @@ export class AssetScope {
     }
 
     public releaseAll(): void {
+        const failures: Array<{ readonly step: string; readonly key: string; readonly error: unknown }> = [];
         for (const node of Array.from(this.nodes)) {
-            this.destroyNode(node);
+            try {
+                this.destroyNode(node);
+            } catch (error) {
+                failures.push({ step: 'destroyNode', key: this.nodeKeys.get(node) ?? node.name, error });
+            }
         }
-        this.nodes.clear();
 
         for (const [key, record] of Array.from(this.loaded.entries())) {
-            this.releaseRecord(key, record);
+            try {
+                this.releaseRecord(key, record);
+            } catch (error) {
+                failures.push({ step: 'releaseAsset', key, error });
+            }
         }
-        this.loaded.clear();
+        if (failures.length > 0) {
+            throw new YZForgeError(`AssetScope release completed with errors: ${this.ownerName}`, 'asset.release_failed', {
+                ownerName: this.ownerName,
+                failures: failures.map((failure) => ({
+                    step: failure.step,
+                    key: failure.key,
+                    error: describeError(failure.error),
+                })),
+            });
+        }
     }
 
     private assetKey(ref: LoadableAssetRef): string {
@@ -250,16 +268,27 @@ export class AssetScope {
     }
 
     private releaseRecord(key: string, record: LoadedAssetRecord): void {
-        this.loaded.delete(key);
         record.refCount = 0;
         if (!record.asset) {
             record.releaseWhenLoaded = true;
             return;
         }
         this.bundle.releaseAsset(record.ref.path, record.ref.type, record.asset);
+        this.loaded.delete(key);
         this.ledger?.release(this.owner, 'asset', key);
         this.logger?.debug(`Asset released: ${this.ownerName}/${record.ref.path}`);
     }
+}
+
+function describeError(error: unknown): unknown {
+    if (error instanceof Error) {
+        return {
+            name: error.name,
+            message: error.message,
+            ...(error instanceof YZForgeError ? { code: error.code, details: error.details } : {}),
+        };
+    }
+    return error;
 }
 
 export class ModuleAssets extends AssetScope {}

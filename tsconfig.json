@@ -12,7 +12,7 @@
         "E:/study/git/YZForge/assets/*"
       ],
       "yzforge": [
-        "assets/yzforge/runtime/index.ts"
+        "packages/yzforge-runtime/src/index.ts"
       ],
       "yzforge/modules/*": [
         "assets/app/registry/modules/*.ref.generated.ts"

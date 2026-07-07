@@ -26,10 +26,13 @@
 npm run typecheck
 npm run yzforge:generate:check
 npm run yzforge:validate:strict
+npm run yzforge:validate:build-matrix
 npm run yzforge:smoke
 ```
 
 `validate:strict` 的 scope 数量不能意外为 0。除非仓库确实是空工程，否则必须扫描到示例 Module / Library / ContentPack。
+
+`validate:build-matrix` 必须至少证明 Cocos editor / preview assembly 中的 `yzforge` import 没有 unresolved error。build output 目标如果已经存在，必须扫描产物中的裸 `yzforge` import、unresolved marker 和 MissingScript marker；如果还没有产物，必须在 evidence 中明确显示 `not_collected`，不能假装已经证明。
 
 ## Scanner / Manifest
 
@@ -58,18 +61,20 @@ npm run yzforge:smoke
 - 手改 generated 文件后 Validator 失败。
 - `generate --check` 能发现 stale generated 文件。
 - `generate` 输出稳定排序，重复运行没有 diff。
-- `package.json.exports`、`tsconfig.paths`、`import-map.json` 与 `settings/v2/packages/project.json` 的 `script.importMap` 由同一份源数据生成。
+- root `package.json` scripts、`packages/yzforge-runtime/package.json` exports、`tsconfig.paths`、`import-map.json` 与 `settings/v2/packages/project.json` 的 `script.importMap` 由同一份源数据生成。
 
 ## Runtime 目录
 
 必须满足：
 
-- `extensions/yzforge/runtime-template` 是插件携带的 runtime 模板来源。
-- `assets/yzforge/runtime` 是项目实际运行时入口。
+- `packages/yzforge-runtime/src` 是 runtime 权威源码。
+- `extensions/yzforge/runtime-template` 是安装模板 / 缓存 copy。
+- `assets/yzforge/runtime` 是 Cocos 可见运行时入口 copy。
 - 仓库中不存在正式用途的 `extensions/yzforge/runtime` 路径。
-- `package.json.exports`、`import-map.json` 和 `tsconfig.paths` 只能暴露 `yzforge` 顶层 runtime 入口、首包 registry/contract 子路径和 shared 子路径，不能暴露 runtime deep alias。
-- Validator 能发现 `runtime-template` 与 `assets/yzforge/runtime` 的内容漂移。
-- 业务代码、生成代码、文档示例都不能 import `extensions/yzforge/runtime-template`。
+- 项目根 `package.json` 不能占用 `name: "yzforge"`，runtime package 才能使用这个包身份。
+- `import-map.json` 和 `tsconfig.paths` 只能暴露 `yzforge` 顶层 runtime 入口、首包 registry/contract 子路径和 shared 子路径，不能暴露 runtime deep alias。
+- Validator 能发现 `packages/yzforge-runtime/src`、`runtime-template` 与 `assets/yzforge/runtime` 的内容漂移。
+- 业务代码、生成代码、文档示例都不能 import `extensions/yzforge/runtime-template`、`packages/yzforge-runtime/src` 或 `assets/yzforge/runtime` 物理路径。
 - 业务和生成代码只能从 `yzforge` 顶层桶入口导入 runtime API，不能 deep import `yzforge/bundle-manager` 或物理 runtime 子路径。
 
 ## App / Main / Viewport

@@ -262,8 +262,9 @@ Library 内部手写代码目录不强制固定。`types/`、`system/`、`compon
 
 | 路径 | 作用 | 维护方式 |
 | --- | --- | --- |
-| `extensions/yzforge/runtime-template/` | 框架运行时代码模板，是插件分发和同步来源，不参与业务 import。 | 手写 |
-| `assets/yzforge/runtime/` | 项目实际运行时代码，是 `yzforge` import 的唯一目标。 | 由模板同步 |
+| `packages/yzforge-runtime/src/` | 框架 runtime 权威源码，`packages/yzforge-runtime/package.json` 拥有 `name: "yzforge"`。 | 手写 |
+| `extensions/yzforge/runtime-template/` | runtime 安装模板 / 缓存 copy，不参与业务 import。 | 由源码包同步 |
+| `assets/yzforge/runtime/` | Cocos 可见 runtime copy，是 Import Map 的运行时入口。 | 由源码包同步 |
 | `extensions/yzforge/editor/` | 框架编辑器插件、生成器、Validator。 | 手写 |
 | `extensions/yzforge/package.json` | Cocos Editor 扩展描述文件。 | 手写 |
 | `extensions/yzforge-*` | 官方扩展，例如 audio、storage、net。 | 手写 |
@@ -400,12 +401,18 @@ import { Node } from 'cc';
 
 ## Import Aliases
 
-YZForge 使用项目根 `package.json` 的 `name: "yzforge"` 和 `exports` 定义 Cocos / Node 都能识别的包边界，并同步生成 Cocos Import Maps 与 `tsconfig.compilerOptions.paths`。
+YZForge runtime 的包身份属于 `packages/yzforge-runtime/package.json`，不是项目根 `package.json`。项目根 package name 应保留给游戏项目自身。
+
+生成器同步维护两套解析目标：
+
+- TypeScript / 工具侧：`yzforge` 指向 `packages/yzforge-runtime/src/index.ts`。
+- Cocos runtime 侧：Import Map 的 `yzforge` 指向 `assets/yzforge/runtime/index.ts`。
 
 推荐别名：
 
 ```text
-yzforge                  -> assets/yzforge/runtime/index
+yzforge                  -> packages/yzforge-runtime/src/index       TypeScript
+yzforge                  -> assets/yzforge/runtime/index             Cocos Import Map
 yzforge/modules/        -> assets/app/registry/modules/
 yzforge/libraries/      -> assets/app/registry/libraries/
 yzforge/content-packs/  -> assets/app/registry/content-packs/
@@ -413,9 +420,9 @@ yzforge/contracts/      -> assets/app/contracts/
 yzforge/shared/         -> assets/shared/code/
 ```
 
-业务代码从 `yzforge` 顶层桶入口导入框架 runtime API，不直接 import `yzforge/bundle-manager`、`assets/yzforge/runtime/*`、`db://yzforge-modules/*` 这类内部路径。底层如需兼容 Cocos AssetDB，由生成器统一维护 `package.json.exports`、Import Maps 和 TypeScript paths。
+业务代码从 `yzforge` 顶层桶入口导入框架 runtime API，不直接 import `yzforge/bundle-manager`、`packages/yzforge-runtime/src/*`、`assets/yzforge/runtime/*`、`db://yzforge-modules/*` 这类内部路径。底层如需兼容 Cocos AssetDB，由生成器统一维护 runtime package、Import Maps 和 TypeScript paths。
 
-`extensions/yzforge/runtime-template/` 不能被业务或生成代码 import。它只作为插件携带的模板来源，通过同步命令写入 `assets/yzforge/runtime/`。
+`extensions/yzforge/runtime-template/` 和 `assets/yzforge/runtime/` 都不能被业务或生成代码以物理路径 import。它们是从 `packages/yzforge-runtime/src/` 同步出来的 copy。
 
 ## Main 场景
 

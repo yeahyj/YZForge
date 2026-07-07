@@ -12,6 +12,9 @@ export enum BundleState {
     FailedRelease = 'failed-release',
 }
 
+export type BundleCacheState = 'empty' | 'owned' | 'hot' | 'releasing' | 'failed';
+export type BundleCachePolicy = 'purge-immediate' | 'keep-hot';
+
 interface BundleRecord {
     state: BundleState;
     readonly owners: Map<string, number>;
@@ -23,6 +26,7 @@ interface BundleRecord {
 export interface BundleRecordSnapshot {
     readonly name: string;
     readonly state: BundleState;
+    readonly cacheState: BundleCacheState;
     readonly refCount: number;
     readonly owners: readonly { readonly ownerKey: string; readonly count: number }[];
     readonly loaded: boolean;
@@ -44,6 +48,7 @@ export interface BundleAssetAccess extends BundleHandle {
 
 export interface BundleManagerOptions {
     readonly unload?: 'immediate' | 'manual';
+    readonly cachePolicy?: BundleCachePolicy;
 }
 
 export interface LoadBundleOptions {
@@ -56,6 +61,12 @@ export interface ReleaseBundleOptions {
     readonly unload?: boolean;
     readonly force?: boolean;
     readonly count?: number;
+}
+
+export interface BundlePurgeResult {
+    readonly name: string;
+    readonly purged: boolean;
+    readonly state: BundleState;
 }
 
 const MANUAL_OWNER = 'manual:bundle';
@@ -115,6 +126,7 @@ export class BundleManager {
             return {
                 name: bundleName,
                 state: BundleState.Empty,
+                cacheState: 'empty',
                 refCount: 0,
                 owners: [],
                 loaded: Boolean(assetManager.getBundle(bundleName)),
@@ -214,24 +226,36 @@ export class BundleManager {
         if (this.refCount(record) > 0 || !record.bundle) {
             return;
         }
-        const unload = options.unload ?? this.options.unload !== 'manual';
+        const unload = options.unload ?? this.shouldPurgeOnZero();
         if (!unload && !options.force) {
             return;
         }
-        record.state = BundleState.Releasing;
-        try {
-            record.bundle.releaseAll();
-            assetManager.removeBundle(record.bundle);
-            this.records.delete(bundleName);
-            this.logger?.debug(`Bundle released: ${bundleName}`);
-        } catch (error) {
-            record.state = BundleState.FailedRelease;
-            throw new YZForgeError(`Failed to release bundle: ${bundleName}`, 'bundle.release_failed', error);
-        }
+        await this.releasePhysicalBundle(bundleName, record, { type: 'bundle_ref_zero' });
     }
 
     public async unloadBundle(bundleName: string): Promise<void> {
         await this.releaseBundle(bundleName, { force: true });
+    }
+
+    public async purgeUnusedBundles(reason: unknown = { type: 'cache_purge' }): Promise<BundlePurgeResult[]> {
+        const results: BundlePurgeResult[] = [];
+        for (const [bundleName, record] of Array.from(this.records.entries())) {
+            if (!record.bundle || this.refCount(record) > 0) {
+                results.push({
+                    name: bundleName,
+                    purged: false,
+                    state: record.state,
+                });
+                continue;
+            }
+            await this.releasePhysicalBundle(bundleName, record, reason);
+            results.push({
+                name: bundleName,
+                purged: true,
+                state: BundleState.Empty,
+            });
+        }
+        return results;
     }
 
     public async loadAssetFromBundle<TAsset extends Asset>(
@@ -332,6 +356,31 @@ export class BundleManager {
         record.owners.clear();
     }
 
+    private async releasePhysicalBundle(bundleName: string, record: BundleRecord, reason: unknown): Promise<void> {
+        if (!record.bundle) {
+            return;
+        }
+        record.state = BundleState.Releasing;
+        try {
+            record.bundle.releaseAll();
+            assetManager.removeBundle(record.bundle);
+            this.records.delete(bundleName);
+            this.logger?.debug(`Bundle purged: ${bundleName}`, { reason });
+        } catch (error) {
+            record.state = BundleState.FailedRelease;
+            throw new YZForgeError(`Failed to purge bundle: ${bundleName}`, 'bundle.purge_failed', {
+                bundleName,
+                reason,
+                error,
+            });
+        }
+    }
+
+    private shouldPurgeOnZero(): boolean {
+        const policy = this.options.cachePolicy ?? (this.options.unload === 'manual' ? 'keep-hot' : 'purge-immediate');
+        return policy === 'purge-immediate';
+    }
+
     private refCount(record: BundleRecord): number {
         let count = 0;
         for (const value of record.owners.values()) {
@@ -344,6 +393,7 @@ export class BundleManager {
         return {
             name,
             state: record.state,
+            cacheState: this.cacheState(record),
             refCount: this.refCount(record),
             owners: Array.from(record.owners.entries())
                 .map(([ownerKey, count]) => ({ ownerKey, count }))
@@ -351,5 +401,18 @@ export class BundleManager {
             loaded: Boolean(record.bundle),
             loading: Boolean(record.task),
         };
+    }
+
+    private cacheState(record: BundleRecord): BundleCacheState {
+        if (record.state === BundleState.Failed || record.state === BundleState.FailedRelease) {
+            return 'failed';
+        }
+        if (record.state === BundleState.Releasing) {
+            return 'releasing';
+        }
+        if (!record.bundle) {
+            return 'empty';
+        }
+        return this.refCount(record) > 0 ? 'owned' : 'hot';
     }
 }

@@ -6,25 +6,12 @@ const path = require('path');
 const { generatedJson, generatedText, isPascalCase, isTextChanged, kebabCase, readJsonc, toPosix, verifyGeneratedHash, verifyGeneratedJsonHash, walk } = require('./fs-utils');
 const { renderAutoRefsBase, scanAutoRefs } = require('./generate');
 const { scanProject } = require('./scanner');
+const { loadTypeScript: loadToolchainTypeScript, resolveCocosEngineAssets, yzforgePackageScripts } = require('./toolchain');
 
-const COCOS_TYPESCRIPT_PATH = 'D:/Applications/Cocos/Editor/Creator/3.8.8/resources/app.asar.unpacked/node_modules/typescript/lib/typescript.js';
-let typescriptModule;
-let typeScriptLoaded = false;
+let activeProjectRoot = process.cwd();
 
 function loadTypeScript() {
-  if (typeScriptLoaded) {
-    return typescriptModule;
-  }
-  typeScriptLoaded = true;
-  for (const candidate of ['typescript', COCOS_TYPESCRIPT_PATH]) {
-    try {
-      typescriptModule = require(candidate);
-      return typescriptModule;
-    } catch (error) {
-      // Keep the validator usable in plain Node environments without TypeScript.
-    }
-  }
-  return undefined;
+  return loadToolchainTypeScript(activeProjectRoot, { required: false });
 }
 
 function assetUrlForPath(rel) {
@@ -141,6 +128,7 @@ function relativeFiles(root, predicate) {
 
 function validateRuntimeTemplate(projectRoot, issues) {
   const legacyRuntime = path.join(projectRoot, 'extensions', 'yzforge', 'runtime');
+  const sourceRoot = path.join(projectRoot, 'packages', 'yzforge-runtime', 'src');
   const templateRoot = path.join(projectRoot, 'extensions', 'yzforge', 'runtime-template');
   const projectRuntime = path.join(projectRoot, 'assets', 'yzforge', 'runtime');
 
@@ -149,6 +137,13 @@ function validateRuntimeTemplate(projectRoot, issues) {
       path: 'extensions/yzforge/runtime',
       code: 'runtime.legacy_path',
     });
+  }
+  if (!fs.existsSync(sourceRoot)) {
+    issues.push('Runtime source package is missing: packages/yzforge-runtime/src.', {
+      path: 'packages/yzforge-runtime/src',
+      code: 'runtime.source_missing',
+    });
+    return;
   }
   if (!fs.existsSync(templateRoot)) {
     issues.push('Runtime template is missing: extensions/yzforge/runtime-template.', {
@@ -165,66 +160,78 @@ function validateRuntimeTemplate(projectRoot, issues) {
     return;
   }
 
-  const templateFiles = relativeFiles(templateRoot, (filePath) => filePath.endsWith('.ts'));
-  const projectFiles = relativeFiles(projectRuntime, (filePath) => filePath.endsWith('.ts'));
-  const allFiles = Array.from(new Set(templateFiles.concat(projectFiles))).sort((a, b) => a.localeCompare(b));
-  for (const rel of allFiles) {
-    const templatePath = path.join(templateRoot, rel);
-    const runtimePath = path.join(projectRuntime, rel);
-    const templateExists = fs.existsSync(templatePath);
-    const runtimeExists = fs.existsSync(runtimePath);
-    if (!templateExists) {
-      issues.push(`Project runtime has file missing from template: assets/yzforge/runtime/${rel}.`, {
-        path: `assets/yzforge/runtime/${rel}`,
-        code: 'runtime.template_drift',
-      });
-      continue;
-    }
-    if (!runtimeExists) {
-      issues.push(`Project runtime is missing template file: assets/yzforge/runtime/${rel}.`, {
-        path: `assets/yzforge/runtime/${rel}`,
-        code: 'runtime.template_drift',
-        target: `extensions/yzforge/runtime-template/${rel}`,
-      });
-      continue;
-    }
-    if (hashFile(templatePath) !== hashFile(runtimePath)) {
-      issues.push(`Project runtime file differs from template: assets/yzforge/runtime/${rel}.`, {
-        path: `assets/yzforge/runtime/${rel}`,
-        code: 'runtime.template_drift',
-        target: `extensions/yzforge/runtime-template/${rel}`,
-      });
+  const sourceFiles = relativeFiles(sourceRoot, (filePath) => filePath.endsWith('.ts'));
+  const compareTargets = [
+    ['Runtime template', 'extensions/yzforge/runtime-template', templateRoot],
+    ['Project runtime', 'assets/yzforge/runtime', projectRuntime],
+  ];
+  for (const [label, targetRel, targetRoot] of compareTargets) {
+    const targetFiles = relativeFiles(targetRoot, (filePath) => filePath.endsWith('.ts'));
+    const allFiles = Array.from(new Set(sourceFiles.concat(targetFiles))).sort((a, b) => a.localeCompare(b));
+    for (const rel of allFiles) {
+      const sourcePath = path.join(sourceRoot, rel);
+      const targetPath = path.join(targetRoot, rel);
+      const sourceExists = fs.existsSync(sourcePath);
+      const targetExists = fs.existsSync(targetPath);
+      if (!sourceExists) {
+        issues.push(`${label} has file missing from runtime source package: ${targetRel}/${rel}.`, {
+          path: `${targetRel}/${rel}`,
+          code: 'runtime.package_drift',
+          target: `packages/yzforge-runtime/src/${rel}`,
+        });
+        continue;
+      }
+      if (!targetExists) {
+        issues.push(`${label} is missing runtime source package file: ${targetRel}/${rel}.`, {
+          path: `${targetRel}/${rel}`,
+          code: 'runtime.package_drift',
+          target: `packages/yzforge-runtime/src/${rel}`,
+        });
+        continue;
+      }
+      if (hashFile(sourcePath) !== hashFile(targetPath)) {
+        issues.push(`${label} file differs from runtime source package: ${targetRel}/${rel}.`, {
+          path: `${targetRel}/${rel}`,
+          code: 'runtime.package_drift',
+          target: `packages/yzforge-runtime/src/${rel}`,
+        });
+      }
     }
   }
 }
 
 function validateRuntimeBundleBoundary(projectRoot, issues) {
-  const runtimeRoot = path.join(projectRoot, 'assets', 'yzforge', 'runtime');
-  if (!fs.existsSync(runtimeRoot)) {
-    return;
-  }
-  for (const filePath of scanFiles(runtimeRoot, '.ts')) {
-    if (path.basename(filePath) === 'bundle-manager.ts') {
+  const runtimeRoots = [
+    path.join(projectRoot, 'packages', 'yzforge-runtime', 'src'),
+    path.join(projectRoot, 'assets', 'yzforge', 'runtime'),
+  ];
+  for (const runtimeRoot of runtimeRoots) {
+    if (!fs.existsSync(runtimeRoot)) {
       continue;
     }
-    const rel = toPosix(path.relative(projectRoot, filePath));
-    const source = stripCodeComments(fs.readFileSync(filePath, 'utf8'));
-    const pattern = /\bassetManager\s*\.\s*(loadBundle|removeBundle)\s*\(/g;
-    let match;
-    while ((match = pattern.exec(source)) !== null) {
-      issues.push(`${rel} Only BundleManager may call assetManager.${match[1]} directly.`, {
-        path: rel,
-        code: 'runtime.bundle_boundary',
-        ...offsetLocation(source, match.index),
-      });
-    }
-    const bundleTypePattern = /\bAssetManager\s*\.\s*Bundle\b/g;
-    while ((match = bundleTypePattern.exec(source)) !== null) {
-      issues.push(`${rel} Only BundleManager may reference AssetManager.Bundle directly.`, {
-        path: rel,
-        code: 'runtime.bundle_boundary',
-        ...offsetLocation(source, match.index),
-      });
+    for (const filePath of scanFiles(runtimeRoot, '.ts')) {
+      if (path.basename(filePath) === 'bundle-manager.ts') {
+        continue;
+      }
+      const rel = toPosix(path.relative(projectRoot, filePath));
+      const source = stripCodeComments(fs.readFileSync(filePath, 'utf8'));
+      const pattern = /\bassetManager\s*\.\s*(loadBundle|removeBundle)\s*\(/g;
+      let match;
+      while ((match = pattern.exec(source)) !== null) {
+        issues.push(`${rel} Only BundleManager may call assetManager.${match[1]} directly.`, {
+          path: rel,
+          code: 'runtime.bundle_boundary',
+          ...offsetLocation(source, match.index),
+        });
+      }
+      const bundleTypePattern = /\bAssetManager\s*\.\s*Bundle\b/g;
+      while ((match = bundleTypePattern.exec(source)) !== null) {
+        issues.push(`${rel} Only BundleManager may reference AssetManager.Bundle directly.`, {
+          path: rel,
+          code: 'runtime.bundle_boundary',
+          ...offsetLocation(source, match.index),
+        });
+      }
     }
   }
 }
@@ -445,8 +452,8 @@ function validateForbiddenImports(projectRoot, issues) {
     for (const record of importRecords) {
       const target = record.specifier;
       const targetRel = resolveImportTarget(projectRoot, filePath, record.specifier);
-      if (targetRel?.startsWith('assets/yzforge/runtime/')
-        && !(targetRel === 'assets/yzforge/runtime/index.ts' && record.specifier === 'yzforge')) {
+      if ((targetRel?.startsWith('assets/yzforge/runtime/') || targetRel?.startsWith('packages/yzforge-runtime/src/'))
+        && !(['assets/yzforge/runtime/index.ts', 'packages/yzforge-runtime/src/index.ts'].includes(targetRel) && record.specifier === 'yzforge')) {
         pushImportIssue(issues, rel, `must import YZForge runtime through 'yzforge', not runtime internal path: ${record.specifier}.`, record, targetRel);
       }
       if (moduleMatch && target.includes('/modules/') && !target.includes(`/modules/${moduleMatch[1]}/`)) {
@@ -467,8 +474,8 @@ function validateRuntimeTemplateImports(projectRoot, issues) {
   for (const filePath of files) {
     const rel = toPosix(path.relative(projectRoot, filePath));
     const content = fs.readFileSync(filePath, 'utf8');
-    if (/extensions[\\/]+yzforge[\\/]+runtime-template|runtime-template/.test(content)) {
-      issues.push(`${rel} must not import or reference runtime-template directly. Use assets/yzforge/runtime through the yzforge alias.`, {
+    if (/extensions[\\/]+yzforge[\\/]+runtime-template|runtime-template|packages[\\/]+yzforge-runtime[\\/]+src/.test(content)) {
+      issues.push(`${rel} must not import or reference runtime source copies directly. Use the yzforge alias.`, {
         path: rel,
         code: 'runtime.template_import',
       });
@@ -515,7 +522,7 @@ function validateAppFacadeAccess(projectRoot, issues) {
 
 function validatePathMaps(projectRoot, issues) {
   const expectedTsPaths = {
-    yzforge: ['assets/yzforge/runtime/index.ts'],
+    yzforge: ['packages/yzforge-runtime/src/index.ts'],
     'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
     'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
     'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
@@ -532,17 +539,6 @@ function validatePathMaps(projectRoot, issues) {
     'yzforge/content-packs/': './assets/app/registry/content-packs/',
     'yzforge/contracts/': './assets/app/contracts/',
     'yzforge/shared/': './assets/shared/code/',
-  };
-  const expectedExports = {
-    '.': './assets/yzforge/runtime/index.ts',
-    './modules/*': './assets/app/registry/modules/*.ref.generated.ts',
-    './libraries/*': './assets/app/registry/libraries/*.ref.generated.ts',
-    './content-packs/*': './assets/app/registry/content-packs/*.generated.ts',
-    './contracts/modules/*': './assets/app/contracts/modules/*.contract.generated.ts',
-    './contracts/libraries/*': './assets/app/contracts/libraries/*.contract.generated.ts',
-    './contracts/content-packs/*': './assets/app/contracts/content-packs/*.contract.generated.ts',
-    './contracts/extensions/*': './assets/app/contracts/extensions/*.contract.generated.ts',
-    './shared/*': './assets/shared/code/*.ts',
   };
   const legacyTsAliases = [
     'yzforge-contracts/modules/*',
@@ -563,6 +559,40 @@ function validatePathMaps(projectRoot, issues) {
     });
   }
   const actualPaths = tsconfig?.compilerOptions?.paths || {};
+  const expectedDbAssetsPath = [`${toPosix(projectRoot)}/assets/*`];
+  const actualDbAssetsPath = actualPaths['db://assets/*'];
+  if (JSON.stringify(actualDbAssetsPath) !== JSON.stringify(expectedDbAssetsPath)) {
+    issues.push(`tsconfig.json paths.db://assets/* must be ${JSON.stringify(expectedDbAssetsPath)}, got ${JSON.stringify(actualDbAssetsPath)}.`, {
+      path: 'tsconfig.json',
+      code: 'path_map.tsconfig',
+      target: 'db://assets/*',
+    });
+  }
+  let expectedCocosInternalPath;
+  try {
+    const cocosEngineAssets = resolveCocosEngineAssets(projectRoot, { required: false });
+    expectedCocosInternalPath = cocosEngineAssets ? [`${toPosix(cocosEngineAssets)}/*`] : undefined;
+  } catch (error) {
+    issues.push(error.message, {
+      path: 'tsconfig.json',
+      code: 'toolchain.resolver',
+      target: 'db://internal/*',
+    });
+  }
+  const actualCocosInternalPath = actualPaths['db://internal/*'];
+  if (expectedCocosInternalPath && JSON.stringify(actualCocosInternalPath) !== JSON.stringify(expectedCocosInternalPath)) {
+    issues.push(`tsconfig.json paths.db://internal/* must be ${JSON.stringify(expectedCocosInternalPath)}, got ${JSON.stringify(actualCocosInternalPath)}.`, {
+      path: 'tsconfig.json',
+      code: 'path_map.tsconfig',
+      target: 'db://internal/*',
+    });
+  } else if (!expectedCocosInternalPath && actualCocosInternalPath !== undefined) {
+    issues.push('Cannot validate tsconfig.json paths.db://internal/* because ToolchainResolver cannot resolve Cocos engine editor assets.', {
+      path: 'tsconfig.json',
+      code: 'toolchain.resolver',
+      target: 'db://internal/*',
+    });
+  }
   const forbiddenTsRuntimePath = actualPaths['yzforge/*'];
   if (forbiddenTsRuntimePath !== undefined) {
     issues.push('tsconfig.json must not expose runtime deep path alias yzforge/*; import runtime API through yzforge.', {
@@ -637,8 +667,8 @@ function validatePathMaps(projectRoot, issues) {
       code: 'path_map.package_json',
     });
   }
-  if (packageJson?.name !== 'yzforge') {
-    issues.push(`package.json name must be 'yzforge', got '${packageJson?.name}'.`, {
+  if (packageJson?.name === 'yzforge') {
+    issues.push("package.json name must not be 'yzforge'; packages/yzforge-runtime owns the framework package identity.", {
       path: 'package.json',
       code: 'path_map.package_json',
       target: 'name',
@@ -652,15 +682,39 @@ function validatePathMaps(projectRoot, issues) {
     });
   }
   const actualExports = packageJson?.exports || {};
-  for (const [subpath, expected] of Object.entries(expectedExports)) {
-    const actual = actualExports[subpath];
-    if (actual !== expected) {
-      issues.push(`package.json exports.${subpath} must be '${expected}', got '${actual}'.`, {
-        path: 'package.json',
-        code: 'path_map.package_json',
-        target: `exports.${subpath}`,
-      });
-    }
+  const rootRuntimeExport = Object.values(actualExports).find((value) => {
+    return typeof value === 'string' && value.includes('assets/yzforge/runtime');
+  });
+  if (rootRuntimeExport) {
+    issues.push('package.json must not export YZForge runtime paths; packages/yzforge-runtime owns runtime exports.', {
+      path: 'package.json',
+      code: 'path_map.package_json',
+      target: 'exports',
+    });
+  }
+
+  let runtimePackageJson;
+  try {
+    runtimePackageJson = readJsonc(path.join(projectRoot, 'packages/yzforge-runtime/package.json'));
+  } catch (error) {
+    issues.push(`packages/yzforge-runtime/package.json cannot be read: ${error.message}.`, {
+      path: 'packages/yzforge-runtime/package.json',
+      code: 'path_map.package_json',
+    });
+  }
+  if (runtimePackageJson?.name !== 'yzforge') {
+    issues.push(`packages/yzforge-runtime/package.json name must be 'yzforge', got '${runtimePackageJson?.name}'.`, {
+      path: 'packages/yzforge-runtime/package.json',
+      code: 'path_map.package_json',
+      target: 'name',
+    });
+  }
+  if (runtimePackageJson?.exports?.['.'] !== './src/index.ts') {
+    issues.push(`packages/yzforge-runtime/package.json exports. must be './src/index.ts', got '${runtimePackageJson?.exports?.['.']}'.`, {
+      path: 'packages/yzforge-runtime/package.json',
+      code: 'path_map.package_json',
+      target: 'exports.',
+    });
   }
 
   let projectSettings;
@@ -683,17 +737,102 @@ function validatePathMaps(projectRoot, issues) {
 
   const runtimeTsPath = actualPaths.yzforge?.[0];
   const runtimeImportPath = actualImports.yzforge;
-  const normalizeRuntimePath = (value) => String(value || '').replace(/^\.\//, '').replace(/\.ts$/, '');
-  if (
-    typeof runtimeTsPath === 'string'
-    && typeof runtimeImportPath === 'string'
-    && normalizeRuntimePath(runtimeTsPath) !== normalizeRuntimePath(runtimeImportPath)
-  ) {
-    issues.push('tsconfig.json and import-map.json must point yzforge to the same runtime entry.', {
+  if (runtimeTsPath !== 'packages/yzforge-runtime/src/index.ts' || runtimeImportPath !== './assets/yzforge/runtime/index.ts') {
+    issues.push('tsconfig.json must point yzforge to the runtime source package, while import-map.json points Cocos to the synced runtime copy.', {
       path: 'import-map.json',
       code: 'path_map.runtime_mismatch',
       target: 'yzforge',
     });
+  }
+}
+
+function containsHardcodedCocosToolchainPath(content) {
+  const absoluteCocosPath = /[A-Za-z]:[\\/][^\r\n"']*Cocos[\\/]/i;
+  if (absoluteCocosPath.test(content)) {
+    return true;
+  }
+  const cocosTypeScriptMarker = ['app.asar', 'unpacked'].join('.');
+  const typeScriptMarker = ['node_modules', 'typescript'].join('/');
+  if (content.includes(cocosTypeScriptMarker) && content.replace(/\\/g, '/').includes(typeScriptMarker)) {
+    return true;
+  }
+  const engineAssetsMarker = ['resources', 'resources', '3d', 'engine', 'editor', 'assets'].join('/');
+  return content.replace(/\\/g, '/').includes(engineAssetsMarker);
+}
+
+function validateToolchainResolver(projectRoot, issues) {
+  const toolchainPath = path.join(projectRoot, 'extensions/yzforge/editor/toolchain.js');
+  if (!fs.existsSync(toolchainPath)) {
+    issues.push('ToolchainResolver is missing at extensions/yzforge/editor/toolchain.js.', {
+      path: 'extensions/yzforge/editor/toolchain.js',
+      code: 'toolchain.resolver',
+    });
+    return;
+  }
+
+  const toolchainSource = fs.readFileSync(toolchainPath, 'utf8');
+  const requiredSymbols = [
+    'resolveCocosEditorRoot',
+    'resolveCocosExecutable',
+    'resolveCocosBuildOutputPath',
+    'resolveCocosTypeScript',
+    'resolveCocosEngineAssets',
+    'resolveCocosProjectSettings',
+    'resolveCocosTempAssembly',
+    'runCocosBuild',
+    'runTypecheck',
+  ];
+  for (const symbol of requiredSymbols) {
+    if (!toolchainSource.includes(symbol)) {
+      issues.push(`ToolchainResolver must expose ${symbol}.`, {
+        path: 'extensions/yzforge/editor/toolchain.js',
+        code: 'toolchain.resolver',
+        target: symbol,
+      });
+    }
+  }
+
+  let packageJson;
+  try {
+    packageJson = readJsonc(path.join(projectRoot, 'package.json'));
+  } catch (error) {
+    issues.push(`package.json cannot be read for ToolchainResolver validation: ${error.message}.`, {
+      path: 'package.json',
+      code: 'toolchain.resolver',
+    });
+  }
+  const expectedScripts = yzforgePackageScripts();
+  for (const [name, expected] of Object.entries(expectedScripts)) {
+    const actual = packageJson?.scripts?.[name];
+    if (actual !== expected) {
+      issues.push(`package.json scripts.${name} must be '${expected}', got '${actual}'.`, {
+        path: 'package.json',
+        code: 'toolchain.script',
+        target: `scripts.${name}`,
+      });
+    }
+  }
+
+  const scannedFiles = [
+    'package.json',
+    ...walk(path.join(projectRoot, 'extensions/yzforge/editor'), (filePath) => filePath.endsWith('.js'))
+      .map((filePath) => toPosix(path.relative(projectRoot, filePath))),
+  ];
+  for (const rel of scannedFiles) {
+    if (rel === 'extensions/yzforge/editor/toolchain.js') {
+      continue;
+    }
+    const filePath = path.join(projectRoot, rel);
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (containsHardcodedCocosToolchainPath(content)) {
+      issues.push(`${rel} must not hardcode Cocos toolchain paths; use ToolchainResolver.`, {
+        path: rel,
+        code: 'toolchain.hardcoded_path',
+      });
+    }
   }
 }
 
@@ -764,6 +903,85 @@ function validateCocosAssemblyResolution(projectRoot, issues) {
           target: chunkId,
         });
       }
+    }
+  }
+}
+
+function validateAppStateMachine(projectRoot, issues) {
+  const rel = 'packages/yzforge-runtime/src/app.ts';
+  const filePath = path.join(projectRoot, rel);
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+  const source = stripCodeComments(fs.readFileSync(filePath, 'utf8'));
+  const requirePattern = (pattern, message, target) => {
+    if (!pattern.test(source)) {
+      issues.push(message, {
+        path: rel,
+        code: 'app.state_machine',
+        ...(target ? { target } : {}),
+      });
+    }
+  };
+  requirePattern(/\bexport\s+enum\s+AppState\b/, 'App runtime must expose AppState enum.', 'AppState');
+  for (const state of ['Created', 'Starting', 'Started', 'Disposing', 'Disposed', 'Failed']) {
+    requirePattern(new RegExp(`\\b${state}\\s*=`), `AppState must include ${state}.`, `AppState.${state}`);
+  }
+  requirePattern(/\bprivate\s+appState\s*=\s*AppState\.Created\b/, 'App must store explicit appState initialized to AppState.Created.', 'appState');
+  requirePattern(/\bpublic\s+get\s+state\s*\(\)\s*:\s*AppState\b/, 'App must expose current AppState through a state getter.', 'state');
+  requirePattern(/\breadonly\s+state\s*:\s*AppState\b/, 'AppRuntimeSnapshot must expose current AppState.', 'AppRuntimeSnapshot.state');
+  requirePattern(/\bstate\s*:\s*this\.appState\b/, 'App.snapshot must include current AppState.', 'snapshot.state');
+  requirePattern(/['"]app\.invalid_state['"]/, 'App state guard must report app.invalid_state.', 'app.invalid_state');
+  requirePattern(/\bArray\.from\s*\(\s*this\.moduleTasks\.values\s*\(\s*\)\s*\)/, 'App.dispose must wait for pending module load tasks before unloading modules.', 'moduleTasks');
+
+  const requiredGuards = [
+    ['start', ['AppState.Created']],
+    ['preloadModule', ['AppState.Started']],
+    ['loadModule', ['AppState.Started']],
+    ['enterModule', ['AppState.Started']],
+    ['unloadModule', ['AppState.Started', 'AppState.Disposing']],
+    ['installExtension', ['AppState.Created', 'AppState.Starting', 'AppState.Started']],
+    ['use', ['AppState.Starting', 'AppState.Started', 'AppState.Disposing']],
+    ['useModuleToken', ['AppState.Started', 'AppState.Disposing']],
+    ['purgeResourceCache', ['AppState.Started', 'AppState.Disposing']],
+    ['dispose', ['AppState.Created', 'AppState.Starting', 'AppState.Started', 'AppState.Failed']],
+  ];
+  for (const [api, states] of requiredGuards) {
+    const match = new RegExp(`this\\.assertState\\(\\s*['"]${api}['"]\\s*,\\s*\\[([^\\]]+)\\]`, 'm').exec(source);
+    if (!match || !states.every((state) => match[1].includes(state))) {
+      issues.push(`App.${api} must declare AppState guard ${states.join(', ')}.`, {
+        path: rel,
+        code: 'app.state_machine',
+        target: api,
+      });
+    }
+  }
+}
+
+function validateExtensionTransactions(projectRoot, issues) {
+  const rel = 'packages/yzforge-runtime/src/extension-registry.ts';
+  const filePath = path.join(projectRoot, rel);
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+  const source = stripCodeComments(fs.readFileSync(filePath, 'utf8'));
+  const requirements = [
+    [/\binterface\s+ExtensionTransaction\b/, 'ExtensionRegistry must define ExtensionTransaction.', 'ExtensionTransaction'],
+    [/\bcreateTransaction\s*\(/, 'ExtensionRegistry must create phase transactions.', 'createTransaction'],
+    [/\bprovideInTransaction\s*\(/, 'ExtensionContext.provide must be transaction-aware.', 'provideInTransaction'],
+    [/\bprovideModuleInTransaction\s*\(/, 'ExtensionContext.provideModule must be transaction-aware.', 'provideModuleInTransaction'],
+    [/\brollbackTransaction\s*\(/, 'ExtensionRegistry must rollback transaction token side effects.', 'rollbackTransaction'],
+    [/\bdisposeCompletedPhaseExtensions\s*\(/, 'ExtensionRegistry must dispose completed phase extensions during rollback.', 'disposeCompletedPhaseExtensions'],
+    [/\brollbackFailures\b/, 'Extension phase errors must include rollback failure details.', 'rollbackFailures'],
+    [/\bthis\.installed\.delete\s*\(\s*extension\.name\s*\)/, 'Late Extension install failure must remove the failed extension from registry.', 'installed.delete'],
+  ];
+  for (const [pattern, message, target] of requirements) {
+    if (!pattern.test(source)) {
+      issues.push(message, {
+        path: rel,
+        code: 'extension.transaction',
+        target,
+      });
     }
   }
 }
@@ -2580,7 +2798,7 @@ function resolveImportTarget(projectRoot, fromFile, specifier) {
     return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.resolve(path.dirname(fromFile), specifier))));
   }
   if (specifier === 'yzforge') {
-    return 'assets/yzforge/runtime/index.ts';
+    return 'packages/yzforge-runtime/src/index.ts';
   }
   if (specifier.startsWith('yzforge/modules/')) {
     const name = specifier.slice('yzforge/modules/'.length).split('/')[0];
@@ -2613,7 +2831,7 @@ function resolveImportTarget(projectRoot, fromFile, specifier) {
     return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', 'shared', 'code', specifier.slice('yzforge/shared/'.length)))));
   }
   if (specifier.startsWith('yzforge/')) {
-    return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', 'yzforge', 'runtime', specifier.slice('yzforge/'.length)))));
+    return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'packages', 'yzforge-runtime', 'src', specifier.slice('yzforge/'.length)))));
   }
   if (specifier.startsWith('db://assets/')) {
     return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', specifier.slice('db://assets/'.length)))));
@@ -2777,6 +2995,7 @@ function isEntryImportAllowed(projectRoot, descriptor, targetRel) {
   const descriptorRel = toPosix(path.relative(projectRoot, descriptor.dir));
   return targetRel.startsWith(`${descriptorRel}/code/`)
     || targetRel.startsWith('assets/yzforge/runtime/')
+    || targetRel.startsWith('packages/yzforge-runtime/src/')
     || targetRel.startsWith('assets/app/registry/')
     || targetRel.startsWith('assets/app/contracts/')
     || targetRel.startsWith('assets/shared/');
@@ -3002,6 +3221,7 @@ function validateStrictCodeRules(projectRoot, issues) {
 }
 
 function validate(projectRoot, options = {}) {
+  activeProjectRoot = path.resolve(projectRoot);
   const project = scanProject(projectRoot);
   const issues = createIssueCollector(projectRoot);
   const known = {
@@ -3037,9 +3257,12 @@ function validate(projectRoot, options = {}) {
   validateRuntimeTemplateImports(projectRoot, issues);
   if (options.strict) {
     validateCaseConflicts(projectRoot, issues);
+    validateToolchainResolver(projectRoot, issues);
     validatePathMaps(projectRoot, issues);
     validateCocosAssemblyResolution(projectRoot, issues);
     validateRuntimeBundleBoundary(projectRoot, issues);
+    validateAppStateMachine(projectRoot, issues);
+    validateExtensionTransactions(projectRoot, issues);
     validateMainScene(projectRoot, issues);
     validateUiGeneratedRefs(projectRoot, project, issues);
     validateSystemUiMasksNotInBusinessPrefabs(projectRoot, project, issues);

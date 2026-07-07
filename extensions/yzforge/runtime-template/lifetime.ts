@@ -1,4 +1,5 @@
 import type { MaybePromise } from './types';
+import { YZForgeError } from './errors';
 
 export type ReleaseReason = unknown;
 
@@ -34,6 +35,7 @@ export interface OwnershipScopeSnapshot {
 export interface OwnershipLedgerSnapshot {
     readonly scopes: readonly OwnershipScopeSnapshot[];
     readonly holdings: readonly OwnershipRecordSnapshot[];
+    readonly leaks: readonly OwnershipRecordSnapshot[];
 }
 
 interface ReleaseAction {
@@ -139,9 +141,12 @@ export class OwnershipLedger {
             });
         const scopes = Array.from(this.scopes.values())
             .sort((a, b) => a.ownerKey.localeCompare(b.ownerKey));
+        const releasedScopes = new Set(scopes.filter((scope) => scope.released).map((scope) => scope.ownerKey));
+        const leaks = holdings.filter((record) => releasedScopes.has(record.ownerKey));
         return {
             scopes,
             holdings,
+            leaks,
         };
     }
 
@@ -257,7 +262,21 @@ export class ReleaseScope {
         this.released = true;
         this.ledger?.markScopeReleased(this);
         if (errors.length > 0) {
-            throw errors[0];
+            throw new YZForgeError(`ReleaseScope completed with errors: ${this.ownerKey}`, 'release.scope_failed', {
+                ownerKey: this.ownerKey,
+                errors: errors.map((error) => describeError(error)),
+            });
         }
     }
+}
+
+function describeError(error: unknown): unknown {
+    if (error instanceof Error) {
+        return {
+            name: error.name,
+            message: error.message,
+            ...(error instanceof YZForgeError ? { code: error.code, details: error.details } : {}),
+        };
+    }
+    return error;
 }

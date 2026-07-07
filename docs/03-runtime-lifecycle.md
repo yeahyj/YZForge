@@ -31,6 +31,7 @@ export class App {
     public unloadModule(ref: ModuleRef): Promise<void>;
     public installExtension(extension: Extension): Promise<void>;
     public use<T>(token: ExtensionToken<T>): T;
+    public purgeResourceCache(reason?: unknown): Promise<void>;
     public dispose(reason?: unknown): Promise<void>;
     public snapshot(): AppRuntimeSnapshot;
 }
@@ -63,6 +64,7 @@ Failed
 - `start` 只能从 `Created` 进入。
 - `preloadModule`、`loadModule`、`enterModule` 只能在 `Started` 调用。
 - `unloadModule` 可以在 `Started` 或 `Disposing` 调用，保证 App dispose 可以复用同一条卸载路径。
+- `purgeResourceCache` 可以在 `Started` 或 `Disposing` 调用，用于触发零引用热缓存 Bundle 的物理清理。
 - `dispose` 可以从 `Created`、`Starting`、`Started`、`Failed` 调用，且对 `Disposed` 幂等。
 - `dispose` 必须等待正在进行的 `start` 和 module load task 收口，再卸载已注册模块。
 - 非法状态调用抛出 `app.invalid_state`，错误详情包含 API、当前状态和允许状态。

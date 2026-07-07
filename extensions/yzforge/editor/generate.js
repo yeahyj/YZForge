@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { generatedJson, generatedText, isTextChanged, kebabCase, readJsonc, toPosix, walk, writeTextIfChanged } = require('./fs-utils');
 const { scanProject } = require('./scanner');
+const { resolveCocosEngineAssets, yzforgePackageScripts } = require('./toolchain');
 
 function moduleBundleName(name) {
   return `yzforge-module-${kebabCase(name)}`;
@@ -152,6 +153,15 @@ function withoutExt(filePath) {
 function scanFiles(root, extension) {
   return walk(root, (filePath) => filePath.endsWith(extension) && !filePath.endsWith(`${extension}.meta`))
     .sort((a, b) => toPosix(a).localeCompare(toPosix(b)));
+}
+
+function relativeFiles(root, predicate) {
+  if (!fs.existsSync(root)) {
+    return [];
+  }
+  return walk(root, predicate)
+    .map((filePath) => toPosix(path.relative(root, filePath)))
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function assetPath(descriptor, filePath) {
@@ -466,26 +476,98 @@ function writeJson(projectRoot, relativePath, value, options, changed) {
   writeText(projectRoot, relativePath, `${JSON.stringify(value, null, 2)}\n`, options, changed);
 }
 
-function yzforgePackageExports() {
+function runtimeSourceRoot(projectRoot) {
+  return path.join(projectRoot, 'packages', 'yzforge-runtime', 'src');
+}
+
+function runtimeCopyRoots() {
+  return [
+    'extensions/yzforge/runtime-template',
+    'assets/yzforge/runtime',
+  ];
+}
+
+function rootProjectPackageName(projectRoot, currentName) {
+  if (currentName && currentName !== 'yzforge') {
+    return currentName;
+  }
+  const folderName = kebabCase(path.basename(projectRoot));
+  if (!folderName || folderName === 'yzforge') {
+    return 'yzforge-project';
+  }
+  return folderName;
+}
+
+function syncTextTree(projectRoot, sourceRoot, targetRel, options, changed) {
+  if (!fs.existsSync(sourceRoot)) {
+    throw new Error(`Runtime source package is missing: ${toPosix(path.relative(projectRoot, sourceRoot))}.`);
+  }
+  const sourceFiles = relativeFiles(sourceRoot, (filePath) => filePath.endsWith('.ts'));
+  const sourceSet = new Set(sourceFiles);
+  for (const rel of sourceFiles) {
+    const sourcePath = path.join(sourceRoot, rel);
+    const targetPath = toPosix(path.posix.join(targetRel, rel));
+    writeText(projectRoot, targetPath, fs.readFileSync(sourcePath, 'utf8'), options, changed);
+  }
+
+  const targetRoot = path.join(projectRoot, targetRel);
+  const targetFiles = relativeFiles(targetRoot, (filePath) => filePath.endsWith('.ts'));
+  for (const rel of targetFiles) {
+    if (sourceSet.has(rel)) {
+      continue;
+    }
+    const targetPath = path.join(targetRoot, rel);
+    const changedPath = toPosix(path.posix.join(targetRel, rel));
+    if (options.check) {
+      changed.push(changedPath);
+    } else {
+      fs.rmSync(targetPath, { force: true });
+      changed.push(changedPath);
+    }
+  }
+}
+
+function syncRuntimePackage(projectRoot, options, changed) {
+  const sourceRoot = runtimeSourceRoot(projectRoot);
+  for (const targetRel of runtimeCopyRoots()) {
+    syncTextTree(projectRoot, sourceRoot, targetRel, options, changed);
+  }
+}
+
+function runtimePackageJson() {
   return {
-    '.': './assets/yzforge/runtime/index.ts',
-    './modules/*': './assets/app/registry/modules/*.ref.generated.ts',
-    './libraries/*': './assets/app/registry/libraries/*.ref.generated.ts',
-    './content-packs/*': './assets/app/registry/content-packs/*.generated.ts',
-    './contracts/modules/*': './assets/app/contracts/modules/*.contract.generated.ts',
-    './contracts/libraries/*': './assets/app/contracts/libraries/*.contract.generated.ts',
-    './contracts/content-packs/*': './assets/app/contracts/content-packs/*.contract.generated.ts',
-    './contracts/extensions/*': './assets/app/contracts/extensions/*.contract.generated.ts',
-    './shared/*': './assets/shared/code/*.ts',
+    name: 'yzforge',
+    version: '0.1.0',
+    private: true,
+    exports: {
+      '.': './src/index.ts',
+    },
   };
+}
+
+function updateRuntimePackageJson(projectRoot, options, changed) {
+  writeText(
+    projectRoot,
+    'packages/yzforge-runtime/package.json',
+    `${JSON.stringify(runtimePackageJson(), null, 2)}\n`,
+    options,
+    changed,
+  );
 }
 
 function updatePackageJson(projectRoot, options, changed) {
   const packagePath = path.join(projectRoot, 'package.json');
   const packageJson = fs.existsSync(packagePath) ? readJsonc(packagePath) : {};
-  packageJson.name = 'yzforge';
+  const scripts = { ...(packageJson.scripts || {}) };
+  for (const [name, command] of Object.entries(yzforgePackageScripts())) {
+    scripts[name] = command;
+  }
+  packageJson.name = rootProjectPackageName(projectRoot, packageJson.name);
   packageJson.private = true;
-  packageJson.exports = yzforgePackageExports();
+  packageJson.scripts = scripts;
+  if (packageJson.exports) {
+    delete packageJson.exports;
+  }
   writeText(projectRoot, 'package.json', `${JSON.stringify(packageJson, null, 2)}\n`, options, changed);
 }
 
@@ -650,14 +732,15 @@ function renderContentPackManifest(pack) {
 function updateTsconfig(projectRoot, options, changed) {
   const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
   const tsconfig = readJsonc(tsconfigPath);
+  const cocosEngineAssets = resolveCocosEngineAssets(projectRoot);
   tsconfig.compilerOptions = tsconfig.compilerOptions || {};
   tsconfig.compilerOptions.strict = true;
   tsconfig.compilerOptions.skipLibCheck = true;
   tsconfig.compilerOptions.baseUrl = '.';
   tsconfig.compilerOptions.paths = {
-    'db://internal/*': ['D:/Applications/Cocos/Editor/Creator/3.8.8/resources/resources/3d/engine/editor/assets/*'],
-    'db://assets/*': [`${projectRoot.replace(/\\/g, '/')}/assets/*`],
-    yzforge: ['assets/yzforge/runtime/index.ts'],
+    'db://internal/*': [`${toPosix(cocosEngineAssets)}/*`],
+    'db://assets/*': [`${toPosix(projectRoot)}/assets/*`],
+    yzforge: ['packages/yzforge-runtime/src/index.ts'],
     'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
     'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
     'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
@@ -688,6 +771,9 @@ function generate(projectRoot, options = {}) {
   const writeGenerated = (relativePath, source, body) => {
     writeText(projectRoot, relativePath, generatedText(source, body), options, changed);
   };
+
+  updateRuntimePackageJson(projectRoot, options, changed);
+  syncRuntimePackage(projectRoot, options, changed);
 
   for (const pack of project.contentPacks) {
     pack.bundle = pack.bundle || contentPackBundleName(pack.owner, pack.name);

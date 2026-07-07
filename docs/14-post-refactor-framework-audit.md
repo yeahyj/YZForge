@@ -131,13 +131,24 @@ if any phase fails:
 
 Extension 不允许靠“安装一半，之后手工清理”维持正确性。
 
-### 项目根 package 被占用为 yzforge
+### Runtime package 已解耦后的剩余风险
 
-当前 `package.json.name = "yzforge"` 是 Cocos 3.8.8 下验证过的可靠解，它让裸导入 `yzforge` 能被 Cocos editor / preview 正确解析。
+当前第一版 RuntimePackageBoundary 已经落地：
 
-遗憾是：游戏项目自己的包身份被框架占用。
+- `packages/yzforge-runtime/package.json` 拥有 `name: "yzforge"` 和 runtime public export。
+- 项目根 `package.json.name` 已恢复为游戏项目身份，不再占用 `yzforge`。
+- `tsconfig.paths.yzforge` 指向 `packages/yzforge-runtime/src/index.ts`。
+- `import-map.json` 的 `yzforge` 指向 `assets/yzforge/runtime/index.ts`，作为 Cocos 可见 copy。
+- Generator 会把 `packages/yzforge-runtime/src` 同步到 `extensions/yzforge/runtime-template` 和 `assets/yzforge/runtime`。
+- Validator 会检查 root package identity、runtime package exports、source/template/assets drift，以及 runtime deep physical import。
 
-硬终局更理想的形态：
+剩余风险：
+
+- 真实 Cocos editor / preview / build 对“root package 不叫 yzforge，只靠 import-map”的解析还需要 BuildMatrixValidator 和编辑器重启验收继续证明。
+- 当前 TypeScript 和 smoke 已证明 source package 路径可用，但 Cocos assembly 证据仍来自现有 temp assembly guard，不是完整 build matrix。
+- `extensions/yzforge/runtime-template` 还保留为 copy/cache；未来可以退化成安装缓存或直接由 package 发布物生成。
+
+目标形态保持：
 
 ```text
 packages/yzforge-runtime/
@@ -154,16 +165,17 @@ assets/yzforge/runtime/
 
 如果 Cocos 仍要求 runtime 位于 `assets` 内，生成器可以同步 runtime package 到 `assets/yzforge/runtime`，但项目根 package identity 不再承担框架 package identity。
 
-### runtime-template 双份同步仍然别扭
+### runtime-template 双份同步已收敛后的剩余遗憾
 
 当前：
 
 ```text
+packages/yzforge-runtime/src
 extensions/yzforge/runtime-template
 assets/yzforge/runtime
 ```
 
-这是 Cocos AssetDB 和扩展分发之间的现实折中。Validator 可以防漂移，但它不是最干净的源码模型。
+runtime 源码已经只有一个权威来源，template 和 assets 都是同步 copy。它仍然不是最干净的最终形态，因为仓库中仍有两份同步 copy。
 
 硬终局要求 runtime 源码只有一个权威来源：
 
@@ -201,9 +213,24 @@ Cocos build / preview assembly for real resolver rules
 
 regex 只能作为兜底，不应该作为核心架构规则的唯一证据。
 
-### 工具链含本机路径假设
+### ToolchainResolver 已落地后的剩余遗憾
 
-当前工具链仍包含 Cocos 安装路径假设，例如 TypeScript 路径和 editor 内置资源路径。
+当前第一版 ToolchainResolver 已经落地：
+
+- `extensions/yzforge/editor/toolchain.js` 统一解析 Cocos Editor root、Cocos TypeScript、engine editor assets、project settings 和 temp assembly。
+- ToolchainResolver 可以解析 `CocosCreator.exe` / Cocos executable，为后续自动 build 提供入口。
+- `npm run yzforge:cocos:build:web` 会调用 Cocos CLI 生成 web-desktop debug build，并要求预期 output 目录存在才算成功。
+- `package.json` 的 `typecheck` 不再硬编码本机 Cocos 路径，而是走 `node extensions/yzforge/editor/cli.js typecheck`。
+- `generate` 通过 ToolchainResolver 写入 `db://internal/*`，并统一维护 YZForge CLI scripts。
+- `validate` 和 `smoke` 通过 ToolchainResolver 加载 TypeScript。
+- strict Validator 会检查 package scripts、`db://assets/*`、`db://internal/*`，并扫描 editor 工具，禁止 Cocos 安装路径散落在 `toolchain.js` 之外。
+
+我仍不满意这些点：
+
+- resolver 支持 `.yzforge/toolchain.json` 和环境变量，但还没有生成 schema/template。
+- known fallback paths 仍是实用兜底，不等于真正解析 Cocos Dashboard profile。
+- smoke 已经覆盖脚本和 path map 负例，但还没有自动执行“重命名本机 Cocos 路径后重新配置”的物理验收。
+- BuildMatrixValidator 还没有把 editor / preview / build 全目标解析证据统一收口。
 
 硬终局要求：
 
@@ -425,6 +452,26 @@ resolveCocosTempAssembly(target)
 
 禁止在业务代码、生成器、Validator、Smoke 中散落硬编码路径。
 
+当前实现：
+
+```text
+extensions/yzforge/editor/toolchain.js
+  resolveCocosEditorRoot
+  resolveCocosExecutable
+  resolveCocosBuildOutputPath
+  resolveCocosTypeScript
+  resolveCocosEngineAssets
+  resolveCocosProjectSettings
+  resolveCocosTempAssembly
+  runTypecheck
+  runCocosBuild
+
+package.json
+  typecheck -> node extensions/yzforge/editor/cli.js typecheck
+```
+
+`generate --check` 和 `validate --strict` 必须证明这些映射没有漂移。`smoke` 必须证明把 `typecheck` 脚本或 `db://internal/*` 改回本机路径时，strict Validator 会失败，并且 `generate` 可以修复。
+
 失败信息必须可执行：
 
 ```text
@@ -434,7 +481,17 @@ Set YZFORGE_COCOS_EDITOR_ROOT or configure .yzforge/toolchain.json.
 
 ## BuildMatrixValidator
 
-当前 editor / preview 通过不等于框架跨项目稳定。
+当前第一版 BuildMatrixValidator 已经落地：
+
+- 新增 `extensions/yzforge/editor/build-matrix.js`。
+- 新增 `npm run yzforge:validate:build-matrix`。
+- 读取 Cocos editor / preview assembly record。
+- 输出每个 target 的 resolver evidence：path、chunks、`yzforgeImports`、unresolved details。
+- 对 unresolved `yzforge` import 失败。
+- build output 存在时扫描 JS / JSON / HTML / TXT / log 产物，检查裸 `yzforge` import、unresolved resolver marker 和 MissingScript marker。
+- build output 未存在时输出 `not_collected` evidence，不把它伪装成已证明。
+
+当前 editor / preview 通过仍不等于框架跨项目完全稳定，因为 build target 和 fresh restart 还没有自动化。
 
 硬终局验收矩阵：
 
@@ -443,6 +500,7 @@ typecheck
 generate --check
 validate --strict
 smoke
+validate-build-matrix
 Cocos editor assembly
 Cocos preview assembly
 Web build
@@ -463,7 +521,16 @@ fresh Cocos editor restart
 
 ## ResourceOwnershipPolicy
 
-ReleaseScope 和 OwnershipLedger 继续保留，但资源释放要拆成更细的策略。
+当前第一版 ResourceOwnershipPolicy 已经落地：
+
+- `OwnershipLedger.snapshot()` 暴露 `leaks`，即 released scope 仍持有的资源记录。
+- `ReleaseScope.release` 会继续执行所有 child/action，聚合失败为 `release.scope_failed`。
+- `AssetScope.releaseAll` 会逐项释放节点和 asset；某个 asset release 失败时继续释放其他资源，并保留失败 asset 作为 leak evidence。
+- `BundleManager` 区分 owner release 与物理 bundle purge，snapshot 暴露 `cacheState`。
+- `BundleManager.purgeUnusedBundles` 可以清理零引用 hot bundle cache。
+- `App.purgeResourceCache` 作为 facade API 触发 cache purge。
+
+ReleaseScope 和 OwnershipLedger 继续保留，但资源释放已经拆成更细的策略。
 
 ```text
 ReleaseScope
@@ -509,6 +576,12 @@ errors are aggregated
 ownership snapshot records unreleased holdings
 Validator or runtime diagnostic reports leaked ownerKey
 ```
+
+剩余遗憾：
+
+- MemoryPressurePolicy 还没有平台事件输入，只能由 `App.purgeResourceCache` 或内部策略主动触发。
+- Bundle cache policy 目前以 Bundle 为粒度，还没有区分图集、材质、Spine、音频等资源类别。
+- leak evidence 已可见，但还没有 editor 面板专门展示 ownerKey -> resource 的释放链路。
 
 ## Validator 重新分层
 
@@ -600,48 +673,78 @@ App returns to defined state
 
 ### Phase C：ToolchainResolver
 
-目标：
+状态：已实现第一版。
+
+已落地：
 
 - 移除硬编码 Cocos 路径。
-- 新增 `.yzforge/toolchain.json` 或环境变量。
-- CLI 输出可执行修复提示。
+- 支持 `.yzforge/toolchain.json` 和环境变量。
+- `typecheck` 通过 YZForge CLI 调用 Cocos TypeScript。
+- `generate` 通过 resolver 写入 Cocos engine editor assets path。
+- strict Validator 检查 package scripts、Cocos path map 和 editor 工具硬编码路径。
+- Smoke 覆盖 typecheck script 和 `db://internal/*` 负例。
 
 验收：
 
 ```text
-rename local Cocos path
-tool reports missing resolver with clear message
-configure resolver
-typecheck/validate/smoke pass again
+npm run typecheck
+npm run yzforge:generate:check
+npm run yzforge:validate:strict
+npm run yzforge:smoke
 ```
+
+后续增强：
+
+- 为 `.yzforge/toolchain.json` 生成 schema/template。
+- 结构化读取 Cocos Dashboard profile，而不是只依赖环境变量和 known fallback paths。
+- 增加真实物理验收：临时移除本机 fallback，确认 tool 报错，配置 resolver 后恢复通过。
 
 ### Phase D：Runtime package 解耦
 
-目标：
+状态：已实现第一版。
+
+已落地：
 
 - runtime 源码权威迁到 `packages/yzforge-runtime/src`。
 - `assets/yzforge/runtime` 变成生成/同步产物。
 - 项目根 package name 可恢复为游戏项目名。
-- Cocos editor / preview / build 仍能解析 `yzforge`。
+- `extensions/yzforge/runtime-template` 也变成 source package 的同步 copy。
+- `packages/yzforge-runtime/package.json` 拥有 `name: "yzforge"`。
+- root `package.json` 不再拥有 runtime exports，也不再占用 `name: "yzforge"`。
+- TypeScript 解析 `yzforge` 到 source package，Cocos Import Map 解析到 assets copy。
+- Validator 和 Smoke 覆盖 source/template/assets drift、root package identity、runtime package exports、runtime deep physical import。
 
 验收：
 
 ```text
-fresh clone
-generate
+npm run typecheck
+npm run yzforge:generate:check
+npm run yzforge:validate:strict
+npm run yzforge:smoke
+```
+
+仍未完成的验收：
+
+```text
 Cocos restart
 editor assembly yzforgeErrors = 0
 preview assembly yzforgeErrors = 0
 build target yzforgeErrors = 0
 ```
 
+这些进入 Phase E：BuildMatrixValidator。
+
 ### Phase E：BuildMatrixValidator
 
-目标：
+状态：已实现第一版。
+
+已落地：
 
 - 把 Cocos editor / preview / build 解析验证做成 CLI。
 - 记录每个 target 的 resolver evidence。
-- CI 可运行不依赖人工打开面板。
+- editor / preview assembly 中 unresolved `yzforge` import 会失败。
+- build output 存在时会扫描产物中的裸 `yzforge` import、unresolved marker 和 MissingScript marker。
+- build output 缺失会以 `not_collected` evidence 暴露。
 
 验收：
 
@@ -649,22 +752,38 @@ build target yzforgeErrors = 0
 npm run yzforge:validate:build-matrix
 ```
 
+后续增强：
+
+- 接入 Cocos build CLI，自动生成 Web / Native / 小游戏 build evidence。
+- fresh Cocos editor restart 后自动刷新 editor / preview assembly evidence。
+- 对 build artifact 做 resolver-level 检查，而不是只记录 build 目录存在。
+
 ### Phase F：资源释放策略硬化
 
-目标：
+状态：已实现第一版。
+
+已落地：
 
 - 区分 owner release、asset release、bundle release、cache purge。
 - OwnershipLedger 能显示 leaked ownerKey。
-- MemoryPressurePolicy 可触发缓存清理。
+- `App.purgeResourceCache` 可触发零引用 hot bundle cache 清理。
+- Smoke 覆盖 release failure 聚合、leak evidence、Bundle hot cache 和 purge result。
 
 验收：
 
 ```text
-module unload with onUnload error
-all release steps still run
-leaked holdings are visible
-cache policy result is visible
+npm run typecheck
+npm run yzforge:generate:check
+npm run yzforge:validate:strict
+npm run yzforge:validate:build-matrix
+npm run yzforge:smoke
 ```
+
+后续增强：
+
+- 接入真实平台 memory pressure 事件。
+- 按资源类型拆分 cache policy。
+- 在 editor 面板展示 leaked ownerKey、resource key、scope release 状态和失败原因。
 
 ## 不再接受的设计
 
