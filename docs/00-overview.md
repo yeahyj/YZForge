@@ -97,16 +97,15 @@ YZForge 使用四层模型：
 
 ## 参考框架取舍
 
-YZForge 参考了 XForge2、当前项目内 XForge、Oops Framework、Bit Framework、MKFramework、OpenTGX 和 Cocos 官方 Asset Bundle 机制。
+YZForge 参考了 XForge2、当前项目内 XForge、Oops Framework、Bit Framework、MKFramework 和 Cocos 官方 Asset Bundle 机制。
 
 值得吸收：
 
-- XForge2 的工程分区、编辑器创建结构、模块自治和扩展生态。
+- XForge2 的轻核心、扩展包生态、UI 管理、自动化插件、工程分区和模块自治。
 - 当前 XForge 的资源路径导出和节点绑定插件方向。
-- Oops 的启动流程、UI 层级、Loading、Toast、安全区域等成熟经验。
-- Bit 的轻量事件、资源加载器、模块化包生态。
-- MKFramework 的工程化检查和示例驱动文档。
-- OpenTGX 的模板案例路线。
+- Oops 的常用游戏技术集合、框架工具、启动流程、UI 层级、Loading、Toast、安全区域等成熟经验。
+- Bit 的 monorepo 模块化、类型安全模块、事件、资源、网络、小游戏平台、热更等按需能力拆分。
+- MKFramework 的资源管理、UI 管理、音频、本地化、网络、模块生命周期、UI 栈和示例驱动文档。
 - Cocos Asset Bundle 的物理加载边界、脚本分包、资源释放和 Import Maps 能力。
 
 参考链接：
@@ -114,7 +113,7 @@ YZForge 参考了 XForge2、当前项目内 XForge、Oops Framework、Bit Framew
 - XForge2：https://gitee.com/cocos2d-zp/xforge2
 - Oops Framework：https://gitee.com/dgflash/oops-framework
 - Bit Framework：https://github.com/gongxh0901/bit-framework
-- MKFramework：https://github.com/1226085293/MKFramework
+- MKFramework：https://gitee.com/muzzik/MKFramework
 - Cocos Creator Asset Bundle：https://docs.cocos.com/creator/3.8/manual/en/asset/bundle.html
 - Cocos Creator Import Maps：https://docs.cocos.com/creator/3.8/manual/en/scripting/modules/import-map.html
 

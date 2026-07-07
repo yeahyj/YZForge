@@ -50,6 +50,7 @@ YZForge 的核心模型从旧的三层模型升级为四层：
 8. [07-api-examples.md](./07-api-examples.md)：推荐 API 写法。
 9. [08-roadmap.md](./08-roadmap.md)：分阶段落地路线。
 10. [09-runtime-walkthrough.md](./09-runtime-walkthrough.md)：从启动到卸载的完整运行流程。
+11. [10-cross-game-foundation.md](./10-cross-game-foundation.md)：Viewport、SafeArea 与系统 UI 基础设计。
 
 ## 核心结论
 
