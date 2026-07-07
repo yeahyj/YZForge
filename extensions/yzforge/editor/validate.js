@@ -516,7 +516,6 @@ function validateAppFacadeAccess(projectRoot, issues) {
 function validatePathMaps(projectRoot, issues) {
   const expectedTsPaths = {
     yzforge: ['assets/yzforge/runtime/index.ts'],
-    'yzforge/*': ['assets/yzforge/runtime/*'],
     'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
     'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
     'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
@@ -528,7 +527,6 @@ function validatePathMaps(projectRoot, issues) {
   };
   const expectedImports = {
     yzforge: './assets/yzforge/runtime/index',
-    'yzforge/': './assets/yzforge/runtime/',
     'yzforge/modules/': './assets/app/registry/modules/',
     'yzforge/libraries/': './assets/app/registry/libraries/',
     'yzforge/content-packs/': './assets/app/registry/content-packs/',
@@ -546,6 +544,14 @@ function validatePathMaps(projectRoot, issues) {
     });
   }
   const actualPaths = tsconfig?.compilerOptions?.paths || {};
+  const forbiddenTsRuntimePath = actualPaths['yzforge/*'];
+  if (forbiddenTsRuntimePath !== undefined) {
+    issues.push('tsconfig.json must not expose runtime deep path alias yzforge/*; import runtime API through yzforge.', {
+      path: 'tsconfig.json',
+      code: 'path_map.runtime_deep_alias',
+      target: 'yzforge/*',
+    });
+  }
   for (const [alias, expected] of Object.entries(expectedTsPaths)) {
     const actual = actualPaths[alias];
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -567,6 +573,13 @@ function validatePathMaps(projectRoot, issues) {
     });
   }
   const actualImports = importMap?.imports || {};
+  if (actualImports['yzforge/'] !== undefined) {
+    issues.push('import-map.json must not expose runtime deep path prefix yzforge/; import runtime API through yzforge.', {
+      path: 'import-map.json',
+      code: 'path_map.runtime_deep_alias',
+      target: 'yzforge/',
+    });
+  }
   for (const [alias, expected] of Object.entries(expectedImports)) {
     const actual = actualImports[alias];
     if (actual !== expected) {

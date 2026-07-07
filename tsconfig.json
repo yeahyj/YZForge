@@ -14,9 +14,6 @@
       "yzforge": [
         "assets/yzforge/runtime/index.ts"
       ],
-      "yzforge/*": [
-        "assets/yzforge/runtime/*"
-      ],
       "yzforge/modules/*": [
         "assets/app/registry/modules/*.ref.generated.ts"
       ],

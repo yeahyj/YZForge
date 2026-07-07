@@ -882,6 +882,26 @@ async function smoke(options = {}) {
     assert(importMapRepair.changed.includes('import-map.json'), 'Expected generate to repair import-map path.');
     assertOkValidation(projectRoot);
 
+    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+      tsconfig.compilerOptions.paths['yzforge/*'] = ['assets/yzforge/runtime/*'];
+    });
+    const tsconfigDeepAliasViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not expose runtime deep path alias yzforge/*');
+    const tsconfigDeepAliasDetail = tsconfigDeepAliasViolation.issueDetails.find((issue) => issue.message.includes('runtime deep path alias yzforge/*'));
+    assert(tsconfigDeepAliasDetail.code === 'path_map.runtime_deep_alias', 'Expected tsconfig runtime deep alias issue code.');
+    const tsconfigDeepAliasRepair = generate(projectRoot);
+    assert(tsconfigDeepAliasRepair.changed.includes('tsconfig.json'), 'Expected generate to remove runtime deep tsconfig alias.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'import-map.json', (importMap) => {
+      importMap.imports['yzforge/'] = './assets/yzforge/runtime/';
+    });
+    const importMapDeepAliasViolation = expectValidationIssue(projectRoot, 'import-map.json must not expose runtime deep path prefix yzforge/');
+    const importMapDeepAliasDetail = importMapDeepAliasViolation.issueDetails.find((issue) => issue.message.includes('runtime deep path prefix yzforge/'));
+    assert(importMapDeepAliasDetail.code === 'path_map.runtime_deep_alias', 'Expected import-map runtime deep alias issue code.');
+    const importMapDeepAliasRepair = generate(projectRoot);
+    assert(importMapDeepAliasRepair.changed.includes('import-map.json'), 'Expected generate to remove runtime deep import-map prefix.');
+    assertOkValidation(projectRoot);
+
     writeText(projectRoot, 'assets/modules/Battle/code/BadRuntimeDeepImport.ts', [
       "import type { BundleAssetAccess } from 'yzforge/bundle-manager';",
       '',

@@ -635,7 +635,6 @@ function updateTsconfig(projectRoot, options, changed) {
     'db://internal/*': ['D:/Applications/Cocos/Editor/Creator/3.8.8/resources/resources/3d/engine/editor/assets/*'],
     'db://assets/*': [`${projectRoot.replace(/\\/g, '/')}/assets/*`],
     yzforge: ['assets/yzforge/runtime/index.ts'],
-    'yzforge/*': ['assets/yzforge/runtime/*'],
     'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
     'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
     'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
@@ -697,7 +696,6 @@ function generate(projectRoot, options = {}) {
   writeJson(projectRoot, 'import-map.json', {
     imports: {
       yzforge: './assets/yzforge/runtime/index',
-      'yzforge/': './assets/yzforge/runtime/',
       'yzforge/modules/': './assets/app/registry/modules/',
       'yzforge/libraries/': './assets/app/registry/libraries/',
       'yzforge/content-packs/': './assets/app/registry/content-packs/',
