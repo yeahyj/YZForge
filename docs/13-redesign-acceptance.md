@@ -26,13 +26,14 @@
 npm run typecheck
 npm run yzforge:generate:check
 npm run yzforge:validate:strict
+npm run yzforge:cocos:build:web
 npm run yzforge:validate:build-matrix
 npm run yzforge:smoke
 ```
 
 `validate:strict` 的 scope 数量不能意外为 0。除非仓库确实是空工程，否则必须扫描到示例 Module / Library / ContentPack。
 
-`validate:build-matrix` 必须至少证明 Cocos editor / preview assembly 中的 `yzforge` import 没有 unresolved error。build output 目标如果已经存在，必须扫描产物中的裸 `yzforge` import、unresolved marker 和 MissingScript marker；如果还没有产物，必须在 evidence 中明确显示 `not_collected`，不能假装已经证明。
+`yzforge:cocos:build:web` 必须通过 Cocos CLI 生成真实 Web Desktop build。`validate:build-matrix` 必须证明 Cocos editor / preview assembly 中的 `yzforge` import 没有 unresolved error，并且真实 build output 中没有裸 `yzforge` import、unresolved marker 和 MissingScript marker。如果 build output 还没有产物，`validate:build-matrix` 必须在 evidence 中明确显示 `not_collected`，这表示验收证据不完整，不能当作终局完成。
 
 ## Scanner / Manifest
 

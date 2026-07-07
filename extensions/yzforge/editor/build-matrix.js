@@ -7,6 +7,7 @@ const { resolveCocosTempAssembly } = require('./toolchain');
 
 const BUILD_SCAN_EXTENSIONS = new Set(['.js', '.json', '.html', '.txt', '.log']);
 const MAX_SCAN_BYTES = 5 * 1024 * 1024;
+const MISSING_SCRIPT_DIAGNOSTIC = /\bmissing script\b|cc\.MissingScript|["']__type__["']\s*:\s*["'][^"']*MissingScript/i;
 
 function parseAssemblyRecord(raw) {
   try {
@@ -200,7 +201,7 @@ function inspectBuildOutput(projectRoot, targetName) {
         message: `${rel} contains unresolved YZForge resolver diagnostics.`,
       });
     }
-    if (/\bMissingScript\b|missing script/i.test(content)) {
+    if (MISSING_SCRIPT_DIAGNOSTIC.test(content)) {
       missingScriptMarkers += 1;
       unresolved.push({
         target,

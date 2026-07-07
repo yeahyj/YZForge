@@ -389,6 +389,8 @@ function runCocosBuild(projectRoot, options = {}) {
   const root = path.resolve(projectRoot || process.cwd());
   const executable = resolveCocosExecutable(root);
   const logDest = options.logDest || path.join(root, 'temp', 'yzforge-cocos-build.log');
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
   const buildOptions = {
     platform: options.platform || 'web-desktop',
     debug: options.debug ?? true,
@@ -402,7 +404,7 @@ function runCocosBuild(projectRoot, options = {}) {
   const buildArg = formatCocosBuildOptions(buildOptions);
   const result = childProcess.spawnSync(executable, ['--project', root, '--build', buildArg], {
     cwd: root,
-    env: process.env,
+    env,
     stdio: options.stdio || 'inherit',
   });
   const processOk = result.status === 0 || result.status === 36;

@@ -1645,6 +1645,14 @@ async function smoke(options = {}) {
     assert(!buildArtifactViolation.ok, 'BuildMatrixValidator must fail build artifacts with bare YZForge imports.');
     assert(buildArtifactDetail?.target === 'build:web-desktop', 'Expected build artifact issue target.');
     writeText(projectRoot, 'build/web-desktop/assets/main.js', "console.log('build ok');");
+    writeText(projectRoot, 'build/web-desktop/cocos-js/cc.js', 'exports({ MissingScript: module.dw });');
+    assert(validateBuildMatrix(projectRoot).ok, 'BuildMatrixValidator must ignore Cocos engine MissingScript symbol exports.');
+    writeText(projectRoot, 'build/web-desktop/assets/main/missing-script.json', '{"__type__":"cc.MissingScript"}');
+    const missingScriptViolation = validateBuildMatrix(projectRoot);
+    const missingScriptDetail = missingScriptViolation.issueDetails.find((issue) => issue.code === 'build.missing_script');
+    assert(!missingScriptViolation.ok, 'BuildMatrixValidator must fail serialized MissingScript artifacts.');
+    assert(missingScriptDetail?.target === 'build:web-desktop', 'Expected MissingScript issue target.');
+    fs.unlinkSync(path.join(projectRoot, 'build/web-desktop/assets/main/missing-script.json'));
 
     updateJson(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json', (manifest) => {
       manifest._generated.hash = '0000000000000000';

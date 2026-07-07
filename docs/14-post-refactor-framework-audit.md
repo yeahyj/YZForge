@@ -220,6 +220,7 @@ regex 只能作为兜底，不应该作为核心架构规则的唯一证据。
 - `extensions/yzforge/editor/toolchain.js` 统一解析 Cocos Editor root、Cocos TypeScript、engine editor assets、project settings 和 temp assembly。
 - ToolchainResolver 可以解析 `CocosCreator.exe` / Cocos executable，为后续自动 build 提供入口。
 - `npm run yzforge:cocos:build:web` 会调用 Cocos CLI 生成 web-desktop debug build，并要求预期 output 目录存在才算成功。
+- `runCocosBuild` 会为 Cocos CLI 子进程移除 `ELECTRON_RUN_AS_NODE`，避免 Electron 版 `CocosCreator.exe` 被当前 Node 环境误当成普通 Node 进程解析参数。
 - `package.json` 的 `typecheck` 不再硬编码本机 Cocos 路径，而是走 `node extensions/yzforge/editor/cli.js typecheck`。
 - `generate` 通过 ToolchainResolver 写入 `db://internal/*`，并统一维护 YZForge CLI scripts。
 - `validate` 和 `smoke` 通过 ToolchainResolver 加载 TypeScript。
@@ -230,7 +231,7 @@ regex 只能作为兜底，不应该作为核心架构规则的唯一证据。
 - resolver 支持 `.yzforge/toolchain.json` 和环境变量，但还没有生成 schema/template。
 - known fallback paths 仍是实用兜底，不等于真正解析 Cocos Dashboard profile。
 - smoke 已经覆盖脚本和 path map 负例，但还没有自动执行“重命名本机 Cocos 路径后重新配置”的物理验收。
-- BuildMatrixValidator 还没有把 editor / preview / build 全目标解析证据统一收口。
+- BuildMatrixValidator 已经把 editor / preview / Web build 全目标解析证据统一收口；Native / 小游戏平台仍需要按项目能力扩展。
 
 硬终局要求：
 
@@ -490,8 +491,11 @@ Set YZFORGE_COCOS_EDITOR_ROOT or configure .yzforge/toolchain.json.
 - 对 unresolved `yzforge` import 失败。
 - build output 存在时扫描 JS / JSON / HTML / TXT / log 产物，检查裸 `yzforge` import、unresolved resolver marker 和 MissingScript marker。
 - build output 未存在时输出 `not_collected` evidence，不把它伪装成已证明。
+- 已通过真实 `npm run yzforge:cocos:build:web` 生成 `build/yzforge-build-matrix`。
+- 随后 `npm run yzforge:validate:build-matrix` 已证明 `build:yzforge-build-matrix` 产物中裸 `yzforge` import、unresolved marker 和 MissingScript marker 都为 0。
+- MissingScript 检查会忽略 Cocos 引擎自身导出的 `MissingScript` 符号，只对日志诊断、`cc.MissingScript` 或序列化资产中的 MissingScript 类型失败。
 
-当前 editor / preview 通过仍不等于框架跨项目完全稳定，因为 build target 和 fresh restart 还没有自动化。
+当前 editor / preview / Web build 已经有结构化证据；仍未覆盖的是 Native / 小游戏平台、fresh clone bootstrap 和 fresh Cocos editor restart 的自动化矩阵。
 
 硬终局验收矩阵：
 
@@ -500,6 +504,7 @@ typecheck
 generate --check
 validate --strict
 smoke
+yzforge:cocos:build:web
 validate-build-matrix
 Cocos editor assembly
 Cocos preview assembly
@@ -745,16 +750,19 @@ build target yzforgeErrors = 0
 - editor / preview assembly 中 unresolved `yzforge` import 会失败。
 - build output 存在时会扫描产物中的裸 `yzforge` import、unresolved marker 和 MissingScript marker。
 - build output 缺失会以 `not_collected` evidence 暴露。
+- `yzforge:cocos:build:web` 会先生成真实 web-desktop build；当前 `build/yzforge-build-matrix` 已被 build-matrix 扫描通过。
+- Cocos CLI 环境会隔离 `ELECTRON_RUN_AS_NODE`，避免命令行构建被 Node/Electron 环境变量污染。
 
 验收：
 
 ```text
+npm run yzforge:cocos:build:web
 npm run yzforge:validate:build-matrix
 ```
 
 后续增强：
 
-- 接入 Cocos build CLI，自动生成 Web / Native / 小游戏 build evidence。
+- 扩展到 Native / 小游戏 build evidence。
 - fresh Cocos editor restart 后自动刷新 editor / preview assembly evidence。
 - 对 build artifact 做 resolver-level 检查，而不是只记录 build 目录存在。
 
