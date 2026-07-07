@@ -236,6 +236,134 @@ async function assertLibraryOwnerAcquireBehavior() {
   assert(!registry.records.has(ref.name), 'Library must unload after its only owner is released.');
 }
 
+async function assertExtensionRegistryBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const errors = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/errors.ts');
+  const logger = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/logger.ts');
+  const extensionRuntime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/extension-registry.ts', {
+    './errors': errors,
+    './logger': logger,
+  });
+  const { ExtensionRegistry } = extensionRuntime;
+  assert(typeof ExtensionRegistry === 'function', 'Expected ExtensionRegistry runtime export.');
+
+  const app = {
+    lifecycle: {},
+    viewport: { profile: {} },
+  };
+  const logs = [];
+  const quietLogger = new logger.Logger({
+    log(level, scope, message, data) {
+      logs.push({ level, scope, message, data });
+    },
+  });
+  const registry = new ExtensionRegistry(app, quietLogger);
+  const appToken = { id: 'analytics.app' };
+  const moduleToken = { id: 'analytics.module' };
+  const events = [];
+
+  await registry.install({
+    name: 'Gameplay',
+    dependencies: ['Core'],
+    installBeforeStart(context) {
+      events.push(`Gameplay:${context.phase}`);
+      context.provideModule(moduleToken, (module) => `module:${module.name}`);
+    },
+    installAfterMainBinding(context) {
+      events.push(`Gameplay:${context.phase}`);
+    },
+    installBeforeFirstModule(context) {
+      events.push(`Gameplay:${context.phase}`);
+    },
+    dispose(context) {
+      events.push(`Gameplay:${context.phase}`);
+    },
+  });
+  await registry.install({
+    name: 'Core',
+    installBeforeStart(context) {
+      events.push(`Core:${context.phase}`);
+      context.provide(appToken, 'ready');
+    },
+    dispose(context) {
+      events.push(`Core:${context.phase}`);
+    },
+  });
+
+  await registry.installBeforeStart();
+  assert(
+    events.join('|') === 'Core:before-start|Gameplay:before-start',
+    'Extension before-start phase must run dependencies before dependents.',
+  );
+  assert(registry.use(appToken) === 'ready', 'ExtensionContext.provide must register app tokens.');
+  assert(registry.useModuleToken({ name: 'Battle' }, moduleToken) === 'module:Battle', 'ExtensionContext.provideModule must register module-scoped tokens.');
+
+  await registry.install({
+    name: 'Late',
+    dependencies: ['Core'],
+    installBeforeStart(context) {
+      events.push(`Late:${context.phase}`);
+    },
+    installAfterMainBinding(context) {
+      events.push(`Late:${context.phase}`);
+    },
+  });
+  assert(events.includes('Late:before-start'), 'Late extension install must replay completed phases.');
+
+  await registry.installAfterMainBinding();
+  await registry.installBeforeFirstModule();
+  assert(events.includes('Gameplay:after-main-binding'), 'Extension after-main-binding phase must run.');
+  assert(events.includes('Gameplay:before-first-module'), 'Extension before-first-module phase must run.');
+
+  await registry.dispose({ type: 'test_dispose' });
+  assert(
+    events.slice(-2).join('|') === 'Gameplay:dispose|Core:dispose',
+    'Extension dispose must run dependents before dependencies.',
+  );
+
+  const missing = new ExtensionRegistry(app, quietLogger);
+  await missing.install({ name: 'NeedsMissing', dependencies: ['Missing'] });
+  let missingError;
+  try {
+    await missing.installBeforeStart();
+  } catch (error) {
+    missingError = error;
+  }
+  assert(missingError?.code === 'extension.dependency_missing', 'Extension missing dependency must fail with a typed error.');
+  assert(missingError?.details?.dependencyChain?.join(' -> ') === 'NeedsMissing -> Missing', 'Extension missing dependency must report dependency chain.');
+
+  const cycle = new ExtensionRegistry(app, quietLogger);
+  await cycle.install({ name: 'A', dependencies: ['B'] });
+  await cycle.install({ name: 'B', dependencies: ['A'] });
+  let cycleError;
+  try {
+    await cycle.installBeforeStart();
+  } catch (error) {
+    cycleError = error;
+  }
+  assert(cycleError?.code === 'extension.dependency_cycle', 'Extension dependency cycle must fail with a typed error.');
+
+  const failing = new ExtensionRegistry(app, quietLogger);
+  await failing.install({ name: 'Core' });
+  await failing.install({
+    name: 'Bad',
+    dependencies: ['Core'],
+    installBeforeStart() {
+      throw new Error('boom');
+    },
+  });
+  let phaseError;
+  try {
+    await failing.installBeforeStart();
+  } catch (error) {
+    phaseError = error;
+  }
+  assert(phaseError?.code === 'extension.phase_failed', 'Extension phase failure must be wrapped.');
+  assert(phaseError?.details?.extensionName === 'Bad', 'Extension phase failure must include extension name.');
+  assert(phaseError?.details?.phase === 'before-start', 'Extension phase failure must include phase.');
+  assert(phaseError?.details?.dependencyChain?.join(' -> ') === 'Bad -> Core', 'Extension phase failure must include dependency chain.');
+}
+
 function writeBundleMeta(projectRoot, relativeDir, bundleName) {
   writeJson(projectRoot, `${relativeDir}.meta`, {
     userData: {
@@ -705,6 +833,9 @@ function assertRuntimeLifecycleInvariants() {
   assert(moduleSource.includes('this.app.useModuleToken(this, token)'), 'Module.use must not reach through App internals.');
   assert(!moduleSource.includes('this.app.extensions'), 'Module must not access App extension registry directly.');
   assert(extensionRegistrySource.includes('extension.phase_failed'), 'Extension phase failure must be wrapped with diagnostic context.');
+  assert(extensionRegistrySource.includes('extension.dependency_missing'), 'Extension dependencies must fail when missing.');
+  assert(extensionRegistrySource.includes('extension.dependency_cycle'), 'Extension dependency cycles must fail.');
+  assert(extensionRegistrySource.includes('provideModule'), 'ExtensionContext must expose module-scoped token registration.');
   assert(extensionRegistrySource.includes('dependencyChain'), 'Extension failures must expose a dependency chain.');
   assert(contentPackSource.includes('manifest.generated'), 'ContentPack manifest.generated.json must be loaded at runtime.');
   assert(contentPackSource.includes('content_pack.manifest_mismatch'), 'ContentPack runtime must validate generated manifest identity.');
@@ -752,6 +883,7 @@ async function smoke(options = {}) {
     assertRuntimeLifecycleInvariants();
     await assertReleaseScopeBehavior();
     await assertLibraryOwnerAcquireBehavior();
+    await assertExtensionRegistryBehavior();
     setupBaseline(projectRoot);
     const created = createSmokeProject(projectRoot);
     const generated = generate(projectRoot);
