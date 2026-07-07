@@ -3,6 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const vm = require('vm');
 const { cleanGenerated } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
@@ -15,11 +16,28 @@ const MAIN_SCRIPT_UUID = '10000000-0000-4000-8000-000000000010';
 const SCREEN_FITTER_UUID = '10000000-0000-4000-8000-000000000011';
 const FULL_SCREEN_ROOT_UUID = '10000000-0000-4000-8000-000000000012';
 const SAFE_AREA_ROOT_UUID = '10000000-0000-4000-8000-000000000013';
+const COCOS_TYPESCRIPT_PATH = 'D:/Applications/Cocos/Editor/Creator/3.8.8/resources/app.asar.unpacked/node_modules/typescript/lib/typescript.js';
+let typescriptModule;
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function loadTypeScript() {
+  if (typescriptModule) {
+    return typescriptModule;
+  }
+  for (const candidate of ['typescript', COCOS_TYPESCRIPT_PATH]) {
+    try {
+      typescriptModule = require(candidate);
+      return typescriptModule;
+    } catch (error) {
+      // Keep trying known TypeScript locations.
+    }
+  }
+  throw new Error('TypeScript is required for runtime behavior smoke checks.');
 }
 
 function writeText(projectRoot, relativePath, content) {
@@ -55,6 +73,167 @@ function requireText(projectRoot, relativePath, expected) {
   requireFile(projectRoot, relativePath);
   const content = fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
   assert(content.includes(expected), `Expected ${relativePath} to include: ${expected}`);
+}
+
+function loadRuntimeModule(projectRoot, relativePath, dependencies = {}) {
+  const ts = loadTypeScript();
+  const sourcePath = path.join(projectRoot, relativePath);
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2019,
+      esModuleInterop: true,
+    },
+    fileName: sourcePath,
+  });
+  const module = { exports: {} };
+  const wrapper = new vm.Script(`(function (exports, require, module) {\n${transpiled.outputText}\n})`, {
+    filename: relativePath,
+  });
+  const run = wrapper.runInNewContext({
+    console,
+    Promise,
+    Error,
+    Map,
+    Set,
+    WeakMap,
+    Array,
+    Math,
+    String,
+    Object,
+  });
+  run(module.exports, (specifier) => {
+    if (Object.prototype.hasOwnProperty.call(dependencies, specifier)) {
+      return dependencies[specifier];
+    }
+    if (specifier === './types') {
+      return {};
+    }
+    throw new Error(`Unexpected runtime smoke import in ${relativePath}: ${specifier}`);
+  }, module);
+  return module.exports;
+}
+
+async function assertReleaseScopeBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const runtime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/lifetime.ts');
+  const { OwnershipLedger, ReleaseScope } = runtime;
+  assert(typeof OwnershipLedger === 'function', 'Expected OwnershipLedger runtime export.');
+  assert(typeof ReleaseScope === 'function', 'Expected ReleaseScope runtime export.');
+
+  const ledger = new OwnershipLedger();
+  const root = new ReleaseScope('app', 'root', ledger);
+  const child = root.child('module', 'Battle');
+  const events = [];
+
+  root.defer('root-action', async (reason) => {
+    events.push(`root:${reason.type}`);
+  });
+  child.defer('child-action', async (reason) => {
+    events.push(`child:${reason.type}`);
+  });
+  ledger.acquire(root, 'bundle', 'main', { path: 'assets/main' }, 2);
+  ledger.acquire(child, 'asset', 'page', { path: 'assets/modules/Battle/res/view/PageBattle.prefab' });
+
+  const beforeRelease = ledger.snapshot();
+  assert(beforeRelease.scopes.length === 2, 'OwnershipLedger must snapshot registered scopes.');
+  assert(beforeRelease.holdings.length === 2, 'OwnershipLedger must snapshot active holdings.');
+  assert(beforeRelease.holdings.some((item) => item.ownerKey === 'app:root' && item.kind === 'bundle' && item.count === 2), 'OwnershipLedger must track root holdings.');
+  assert(beforeRelease.holdings.some((item) => item.ownerKey === 'app:root/module:Battle' && item.kind === 'asset' && item.count === 1), 'OwnershipLedger must track child holdings.');
+
+  await root.release({ type: 'test_release' });
+  assert(events.join('|') === 'child:test_release|root:test_release', 'ReleaseScope must release children before parent actions.');
+
+  await root.release({ type: 'repeat_release' });
+  assert(events.join('|') === 'child:test_release|root:test_release', 'ReleaseScope.release must be idempotent.');
+
+  const afterScopeRelease = ledger.snapshot();
+  assert(afterScopeRelease.scopes.every((scope) => scope.released === true), 'OwnershipLedger must mark released scopes.');
+  assert(afterScopeRelease.holdings.length === 2, 'OwnershipLedger must not execute resource release actions.');
+
+  ledger.release(root, 'bundle', 'main');
+  assert(ledger.snapshot().holdings.some((item) => item.ownerKey === 'app:root' && item.kind === 'bundle' && item.count === 1), 'OwnershipLedger partial release must decrement count.');
+  ledger.release(root, 'bundle', 'main');
+  ledger.release(child, 'asset', 'page');
+  assert(ledger.snapshot().holdings.length === 0, 'OwnershipLedger release should only update ledger records.');
+
+  const rootSnapshot = root.snapshot();
+  assert(rootSnapshot.released === true, 'ReleaseScope snapshot must expose released state.');
+  assert(rootSnapshot.releasing === false, 'ReleaseScope snapshot must clear releasing state.');
+  assert(rootSnapshot.actionCount === 0, 'ReleaseScope snapshot must clear released actions.');
+  assert(rootSnapshot.children.length === 0, 'ReleaseScope release must clear child scopes.');
+}
+
+async function assertLibraryOwnerAcquireBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const errors = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/errors.ts');
+  const lifetime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/lifetime.ts');
+  const libraryRuntime = loadRuntimeModule(projectRoot, 'assets/yzforge/runtime/library.ts', {
+    './assets': { LibraryAssets: class LibraryAssets {} },
+    './errors': errors,
+    './lifetime': lifetime,
+  });
+  const { LibraryRegistry } = libraryRuntime;
+  assert(typeof LibraryRegistry === 'function', 'Expected LibraryRegistry runtime export.');
+
+  const ownershipEvents = [];
+  const kernel = {
+    ownership: {
+      acquire(owner, kind, key, detail) {
+        ownershipEvents.push(['acquire', lifetime.ownerKeyOf(owner), kind, key, detail]);
+      },
+      release(owner, kind, key, count = 1) {
+        ownershipEvents.push(['release', lifetime.ownerKeyOf(owner), kind, key, count]);
+      },
+    },
+    logger: {
+      child() {
+        return {
+          warn() {},
+          debug() {},
+        };
+      },
+    },
+  };
+  const registry = new LibraryRegistry(kernel);
+  const deferred = [];
+  const owner = {
+    ownerKey: 'module:Battle',
+    defer(label, task) {
+      deferred.push({ label, task });
+      return () => {};
+    },
+  };
+  const ref = { name: 'BattleCore', bundle: 'yzforge-lib-battle-core', libraries: [] };
+  const record = {
+    ref,
+    entry: { tokens: {} },
+    bundle: {},
+    scope: { release: async () => {} },
+    assets: { snapshot: () => ({ ownerName: ref.name, loadedCount: 0, trackedNodeCount: 0, assets: [] }) },
+    handle: { ref, bundleName: ref.bundle, use() {}, unload: async () => {} },
+    owners: new Set(),
+    tokenInstances: new Map(),
+  };
+  registry.records.set(ref.name, record);
+
+  await registry.acquire(ref, owner);
+  await registry.acquire(ref, owner);
+
+  assert(record.owners.size === 1, 'Library owner set must stay unique after repeated owner acquire.');
+  assert(
+    ownershipEvents.filter((event) => event[0] === 'acquire').length === 1,
+    'Library owner acquire must only update OwnershipLedger once per owner.',
+  );
+  assert(deferred.length === 1, 'Library scope release must only be bound once per owner.');
+
+  await registry.releaseOwner(owner);
+  assert(
+    ownershipEvents.filter((event) => event[0] === 'release').length === 1,
+    'Library owner release must balance the single ledger acquire.',
+  );
+  assert(!registry.records.has(ref.name), 'Library must unload after its only owner is released.');
 }
 
 function writeBundleMeta(projectRoot, relativeDir, bundleName) {
@@ -342,7 +521,7 @@ function createSmokeProject(projectRoot) {
   ];
 
   writeText(projectRoot, 'assets/app/extensions/Analytics.ts', [
-    "import { defineExtensionToken, defineModuleExtensionToken, type Extension, type ExtensionContext, type Module } from '../../yzforge/runtime';",
+    "import { defineExtensionToken, defineModuleExtensionToken, type Extension, type ExtensionContext, type Module } from 'yzforge';",
     '',
     'export interface AnalyticsApi {',
     '    readonly name: string;',
@@ -394,7 +573,7 @@ function createSmokeProject(projectRoot) {
     '}',
   ].join('\n'));
   writeText(projectRoot, 'assets/libraries/BattleCore/code/providers.ts', [
-    "import { defineLibraryProviders } from '../../../yzforge/runtime';",
+    "import { defineLibraryProviders } from 'yzforge';",
     "import type { BattleCoreTokenMap } from './public';",
     '',
     'export const providers = defineLibraryProviders<BattleCoreTokenMap>({',
@@ -467,6 +646,7 @@ function assertGeneratedOutput(projectRoot) {
   requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', "levelRoot: contentPackAssetRef(Prefab, 'res/prefab/LevelRoot')");
   requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', "enemyWaves: contentPackConfigRef('res/content/config/EnemyWaves', { primaryKey: 'id' })");
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'AnalyticsExtension');
+  requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'app.installExtension(AnalyticsExtension)');
   requireText(projectRoot, 'assets/app/extensions/Analytics.ts', 'AnalyticsModuleToken');
 
   const manifest = readJson(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json');
@@ -488,20 +668,29 @@ function assertOkValidation(projectRoot) {
 function assertRuntimeLifecycleInvariants() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
   const appSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/app.ts'), 'utf8');
+  const assetsSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/assets.ts'), 'utf8');
+  const kernelSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/kernel.ts'), 'utf8');
   const moduleSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/module.ts'), 'utf8');
   const navigatorSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/navigator.ts'), 'utf8');
+  const librarySource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/library.ts'), 'utf8');
   const extensionRegistrySource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/extension-registry.ts'), 'utf8');
   const contentPackSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/content-pack.ts'), 'utf8');
+  const runtimeIndexSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/index.ts'), 'utf8');
+  const uiSource = fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/ui.ts'), 'utf8');
   const preloadBody = appSource.slice(appSource.indexOf('public async preloadModule'), appSource.indexOf('public async loadModule'));
   const enterBody = appSource.slice(appSource.indexOf('public async enterModule'), appSource.indexOf('public async unloadModule'));
   assert(appSource.includes('moduleUnloadTasks'), 'App must keep module unload tasks idempotent.');
   assert(appSource.includes('module.unload_during_enter'), 'App must reject unloading a module while it is entering.');
   assert(appSource.includes('module.unload_failed'), 'App must aggregate module unload failures.');
-  assert(preloadBody.includes('this.bundles.preloadBundle'), 'preloadModule must preload the module bundle.');
+  assert(appSource.includes('private readonly kernel: AppKernel'), 'App must keep runtime systems behind AppKernel.');
+  assert(!appSource.includes('public readonly bundles') && !appSource.includes('public readonly extensions'), 'App must not expose runtime system registries as public fields.');
+  assert(kernelSource.includes('export class AppKernel'), 'Runtime must define an AppKernel.');
+  assert(!runtimeIndexSource.includes("export * from './kernel'"), 'Runtime public barrel must not expose AppKernel.');
+  assert(preloadBody.includes('kernel.bundles.preloadBundle'), 'preloadModule must preload the module bundle through AppKernel.');
   assert(!preloadBody.includes('new entry.type') && !preloadBody.includes('__yzforgeCreate') && !preloadBody.includes('__yzforgeLoad'), 'preloadModule must not create or load Module instances.');
   assert(appSource.includes('instance = new entry.type()'), 'loadModule/createModule must create Module instances.');
   assert(appSource.indexOf('await instance.__yzforgeCreate()') < appSource.indexOf('await instance.__yzforgeLoad()'), 'Module load must call onCreate before onLoad.');
-  assert(enterBody.includes('this.navigator.enter') && !enterBody.includes('__yzforgeEnter'), 'App.enterModule must delegate enter lifecycle to ModuleNavigator.');
+  assert(enterBody.includes('this.kernel.navigator.enter') && !enterBody.includes('__yzforgeEnter'), 'App.enterModule must delegate enter lifecycle to ModuleNavigator through AppKernel.');
   assert(navigatorSource.includes('await target.instance.__yzforgeEnter(params)'), 'ModuleNavigator must call module onEnter.');
   assert(navigatorSource.includes('target.instance.state = ModuleState.Ready'), 'ModuleNavigator must roll back entering module state on enter failure.');
   assert(moduleSource.includes('module.lifecycle_unload_failed'), 'Module unload lifecycle must aggregate hook failures.');
@@ -509,13 +698,32 @@ function assertRuntimeLifecycleInvariants() {
   assert(moduleSource.includes('service.onDispose'), 'Module unload must dispose services.');
   assert(moduleSource.includes('model.onDispose'), 'Module unload must dispose models.');
   assert(moduleSource.includes('module.onUnload'), 'Module unload must call onUnload after unit disposal.');
+  assert(librarySource.includes('private acquireOwner'), 'LibraryRegistry must centralize owner acquisition.');
+  assert(librarySource.includes('record.owners.has(ownerKey)'), 'Library owner acquisition must be idempotent per owner.');
+  assert(appSource.includes('installExtension(extension: Extension)'), 'App must expose a narrow extension installation facade.');
+  assert(appSource.includes('useModuleToken<TValue>'), 'App must expose a narrow module extension token facade.');
+  assert(moduleSource.includes('this.app.useModuleToken(this, token)'), 'Module.use must not reach through App internals.');
+  assert(!moduleSource.includes('this.app.extensions'), 'Module must not access App extension registry directly.');
   assert(extensionRegistrySource.includes('extension.phase_failed'), 'Extension phase failure must be wrapped with diagnostic context.');
   assert(extensionRegistrySource.includes('dependencyChain'), 'Extension failures must expose a dependency chain.');
   assert(contentPackSource.includes('manifest.generated'), 'ContentPack manifest.generated.json must be loaded at runtime.');
   assert(contentPackSource.includes('content_pack.manifest_mismatch'), 'ContentPack runtime must validate generated manifest identity.');
   assert(moduleSource.includes('readonly ui: ModuleUIAccess'), 'Module context must expose ModuleUI through the framework facade.');
+  assert(assetsSource.includes("this.ledger?.acquire(this.owner, 'node'"), 'AssetScope must register tracked nodes in OwnershipLedger.');
+  assert(assetsSource.includes("this.ledger?.release(this.owner, 'node'"), 'AssetScope must release tracked nodes from OwnershipLedger.');
   assert(fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/refs.ts'), 'utf8').includes('readonly owner: string;'), 'ViewRef must carry an owning scope.');
-  assert(fs.readFileSync(path.join(projectRoot, 'assets/yzforge/runtime/ui.ts'), 'utf8').includes('ui.view_owner_mismatch'), 'ModuleUI must reject opening foreign View refs.');
+  assert(uiSource.includes('ui.view_owner_mismatch'), 'ModuleUI must reject opening foreign View refs.');
+  assert(uiSource.includes("this.ownership?.acquire(this.owner, 'view'"), 'ModuleUI must register opened Views in OwnershipLedger.');
+  assert(uiSource.includes("this.ownership?.release(this.owner, 'view'"), 'ModuleUI must release closed Views from OwnershipLedger.');
+  assert(uiSource.includes('ui.view_lifecycle_close_failed'), 'View close lifecycle failures must be reported after result resolution.');
+  assert(uiSource.includes('ui.view_close_failed'), 'ModuleUI.close must report close failures after cleanup.');
+  assert(uiSource.includes('ui.close_owned_failed'), 'ModuleUI.closeOwned must aggregate failures and continue closing views.');
+  assert(uiSource.includes('finally') && uiSource.includes('this.moduleUis.delete(moduleName)'), 'UIManager.disposeModule must remove ModuleUI even when dispose reports failures.');
+  assert(uiSource.includes('this.resultResolver?.('), 'View close must resolve pending results.');
+  assert(uiSource.indexOf('this.resultResolver?.(') < uiSource.indexOf("throw new YZForgeError('View close lifecycle completed with errors."), 'View close must resolve result before throwing lifecycle failures.');
+  assert(!runtimeIndexSource.includes("export * from './bundle-manager'"), 'Runtime public barrel must not export every BundleManager symbol.');
+  assert(!runtimeIndexSource.includes('BundleAssetAccess'), 'Runtime public barrel must not expose internal BundleAssetAccess.');
+  assert(runtimeIndexSource.includes('BundleHandle'), 'Runtime public barrel must expose BundleHandle.');
 }
 
 function expectValidationIssue(projectRoot, expected) {
@@ -537,11 +745,13 @@ function removeTempProject(projectRoot) {
   fs.rmSync(projectRoot, { recursive: true, force: true });
 }
 
-function smoke(options = {}) {
+async function smoke(options = {}) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yzforge-smoke-'));
   let completed = false;
   try {
     assertRuntimeLifecycleInvariants();
+    await assertReleaseScopeBehavior();
+    await assertLibraryOwnerAcquireBehavior();
     setupBaseline(projectRoot);
     const created = createSmokeProject(projectRoot);
     const generated = generate(projectRoot);
@@ -566,7 +776,7 @@ function smoke(options = {}) {
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/app/extensions/BadAppMutation.ts', [
-      "import type { Extension, ExtensionContext } from '../../yzforge/runtime';",
+      "import type { Extension, ExtensionContext } from 'yzforge';",
       '',
       'export const BadAppMutationExtension: Extension = {',
       "    name: 'BadAppMutation',",
@@ -582,9 +792,27 @@ function smoke(options = {}) {
     fs.unlinkSync(path.join(projectRoot, 'assets/app/extensions/BadAppMutation.ts'));
     assertOkValidation(projectRoot);
 
+    writeText(projectRoot, 'assets/app/extensions/BadAppInternalAccess.ts', [
+      "import type { Extension, ExtensionContext } from 'yzforge';",
+      '',
+      'export const BadAppInternalAccessExtension: Extension = {',
+      "    name: 'BadAppInternalAccess',",
+      '    installBeforeStart(context: ExtensionContext): void {',
+      '        void context.app.extensions;',
+      '    },',
+      '};',
+      '',
+    ].join('\n'));
+    const appInternalViolation = expectValidationIssue(projectRoot, "must not access App internal field 'extensions'");
+    const appInternalDetail = appInternalViolation.issueDetails.find((issue) => issue.message.includes("App internal field 'extensions'"));
+    assert(appInternalDetail.code === 'app.internal_access', 'Expected App internal access issue code.');
+    assert(appInternalDetail.field === 'extensions', 'Expected App internal access field.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/app/extensions/BadAppInternalAccess.ts'));
+    assertOkValidation(projectRoot);
+
     writeText(projectRoot, 'assets/app/extensions/BadInternalImport.ts', [
       "import { LevelActor } from '../../modules/Battle/code/runtime/LevelActor';",
-      "import type { Extension } from '../../yzforge/runtime';",
+      "import type { Extension } from 'yzforge';",
       '',
       'export const BadInternalImportExtension: Extension = {',
       "    name: 'BadInternalImport',",
@@ -654,6 +882,34 @@ function smoke(options = {}) {
     assert(importMapRepair.changed.includes('import-map.json'), 'Expected generate to repair import-map path.');
     assertOkValidation(projectRoot);
 
+    writeText(projectRoot, 'assets/modules/Battle/code/BadRuntimeDeepImport.ts', [
+      "import type { BundleAssetAccess } from 'yzforge/bundle-manager';",
+      '',
+      'export interface BadRuntimeDeepImport {',
+      '    readonly bundle: BundleAssetAccess;',
+      '}',
+      '',
+    ].join('\n'));
+    const runtimeDeepImportViolation = expectValidationIssue(projectRoot, "must import YZForge runtime through 'yzforge'");
+    const runtimeDeepImportDetail = runtimeDeepImportViolation.issueDetails.find((issue) => issue.message.includes("must import YZForge runtime through 'yzforge'"));
+    assert(runtimeDeepImportDetail.code === 'import.boundary', 'Expected runtime deep import issue code.');
+    assert(runtimeDeepImportDetail.specifier === 'yzforge/bundle-manager', 'Expected runtime deep import specifier.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/BadRuntimeDeepImport.ts'));
+    assertOkValidation(projectRoot);
+
+    writeText(projectRoot, 'assets/modules/Battle/code/BadRuntimePhysicalImport.ts', [
+      "import { Module } from '../../../yzforge/runtime';",
+      '',
+      'export class BadRuntimePhysicalImport extends Module {}',
+      '',
+    ].join('\n'));
+    const runtimePhysicalImportViolation = expectValidationIssue(projectRoot, "must import YZForge runtime through 'yzforge'");
+    const runtimePhysicalImportDetail = runtimePhysicalImportViolation.issueDetails.find((issue) => issue.message.includes("must import YZForge runtime through 'yzforge'"));
+    assert(runtimePhysicalImportDetail.code === 'import.boundary', 'Expected runtime physical import issue code.');
+    assert(runtimePhysicalImportDetail.specifier === '../../../yzforge/runtime', 'Expected runtime physical import specifier.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/BadRuntimePhysicalImport.ts'));
+    assertOkValidation(projectRoot);
+
     fs.mkdirSync(path.join(projectRoot, 'assets/modules/Orphan/res'), { recursive: true });
     const orphanViolation = expectValidationIssue(projectRoot, 'module:Orphan scope directory is missing module.json');
     const orphanDetail = orphanViolation.issueDetails.find((issue) => issue.message.includes('module:Orphan'));
@@ -686,6 +942,24 @@ function smoke(options = {}) {
     fs.unlinkSync(path.join(projectRoot, 'extensions/yzforge/runtime-template/BadBundle.ts'));
     assertOkValidation(projectRoot);
 
+    const badRuntimeBundleTypeSource = [
+      "import type { AssetManager } from 'cc';",
+      '',
+      'export interface BadBundleExposure {',
+      '    readonly bundle: AssetManager.Bundle;',
+      '}',
+      '',
+    ].join('\n');
+    writeText(projectRoot, 'assets/yzforge/runtime/BadBundleType.ts', badRuntimeBundleTypeSource);
+    writeText(projectRoot, 'extensions/yzforge/runtime-template/BadBundleType.ts', badRuntimeBundleTypeSource);
+    const runtimeBundleTypeViolation = expectValidationIssue(projectRoot, 'Only BundleManager may reference AssetManager.Bundle directly');
+    const runtimeBundleTypeDetail = runtimeBundleTypeViolation.issueDetails.find((issue) => issue.message.includes('AssetManager.Bundle'));
+    assert(runtimeBundleTypeDetail.code === 'runtime.bundle_boundary', 'Expected runtime bundle type boundary issue code.');
+    assert(runtimeBundleTypeDetail.path === 'assets/yzforge/runtime/BadBundleType.ts', 'Expected runtime bundle type boundary issue path.');
+    fs.unlinkSync(path.join(projectRoot, 'assets/yzforge/runtime/BadBundleType.ts'));
+    fs.unlinkSync(path.join(projectRoot, 'extensions/yzforge/runtime-template/BadBundleType.ts'));
+    assertOkValidation(projectRoot);
+
     writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
       primaryKey: 'id',
       rows: [
@@ -705,7 +979,7 @@ function smoke(options = {}) {
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/libraries/BattleCore/code/providers.ts', [
-      "import { defineLibraryProviders } from '../../../yzforge/runtime';",
+      "import { defineLibraryProviders } from 'yzforge';",
       "import type { BattleCoreTokenMap } from './public';",
       '',
       'export const providers = defineLibraryProviders<BattleCoreTokenMap>({',
@@ -715,7 +989,7 @@ function smoke(options = {}) {
     const providerDetail = providerViolation.issueDetails.find((issue) => issue.message.includes('provider keys must match'));
     assert(providerDetail.code === 'library.providers_mismatch', 'Expected provider mismatch issue code.');
     writeText(projectRoot, 'assets/libraries/BattleCore/code/providers.ts', [
-      "import { defineLibraryProviders } from '../../../yzforge/runtime';",
+      "import { defineLibraryProviders } from 'yzforge';",
       "import type { BattleCoreTokenMap } from './public';",
       '',
       'export const providers = defineLibraryProviders<BattleCoreTokenMap>({',
@@ -913,7 +1187,7 @@ function smoke(options = {}) {
     fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/model/BadModel.ts'));
 
     writeText(projectRoot, 'assets/modules/Battle/code/service/BadServiceUi.ts', [
-      "import { Service } from '../../../../yzforge/runtime';",
+      "import { Service } from 'yzforge';",
       '',
       'export class BadServiceUi extends Service {',
       '    public open(): void {',
@@ -930,7 +1204,7 @@ function smoke(options = {}) {
 
     writeText(projectRoot, 'assets/modules/Battle/code/service/BadServiceNode.ts', [
       "import { Node } from 'cc';",
-      "import { Service } from '../../../../yzforge/runtime';",
+      "import { Service } from 'yzforge';",
       '',
       'export class BadServiceNode extends Service {',
       '    private target?: Node;',
@@ -1096,13 +1370,14 @@ function smoke(options = {}) {
 }
 
 if (require.main === module) {
-  try {
-    const result = smoke({ keep: process.argv.includes('--keep') });
-    console.log(JSON.stringify(result, null, 2));
-  } catch (error) {
-    console.error(error);
-    process.exitCode = 1;
-  }
+  smoke({ keep: process.argv.includes('--keep') })
+    .then((result) => {
+      console.log(JSON.stringify(result, null, 2));
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
 }
 
 module.exports = {

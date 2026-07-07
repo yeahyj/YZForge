@@ -9,6 +9,7 @@ import {
 } from 'cc';
 import { YZForgeError } from './errors';
 import { LayerRegistry, type LayerRegistrySnapshot } from './layer-registry';
+import type { OwnerRef, OwnershipLedger } from './lifetime';
 import type { Module } from './module';
 import type { ViewPolicyLike, ViewRef } from './refs';
 import { SystemUI, type PopupMaskRequest, type SystemUISnapshot } from './system-ui';
@@ -129,6 +130,11 @@ export type ComponentType<TComponent extends Component> = new (...args: any[]) =
 
 let nextViewId = 0;
 type AnyViewHandle = ViewHandle<any>;
+
+interface UiFailure {
+    readonly step: string;
+    readonly error: unknown;
+}
 
 interface OpenToken {
     readonly key: string;
@@ -262,7 +268,10 @@ export class UIManager {
             });
     };
 
-    public constructor(roots: Partial<Record<ViewLayer, Node>> = {}) {
+    public constructor(
+        roots: Partial<Record<ViewLayer, Node>> = {},
+        private readonly ownership?: OwnershipLedger,
+    ) {
         this.layers = new LayerRegistry(roots);
         this.system = new SystemUI(this.layers);
     }
@@ -272,19 +281,19 @@ export class UIManager {
         this.refreshSystemUi();
     }
 
-    public forModule(module: Module): ModuleUI {
+    public forModule(module: Module, owner: OwnerRef = `module:${module.name}`): ModuleUI {
         let ui = this.moduleUis.get(module.name);
         if (!ui) {
-            ui = new ModuleUI(module, this.layers, this.runtime, () => this.refreshSystemUi());
+            ui = new ModuleUI(module, owner, this.layers, this.runtime, () => this.refreshSystemUi(), this.ownership);
             this.moduleUis.set(module.name, ui);
         }
         return ui;
     }
 
-    public createForModule(moduleName: string, module: Module): ModuleUI {
+    public createForModule(moduleName: string, module: Module, owner: OwnerRef = `module:${moduleName}`): ModuleUI {
         let ui = this.moduleUis.get(moduleName);
         if (!ui) {
-            ui = new ModuleUI(module, this.layers, this.runtime, () => this.refreshSystemUi());
+            ui = new ModuleUI(module, owner, this.layers, this.runtime, () => this.refreshSystemUi(), this.ownership);
             this.moduleUis.set(moduleName, ui);
         }
         return ui;
@@ -299,9 +308,12 @@ export class UIManager {
         if (!ui) {
             return;
         }
-        await ui.dispose(reason);
-        this.moduleUis.delete(moduleName);
-        this.refreshSystemUi();
+        try {
+            await ui.dispose(reason);
+        } finally {
+            this.moduleUis.delete(moduleName);
+            this.refreshSystemUi();
+        }
     }
 
     public installBackKeyHandler(handler: BackKeyHandler, options: BackKeyOptions = {}): void {
@@ -369,9 +381,11 @@ export class ModuleUI {
 
     public constructor(
         private readonly module: Module,
+        private readonly owner: OwnerRef,
         private readonly layers: LayerRegistry,
         private readonly runtime: ViewRuntime,
         private readonly notifySystemUi: () => void,
+        private readonly ownership?: OwnershipLedger,
     ) {}
 
     public async open<TData, TResult>(
@@ -436,6 +450,8 @@ export class ModuleUI {
     ): Promise<ViewHandle<TResult>> {
         let node: Node | undefined;
         let nodeFromCache = false;
+        let handle: ViewHandle<TResult> | undefined;
+        let viewTracked = false;
         try {
             this.ensureOpenAllowed(token);
             node = policy.cache === 'node' ? this.takeCachedNode(token.key) : undefined;
@@ -460,7 +476,8 @@ export class ModuleUI {
 
             const view = component as View<TData, TResult>;
             const id = `view-${++nextViewId}`;
-            const handle: ViewHandle<TResult> = {
+            let createdHandle!: ViewHandle<TResult>;
+            createdHandle = {
                 id,
                 key: token.key,
                 ref: ref as unknown as ViewRef<unknown, TResult>,
@@ -470,10 +487,11 @@ export class ModuleUI {
                 view: view as unknown as View<unknown, TResult>,
                 owner: this.module,
                 state: ViewState.Loading,
-                close: async (result?: TResult) => this.close(handle, result),
-                cancel: async (reason?: unknown) => this.close(handle, { cancelled: true, reason }),
-                focus: () => this.focus(handle),
+                close: async (result?: TResult) => this.close(createdHandle, result),
+                cancel: async (reason?: unknown) => this.close(createdHandle, { cancelled: true, reason }),
+                focus: () => this.focus(createdHandle),
             };
+            handle = createdHandle;
 
             view.__yzforgeBind(this.module, handle);
             handle.state = ViewState.Opening;
@@ -487,6 +505,8 @@ export class ModuleUI {
             }
             handle.state = ViewState.Open;
             this.handles.add(handle as AnyViewHandle);
+            this.trackView(handle as AnyViewHandle);
+            viewTracked = true;
             this.focus(handle);
             await this.runtime.open(view, data);
             this.ensureOpenAllowed(token);
@@ -495,6 +515,12 @@ export class ModuleUI {
         } catch (error) {
             if (error instanceof YZForgeError && error.code === 'ui.view_open_cancelled') {
                 this.module.logger.debug(`View open cancelled: ${token.path}`, error.details);
+            }
+            if (handle) {
+                this.handles.delete(handle as AnyViewHandle);
+                if (viewTracked) {
+                    this.untrackView(handle as AnyViewHandle);
+                }
             }
             if (node && isValid(node)) {
                 this.module.assets.destroyNode(node);
@@ -578,20 +604,37 @@ export class ModuleUI {
             }
         }
         handle.state = ViewState.Closing;
-        await this.runtime.close(handle.view, result);
-        this.handles.delete(handle);
-        if (handle.policy.cache === 'node' && isValid(handle.node)) {
-            this.cacheNode(handle);
-        } else if (isValid(handle.node)) {
-            this.module.assets.destroyNode(handle.node);
-        } else if (handle.policy.cache === 'node') {
-            this.module.assets.release(handle.ref);
+        const failures: UiFailure[] = [];
+        try {
+            await this.runtime.close(handle.view, result);
+        } catch (error) {
+            failures.push({ step: 'view.close', error });
         }
-        if (handle.policy.cache === 'none') {
-            this.module.assets.release(handle.ref);
+        this.handles.delete(handle);
+        this.untrackView(handle);
+        try {
+            if (handle.policy.cache === 'node' && isValid(handle.node)) {
+                this.cacheNode(handle);
+            } else if (isValid(handle.node)) {
+                this.module.assets.destroyNode(handle.node);
+            } else if (handle.policy.cache === 'node') {
+                this.module.assets.release(handle.ref);
+            }
+            if (handle.policy.cache === 'none') {
+                this.module.assets.release(handle.ref);
+            }
+        } catch (error) {
+            failures.push({ step: 'view.cleanup', error });
         }
         handle.state = ViewState.Disposed;
         this.notifySystemUi();
+        if (failures.length > 0) {
+            throw new YZForgeError(`View close completed with errors: ${handle.ref.path}`, 'ui.view_close_failed', {
+                owner: this.module.name,
+                path: handle.ref.path,
+                failures: describeUiFailures(failures),
+            });
+        }
     }
 
     public async closeLayer(
@@ -601,29 +644,61 @@ export class ModuleUI {
     ): Promise<void> {
         this.cancelLayerOpens(layer);
         const handles = this.sortedHandles().filter((handle) => handle.layer === layer);
+        const failures: UiFailure[] = [];
         for (const handle of handles.reverse()) {
-            await this.close(handle, reason, options);
+            try {
+                await this.close(handle, reason, options);
+            } catch (error) {
+                failures.push({ step: `view:${handle.ref.path}`, error });
+            }
+        }
+        if (failures.length > 0) {
+            throw new YZForgeError(`UI layer close completed with errors: ${ViewLayer[layer] ?? layer}`, 'ui.close_layer_failed', {
+                layer,
+                failures: describeUiFailures(failures),
+            });
         }
     }
 
     public async closeOwned(reason?: unknown): Promise<void> {
         this.cancelLayerOpens();
+        const failures: UiFailure[] = [];
         for (const handle of this.sortedHandles().reverse()) {
             if (handle.policy.closeWithOwner) {
-                await this.close(handle, isUiCancelResult(reason) ? reason : { cancelled: true, reason }, { force: true });
+                try {
+                    await this.close(handle, isUiCancelResult(reason) ? reason : { cancelled: true, reason }, { force: true });
+                } catch (error) {
+                    failures.push({ step: `view:${handle.ref.path}`, error });
+                }
             }
+        }
+        if (failures.length > 0) {
+            throw new YZForgeError(`Module UI close completed with errors: ${this.module.name}`, 'ui.close_owned_failed', {
+                module: this.module.name,
+                failures: describeUiFailures(failures),
+            });
         }
     }
 
     public async dispose(reason?: unknown): Promise<void> {
         this.cancelLayerOpens();
-        await this.closeOwned(reason);
-        this.clearNodeCache();
-        this.notifySystemUi();
+        let failure: unknown;
+        try {
+            await this.closeOwned(reason);
+        } catch (error) {
+            failure = error;
+        } finally {
+            this.clearNodeCache();
+            this.notifySystemUi();
+        }
+        if (failure) {
+            throw failure;
+        }
     }
 
     public async pauseOwned(): Promise<void> {
         this.cancelLayerOpens();
+        const failures: UiFailure[] = [];
         for (const handle of this.sortedHandles()) {
             if (handle.state !== ViewState.Open) {
                 continue;
@@ -632,10 +707,20 @@ export class ModuleUI {
                 handle.node.active = false;
                 handle.state = ViewState.Paused;
             } else if (handle.policy.closeWithOwner) {
-                await this.close(handle, { cancelled: true, reason: 'module_pause' }, { force: true });
+                try {
+                    await this.close(handle, { cancelled: true, reason: 'module_pause' }, { force: true });
+                } catch (error) {
+                    failures.push({ step: `view:${handle.ref.path}`, error });
+                }
             }
         }
         this.notifySystemUi();
+        if (failures.length > 0) {
+            throw new YZForgeError(`Module UI pause completed with errors: ${this.module.name}`, 'ui.pause_owned_failed', {
+                module: this.module.name,
+                failures: describeUiFailures(failures),
+            });
+        }
     }
 
     public resumeOwned(): void {
@@ -758,6 +843,19 @@ export class ModuleUI {
         return this.sortedHandles().reverse().find((handle) => {
             return handle.ref === ref && handle.key === key && handle.state !== ViewState.Closing && handle.state !== ViewState.Disposed;
         });
+    }
+
+    private trackView(handle: AnyViewHandle): void {
+        this.ownership?.acquire(this.owner, 'view', handle.id, {
+            key: handle.key,
+            path: handle.ref.path,
+            kind: handle.policy.kind,
+            layer: handle.layer,
+        });
+    }
+
+    private untrackView(handle: AnyViewHandle): void {
+        this.ownership?.release(this.owner, 'view', handle.id);
     }
 
     private focus(handle: AnyViewHandle): void {
@@ -888,6 +986,24 @@ export class ModuleUI {
     }
 }
 
+function describeUiFailures(failures: readonly UiFailure[]): unknown[] {
+    return failures.map((failure) => ({
+        step: failure.step,
+        error: describeUiError(failure.error),
+    }));
+}
+
+function describeUiError(error: unknown): unknown {
+    if (error instanceof Error) {
+        return {
+            name: error.name,
+            message: error.message,
+            ...(error instanceof YZForgeError ? { code: error.code, details: error.details } : {}),
+        };
+    }
+    return error;
+}
+
 function stopKeyboardEvent(event: EventKeyboard): void {
     event.propagationStopped = true;
     event.propagationImmediateStopped = true;
@@ -983,16 +1099,35 @@ export abstract class View<TData = unknown, TResult = unknown> extends Component
     }
 
     public async __yzforgeClose(result: unknown): Promise<void> {
-        await this.onClose(result as TResult);
+        const failures: UiFailure[] = [];
+        try {
+            await this.onClose(result as TResult);
+        } catch (error) {
+            failures.push({ step: 'view.onClose', error });
+        }
         if (!this.resultResolved) {
             this.resultResolved = true;
             this.resultResolver?.(isUiCancelResult(result) ? result : result as TResult);
         }
         this.resultResolver = undefined;
         for (const disposer of this.disposers.splice(0).reverse()) {
-            disposer();
+            try {
+                disposer();
+            } catch (error) {
+                failures.push({ step: 'view.disposer', error });
+            }
         }
-        this.onDispose();
+        try {
+            this.onDispose();
+        } catch (error) {
+            failures.push({ step: 'view.onDispose', error });
+        }
+        if (failures.length > 0) {
+            throw new YZForgeError('View close lifecycle completed with errors.', 'ui.view_lifecycle_close_failed', {
+                path: this.viewHandle?.ref.path,
+                failures: describeUiFailures(failures),
+            });
+        }
     }
 
     public async __yzforgeWaitResult(): Promise<TResult | UiCancelResult> {

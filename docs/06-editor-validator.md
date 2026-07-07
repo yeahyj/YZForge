@@ -160,7 +160,7 @@ tsconfig.json compilerOptions.paths
 ```json
 {
   "imports": {
-    "yzforge/": "./assets/yzforge/runtime/",
+    "yzforge": "./assets/yzforge/runtime/index",
     "yzforge/modules/": "./assets/app/registry/modules/",
     "yzforge/libraries/": "./assets/app/registry/libraries/",
     "yzforge/content-packs/": "./assets/app/registry/content-packs/",
@@ -173,6 +173,7 @@ tsconfig.json compilerOptions.paths
 规则：
 
 - 业务代码只使用稳定别名，不写跨 Scope 相对路径。
+- 业务和生成代码从 `yzforge` 顶层桶入口导入框架 runtime API；runtime 子路径深 import 由 Validator 拦截。
 - Import Maps 是运行时解析规则。
 - `tsconfig.paths` 是 TypeScript 检查规则。
 - 两者必须由同一个生成器源数据生成。

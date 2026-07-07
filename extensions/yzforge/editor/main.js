@@ -981,7 +981,7 @@ exports.methods = {
 
   async smokeTest(first) {
     const options = normalizeOptions(first);
-    const result = smoke({
+    const result = await smoke({
       keep: options.keep === true,
     });
     console.log('[YZForge] smoke test:', result);

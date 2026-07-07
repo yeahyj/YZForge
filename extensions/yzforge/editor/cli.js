@@ -55,7 +55,7 @@ async function main() {
   }
 
   if (command === 'smoke') {
-    const result = smoke({ keep: process.argv.includes('--keep') });
+    const result = await smoke({ keep: process.argv.includes('--keep') });
     console.log(JSON.stringify(result, null, 2));
     return;
   }

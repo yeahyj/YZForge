@@ -46,7 +46,7 @@ function renderLibraryContract(library, body) {
 
   const tokenEntries = keys.map((key) => `    ${key}: '${key}',`);
   return [
-    "import { defineLibraryTokens } from '../../../yzforge/runtime';",
+    "import { defineLibraryTokens } from 'yzforge';",
     '',
     body,
     '',
@@ -61,7 +61,7 @@ function renderModuleRef(module, libraries) {
     .map((name) => `import { ${name}Ref } from '../libraries/${name}.ref.generated';`)
     .join('\n');
   const imports = [
-    "import { defineModuleRef } from '../../../yzforge/runtime';",
+    "import { defineModuleRef } from 'yzforge';",
     module.enterParams ? `import type { ${module.enterParams} } from '../../contracts/modules/${module.name}.contract.generated';` : '',
     libraryImports,
   ].filter(Boolean).join('\n');
@@ -84,7 +84,7 @@ function renderLibraryRef(library) {
     .join('\n');
   const librariesExpr = library.libraries.map((name) => `${name}Ref`).join(', ');
   return [
-    "import { defineLibraryRef } from '../../../yzforge/runtime';",
+    "import { defineLibraryRef } from 'yzforge';",
     libraryImports,
     '',
     `export const ${library.name}Ref = defineLibraryRef({`,
@@ -101,7 +101,7 @@ function renderModuleEntry(module) {
     .join('\n');
   const librariesExpr = module.libraries.map((name) => `${name}Ref`).join(', ');
   return [
-    "import { defineModuleEntry, registerModuleEntry } from '../../../yzforge/runtime';",
+    "import { defineModuleEntry, registerModuleEntry } from 'yzforge';",
     `import { ${module.name}Module } from './${module.name}Module';`,
     "import { assets } from './assets.generated';",
     "import { config } from './config.generated';",
@@ -124,7 +124,7 @@ function renderLibraryEntry(library) {
     .join('\n');
   const librariesExpr = library.libraries.map((name) => `${name}Ref`).join(', ');
   return [
-    "import { defineLibraryEntry, registerLibraryEntry } from '../../../yzforge/runtime';",
+    "import { defineLibraryEntry, registerLibraryEntry } from 'yzforge';",
     "import { assets } from './assets.generated';",
     "import { config } from './config.generated';",
     "import { providers } from './providers';",
@@ -277,7 +277,7 @@ function renderAutoRefsBase(baseType, className, refs) {
   if (ccImports.size > 0) {
     imports.push(`import { ${Array.from(ccImports).sort().join(', ')} } from 'cc';`);
   }
-  imports.push(`import { ${runtimeImports.join(', ')} } from '../../../../../yzforge/runtime';`);
+  imports.push(`import { ${runtimeImports.join(', ')} } from 'yzforge';`);
 
   const typeParams = baseType === 'View'
     ? '<TData = unknown, TResult = unknown>'
@@ -347,7 +347,7 @@ function renderAssets(descriptor) {
   if (runtimeTypes.length) {
     imports.push(`import { ${runtimeTypes.join(', ')} } from 'cc';`);
   }
-  imports.push(`import { ${yzforgeImports.join(', ')} } from '../../../yzforge/runtime';`);
+  imports.push(`import { ${yzforgeImports.join(', ')} } from 'yzforge';`);
 
   for (const filePath of viewFiles) {
     const className = path.basename(filePath, '.prefab');
@@ -442,7 +442,7 @@ function renderConfig(descriptor) {
     return `        ${table.key}: tableRef({ name: '${table.path}', primaryKey: '${table.primaryKey}' }),`;
   });
   return [
-    "import { defineConfig, tableRef } from '../../../yzforge/runtime';",
+    "import { defineConfig, tableRef } from 'yzforge';",
     '',
     'export const config = defineConfig({',
     '    tables: {',
@@ -481,7 +481,7 @@ function renderInstallGenerated(projectRoot) {
   const extensionFiles = scanExtensionFiles(projectRoot);
   if (extensionFiles.length === 0) {
     return [
-      "import type { App } from '../../yzforge/runtime';",
+      "import type { App } from 'yzforge';",
       '',
       'export async function installGeneratedExtensions(_app: App): Promise<void> {}',
     ].join('\n');
@@ -492,10 +492,10 @@ function renderInstallGenerated(projectRoot) {
     return `import { ${extensionExportName(filePath)} } from '${importPath.startsWith('.') ? importPath : `./${importPath}`}';`;
   });
   const installLines = extensionFiles.map((filePath) => {
-    return `    await app.extensions.install(${extensionExportName(filePath)});`;
+    return `    await app.installExtension(${extensionExportName(filePath)});`;
   });
   return [
-    "import type { App } from '../../yzforge/runtime';",
+    "import type { App } from 'yzforge';",
     ...imports,
     '',
     'export async function installGeneratedExtensions(app: App): Promise<void> {',
@@ -554,7 +554,7 @@ function renderModuleContentPacks(module, packs) {
   });
   return [
     contentPackTypes.length > 0 ? `import { ${contentPackTypes.join(', ')} } from 'cc';` : '',
-    `import { ${yzforgeImports.join(', ')} } from '../../../yzforge/runtime';`,
+    `import { ${yzforgeImports.join(', ')} } from 'yzforge';`,
     ...imports,
     '',
     ...entries,

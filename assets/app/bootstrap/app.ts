@@ -1,4 +1,4 @@
-import { createApp, type App, type AppOptions } from '../../yzforge/runtime';
+import { createApp, type App, type AppOptions } from 'yzforge';
 import { installGeneratedExtensions } from './install.generated';
 
 const RUNTIME_APP_KEY = '__YZFORGE_APP__';

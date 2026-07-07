@@ -1,8 +1,8 @@
 import { LibraryAssets, type AssetScopeSnapshot } from './assets';
 import type { BundleAssetAccess } from './bundle-manager';
-import type { App } from './app';
 import type { LibraryEntry } from './entry-registry';
 import { YZForgeError } from './errors';
+import type { AppKernel } from './kernel';
 import { ownerKeyOf, type OwnerRef, type ReleaseScope } from './lifetime';
 import type { LibraryRef } from './refs';
 import type { LibraryToken, TokenProvider } from './tokens';
@@ -42,7 +42,7 @@ export class LibraryRegistry {
     private readonly ownerRefs = new Map<string, Set<string>>();
     private readonly inFlight = new Map<string, Promise<LoadedLibrary>>();
 
-    public constructor(private readonly app: App) {}
+    public constructor(private readonly kernel: AppKernel) {}
 
     public async acquire<TTokens>(
         ref: LibraryRef<TTokens>,
@@ -51,10 +51,7 @@ export class LibraryRegistry {
         const ownerKey = ownerKeyOf(owner);
         const existing = this.records.get(ref.name);
         if (existing) {
-            existing.owners.add(ownerKey);
-            this.rememberOwner(ownerKey, ref.name);
-            this.app.ownership.acquire(ownerKey, 'library', ref.name, { bundleName: ref.bundle });
-            this.bindScopeRelease(ref.name, owner);
+            this.acquireOwner(existing, owner);
             return existing.handle as LoadedLibrary<TTokens>;
         }
 
@@ -62,10 +59,9 @@ export class LibraryRegistry {
         if (running) {
             const handle = await running;
             const record = this.records.get(ref.name);
-            record?.owners.add(ownerKey);
-            this.rememberOwner(ownerKey, ref.name);
-            this.app.ownership.acquire(ownerKey, 'library', ref.name, { bundleName: ref.bundle });
-            this.bindScopeRelease(ref.name, owner);
+            if (record) {
+                this.acquireOwner(record, owner);
+            }
             return handle as LoadedLibrary<TTokens>;
         }
 
@@ -108,26 +104,26 @@ export class LibraryRegistry {
         owner: OwnerRef,
     ): Promise<LoadedLibrary<TTokens>> {
         const ownerKey = ownerKeyOf(owner);
-        const scope = this.app.releaseScope.child('library', ref.name);
+        const scope = this.kernel.releaseScope.child('library', ref.name);
         let bundle: BundleAssetAccess | undefined;
         try {
             for (const dependency of ref.libraries) {
                 await this.acquire(dependency, scope);
             }
 
-            bundle = await this.app.bundles.loadBundle(ref.bundle, { owner: scope });
-            const entry = await this.app.entries.waitForLibrary(ref);
-            this.app.entries.validateLibrary(ref, entry);
+            bundle = await this.kernel.bundles.loadBundle(ref.bundle, { owner: scope });
+            const entry = await this.kernel.entries.waitForLibrary(ref);
+            this.kernel.entries.validateLibrary(ref, entry);
 
             const tokenInstances = new Map<string, unknown>();
             const assets = new LibraryAssets(
                 ref.name,
                 bundle,
-                this.app.logger.child(`library:${ref.name}`),
+                this.kernel.logger.child(`library:${ref.name}`),
                 scope.child('assets', ref.name),
-                this.app.ownership,
+                this.kernel.ownership,
             );
-            const config = await this.app.configs.loadScope(entry.config, assets);
+            const config = await this.kernel.configs.loadScope(entry.config, assets);
             const record = {} as LibraryRecord;
             const handle: LoadedLibrary<TTokens> = {
                 ref,
@@ -144,13 +140,11 @@ export class LibraryRegistry {
                 scope,
                 assets,
                 handle,
-                owners: new Set<string>([ownerKey]),
+                owners: new Set<string>(),
                 tokenInstances,
             });
             this.records.set(ref.name, record);
-            this.rememberOwner(ownerKey, ref.name);
-            this.app.ownership.acquire(ownerKey, 'library', ref.name, { bundleName: ref.bundle });
-            this.bindScopeRelease(ref.name, owner);
+            this.acquireOwner(record, owner);
             return handle;
         } catch (error) {
             await scope.release({ type: 'library_load_failed', library: ref.name });
@@ -194,7 +188,7 @@ export class LibraryRegistry {
         }
         record.owners.delete(ownerKey);
         this.ownerRefs.get(ownerKey)?.delete(name);
-        this.app.ownership.release(ownerKey, 'library', name);
+        this.kernel.ownership.release(ownerKey, 'library', name);
         if (record.owners.size > 0) {
             return;
         }
@@ -214,10 +208,21 @@ export class LibraryRegistry {
                     disposable.onDispose();
                 }
             } catch (error) {
-                this.app.logger.child(`library:${record.ref.name}`).warn('Library token dispose failed.', error);
+                this.kernel.logger.child(`library:${record.ref.name}`).warn('Library token dispose failed.', error);
             }
         }
         record.tokenInstances.clear();
+    }
+
+    private acquireOwner(record: LibraryRecord, owner: OwnerRef): void {
+        const ownerKey = ownerKeyOf(owner);
+        if (record.owners.has(ownerKey)) {
+            return;
+        }
+        record.owners.add(ownerKey);
+        this.rememberOwner(ownerKey, record.ref.name);
+        this.kernel.ownership.acquire(ownerKey, 'library', record.ref.name, { bundleName: record.ref.bundle });
+        this.bindScopeRelease(record.ref.name, owner);
     }
 
     private rememberOwner(ownerKey: string, libraryName: string): void {
@@ -251,15 +256,15 @@ export class LibraryRegistry {
 
 export class ModuleLibraryManager {
     public constructor(
-        private readonly app: App,
+        private readonly kernel: AppKernel,
         private readonly owner: ReleaseScope,
     ) {}
 
     public async load<TTokens>(ref: LibraryRef<TTokens>): Promise<LoadedLibrary<TTokens>> {
-        return this.app.libraries.acquire(ref, this.owner);
+        return this.kernel.libraries.acquire(ref, this.owner);
     }
 
     public async releaseAll(): Promise<void> {
-        await this.app.libraries.releaseOwner(this.owner);
+        await this.kernel.libraries.releaseOwner(this.owner);
     }
 }

@@ -70,6 +70,7 @@ npm run yzforge:smoke
 - `import-map.json` 和 `tsconfig.paths` 只能把 `yzforge` 指向 `assets/yzforge/runtime`。
 - Validator 能发现 `runtime-template` 与 `assets/yzforge/runtime` 的内容漂移。
 - 业务代码、生成代码、文档示例都不能 import `extensions/yzforge/runtime-template`。
+- 业务和生成代码只能从 `yzforge` 顶层桶入口导入 runtime API，不能 deep import `yzforge/bundle-manager` 或物理 runtime 子路径。
 
 ## App / Main / Viewport
 

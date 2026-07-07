@@ -42,7 +42,9 @@ export interface LoadAssetOptions {
 export class AssetScope {
     private readonly loaded = new Map<string, LoadedAssetRecord>();
     private readonly nodes = new Set<Node>();
+    private readonly nodeKeys = new WeakMap<Node, string>();
     private readonly owner: OwnerRef;
+    private nextNodeId = 0;
 
     public constructor(
         public readonly ownerName: string,
@@ -150,11 +152,27 @@ export class AssetScope {
         if (!isValid(node)) {
             return;
         }
+        if (this.nodes.has(node)) {
+            return;
+        }
         this.nodes.add(node);
+        const key = this.nodeKey(node);
+        this.nodeKeys.set(node, key);
+        this.ledger?.acquire(this.owner, 'node', key, {
+            name: node.name,
+            ownerName: this.ownerName,
+        });
     }
 
     public untrackNode(node: Node): void {
-        this.nodes.delete(node);
+        if (!this.nodes.delete(node)) {
+            return;
+        }
+        const key = this.nodeKeys.get(node);
+        if (key) {
+            this.ledger?.release(this.owner, 'node', key);
+            this.nodeKeys.delete(node);
+        }
     }
 
     public destroyNode(node: Node): void {
@@ -209,6 +227,11 @@ export class AssetScope {
 
     private assetKey(ref: LoadableAssetRef): string {
         return `${ref.path}::${ref.type?.name ?? 'Asset'}`;
+    }
+
+    private nodeKey(node: Node): string {
+        this.nextNodeId += 1;
+        return `${this.ownerName}:${node.name || 'Node'}:${this.nextNodeId}`;
     }
 
     private snapshotRecord(key: string, record: LoadedAssetRecord): AssetRecordSnapshot {

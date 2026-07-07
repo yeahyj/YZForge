@@ -1,9 +1,9 @@
 import { JsonAsset } from 'cc';
 import { ContentPackAssetScope, type AssetScopeSnapshot } from './assets';
 import type { BundleAssetAccess } from './bundle-manager';
-import type { App } from './app';
 import type { ConfigScope } from './config';
 import { YZForgeError } from './errors';
+import type { AppKernel } from './kernel';
 import type { ReleaseScope } from './lifetime';
 import { assetRef, type ContentPackManifest, type ContentPackRef } from './refs';
 
@@ -56,7 +56,7 @@ export class ContentPackManager {
     private unloadVersion = 0;
 
     public constructor(
-        private readonly app: App,
+        private readonly kernel: AppKernel,
         private readonly ownerModuleName: string,
         private readonly ownerScope: ReleaseScope,
     ) {}
@@ -68,7 +68,7 @@ export class ContentPackManager {
         const existing = this.records.get(ref.id);
         if (existing) {
             existing.refCount += 1;
-            this.app.ownership.acquire(this.ownerScope, 'content-pack', ref.id, { bundleName: ref.bundle });
+            this.kernel.ownership.acquire(this.ownerScope, 'content-pack', ref.id, { bundleName: ref.bundle });
             return existing.handle as LoadedContentPack<TRefs, TConfig>;
         }
 
@@ -78,7 +78,7 @@ export class ContentPackManager {
             const record = this.records.get(ref.id);
             if (record) {
                 record.refCount += 1;
-                this.app.ownership.acquire(this.ownerScope, 'content-pack', ref.id, { bundleName: ref.bundle });
+                this.kernel.ownership.acquire(this.ownerScope, 'content-pack', ref.id, { bundleName: ref.bundle });
             }
             return handle as LoadedContentPack<TRefs, TConfig>;
         }
@@ -123,22 +123,22 @@ export class ContentPackManager {
         let bundle: BundleAssetAccess | undefined;
         try {
             for (const library of ref.libraries) {
-                await this.app.libraries.acquire(library, scope);
+                await this.kernel.libraries.acquire(library, scope);
             }
             this.ensureNotCancelled(ref, version);
 
-            bundle = await this.app.bundles.loadBundle(ref.bundle, { owner: scope });
+            bundle = await this.kernel.bundles.loadBundle(ref.bundle, { owner: scope });
             this.ensureNotCancelled(ref, version);
             const assets = new ContentPackAssetScope(
                 ref.id,
                 bundle,
-                this.app.logger.child(`content-pack:${ref.id}`),
+                this.kernel.logger.child(`content-pack:${ref.id}`),
                 scope.child('assets', ref.id),
-                this.app.ownership,
+                this.kernel.ownership,
             );
             const manifestAsset = await assets.load(assetRef(JsonAsset, 'manifest.generated'));
             const manifest = readContentPackManifest(ref, manifestAsset);
-            const config = await this.app.configs.loadContentPackScope(ref.refs, assets);
+            const config = await this.kernel.configs.loadContentPackScope(ref.refs, assets);
             const handle: LoadedContentPack<TRefs, TConfig> = {
                 ref,
                 bundleName: ref.bundle,
@@ -156,7 +156,7 @@ export class ContentPackManager {
                 handle,
                 refCount: 1,
             });
-            this.app.ownership.acquire(this.ownerScope, 'content-pack', ref.id, { bundleName: ref.bundle });
+            this.kernel.ownership.acquire(this.ownerScope, 'content-pack', ref.id, { bundleName: ref.bundle });
             return handle;
         } catch (error) {
             await scope.release({ type: 'content_pack_load_failed', contentPack: ref.id });
@@ -171,12 +171,12 @@ export class ContentPackManager {
         }
         if (!options.force) {
             record.refCount = Math.max(0, record.refCount - 1);
-            this.app.ownership.release(this.ownerScope, 'content-pack', id);
+            this.kernel.ownership.release(this.ownerScope, 'content-pack', id);
             if (record.refCount > 0) {
                 return;
             }
         } else {
-            this.app.ownership.release(this.ownerScope, 'content-pack', id, record.refCount);
+            this.kernel.ownership.release(this.ownerScope, 'content-pack', id, record.refCount);
             record.refCount = 0;
         }
         this.records.delete(id);

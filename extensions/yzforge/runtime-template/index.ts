@@ -1,6 +1,7 @@
 export * from './app';
 export * from './assets';
-export * from './bundle-manager';
+export { BundleState } from './bundle-manager';
+export type { BundleHandle, BundleRecordSnapshot } from './bundle-manager';
 export * from './config';
 export * from './entry-registry';
 export * from './errors';

@@ -1,4 +1,4 @@
-import { Module } from '../../../yzforge/runtime';
+import { Module } from 'yzforge';
 import type { StartEnterParams } from './public';
 
 export class StartModule extends Module<StartEnterParams> {

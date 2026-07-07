@@ -58,7 +58,9 @@ assets/yzforge/runtime/
 规则：
 
 - 废弃 `extensions/yzforge/runtime/` 这个路径名，改为 `extensions/yzforge/runtime-template/`。
-- 业务和生成代码只能 import `yzforge` 或 `yzforge/*`，最终解析到 `assets/yzforge/runtime/`。
+- 业务和生成代码只能从 `yzforge` 顶层桶入口 import 框架 runtime API。
+- `yzforge/modules/*`、`yzforge/libraries/*`、`yzforge/content-packs/*` 只暴露首包 registry/ref，不是 runtime 深路径。
+- `yzforge/*` 指向 runtime 子文件的深路径只保留给工具和框架内部，不允许业务或生成代码直接 import。
 - `extensions/yzforge/runtime-template/` 只能被安装、同步、校验工具读取。
 - 同步工具负责把 `runtime-template` 写入 `assets/yzforge/runtime`。
 - Validator 必须校验模板和项目 runtime 的内容 hash 一致。

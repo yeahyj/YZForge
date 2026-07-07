@@ -72,6 +72,7 @@ function createIssueCollector(projectRoot) {
       ...(detail.column !== undefined ? { column: detail.column } : {}),
       ...(detail.specifier ? { specifier: detail.specifier } : {}),
       ...(detail.target ? { target: detail.target } : {}),
+      ...(detail.field ? { field: detail.field } : {}),
     });
     return issues.length;
   };
@@ -212,6 +213,14 @@ function validateRuntimeBundleBoundary(projectRoot, issues) {
     let match;
     while ((match = pattern.exec(source)) !== null) {
       issues.push(`${rel} Only BundleManager may call assetManager.${match[1]} directly.`, {
+        path: rel,
+        code: 'runtime.bundle_boundary',
+        ...offsetLocation(source, match.index),
+      });
+    }
+    const bundleTypePattern = /\bAssetManager\s*\.\s*Bundle\b/g;
+    while ((match = bundleTypePattern.exec(source)) !== null) {
+      issues.push(`${rel} Only BundleManager may reference AssetManager.Bundle directly.`, {
         path: rel,
         code: 'runtime.bundle_boundary',
         ...offsetLocation(source, match.index),
@@ -435,6 +444,11 @@ function validateForbiddenImports(projectRoot, issues) {
     }
     for (const record of importRecords) {
       const target = record.specifier;
+      const targetRel = resolveImportTarget(projectRoot, filePath, record.specifier);
+      if (targetRel?.startsWith('assets/yzforge/runtime/')
+        && !(targetRel === 'assets/yzforge/runtime/index.ts' && record.specifier === 'yzforge')) {
+        pushImportIssue(issues, rel, `must import YZForge runtime through 'yzforge', not runtime internal path: ${record.specifier}.`, record, targetRel);
+      }
       if (moduleMatch && target.includes('/modules/') && !target.includes(`/modules/${moduleMatch[1]}/`)) {
         pushImportIssue(issues, rel, `imports another module internal path: ${target}`, record);
       }
@@ -457,6 +471,43 @@ function validateRuntimeTemplateImports(projectRoot, issues) {
       issues.push(`${rel} must not import or reference runtime-template directly. Use assets/yzforge/runtime through the yzforge alias.`, {
         path: rel,
         code: 'runtime.template_import',
+      });
+    }
+  }
+}
+
+const APP_INTERNAL_FIELDS = [
+  'bundles',
+  'configs',
+  'entries',
+  'extensions',
+  'global',
+  'libraries',
+  'main',
+  'navigator',
+  'ownership',
+  'releaseScope',
+  'shared',
+  'ui',
+];
+
+function validateAppFacadeAccess(projectRoot, issues) {
+  const files = walk(path.join(projectRoot, 'assets'), (filePath) => filePath.endsWith('.ts'));
+  const fields = APP_INTERNAL_FIELDS.join('|');
+  const pattern = new RegExp(`\\b(?:(?:this|context)\\.app|app)\\s*\\.\\s*(${fields})\\b`, 'g');
+  for (const filePath of files) {
+    const rel = toPosix(path.relative(projectRoot, filePath));
+    if (rel.startsWith('assets/yzforge/runtime/')) {
+      continue;
+    }
+    const source = stripCodeComments(fs.readFileSync(filePath, 'utf8'));
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+      issues.push(`${rel} must not access App internal field '${match[1]}'; use the public App facade or ExtensionContext tokens.`, {
+        path: rel,
+        code: 'app.internal_access',
+        field: match[1],
+        ...offsetLocation(source, match.index),
       });
     }
   }
@@ -2800,6 +2851,7 @@ function validate(projectRoot, options = {}) {
     validateEntryImports(projectRoot, project, issues);
     validateLibraryCycles(project, issues);
     validateImportBoundaries(projectRoot, project, issues);
+    validateAppFacadeAccess(projectRoot, issues);
     validateStrictCodeRules(projectRoot, issues);
   }
 

@@ -405,15 +405,15 @@ YZForge 使用 Cocos Import Maps 提供稳定导入路径，并同步生成 `tsc
 推荐别名：
 
 ```text
-yzforge/                 -> assets/yzforge/runtime/
-yzforge/modules/         -> assets/app/registry/modules/
-yzforge/libraries/       -> assets/app/registry/libraries/
-yzforge/content-packs/           -> assets/app/registry/content-packs/
-yzforge-contracts/       -> assets/app/contracts/
-yzforge-shared/          -> assets/shared/code/
+yzforge                  -> assets/yzforge/runtime/index
+yzforge/modules/        -> assets/app/registry/modules/
+yzforge/libraries/      -> assets/app/registry/libraries/
+yzforge/content-packs/  -> assets/app/registry/content-packs/
+yzforge-contracts/      -> assets/app/contracts/
+yzforge-shared/         -> assets/shared/code/
 ```
 
-业务代码不直接使用 `db://yzforge-modules/*` 这类内部路径。底层如需兼容 Cocos AssetDB，由生成器和 Import Maps 统一处理。
+业务代码从 `yzforge` 顶层桶入口导入框架 runtime API，不直接 import `yzforge/bundle-manager`、`assets/yzforge/runtime/*`、`db://yzforge-modules/*` 这类内部路径。底层如需兼容 Cocos AssetDB，由生成器和 Import Maps 统一处理。
 
 `extensions/yzforge/runtime-template/` 不能被业务或生成代码 import。它只作为插件携带的模板来源，通过同步命令写入 `assets/yzforge/runtime/`。
 

@@ -72,7 +72,7 @@ function createModule(projectRoot, name) {
     '',
   ].join('\n'));
   write(`${root}/code/${name}Module.ts`, [
-    "import { Module } from '../../../yzforge/runtime';",
+    "import { Module } from 'yzforge';",
     `import type { ${name}EnterParams } from './public';`,
     '',
     `export class ${name}Module extends Module<${name}EnterParams> {`,
@@ -117,7 +117,7 @@ function createLibrary(projectRoot, name) {
     '',
   ].join('\n'));
   write(`${root}/code/providers.ts`, [
-    "import { defineLibraryProviders } from '../../../yzforge/runtime';",
+    "import { defineLibraryProviders } from 'yzforge';",
     `import type { ${name}TokenMap } from './public';`,
     '',
     `export const providers = defineLibraryProviders<${name}TokenMap>({`,
@@ -308,7 +308,7 @@ function createModuleUnit(projectRoot, owner, name, folder, baseType, bodyLines)
   };
 
   write(`${root}/code/${folder}/${name}.ts`, [
-    `import { ${baseType} } from '../../../../yzforge/runtime';`,
+    `import { ${baseType} } from 'yzforge';`,
     '',
     `export class ${name} extends ${baseType} {`,
     ...bodyLines,
@@ -387,7 +387,7 @@ function createExtensionStub(projectRoot, name) {
   };
 
   write(`${root}/${name}.ts`, [
-    "import { defineExtensionToken, type Extension, type ExtensionContext } from '../../yzforge/runtime';",
+    "import { defineExtensionToken, type Extension, type ExtensionContext } from 'yzforge';",
     '',
     `export interface ${name}Api {`,
     '    readonly name: string;',

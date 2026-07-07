@@ -166,7 +166,7 @@ export abstract class Module<TEnter = unknown> {
     }
 
     public use<TValue>(token: ModuleExtensionToken<TValue>): TValue {
-        return this.app.extensions.useModuleToken(this, token);
+        return this.app.useModuleToken(this, token);
     }
 
     public __yzforgeBind(context: ModuleRuntimeContext): void {

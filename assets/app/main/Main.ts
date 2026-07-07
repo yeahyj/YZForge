@@ -1,5 +1,5 @@
 import { _decorator, Component } from 'cc';
-import type { App } from '../../yzforge/runtime';
+import type { App } from 'yzforge';
 import { clearYZForgeApp, createYZForgeApp } from '../bootstrap/app';
 
 const { ccclass } = _decorator;

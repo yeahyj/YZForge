@@ -235,7 +235,7 @@ assets/app/main/presets/
 
 规则：
 
-- Module 只能通过 `app.ui` 或公开 facade 请求系统 UI。
+- Module 只能通过 `module.ui`、Extension token 或框架提供的公开 facade 请求系统 UI，不能直接访问 `app.ui`。
 - Module 不能直接持有系统 UI 节点。
 - `UIPopupMask` 由 UIManager 自动挂到 `PopupLayer`，业务 Popup prefab 不自带遮罩。
 - `UITouchMask` 挂到 `SystemLayer`，用于阻断所有普通 UI 输入。

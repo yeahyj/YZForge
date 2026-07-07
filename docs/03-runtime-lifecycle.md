@@ -6,27 +6,26 @@
 
 ```ts
 export class App {
-    public readonly event: EventBus<AppEvents>;
     public readonly logger: Logger;
-    public readonly shared: SharedRegistry;
-    public readonly global: GlobalRoot;
-    public readonly modules: ModuleRegistry;
-    public readonly libraries: LibraryRegistry;
-    public readonly extensions: ExtensionRegistry;
-    public readonly navigator: ModuleNavigator;
+    public readonly lifecycle: AppLifecycle;
+    public readonly viewport: ViewportManager;
 
-    public start(): Promise<void>;
-    public preloadModule<TParams = unknown>(ref: ModuleRef<TParams>, options?: PreloadOptions): Promise<void>;
+    public start(options?: AppStartOptions): Promise<void>;
+    public preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope>;
     public loadModule<T extends Module, TParams = unknown>(ref: ModuleRef<TParams>): Promise<LoadedModule<T>>;
     public enterModule<T extends Module, TParams = unknown>(
         ref: ModuleRef<TParams>,
         params?: TParams,
         options?: EnterModuleOptions,
     ): Promise<LoadedModule<T>>;
-    public unloadModule(ref: ModuleRef, options?: UnloadOptions): Promise<void>;
+    public unloadModule(ref: ModuleRef): Promise<void>;
+    public installExtension(extension: Extension): Promise<void>;
     public use<T>(token: ExtensionToken<T>): T;
+    public snapshot(): AppRuntimeSnapshot;
 }
 ```
+
+`App` 是 facade。`BundleManager`、`LibraryRegistry`、`ExtensionRegistry`、`UIManager`、`OwnershipLedger` 等系统属于内部 `AppKernel`，业务和生成代码不能直接访问。
 
 `App` 负责：
 

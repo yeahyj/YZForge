@@ -1,23 +1,21 @@
 import type { Node } from 'cc';
-import { BundleManager, type BundleRecordSnapshot } from './bundle-manager';
+import type { BundleRecordSnapshot } from './bundle-manager';
 import { ModuleAssets } from './assets';
 import type { AssetScopeSnapshot } from './assets';
-import { ConfigManager } from './config';
 import { ContentPackManager, type ContentPackRecordSnapshot } from './content-pack';
-import { EntryRegistry, getDefaultEntryRegistry } from './entry-registry';
-import { ExtensionRegistry } from './extension-registry';
-import { GlobalRoot } from './global-root';
-import { LibraryRegistry, type LibraryRecordSnapshot, ModuleLibraryManager } from './library';
-import { OwnershipLedger, ReleaseScope, type OwnershipLedgerSnapshot, type ReleaseScopeSnapshot } from './lifetime';
-import { Logger } from './logger';
+import type { EntryRegistry } from './entry-registry';
+import type { Extension } from './extension-registry';
+import { AppKernel } from './kernel';
+import { type LibraryRecordSnapshot, ModuleLibraryManager } from './library';
+import { type OwnershipLedgerSnapshot, type ReleaseScope, type ReleaseScopeSnapshot } from './lifetime';
+import type { AppLifecycle } from './lifecycle';
+import type { Logger } from './logger';
 import type { LoadedModule, Module } from './module';
 import { ModuleState } from './module';
-import { ModuleNavigator, type EnterModuleOptions, type NavigatorSnapshot } from './navigator';
+import type { EnterModuleOptions, NavigatorSnapshot } from './navigator';
 import type { ModuleRef } from './refs';
-import { SharedRegistry } from './shared-registry';
-import type { ExtensionToken } from './tokens';
-import { UIManager, type UISnapshot } from './ui';
-import { AppLifecycle } from './lifecycle';
+import type { ExtensionToken, ModuleExtensionToken } from './tokens';
+import type { UISnapshot } from './ui';
 import { createMainBinding, type MainBinding } from './main-binding';
 import { ViewportManager, type DeviceProfile, type ViewportConfig } from './viewport';
 import { YZForgeError } from './errors';
@@ -52,21 +50,7 @@ export interface AppRuntimeSnapshot {
 }
 
 export class App {
-    public readonly logger: Logger;
-    public readonly entries: EntryRegistry;
-    public readonly ownership: OwnershipLedger;
-    public readonly releaseScope: ReleaseScope;
-    public readonly configs: ConfigManager;
-    public readonly bundles: BundleManager;
-    public readonly shared: SharedRegistry;
-    public readonly libraries: LibraryRegistry;
-    public readonly extensions: ExtensionRegistry;
-    public readonly global: GlobalRoot;
-    public readonly lifecycle: AppLifecycle;
-    public readonly ui: UIManager;
-    public readonly navigator: ModuleNavigator;
-    public viewport: ViewportManager;
-    public main?: MainBinding;
+    private readonly kernel: AppKernel;
     private readonly modules = new Map<string, LoadedModule>();
     private readonly moduleTasks = new Map<string, Promise<LoadedModule>>();
     private readonly moduleUnloadTasks = new Map<string, Promise<void>>();
@@ -75,36 +59,36 @@ export class App {
     private disposeViewportChanged?: () => void;
 
     public constructor(options: AppOptions = {}) {
-        this.logger = options.logger ?? new Logger();
-        this.entries = options.entries ?? getDefaultEntryRegistry();
-        this.ownership = new OwnershipLedger();
-        this.releaseScope = new ReleaseScope('app', 'root', this.ownership);
-        this.configs = new ConfigManager();
-        this.bundles = new BundleManager(this.logger.child('bundle'), {}, this.ownership);
-        this.shared = new SharedRegistry();
-        this.libraries = new LibraryRegistry(this);
-        this.extensions = new ExtensionRegistry(this, this.logger.child('extension'));
-        this.global = new GlobalRoot(this);
-        this.lifecycle = new AppLifecycle();
-        this.viewport = new ViewportManager();
-        this.ui = new UIManager();
-        this.navigator = new ModuleNavigator(this);
+        this.kernel = new AppKernel(this, options);
+    }
+
+    public get logger(): Logger {
+        return this.kernel.logger;
+    }
+
+    public get lifecycle(): AppLifecycle {
+        return this.kernel.lifecycle;
+    }
+
+    public get viewport(): ViewportManager {
+        return this.kernel.viewport;
     }
 
     public async start(options: AppStartOptions = {}): Promise<void> {
-        await this.extensions.installBeforeStart();
-        this.main = createMainBinding({ mainRoot: options.mainRoot });
-        this.ui.configureRoots(this.main.layerRoots);
-        this.lifecycle.install();
+        const kernel = this.kernel;
+        await kernel.extensions.installBeforeStart();
+        kernel.main = createMainBinding({ mainRoot: options.mainRoot });
+        kernel.ui.configureRoots(kernel.main.layerRoots);
+        kernel.lifecycle.install();
         this.disposeViewportChanged?.();
-        this.viewport.dispose();
-        this.viewport = new ViewportManager(options.viewport);
-        this.disposeViewportChanged = this.viewport.onChanged(() => this.lifecycle.emitViewportChanged());
-        this.viewport.initialize();
-        await this.extensions.installAfterMainBinding();
-        await this.global.initialize();
-        this.ui.installBackKeyHandler(async () => this.navigator.back());
-        this.logger.info('App started.');
+        kernel.viewport.dispose();
+        kernel.viewport = new ViewportManager(options.viewport);
+        this.disposeViewportChanged = kernel.viewport.onChanged(() => kernel.lifecycle.emitViewportChanged());
+        kernel.viewport.initialize();
+        await kernel.extensions.installAfterMainBinding();
+        await kernel.global.initialize();
+        kernel.ui.installBackKeyHandler(async () => kernel.navigator.back());
+        kernel.logger.info('App started.');
     }
 
     public async preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope> {
@@ -112,16 +96,17 @@ export class App {
         if (existing && !existing.released) {
             return existing;
         }
-        const scope = this.releaseScope.child('preload', ref.name);
+        const kernel = this.kernel;
+        const scope = kernel.releaseScope.child('preload', ref.name);
         this.preloadScopes.set(ref.name, scope);
         scope.defer(`preload-index:${ref.name}`, () => {
             this.preloadScopes.delete(ref.name);
         });
         try {
             for (const library of ref.libraries) {
-                await this.libraries.acquire(library, scope);
+                await kernel.libraries.acquire(library, scope);
             }
-            await this.bundles.preloadBundle(ref.bundle, { owner: scope });
+            await kernel.bundles.preloadBundle(ref.bundle, { owner: scope });
             return scope;
         } catch (error) {
             await scope.release({ type: 'preload_failed', module: ref.name });
@@ -160,7 +145,7 @@ export class App {
         params?: TParams,
         options?: EnterModuleOptions,
     ): Promise<LoadedModule<TModule>> {
-        return this.navigator.enter(ref, params, options);
+        return this.kernel.navigator.enter(ref, params, options);
     }
 
     public async unloadModule(ref: ModuleRef): Promise<void> {
@@ -180,6 +165,7 @@ export class App {
     }
 
     private async unloadModuleNow(ref: ModuleRef): Promise<void> {
+        const kernel = this.kernel;
         const loading = this.moduleTasks.get(ref.name);
         if (!this.modules.has(ref.name) && loading) {
             try {
@@ -208,8 +194,8 @@ export class App {
             }
         };
 
-        await run('navigator.detach', () => this.navigator.detach(handle));
-        await run('ui.disposeModule', () => this.ui.disposeModule(ref.name, 'module_unload'));
+        await run('navigator.detach', () => kernel.navigator.detach(handle));
+        await run('ui.disposeModule', () => kernel.ui.disposeModule(ref.name, 'module_unload'));
         await run('contentPacks.unloadAll', async () => handle.contentPacks.unloadAll?.());
         await run('module.__yzforgeUnload', () => handle.instance.__yzforgeUnload());
         await run('releaseScope.release', () => handle.releaseScope.release({ type: 'module_unload', module: ref.name }));
@@ -227,10 +213,19 @@ export class App {
     }
 
     public use<TValue>(token: ExtensionToken<TValue>): TValue {
-        return this.extensions.use(token);
+        return this.kernel.extensions.use(token);
+    }
+
+    public async installExtension(extension: Extension): Promise<void> {
+        await this.kernel.extensions.install(extension);
+    }
+
+    public useModuleToken<TValue>(module: Module, token: ModuleExtensionToken<TValue>): TValue {
+        return this.kernel.extensions.useModuleToken(module, token);
     }
 
     public async dispose(reason: unknown = { type: 'app_dispose' }): Promise<void> {
+        const kernel = this.kernel;
         let failure: unknown;
         const run = async (task: () => Promise<void> | void): Promise<void> => {
             try {
@@ -242,56 +237,58 @@ export class App {
         for (const handle of Array.from(this.modules.values()).reverse()) {
             await run(() => this.unloadModule(handle.ref));
         }
-        await run(() => this.releaseScope.release(reason));
-        await run(() => this.extensions.dispose(reason));
-        await run(() => this.global.dispose());
-        this.ui.dispose();
+        await run(() => kernel.releaseScope.release(reason));
+        await run(() => kernel.extensions.dispose(reason));
+        await run(() => kernel.global.dispose());
+        kernel.ui.dispose();
         this.disposeViewportChanged?.();
         this.disposeViewportChanged = undefined;
-        this.viewport.dispose();
-        this.lifecycle.dispose();
+        kernel.viewport.dispose();
+        kernel.lifecycle.dispose();
         if (failure) {
             throw failure;
         }
     }
 
     public snapshot(): AppRuntimeSnapshot {
+        const kernel = this.kernel;
         return {
-            viewport: this.viewport.profile,
-            releaseScope: this.releaseScope.snapshot(),
-            ownership: this.ownership.snapshot(),
-            bundles: this.bundles.snapshots(),
-            libraries: this.libraries.snapshots(),
+            viewport: kernel.viewport.profile,
+            releaseScope: kernel.releaseScope.snapshot(),
+            ownership: kernel.ownership.snapshot(),
+            bundles: kernel.bundles.snapshots(),
+            libraries: kernel.libraries.snapshots(),
             modules: Array.from(this.modules.values()).map((handle) => this.snapshotModule(handle)),
-            navigator: this.navigator.snapshot(),
-            ui: this.ui.snapshot(),
+            navigator: kernel.navigator.snapshot(),
+            ui: kernel.ui.snapshot(),
         };
     }
 
     private async createModule<TParams>(ref: ModuleRef<TParams>): Promise<LoadedModule> {
+        const kernel = this.kernel;
         let instance: Module | undefined;
-        const moduleScope = this.releaseScope.child('module', ref.name);
+        const moduleScope = kernel.releaseScope.child('module', ref.name);
         try {
             for (const library of ref.libraries) {
-                await this.libraries.acquire(library, moduleScope);
+                await kernel.libraries.acquire(library, moduleScope);
             }
 
-            const bundle = await this.bundles.loadBundle(ref.bundle, { owner: moduleScope });
-            const entry = await this.entries.waitForModule(ref);
-            this.entries.validateModule(ref, entry);
+            const bundle = await kernel.bundles.loadBundle(ref.bundle, { owner: moduleScope });
+            const entry = await kernel.entries.waitForModule(ref);
+            kernel.entries.validateModule(ref, entry);
 
             instance = new entry.type();
             const assets = new ModuleAssets(
                 ref.name,
                 bundle,
-                this.logger.child(`module:${ref.name}`),
+                kernel.logger.child(`module:${ref.name}`),
                 moduleScope.child('assets', ref.name),
-                this.ownership,
+                kernel.ownership,
             );
-            const libraries = new ModuleLibraryManager(this, moduleScope);
-            const contentPacks = new ContentPackManager(this, ref.name, moduleScope);
-            const ui = this.ui.createForModule(ref.name, instance);
-            const config = await this.configs.loadScope(entry.config, assets);
+            const libraries = new ModuleLibraryManager(kernel, moduleScope);
+            const contentPacks = new ContentPackManager(kernel, ref.name, moduleScope);
+            const ui = kernel.ui.createForModule(ref.name, instance, moduleScope);
+            const config = await kernel.configs.loadScope(entry.config, assets);
 
             instance.__yzforgeBind({
                 app: this,
@@ -301,7 +298,7 @@ export class App {
                 libraries,
                 contentPacks,
                 ui,
-                logger: this.logger.child(`module:${ref.name}`),
+                logger: kernel.logger.child(`module:${ref.name}`),
             });
 
             await instance.__yzforgeCreate();
@@ -320,7 +317,7 @@ export class App {
             this.modules.set(ref.name, handle);
             return handle;
         } catch (error) {
-            await this.ui.disposeModule(ref.name, 'module_load_failed');
+            await kernel.ui.disposeModule(ref.name, 'module_load_failed');
             await instance?.contentPacks.unloadAll?.();
             await moduleScope.release({ type: 'module_load_failed', module: ref.name });
             throw error;
@@ -329,7 +326,7 @@ export class App {
 
     private async ensureBeforeFirstModuleExtensions(): Promise<void> {
         if (!this.beforeFirstModuleExtensionsTask) {
-            this.beforeFirstModuleExtensionsTask = this.extensions.installBeforeFirstModule();
+            this.beforeFirstModuleExtensionsTask = this.kernel.extensions.installBeforeFirstModule();
         }
         await this.beforeFirstModuleExtensionsTask;
     }
