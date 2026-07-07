@@ -54,6 +54,7 @@ YZForge 的核心模型从旧的三层模型升级为四层：
 12. [11-redesign-rfc.md](./11-redesign-rfc.md)：重构目标架构、核心不变量和终局性说明。
 13. [12-redesign-migration-plan.md](./12-redesign-migration-plan.md)：按阶段推进重构的迁移计划。
 14. [13-redesign-acceptance.md](./13-redesign-acceptance.md)：重构完成必须满足的验收标准。
+15. [14-post-refactor-framework-audit.md](./14-post-refactor-framework-audit.md)：重构后审计、当前遗憾和更硬的终局再设计。
 
 ## 核心结论
 
