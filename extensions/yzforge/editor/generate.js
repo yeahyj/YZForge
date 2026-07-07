@@ -466,6 +466,29 @@ function writeJson(projectRoot, relativePath, value, options, changed) {
   writeText(projectRoot, relativePath, `${JSON.stringify(value, null, 2)}\n`, options, changed);
 }
 
+function yzforgePackageExports() {
+  return {
+    '.': './assets/yzforge/runtime/index.ts',
+    './modules/*': './assets/app/registry/modules/*.ref.generated.ts',
+    './libraries/*': './assets/app/registry/libraries/*.ref.generated.ts',
+    './content-packs/*': './assets/app/registry/content-packs/*.generated.ts',
+    './contracts/modules/*': './assets/app/contracts/modules/*.contract.generated.ts',
+    './contracts/libraries/*': './assets/app/contracts/libraries/*.contract.generated.ts',
+    './contracts/content-packs/*': './assets/app/contracts/content-packs/*.contract.generated.ts',
+    './contracts/extensions/*': './assets/app/contracts/extensions/*.contract.generated.ts',
+    './shared/*': './assets/shared/code/*.ts',
+  };
+}
+
+function updatePackageJson(projectRoot, options, changed) {
+  const packagePath = path.join(projectRoot, 'package.json');
+  const packageJson = fs.existsSync(packagePath) ? readJsonc(packagePath) : {};
+  packageJson.name = 'yzforge';
+  packageJson.private = true;
+  packageJson.exports = yzforgePackageExports();
+  writeText(projectRoot, 'package.json', `${JSON.stringify(packageJson, null, 2)}\n`, options, changed);
+}
+
 function scanExtensionFiles(projectRoot) {
   const root = path.join(projectRoot, 'assets', 'app', 'extensions');
   return scanFiles(root, '.ts')
@@ -638,13 +661,25 @@ function updateTsconfig(projectRoot, options, changed) {
     'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
     'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
     'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
-    'yzforge-contracts/modules/*': ['assets/app/contracts/modules/*.contract.generated.ts'],
-    'yzforge-contracts/libraries/*': ['assets/app/contracts/libraries/*.contract.generated.ts'],
-    'yzforge-contracts/content-packs/*': ['assets/app/contracts/content-packs/*.contract.generated.ts'],
-    'yzforge-contracts/extensions/*': ['assets/app/contracts/extensions/*.contract.generated.ts'],
-    'yzforge-shared/*': ['assets/shared/code/*'],
+    'yzforge/contracts/modules/*': ['assets/app/contracts/modules/*.contract.generated.ts'],
+    'yzforge/contracts/libraries/*': ['assets/app/contracts/libraries/*.contract.generated.ts'],
+    'yzforge/contracts/content-packs/*': ['assets/app/contracts/content-packs/*.contract.generated.ts'],
+    'yzforge/contracts/extensions/*': ['assets/app/contracts/extensions/*.contract.generated.ts'],
+    'yzforge/shared/*': ['assets/shared/code/*'],
   };
   writeText(projectRoot, 'tsconfig.json', `${JSON.stringify(tsconfig, null, 2)}\n`, options, changed);
+}
+
+function updateCocosProjectSettings(projectRoot, options, changed) {
+  const settingsPath = path.join(projectRoot, 'settings', 'v2', 'packages', 'project.json');
+  let settings = {};
+  if (fs.existsSync(settingsPath)) {
+    settings = readJsonc(settingsPath);
+  }
+  settings.__version__ = settings.__version__ || '1.0.6';
+  settings.script = settings.script || {};
+  settings.script.importMap = 'project://import-map.json';
+  writeText(projectRoot, 'settings/v2/packages/project.json', `${JSON.stringify(settings, null, 2)}\n`, options, changed);
 }
 
 function generate(projectRoot, options = {}) {
@@ -695,14 +730,16 @@ function generate(projectRoot, options = {}) {
 
   writeJson(projectRoot, 'import-map.json', {
     imports: {
-      yzforge: './assets/yzforge/runtime/index',
+      yzforge: './assets/yzforge/runtime/index.ts',
       'yzforge/modules/': './assets/app/registry/modules/',
       'yzforge/libraries/': './assets/app/registry/libraries/',
       'yzforge/content-packs/': './assets/app/registry/content-packs/',
-      'yzforge-contracts/': './assets/app/contracts/',
-      'yzforge-shared/': './assets/shared/code/',
+      'yzforge/contracts/': './assets/app/contracts/',
+      'yzforge/shared/': './assets/shared/code/',
     },
   }, options, changed);
+  updatePackageJson(projectRoot, options, changed);
+  updateCocosProjectSettings(projectRoot, options, changed);
   updateTsconfig(projectRoot, options, changed);
   writeGenerated('assets/app/bootstrap/install.generated.ts', 'assets/app/bootstrap', renderInstallGenerated(projectRoot));
 

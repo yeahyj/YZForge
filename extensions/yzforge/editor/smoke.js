@@ -706,6 +706,37 @@ function serializedMainScene(mainScriptUuid) {
   return `${JSON.stringify(records, null, 2)}\n`;
 }
 
+function mainComponentSource() {
+  return [
+    "import { _decorator, Component } from 'cc';",
+    "import type { App } from 'yzforge';",
+    "import { clearYZForgeApp, createYZForgeApp } from '../bootstrap/app';",
+    '',
+    'const { ccclass } = _decorator;',
+    '',
+    "@ccclass('Main')",
+    'export class Main extends Component {',
+    '    private app?: App;',
+    '',
+    '    protected onLoad(): void {',
+    '        void this.startApp();',
+    '    }',
+    '',
+    '    private async startApp(): Promise<void> {',
+    '        this.app = await createYZForgeApp();',
+    '        await this.app.start({ mainRoot: this.node });',
+    '    }',
+    '',
+    '    protected onDestroy(): void {',
+    "        void this.app?.dispose({ type: 'main_destroy' });",
+    '        clearYZForgeApp(this.app);',
+    '        this.app = undefined;',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+}
+
 function setupBaseline(projectRoot) {
   writeJson(projectRoot, 'tsconfig.json', { compilerOptions: {} });
   writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export {};');
@@ -718,7 +749,7 @@ function setupBaseline(projectRoot) {
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/screen-fitter.ts', SCREEN_FITTER_UUID);
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/full-screen-root.ts', FULL_SCREEN_ROOT_UUID);
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/safe-area-root.ts', SAFE_AREA_ROOT_UUID);
-  writeText(projectRoot, 'assets/app/main/Main.ts', 'export class Main {}');
+  writeText(projectRoot, 'assets/app/main/Main.ts', mainComponentSource());
   writeScriptMeta(projectRoot, 'assets/app/main/Main.ts', MAIN_SCRIPT_UUID);
   writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
 }
@@ -1095,11 +1126,34 @@ async function smoke(options = {}) {
     updateJson(projectRoot, 'import-map.json', (importMap) => {
       importMap.imports.yzforge = './extensions/yzforge/runtime-template/index';
     });
-    const importMapViolation = expectValidationIssue(projectRoot, "import-map.json imports.yzforge must be './assets/yzforge/runtime/index'");
+    const importMapViolation = expectValidationIssue(projectRoot, "import-map.json imports.yzforge must be './assets/yzforge/runtime/index.ts'");
     const importMapDetail = importMapViolation.issueDetails.find((issue) => issue.message.includes('imports.yzforge'));
     assert(importMapDetail.code === 'path_map.import_map', 'Expected import-map path issue code.');
     const importMapRepair = generate(projectRoot);
     assert(importMapRepair.changed.includes('import-map.json'), 'Expected generate to repair import-map path.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'package.json', (packageJson) => {
+      packageJson.name = 'YZForge';
+      packageJson.exports['.'] = './extensions/yzforge/runtime-template/index.ts';
+    });
+    const packageJsonViolation = expectValidationIssue(projectRoot, "package.json name must be 'yzforge'");
+    const packageJsonDetail = packageJsonViolation.issueDetails.find((issue) => issue.message.includes('package.json name'));
+    assert(packageJsonDetail.code === 'path_map.package_json', 'Expected package.json path map issue code.');
+    const packageJsonExportDetail = packageJsonViolation.issueDetails.find((issue) => issue.message.includes('exports.'));
+    assert(packageJsonExportDetail.code === 'path_map.package_json', 'Expected package.json exports issue code.');
+    const packageJsonRepair = generate(projectRoot);
+    assert(packageJsonRepair.changed.includes('package.json'), 'Expected generate to repair package.json package boundary.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'settings/v2/packages/project.json', (settings) => {
+      settings.script.importMap = 'import-map.json';
+    });
+    const projectSettingsViolation = expectValidationIssue(projectRoot, "settings/v2/packages/project.json script.importMap must be 'project://import-map.json'");
+    const projectSettingsDetail = projectSettingsViolation.issueDetails.find((issue) => issue.message.includes('script.importMap'));
+    assert(projectSettingsDetail.code === 'path_map.project_settings', 'Expected Cocos project import-map setting issue code.');
+    const projectSettingsRepair = generate(projectRoot);
+    assert(projectSettingsRepair.changed.includes('settings/v2/packages/project.json'), 'Expected generate to repair Cocos project import-map setting.');
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
@@ -1112,6 +1166,16 @@ async function smoke(options = {}) {
     assert(tsconfigDeepAliasRepair.changed.includes('tsconfig.json'), 'Expected generate to remove runtime deep tsconfig alias.');
     assertOkValidation(projectRoot);
 
+    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+      tsconfig.compilerOptions.paths['yzforge-contracts/modules/*'] = ['assets/app/contracts/modules/*.contract.generated.ts'];
+    });
+    const legacyTsAliasViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not expose legacy alias yzforge-contracts/modules/*');
+    const legacyTsAliasDetail = legacyTsAliasViolation.issueDetails.find((issue) => issue.message.includes('legacy alias yzforge-contracts/modules/*'));
+    assert(legacyTsAliasDetail.code === 'path_map.legacy_alias', 'Expected legacy tsconfig alias issue code.');
+    const legacyTsAliasRepair = generate(projectRoot);
+    assert(legacyTsAliasRepair.changed.includes('tsconfig.json'), 'Expected generate to remove legacy tsconfig alias.');
+    assertOkValidation(projectRoot);
+
     updateJson(projectRoot, 'import-map.json', (importMap) => {
       importMap.imports['yzforge/'] = './assets/yzforge/runtime/';
     });
@@ -1120,6 +1184,38 @@ async function smoke(options = {}) {
     assert(importMapDeepAliasDetail.code === 'path_map.runtime_deep_alias', 'Expected import-map runtime deep alias issue code.');
     const importMapDeepAliasRepair = generate(projectRoot);
     assert(importMapDeepAliasRepair.changed.includes('import-map.json'), 'Expected generate to remove runtime deep import-map prefix.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'import-map.json', (importMap) => {
+      importMap.imports['yzforge-contracts/'] = './assets/app/contracts/';
+    });
+    const legacyImportMapAliasViolation = expectValidationIssue(projectRoot, 'import-map.json must not expose legacy alias yzforge-contracts/');
+    const legacyImportMapAliasDetail = legacyImportMapAliasViolation.issueDetails.find((issue) => issue.message.includes('legacy alias yzforge-contracts/'));
+    assert(legacyImportMapAliasDetail.code === 'path_map.legacy_alias', 'Expected legacy import-map alias issue code.');
+    const legacyImportMapAliasRepair = generate(projectRoot);
+    assert(legacyImportMapAliasRepair.changed.includes('import-map.json'), 'Expected generate to remove legacy import-map alias.');
+    assertOkValidation(projectRoot);
+
+    writeJson(projectRoot, 'temp/programming/packer-driver/targets/editor/assembly-record.json', {
+      chunks: {
+        brokenChunk: {
+          imports: {
+            yzforge: {
+              resolved: {
+                type: 'error',
+                text: "Failed to resolve 'yzforge'",
+              },
+              messages: [],
+            },
+          },
+        },
+      },
+    });
+    const cocosResolutionViolation = expectValidationIssue(projectRoot, 'Cocos editor assembly cannot resolve YZForge import');
+    const cocosResolutionDetail = cocosResolutionViolation.issueDetails.find((issue) => issue.message.includes('Cocos editor assembly'));
+    assert(cocosResolutionDetail.code === 'cocos.import_resolution', 'Expected Cocos import resolution issue code.');
+    assert(cocosResolutionDetail.path === 'temp/programming/packer-driver/targets/editor/assembly-record.json', 'Expected Cocos import resolution path.');
+    fs.rmSync(path.join(projectRoot, 'temp'), { recursive: true, force: true });
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/modules/Battle/code/BadRuntimeDeepImport.ts', [
@@ -1274,6 +1370,15 @@ async function smoke(options = {}) {
     const safeAreaComponentDetail = safeAreaComponentViolation.issueDetails.find((issue) => issue.message.includes('YZSafeAreaRoot'));
     assert(safeAreaComponentDetail.code === 'main.scene', 'Expected Main scene safe area component issue code.');
     writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
+    assertOkValidation(projectRoot);
+
+    updateText(projectRoot, 'assets/app/main/Main.ts', (content) => {
+      return content.replace("        void this.app?.dispose({ type: 'main_destroy' });\n", '');
+    });
+    const mainLifecycleViolation = expectValidationIssue(projectRoot, 'Main component must dispose App in onDestroy');
+    const mainLifecycleDetail = mainLifecycleViolation.issueDetails.find((issue) => issue.message.includes('dispose App in onDestroy'));
+    assert(mainLifecycleDetail.code === 'main.lifecycle', 'Expected Main lifecycle issue code.');
+    writeText(projectRoot, 'assets/app/main/Main.ts', mainComponentSource());
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'assets/modules/Battle/res/view/PageBattle.prefab', (records) => {

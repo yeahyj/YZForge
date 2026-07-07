@@ -51,7 +51,7 @@ assets/app/registry/
 
 ```ts
 import { BattleRef } from 'yzforge/modules/Battle';
-import type { BattleEnterParams } from 'yzforge-contracts/modules/Battle';
+import type { BattleEnterParams } from 'yzforge/contracts/modules/Battle';
 import { BattleCoreRef } from 'yzforge/libraries/BattleCore';
 ```
 
@@ -94,7 +94,7 @@ await app.enterModule(ActivitySpringRef, { activityId: 1001 });
 `ModuleRef` 只允许包含包名、Bundle 名、进入参数类型和轻量依赖声明：
 
 ```ts
-import type { BattleEnterParams } from 'yzforge-contracts/modules/Battle';
+import type { BattleEnterParams } from 'yzforge/contracts/modules/Battle';
 import { BattleCoreRef } from 'yzforge/libraries/BattleCore';
 
 export const BattleRef = defineModuleRef<BattleEnterParams>({
@@ -152,7 +152,7 @@ Entry.libraries == Ref.libraries
 
 ```ts
 import { BattleCoreRef } from 'yzforge/libraries/BattleCore';
-import { BattleCoreTokens } from 'yzforge-contracts/libraries/BattleCore';
+import { BattleCoreTokens } from 'yzforge/contracts/libraries/BattleCore';
 
 const battleCore = await this.libraries.load(BattleCoreRef);
 const damage = battleCore.use(BattleCoreTokens.damageSystem);

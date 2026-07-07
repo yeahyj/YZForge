@@ -58,7 +58,7 @@ npm run yzforge:smoke
 - 手改 generated 文件后 Validator 失败。
 - `generate --check` 能发现 stale generated 文件。
 - `generate` 输出稳定排序，重复运行没有 diff。
-- `tsconfig.paths` 与 `import-map.json` 由同一份源数据生成。
+- `package.json.exports`、`tsconfig.paths`、`import-map.json` 与 `settings/v2/packages/project.json` 的 `script.importMap` 由同一份源数据生成。
 
 ## Runtime 目录
 
@@ -67,7 +67,7 @@ npm run yzforge:smoke
 - `extensions/yzforge/runtime-template` 是插件携带的 runtime 模板来源。
 - `assets/yzforge/runtime` 是项目实际运行时入口。
 - 仓库中不存在正式用途的 `extensions/yzforge/runtime` 路径。
-- `import-map.json` 和 `tsconfig.paths` 只能把 `yzforge` 指向 `assets/yzforge/runtime`。
+- `package.json.exports`、`import-map.json` 和 `tsconfig.paths` 只能暴露 `yzforge` 顶层 runtime 入口、首包 registry/contract 子路径和 shared 子路径，不能暴露 runtime deep alias。
 - Validator 能发现 `runtime-template` 与 `assets/yzforge/runtime` 的内容漂移。
 - 业务代码、生成代码、文档示例都不能 import `extensions/yzforge/runtime-template`。
 - 业务和生成代码只能从 `yzforge` 顶层桶入口导入 runtime API，不能 deep import `yzforge/bundle-manager` 或物理 runtime 子路径。

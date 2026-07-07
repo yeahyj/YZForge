@@ -20,7 +20,9 @@ generate entry.generated.ts
 generate assets.generated.ts
 generate config.generated.ts
 generate content-packs.generated.ts
+update package.json exports for the yzforge package boundary
 generate import-map.json
+update Cocos project setting to project://import-map.json
 update tsconfig paths
 run validator
 ```
@@ -146,7 +148,7 @@ Home Module 卸载时，UIManager 自动关闭 Home 拥有的 UI。
 
 ```ts
 import { BattleCoreRef } from 'yzforge/libraries/BattleCore';
-import { BattleCoreTokens } from 'yzforge-contracts/libraries/BattleCore';
+import { BattleCoreTokens } from 'yzforge/contracts/libraries/BattleCore';
 
 const battleCore = await this.libraries.load(BattleCoreRef);
 const damage = battleCore.use(BattleCoreTokens.damageSystem);

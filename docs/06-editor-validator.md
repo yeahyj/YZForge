@@ -138,10 +138,12 @@ Validator 通过 hash 检查 generated 文件是否被手改。
 7. generate config types
 8. generate UI refs
 9. generate ContentPack manifests
-10. generate import-map.json
-11. update tsconfig paths
-12. run TypeScript check
-13. run Architecture Validator
+10. update package.json yzforge exports
+11. generate import-map.json
+12. update Cocos project import-map setting
+13. update tsconfig paths
+14. run TypeScript check
+15. run Architecture Validator
 ```
 
 如果任何一步失败，后续步骤不继续，避免半生成状态污染项目。
@@ -151,7 +153,9 @@ Validator 通过 hash 检查 generated 文件是否被手改。
 生成器维护：
 
 ```text
+package.json name/private/exports
 import-map.json
+settings/v2/packages/project.json script.importMap
 tsconfig.json compilerOptions.paths
 ```
 
@@ -160,12 +164,12 @@ tsconfig.json compilerOptions.paths
 ```json
 {
   "imports": {
-    "yzforge": "./assets/yzforge/runtime/index",
+    "yzforge": "./assets/yzforge/runtime/index.ts",
     "yzforge/modules/": "./assets/app/registry/modules/",
     "yzforge/libraries/": "./assets/app/registry/libraries/",
     "yzforge/content-packs/": "./assets/app/registry/content-packs/",
-    "yzforge-contracts/": "./assets/app/contracts/",
-    "yzforge-shared/": "./assets/shared/code/"
+    "yzforge/contracts/": "./assets/app/contracts/",
+    "yzforge/shared/": "./assets/shared/code/"
   }
 }
 ```
@@ -174,9 +178,11 @@ tsconfig.json compilerOptions.paths
 
 - 业务代码只使用稳定别名，不写跨 Scope 相对路径。
 - 业务和生成代码从 `yzforge` 顶层桶入口导入框架 runtime API；runtime 子路径深 import 由 Validator 拦截。
-- Import Maps 是运行时解析规则。
+- `package.json.exports` 是 Cocos 编辑器、预览和 Node 工具共同使用的包边界。
+- Import Maps 是 Cocos 运行时兼容映射，必须与 package exports 来自同一份生成源数据。
+- Cocos 项目设置必须指向 `project://import-map.json`，否则编辑器脚本编译不会加载项目根目录的映射。
 - `tsconfig.paths` 是 TypeScript 检查规则。
-- 两者必须由同一个生成器源数据生成。
+- 三者必须由同一个生成器源数据生成，Validator 会检查旧别名、runtime deep alias 和 Cocos assembly unresolved import。
 
 ## Architecture Validator
 

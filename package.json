@@ -1,5 +1,5 @@
 {
-  "name": "YZForge",
+  "name": "yzforge",
   "uuid": "c44fe03a-b016-4812-bf22-43ebd8fa3ebd",
   "scripts": {
     "yzforge:create": "node extensions/yzforge/editor/cli.js create",
@@ -14,5 +14,17 @@
   },
   "creator": {
     "version": "3.8.8"
+  },
+  "private": true,
+  "exports": {
+    ".": "./assets/yzforge/runtime/index.ts",
+    "./modules/*": "./assets/app/registry/modules/*.ref.generated.ts",
+    "./libraries/*": "./assets/app/registry/libraries/*.ref.generated.ts",
+    "./content-packs/*": "./assets/app/registry/content-packs/*.generated.ts",
+    "./contracts/modules/*": "./assets/app/contracts/modules/*.contract.generated.ts",
+    "./contracts/libraries/*": "./assets/app/contracts/libraries/*.contract.generated.ts",
+    "./contracts/content-packs/*": "./assets/app/contracts/content-packs/*.contract.generated.ts",
+    "./contracts/extensions/*": "./assets/app/contracts/extensions/*.contract.generated.ts",
+    "./shared/*": "./assets/shared/code/*.ts"
   }
 }

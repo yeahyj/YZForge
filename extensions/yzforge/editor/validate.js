@@ -39,7 +39,7 @@ function extractIssuePath(projectRoot, message) {
     const rel = normalized.slice(rootIndex + root.length + 1).match(/^[^\s:'")]+/)?.[0];
     return rel ? rel.replace(/[.,]+$/, '') : undefined;
   }
-  const match = normalized.match(/\b((?:assets|extensions|docs)\/[^\s:'")]+|(?:import-map|tsconfig)\.json)\b/);
+  const match = normalized.match(/\b((?:assets|extensions|docs)\/[^\s:'")]+|(?:import-map|tsconfig|package)\.json)\b/);
   return match ? match[1].replace(/[.,]+$/, '') : undefined;
 }
 
@@ -519,20 +519,39 @@ function validatePathMaps(projectRoot, issues) {
     'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
     'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
     'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
-    'yzforge-contracts/modules/*': ['assets/app/contracts/modules/*.contract.generated.ts'],
-    'yzforge-contracts/libraries/*': ['assets/app/contracts/libraries/*.contract.generated.ts'],
-    'yzforge-contracts/content-packs/*': ['assets/app/contracts/content-packs/*.contract.generated.ts'],
-    'yzforge-contracts/extensions/*': ['assets/app/contracts/extensions/*.contract.generated.ts'],
-    'yzforge-shared/*': ['assets/shared/code/*'],
+    'yzforge/contracts/modules/*': ['assets/app/contracts/modules/*.contract.generated.ts'],
+    'yzforge/contracts/libraries/*': ['assets/app/contracts/libraries/*.contract.generated.ts'],
+    'yzforge/contracts/content-packs/*': ['assets/app/contracts/content-packs/*.contract.generated.ts'],
+    'yzforge/contracts/extensions/*': ['assets/app/contracts/extensions/*.contract.generated.ts'],
+    'yzforge/shared/*': ['assets/shared/code/*'],
   };
   const expectedImports = {
-    yzforge: './assets/yzforge/runtime/index',
+    yzforge: './assets/yzforge/runtime/index.ts',
     'yzforge/modules/': './assets/app/registry/modules/',
     'yzforge/libraries/': './assets/app/registry/libraries/',
     'yzforge/content-packs/': './assets/app/registry/content-packs/',
-    'yzforge-contracts/': './assets/app/contracts/',
-    'yzforge-shared/': './assets/shared/code/',
+    'yzforge/contracts/': './assets/app/contracts/',
+    'yzforge/shared/': './assets/shared/code/',
   };
+  const expectedExports = {
+    '.': './assets/yzforge/runtime/index.ts',
+    './modules/*': './assets/app/registry/modules/*.ref.generated.ts',
+    './libraries/*': './assets/app/registry/libraries/*.ref.generated.ts',
+    './content-packs/*': './assets/app/registry/content-packs/*.generated.ts',
+    './contracts/modules/*': './assets/app/contracts/modules/*.contract.generated.ts',
+    './contracts/libraries/*': './assets/app/contracts/libraries/*.contract.generated.ts',
+    './contracts/content-packs/*': './assets/app/contracts/content-packs/*.contract.generated.ts',
+    './contracts/extensions/*': './assets/app/contracts/extensions/*.contract.generated.ts',
+    './shared/*': './assets/shared/code/*.ts',
+  };
+  const legacyTsAliases = [
+    'yzforge-contracts/modules/*',
+    'yzforge-contracts/libraries/*',
+    'yzforge-contracts/content-packs/*',
+    'yzforge-contracts/extensions/*',
+    'yzforge-shared/*',
+  ];
+  const legacyImportAliases = ['yzforge-contracts/', 'yzforge-shared/'];
 
   let tsconfig;
   try {
@@ -551,6 +570,15 @@ function validatePathMaps(projectRoot, issues) {
       code: 'path_map.runtime_deep_alias',
       target: 'yzforge/*',
     });
+  }
+  for (const alias of legacyTsAliases) {
+    if (actualPaths[alias] !== undefined) {
+      issues.push(`tsconfig.json must not expose legacy alias ${alias}; use yzforge/contracts/* or yzforge/shared/* under the yzforge package namespace.`, {
+        path: 'tsconfig.json',
+        code: 'path_map.legacy_alias',
+        target: alias,
+      });
+    }
   }
   for (const [alias, expected] of Object.entries(expectedTsPaths)) {
     const actual = actualPaths[alias];
@@ -580,6 +608,15 @@ function validatePathMaps(projectRoot, issues) {
       target: 'yzforge/',
     });
   }
+  for (const alias of legacyImportAliases) {
+    if (actualImports[alias] !== undefined) {
+      issues.push(`import-map.json must not expose legacy alias ${alias}; use the yzforge package namespace.`, {
+        path: 'import-map.json',
+        code: 'path_map.legacy_alias',
+        target: alias,
+      });
+    }
+  }
   for (const [alias, expected] of Object.entries(expectedImports)) {
     const actual = actualImports[alias];
     if (actual !== expected) {
@@ -591,18 +628,143 @@ function validatePathMaps(projectRoot, issues) {
     }
   }
 
+  let packageJson;
+  try {
+    packageJson = readJsonc(path.join(projectRoot, 'package.json'));
+  } catch (error) {
+    issues.push(`package.json cannot be read: ${error.message}.`, {
+      path: 'package.json',
+      code: 'path_map.package_json',
+    });
+  }
+  if (packageJson?.name !== 'yzforge') {
+    issues.push(`package.json name must be 'yzforge', got '${packageJson?.name}'.`, {
+      path: 'package.json',
+      code: 'path_map.package_json',
+      target: 'name',
+    });
+  }
+  if (packageJson?.private !== true) {
+    issues.push('package.json private must be true for the project-local yzforge package boundary.', {
+      path: 'package.json',
+      code: 'path_map.package_json',
+      target: 'private',
+    });
+  }
+  const actualExports = packageJson?.exports || {};
+  for (const [subpath, expected] of Object.entries(expectedExports)) {
+    const actual = actualExports[subpath];
+    if (actual !== expected) {
+      issues.push(`package.json exports.${subpath} must be '${expected}', got '${actual}'.`, {
+        path: 'package.json',
+        code: 'path_map.package_json',
+        target: `exports.${subpath}`,
+      });
+    }
+  }
+
+  let projectSettings;
+  try {
+    projectSettings = readJsonc(path.join(projectRoot, 'settings/v2/packages/project.json'));
+  } catch (error) {
+    issues.push(`settings/v2/packages/project.json cannot be read: ${error.message}.`, {
+      path: 'settings/v2/packages/project.json',
+      code: 'path_map.project_settings',
+    });
+  }
+  const actualImportMapSetting = projectSettings?.script?.importMap;
+  if (actualImportMapSetting !== 'project://import-map.json') {
+    issues.push(`settings/v2/packages/project.json script.importMap must be 'project://import-map.json', got '${actualImportMapSetting}'.`, {
+      path: 'settings/v2/packages/project.json',
+      code: 'path_map.project_settings',
+      target: 'script.importMap',
+    });
+  }
+
   const runtimeTsPath = actualPaths.yzforge?.[0];
   const runtimeImportPath = actualImports.yzforge;
+  const normalizeRuntimePath = (value) => String(value || '').replace(/^\.\//, '').replace(/\.ts$/, '');
   if (
     typeof runtimeTsPath === 'string'
     && typeof runtimeImportPath === 'string'
-    && runtimeTsPath.replace(/\.ts$/, '') !== runtimeImportPath.replace(/^\.\//, '')
+    && normalizeRuntimePath(runtimeTsPath) !== normalizeRuntimePath(runtimeImportPath)
   ) {
     issues.push('tsconfig.json and import-map.json must point yzforge to the same runtime entry.', {
       path: 'import-map.json',
       code: 'path_map.runtime_mismatch',
       target: 'yzforge',
     });
+  }
+}
+
+function validateCocosAssemblyResolution(projectRoot, issues) {
+  const targets = ['editor', 'preview'];
+  for (const target of targets) {
+    const rel = `temp/programming/packer-driver/targets/${target}/assembly-record.json`;
+    const filePath = path.join(projectRoot, rel);
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+
+    let raw;
+    try {
+      raw = fs.readFileSync(filePath, 'utf8');
+    } catch (error) {
+      issues.push(`${rel} cannot be read: ${error.message}.`, {
+        path: rel,
+        code: 'cocos.import_resolution',
+      });
+      continue;
+    }
+
+    let record;
+    try {
+      record = JSON.parse(raw);
+    } catch (_error) {
+      const sanitized = raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+      try {
+        record = JSON.parse(sanitized);
+      } catch (_sanitizedError) {
+        if (/"type"\s*:\s*"error"/.test(raw) && /\byzforge\b/.test(raw)) {
+          issues.push(`Cocos ${target} assembly contains an unresolved YZForge import.`, {
+            path: rel,
+            code: 'cocos.import_resolution',
+          });
+        }
+        continue;
+      }
+    }
+
+    const chunks = record?.chunks || {};
+    for (const [chunkId, chunk] of Object.entries(chunks)) {
+      const imports = chunk?.imports || {};
+      for (const [specifier, importRecord] of Object.entries(imports)) {
+        const resolved = importRecord?.resolved;
+        if (resolved?.type !== 'error') {
+          continue;
+        }
+        const messages = Array.isArray(importRecord?.messages)
+          ? importRecord.messages.map((message) => String(message))
+          : [];
+        const diagnostic = [
+          specifier,
+          resolved?.id,
+          resolved?.specifier,
+          resolved?.text,
+          resolved?.message,
+          ...messages,
+        ].filter(Boolean).join(' ');
+        if (!/\byzforge\b/.test(diagnostic)) {
+          continue;
+        }
+        issues.push(`Cocos ${target} assembly cannot resolve YZForge import '${specifier}' in chunk ${chunkId}: ${diagnostic}.`, {
+          path: rel,
+          code: 'cocos.import_resolution',
+          specifier,
+          target: chunkId,
+        });
+      }
+    }
   }
 }
 
@@ -636,6 +798,26 @@ function validateMainScene(projectRoot, issues) {
       path: 'assets/app/main/Main.ts',
       code: 'main.scene',
     });
+  } else {
+    const scriptSource = stripCodeComments(fs.readFileSync(scriptPath, 'utf8'));
+    if (!/\.start\s*\(\s*{[^}]*\bmainRoot\s*:\s*this\.node\b/.test(scriptSource)) {
+      issues.push('Main component must start App with mainRoot: this.node.', {
+        path: 'assets/app/main/Main.ts',
+        code: 'main.lifecycle',
+      });
+    }
+    if (!/\bonDestroy\s*\(/.test(scriptSource) || !/\.dispose\s*\(/.test(scriptSource)) {
+      issues.push('Main component must dispose App in onDestroy.', {
+        path: 'assets/app/main/Main.ts',
+        code: 'main.lifecycle',
+      });
+    }
+    if (!/\bclearYZForgeApp\s*\(/.test(scriptSource)) {
+      issues.push('Main component must clear the exposed App reference on destroy/dispose.', {
+        path: 'assets/app/main/Main.ts',
+        code: 'main.lifecycle',
+      });
+    }
   }
 
   let records;
@@ -2411,20 +2593,24 @@ function resolveImportTarget(projectRoot, fromFile, specifier) {
   if (specifier.startsWith('yzforge/content-packs/')) {
     return `assets/app/registry/content-packs/${specifier.slice('yzforge/content-packs/'.length)}.generated.ts`;
   }
-  if (specifier.startsWith('yzforge-contracts/modules/')) {
-    const name = specifier.slice('yzforge-contracts/modules/'.length).split('/')[0];
+  if (specifier.startsWith('yzforge/contracts/modules/')) {
+    const name = specifier.slice('yzforge/contracts/modules/'.length).split('/')[0];
     return `assets/app/contracts/modules/${name}.contract.generated.ts`;
   }
-  if (specifier.startsWith('yzforge-contracts/libraries/')) {
-    const name = specifier.slice('yzforge-contracts/libraries/'.length).split('/')[0];
+  if (specifier.startsWith('yzforge/contracts/libraries/')) {
+    const name = specifier.slice('yzforge/contracts/libraries/'.length).split('/')[0];
     return `assets/app/contracts/libraries/${name}.contract.generated.ts`;
   }
-  if (specifier.startsWith('yzforge-contracts/content-packs/')) {
-    const name = specifier.slice('yzforge-contracts/content-packs/'.length).split('/')[0];
+  if (specifier.startsWith('yzforge/contracts/content-packs/')) {
+    const name = specifier.slice('yzforge/contracts/content-packs/'.length).split('/')[0];
     return `assets/app/contracts/content-packs/${name}.contract.generated.ts`;
   }
-  if (specifier.startsWith('yzforge-shared/')) {
-    return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', 'shared', 'code', specifier.slice('yzforge-shared/'.length)))));
+  if (specifier.startsWith('yzforge/contracts/extensions/')) {
+    const name = specifier.slice('yzforge/contracts/extensions/'.length).split('/')[0];
+    return `assets/app/contracts/extensions/${name}.contract.generated.ts`;
+  }
+  if (specifier.startsWith('yzforge/shared/')) {
+    return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', 'shared', 'code', specifier.slice('yzforge/shared/'.length)))));
   }
   if (specifier.startsWith('yzforge/')) {
     return toPosix(path.relative(projectRoot, resolveExistingImportTarget(path.join(projectRoot, 'assets', 'yzforge', 'runtime', specifier.slice('yzforge/'.length)))));
@@ -2852,6 +3038,7 @@ function validate(projectRoot, options = {}) {
   if (options.strict) {
     validateCaseConflicts(projectRoot, issues);
     validatePathMaps(projectRoot, issues);
+    validateCocosAssemblyResolution(projectRoot, issues);
     validateRuntimeBundleBoundary(projectRoot, issues);
     validateMainScene(projectRoot, issues);
     validateUiGeneratedRefs(projectRoot, project, issues);

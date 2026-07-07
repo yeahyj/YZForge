@@ -23,19 +23,19 @@
       "yzforge/content-packs/*": [
         "assets/app/registry/content-packs/*.generated.ts"
       ],
-      "yzforge-contracts/modules/*": [
+      "yzforge/contracts/modules/*": [
         "assets/app/contracts/modules/*.contract.generated.ts"
       ],
-      "yzforge-contracts/libraries/*": [
+      "yzforge/contracts/libraries/*": [
         "assets/app/contracts/libraries/*.contract.generated.ts"
       ],
-      "yzforge-contracts/content-packs/*": [
+      "yzforge/contracts/content-packs/*": [
         "assets/app/contracts/content-packs/*.contract.generated.ts"
       ],
-      "yzforge-contracts/extensions/*": [
+      "yzforge/contracts/extensions/*": [
         "assets/app/contracts/extensions/*.contract.generated.ts"
       ],
-      "yzforge-shared/*": [
+      "yzforge/shared/*": [
         "assets/shared/code/*"
       ]
     }

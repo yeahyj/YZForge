@@ -41,7 +41,7 @@ export interface HomeEnterParams {
 业务代码 import contract，而不是 import 目标模块的 `code/public.ts`：
 
 ```ts
-import type { HomeEnterParams } from 'yzforge-contracts/modules/Home';
+import type { HomeEnterParams } from 'yzforge/contracts/modules/Home';
 ```
 
 ## ModuleRef
@@ -49,7 +49,7 @@ import type { HomeEnterParams } from 'yzforge-contracts/modules/Home';
 首包轻量引用由生成器写入 `assets/app/registry/modules/Home.ref.generated.ts`，并通过 `yzforge/modules/Home` 暴露：
 
 ```ts
-import type { HomeEnterParams } from 'yzforge-contracts/modules/Home';
+import type { HomeEnterParams } from 'yzforge/contracts/modules/Home';
 import { defineModuleRef } from 'yzforge';
 
 export const HomeRef = defineModuleRef<HomeEnterParams>({
@@ -62,7 +62,7 @@ export const HomeRef = defineModuleRef<HomeEnterParams>({
 如果模块依赖战斗底座，Ref 里声明轻量 Library 依赖：
 
 ```ts
-import type { BattleEnterParams } from 'yzforge-contracts/modules/Battle';
+import type { BattleEnterParams } from 'yzforge/contracts/modules/Battle';
 import { BattleCoreRef } from 'yzforge/libraries/BattleCore';
 
 export const BattleRef = defineModuleRef<BattleEnterParams>({
@@ -259,7 +259,7 @@ registerLibraryEntry(defineLibraryEntry({
 
 ```ts
 import { BattleCoreRef } from 'yzforge/libraries/BattleCore';
-import { BattleCoreTokens } from 'yzforge-contracts/libraries/BattleCore';
+import { BattleCoreTokens } from 'yzforge/contracts/libraries/BattleCore';
 
 const battleCore = await this.libraries.load(BattleCoreRef);
 const damage = battleCore.use(BattleCoreTokens.damageSystem);
