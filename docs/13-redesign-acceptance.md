@@ -214,6 +214,8 @@ Module onUnload 抛错
 - 循环依赖失败。
 - 安装失败会阻止 App.start，并输出 extension name 和 dependency chain。
 - Module-level token 随 Module 使用，不污染其他 Module。
+- Extension phase 使用 transaction；`ExtensionContext.provide` / `provideModule` 失败时必须回滚到 phase 前状态。
+- Validator 必须用 TypeScript AST 检查 `ExtensionContext` callable facade：当前 `provide` / `provideModule` 必须路由到 transaction helper，新增 callable context 入口必须先进入事务策略。
 
 ## 文档一致性
 

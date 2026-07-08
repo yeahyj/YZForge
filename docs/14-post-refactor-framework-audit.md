@@ -58,6 +58,7 @@ extensions/yzforge/runtime-template/*
 - `dispose` 支持 `Created`、`Starting`、`Started`、`Failed`，并对 `Disposed` 幂等。
 - `preloadModule` 有独立 task map；同名并发 preload 会共享同一个任务。
 - `dispose` 会等待正在进行的 `start`、preload task 和 module load task 收口，再卸载模块。
+- `AppRuntimeSnapshot.lastFailure` 暴露最后一次失败 API、最终状态、状态迁移和结构化错误摘要。
 - 非法状态调用抛出 `app.invalid_state`。
 
 当前 ExtensionTransaction 已经落地第一版：
@@ -75,6 +76,7 @@ extensions/yzforge/runtime-template/*
 - runtime deep import 是否绕过 `yzforge` 顶层入口。
 - Cocos editor / preview assembly 是否还存在 unresolved `yzforge` import。
 - Main 场景结构、Main script 挂载和 Main 生命周期关键调用。
+- `ExtensionContext.provide` / `provideModule` 是否通过事务入口接入 rollback helper；新增 callable context 入口必须先进入事务策略。
 
 这些边界让当前框架从“能跑”进入了“有架构边界”的状态。
 
@@ -97,13 +99,13 @@ Failed
 
 但我仍不满意这些点：
 
-- `start` 失败回滚已经会调用 dispose 路径，但 Extension 安装副作用还不是事务化记录。
+- `start` 失败回滚已经会调用 dispose 路径，token 类 Extension 副作用也已纳入事务；未来新增 lifecycle listener、codec、service、system ui provider 等副作用时，仍必须扩展同一套 transaction，而不是另开旁路。
 - Validator 已经用 AST 枚举 `App` class public method / accessor / field：新增 public API 如果既没有 `this.assertState(...)`，也没有被显式列入无守卫白名单，会触发 `app.state_machine`。
-- `Failed` 状态后的二次诊断还比较薄，只能通过原始错误和 snapshot 判断。
+- Validator 已经用 AST 检查 `ExtensionContext` 的 callable facade 入口：`provide` 必须走 `provideInTransaction`，`provideModule` 必须走 `provideModuleInTransaction`；新增 callable context 入口必须先被事务策略分类。
 
 后续硬终局要求：每个新增 public API 必须同时增加状态规则、行为 smoke 和文档表格；无守卫 public getter 必须显式登记为只读观察口。
 
-### Extension 安装不是事务
+### Extension 事务仍需覆盖更多副作用类型
 
 当前 Extension 已经通过 `ExtensionContext` 和 token 收窄能力，安装 phase 也已经有第一版事务回滚。
 
@@ -111,7 +113,7 @@ Failed
 
 - 事务目前覆盖 token side effect 和本 phase hook dispose，还没有统一记录 lifecycle listener、codec、service、system ui provider 等未来扩展点。
 - rollback dispose 使用 Extension 的全局 `dispose/uninstall`，还没有 phase-specific rollback hook。
-- Validator 还没有结构化检查所有 `ExtensionContext` 新增副作用都登记到 transaction。
+- Validator 已经能守住当前 `ExtensionContext.provide` / `provideModule` 的事务入口，但未来新增副作用类型时，还需要同步扩展 transaction 数据结构和 smoke 反例。
 
 硬终局要求：
 
@@ -204,6 +206,7 @@ generated copy rule:
 
 - Main 生命周期使用 TypeScript AST 检查 `app.start({ mainRoot: this.node })`。
 - Main 生命周期使用 AST 调用图，从 `onDestroy` 跟踪 `this.*` 方法调用链，确认可达路径中有 `App.dispose` 和 `clearYZForgeApp`。
+- Extension 事务入口使用 TypeScript AST 检查 `ExtensionContext.provide` / `provideModule` 的 facade 是否路由到 transaction helper，并阻断未分类的新增 callable context 入口。
 
 硬终局要求：
 
@@ -659,6 +662,7 @@ regex 只允许用于补充提示，不作为唯一验收依据。
 - Smoke 覆盖重复 start、start 中 dispose、disposed 后 enterModule。
 - `dispose` 等待 pending module load task 后再卸载模块。
 - `preloadModule` 使用独立 task map；同名并发 preload 复用同一个 Promise，`dispose` 等待 pending preload task。
+- `AppRuntimeSnapshot.lastFailure` 展示最后一次失败 API、最终状态、状态迁移和结构化错误摘要。
 - strict Validator 使用 TypeScript AST 检查新增 public App API 是否声明状态守卫或进入显式无守卫白名单。
 
 验收：
@@ -671,7 +675,7 @@ strict validator sees App state guards
 
 后续增强：
 
-- App failure snapshot 展示最后一次失败 API、状态迁移和错误摘要。
+- 将 failure snapshot 扩展为可选历史环形缓冲，用于排查连续失败链路。
 
 ### Phase B：Extension 事务
 
@@ -684,6 +688,7 @@ strict validator sees App state guards
 - 安装失败 dispose 已完成部分。
 - 错误包含 extension name、phase、dependency chain、rollback failures。
 - Smoke 覆盖 phase 失败后 token 回滚和 completed extension rollback dispose。
+- strict Validator 用 TypeScript AST 检查 `ExtensionContext.provide` / `provideModule` 必须路由到事务 helper；Smoke 覆盖绕过 `provideInTransaction` 的反例。
 
 验收：
 
@@ -698,7 +703,6 @@ App returns to defined state
 
 - 将 lifecycle listener、codec、service、system ui provider 等副作用纳入同一个 transaction。
 - 为 Extension 增加可选 phase-specific rollback hook。
-- Validator 使用 AST 检查 `ExtensionContext` 新增方法必须有 rollback 记录。
 
 ### Phase C：ToolchainResolver
 

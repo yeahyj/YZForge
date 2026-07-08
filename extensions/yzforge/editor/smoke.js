@@ -49,6 +49,31 @@ function writeJson(projectRoot, relativePath, value) {
   writeText(projectRoot, relativePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function listRuntimeSourceFiles(sourceRoot, current = '') {
+  const directory = path.join(sourceRoot, current);
+  const files = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const relative = current ? `${current}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...listRuntimeSourceFiles(sourceRoot, relative));
+    } else if (entry.isFile() && relative.endsWith('.ts')) {
+      files.push(relative);
+    }
+  }
+  return files;
+}
+
+function writeRuntimeFixture(projectRoot) {
+  const sourceRoot = path.resolve(__dirname, '..', '..', '..', 'packages', 'yzforge-runtime', 'src');
+  const targetRoots = ['packages/yzforge-runtime/src', 'extensions/yzforge/runtime-template', 'assets/yzforge/runtime'];
+  for (const relative of listRuntimeSourceFiles(sourceRoot)) {
+    const content = fs.readFileSync(path.join(sourceRoot, relative), 'utf8');
+    for (const targetRoot of targetRoots) {
+      writeText(projectRoot, `${targetRoot}/${relative}`, content);
+    }
+  }
+}
+
 function readJson(projectRoot, relativePath) {
   return JSON.parse(fs.readFileSync(path.join(projectRoot, relativePath), 'utf8'));
 }
@@ -803,11 +828,26 @@ async function assertAppStateMachineBehavior() {
   }
   assert(invalidLoad?.code === 'app.invalid_state', 'App.loadModule must fail before start.');
   assert(invalidLoad?.details?.state === AppState.Created, 'Invalid loadModule must report current App state.');
+  const invalidLoadSnapshot = app.snapshot().lastFailure;
+  assert(invalidLoadSnapshot?.api === 'loadModule', 'App snapshot must expose the last failed API.');
+  assert(invalidLoadSnapshot?.state === AppState.Created, 'App failure snapshot must expose the final App state.');
+  assert(invalidLoadSnapshot?.error?.code === 'app.invalid_state', 'App failure snapshot must expose structured error summaries.');
 
   await app.start();
   assert(app.state === AppState.Started, 'App.start must transition to Started.');
   await app.purgeResourceCache({ type: 'smoke_cache_purge' });
   assert(events.includes('bundle.purge:smoke_cache_purge'), 'App.purgeResourceCache must delegate to BundleManager purge.');
+
+  let moduleLoadFailure;
+  try {
+    await app.loadModule(ref);
+  } catch (error) {
+    moduleLoadFailure = error;
+  }
+  assert(moduleLoadFailure, 'App.loadModule must surface module load failures.');
+  const moduleLoadFailureSnapshot = app.snapshot().lastFailure;
+  assert(moduleLoadFailureSnapshot?.api === 'loadModule', 'App failure snapshot must update after module load failure.');
+  assert(moduleLoadFailureSnapshot?.state === AppState.Started, 'Module load failure snapshot must keep the current App state.');
 
   let releaseConcurrentPreload;
   controls.preloadBundle = () => new Promise((resolve) => {
@@ -830,6 +870,7 @@ async function assertAppStateMachineBehavior() {
   }
   assert(duplicateStart?.code === 'app.invalid_state', 'App.start must reject duplicate start.');
   assert(duplicateStart?.details?.state === AppState.Started, 'Duplicate start must report Started state.');
+  assert(app.snapshot().lastFailure?.api === 'start', 'App failure snapshot must update after duplicate start failure.');
 
   let releaseDisposePreload;
   controls.preloadBundle = () => new Promise((resolve) => {
@@ -884,6 +925,14 @@ async function assertAppStateMachineBehavior() {
   }
   assert(startFailure?.message === 'start failed', 'App.start must surface original start failure after rollback.');
   assert(failingApp.state === AppState.Disposed, 'App.start failure must rollback to Disposed when cleanup succeeds.');
+  const startFailureSnapshot = failingApp.snapshot().lastFailure;
+  assert(startFailureSnapshot?.api === 'start', 'App start failure snapshot must expose the failed API.');
+  assert(startFailureSnapshot?.state === AppState.Disposed, 'App start failure snapshot must expose the rollback final state.');
+  assert(startFailureSnapshot?.error?.message === 'start failed', 'App start failure snapshot must expose the original error summary.');
+  assert(
+    startFailureSnapshot?.transitions?.map((transition) => `${transition.from}->${transition.to}`).join('|') === 'created->starting|starting->disposing|disposing->disposed',
+    'App start failure snapshot must expose rollback state transitions.',
+  );
 }
 
 function writeBundleMeta(projectRoot, relativeDir, bundleName) {
@@ -1341,17 +1390,7 @@ function setupBaseline(projectRoot) {
     'void loadToolchainTypeScript;',
     '',
   ].join('\n'));
-  writeText(projectRoot, 'packages/yzforge-runtime/src/index.ts', 'export {};');
-  writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export {};');
-  writeText(projectRoot, 'assets/yzforge/runtime/index.ts', 'export {};');
-  writeText(projectRoot, 'packages/yzforge-runtime/src/app.ts', appStateMachineRuntimeSource());
-  writeText(projectRoot, 'extensions/yzforge/runtime-template/app.ts', appStateMachineRuntimeSource());
-  writeText(projectRoot, 'assets/yzforge/runtime/app.ts', appStateMachineRuntimeSource());
-  for (const root of ['packages/yzforge-runtime/src', 'extensions/yzforge/runtime-template', 'assets/yzforge/runtime']) {
-    writeText(projectRoot, `${root}/screen-fitter.ts`, 'export class YZScreenFitter {}');
-    writeText(projectRoot, `${root}/full-screen-root.ts`, 'export class YZFullScreenRoot extends YZScreenFitter {}');
-    writeText(projectRoot, `${root}/safe-area-root.ts`, 'export class YZSafeAreaRoot extends YZScreenFitter {}');
-  }
+  writeRuntimeFixture(projectRoot);
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/screen-fitter.ts', SCREEN_FITTER_UUID);
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/full-screen-root.ts', FULL_SCREEN_ROOT_UUID);
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/safe-area-root.ts', SAFE_AREA_ROOT_UUID);
@@ -1665,6 +1704,15 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes("this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed])"), 'dispose must accept Created/Starting/Started/Failed states.');
   assert(appSource.includes("'app.invalid_state'"), 'App state guard must report typed invalid-state errors.');
   assert(appSource.includes('state: this.appState'), 'App snapshot must expose current App state.');
+  assert(appSource.includes('export interface AppFailureSnapshot'), 'App snapshot must expose structured failure diagnostics.');
+  assert(appSource.includes('readonly lastFailure?: AppFailureSnapshot'), 'AppRuntimeSnapshot must include last failure diagnostics.');
+  assert(appSource.includes('private readonly stateTransitions'), 'App must keep state transition evidence for failure diagnostics.');
+  assert(appSource.includes('private setState('), 'App state transitions must go through a centralized recorder.');
+  assert(appSource.includes('private recordFailure('), 'App must centralize failure snapshot recording.');
+  assert(appSource.includes('transitions: this.stateTransitions.slice(transitionStart)'), 'App failure diagnostics must include state transition evidence.');
+  for (const api of ['preloadModule', 'loadModule', 'enterModule', 'unloadModule', 'use', 'installExtension', 'useModuleToken', 'purgeResourceCache']) {
+    assert(appSource.includes(`this.recordFailure('${api}'`), `App.${api} failures must update App failure diagnostics.`);
+  }
   assert(appSource.includes('private readonly preloadTasks = new Map<string, Promise<ReleaseScope>>()'), 'App must track pending preload tasks explicitly.');
   assert(appSource.includes('const running = this.preloadTasks.get(ref.name)'), 'App.preloadModule must reuse pending preload tasks.');
   assert(appSource.indexOf('const running = this.preloadTasks.get(ref.name)') < appSource.indexOf('const existing = this.preloadScopes.get(ref.name)'), 'App.preloadModule must prefer pending preload tasks over optimistic preload scopes.');
@@ -2106,11 +2154,39 @@ async function smoke(options = {}) {
     fs.rmSync(path.join(projectRoot, 'assets/modules/Orphan'), { recursive: true, force: true });
     assertOkValidation(projectRoot);
 
+    const runtimeTemplateIndexOriginal = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/runtime-template/index.ts'), 'utf8');
     writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export const drift = true;');
     const runtimeDriftViolation = expectValidationIssue(projectRoot, 'Runtime template file differs from runtime source package');
     const runtimeDriftDetail = runtimeDriftViolation.issueDetails.find((issue) => issue.message.includes('Runtime template file differs from runtime source package'));
     assert(runtimeDriftDetail.code === 'runtime.package_drift', 'Expected runtime package drift issue code.');
-    writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', 'export {};');
+    writeText(projectRoot, 'extensions/yzforge/runtime-template/index.ts', runtimeTemplateIndexOriginal);
+    assertOkValidation(projectRoot);
+
+    const extensionRegistryRels = [
+      'packages/yzforge-runtime/src/extension-registry.ts',
+      'assets/yzforge/runtime/extension-registry.ts',
+      'extensions/yzforge/runtime-template/extension-registry.ts',
+    ];
+    const extensionRegistryOriginals = new Map(extensionRegistryRels.map((rel) => [
+      rel,
+      fs.readFileSync(path.join(projectRoot, rel), 'utf8'),
+    ]));
+    for (const rel of extensionRegistryRels) {
+      updateText(projectRoot, rel, (content) => {
+        const updated = content.replace(
+          '? this.provideInTransaction(transaction, token, value)',
+          '? this.provide(token, value)',
+        );
+        assert(updated !== content, `Expected to mutate ${rel} ExtensionContext.provide transaction route.`);
+        return updated;
+      });
+    }
+    const extensionTransactionRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.provide must route through provideInTransaction');
+    const extensionTransactionRouteDetail = extensionTransactionRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.provide must route through provideInTransaction'));
+    assert(extensionTransactionRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext transaction route issue code.');
+    for (const [rel, content] of extensionRegistryOriginals) {
+      writeText(projectRoot, rel, content);
+    }
     assertOkValidation(projectRoot);
 
     updateText(projectRoot, 'packages/yzforge-runtime/src/app.ts', (content) => {

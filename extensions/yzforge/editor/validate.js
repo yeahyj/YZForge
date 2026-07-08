@@ -1148,7 +1148,8 @@ function validateExtensionTransactions(projectRoot, issues) {
   if (!fs.existsSync(filePath)) {
     return;
   }
-  const source = stripCodeComments(fs.readFileSync(filePath, 'utf8'));
+  const rawSource = fs.readFileSync(filePath, 'utf8');
+  const source = stripCodeComments(rawSource);
   const requirements = [
     [/\binterface\s+ExtensionTransaction\b/, 'ExtensionRegistry must define ExtensionTransaction.', 'ExtensionTransaction'],
     [/\bcreateTransaction\s*\(/, 'ExtensionRegistry must create phase transactions.', 'createTransaction'],
@@ -1168,6 +1169,223 @@ function validateExtensionTransactions(projectRoot, issues) {
       });
     }
   }
+  validateExtensionTransactionAst(rel, rawSource, issues);
+}
+
+function validateExtensionTransactionAst(rel, source, issues) {
+  const parsed = parseTypeScriptFile(source, rel);
+  if (!parsed) {
+    issues.push(`${rel} Extension transaction AST rules cannot be validated because TypeScript cannot be resolved.`, {
+      path: rel,
+      code: 'extension.transaction_ast_unavailable',
+    });
+    return;
+  }
+
+  const { ts, sourceFile } = parsed;
+  const extensionContext = sourceFile.statements.find(
+    (node) => ts.isInterfaceDeclaration(node) && node.name?.text === 'ExtensionContext',
+  );
+  const registryClass = sourceFile.statements.find(
+    (node) => ts.isClassDeclaration(node) && node.name?.text === 'ExtensionRegistry',
+  );
+  if (!extensionContext) {
+    issues.push(`${rel} must declare ExtensionContext.`, {
+      path: rel,
+      code: 'extension.transaction',
+      target: 'ExtensionContext',
+    });
+    return;
+  }
+  if (!registryClass) {
+    issues.push(`${rel} must declare ExtensionRegistry.`, {
+      path: rel,
+      code: 'extension.transaction',
+      target: 'ExtensionRegistry',
+    });
+    return;
+  }
+
+  const transactionalMethods = new Map([
+    ['provide', 'provideInTransaction'],
+    ['provideModule', 'provideModuleInTransaction'],
+  ]);
+  for (const member of extensionContext.members) {
+    if (!ts.isMethodSignature(member)) {
+      continue;
+    }
+    const name = propertyNameText(ts, member.name);
+    if (!name || transactionalMethods.has(name)) {
+      continue;
+    }
+    issues.push(`${rel} ExtensionContext.${name} must be classified by the transaction validator before it can be exposed.`, {
+      path: rel,
+      code: 'extension.transaction',
+      target: `ExtensionContext.${name}`,
+      ...sourceLocation(sourceFile, member),
+    });
+  }
+
+  const methods = classMethodMap(ts, registryClass);
+  const createContext = methods.get('createContext');
+  if (!createContext?.body) {
+    issues.push(`${rel} ExtensionRegistry.createContext must build the ExtensionContext facade.`, {
+      path: rel,
+      code: 'extension.transaction',
+      target: 'createContext',
+      ...(createContext ? sourceLocation(sourceFile, createContext) : {}),
+    });
+    return;
+  }
+
+  const contextObject = returnedObjectLiteral(ts, createContext.body);
+  if (!contextObject) {
+    issues.push(`${rel} ExtensionRegistry.createContext must return an object-literal ExtensionContext facade.`, {
+      path: rel,
+      code: 'extension.transaction',
+      target: 'createContext',
+      ...sourceLocation(sourceFile, createContext),
+    });
+    return;
+  }
+
+  for (const [contextMethod, transactionHelper] of transactionalMethods) {
+    const initializer = objectLiteralPropertyInitializer(ts, contextObject, contextMethod);
+    if (!initializer) {
+      issues.push(`${rel} ExtensionRegistry.createContext must expose ExtensionContext.${contextMethod}.`, {
+        path: rel,
+        code: 'extension.transaction',
+        target: `ExtensionContext.${contextMethod}`,
+        ...sourceLocation(sourceFile, contextObject),
+      });
+      continue;
+    }
+    if (!nodeContainsIdentifierOrPropertyCall(ts, initializer, transactionHelper)) {
+      issues.push(`${rel} ExtensionContext.${contextMethod} must route through ${transactionHelper}.`, {
+        path: rel,
+        code: 'extension.transaction',
+        target: transactionHelper,
+        ...sourceLocation(sourceFile, initializer),
+      });
+    }
+    if (!nodeContainsIdentifier(ts, initializer, 'transaction')) {
+      issues.push(`${rel} ExtensionContext.${contextMethod} must be transaction-gated.`, {
+        path: rel,
+        code: 'extension.transaction',
+        target: `ExtensionContext.${contextMethod}`,
+        ...sourceLocation(sourceFile, initializer),
+      });
+    }
+  }
+
+  for (const property of contextObject.properties) {
+    const name = objectLiteralPropertyName(ts, property);
+    if (!name || transactionalMethods.has(name)) {
+      continue;
+    }
+    const initializer = objectLiteralElementInitializer(ts, property);
+    if (initializer && isFunctionLikeExpression(ts, initializer)) {
+      issues.push(`${rel} ExtensionContext.${name} is a callable facade entry and must be added to the transaction policy.`, {
+        path: rel,
+        code: 'extension.transaction',
+        target: `ExtensionContext.${name}`,
+        ...sourceLocation(sourceFile, property),
+      });
+    }
+  }
+}
+
+function returnedObjectLiteral(ts, node) {
+  let found;
+  const visit = (current) => {
+    if (found) {
+      return;
+    }
+    if (ts.isReturnStatement(current) && current.expression && ts.isObjectLiteralExpression(current.expression)) {
+      found = current.expression;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function objectLiteralPropertyName(ts, property) {
+  if (
+    ts.isPropertyAssignment(property)
+    || ts.isMethodDeclaration(property)
+    || ts.isShorthandPropertyAssignment(property)
+  ) {
+    return propertyNameText(ts, property.name);
+  }
+  return undefined;
+}
+
+function objectLiteralElementInitializer(ts, property) {
+  if (ts.isPropertyAssignment(property)) {
+    return property.initializer;
+  }
+  if (ts.isMethodDeclaration(property)) {
+    return property;
+  }
+  return undefined;
+}
+
+function objectLiteralPropertyInitializer(ts, objectLiteral, name) {
+  for (const property of objectLiteral.properties) {
+    if (objectLiteralPropertyName(ts, property) === name) {
+      return objectLiteralElementInitializer(ts, property);
+    }
+  }
+  return undefined;
+}
+
+function isFunctionLikeExpression(ts, node) {
+  return Boolean(
+    ts.isArrowFunction(node)
+    || ts.isFunctionExpression(node)
+    || ts.isMethodDeclaration(node),
+  );
+}
+
+function nodeContainsIdentifier(ts, node, identifier) {
+  let found = false;
+  const visit = (current) => {
+    if (found) {
+      return;
+    }
+    if (ts.isIdentifier(current) && current.text === identifier) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function nodeContainsIdentifierOrPropertyCall(ts, node, targetName) {
+  let found = false;
+  const visit = (current) => {
+    if (found) {
+      return;
+    }
+    if (ts.isCallExpression(current)) {
+      const expression = current.expression;
+      if (ts.isIdentifier(expression) && expression.text === targetName) {
+        found = true;
+        return;
+      }
+      if (ts.isPropertyAccessExpression(expression) && expression.name.text === targetName) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
 }
 
 function validateCaseConflicts(projectRoot, issues) {
