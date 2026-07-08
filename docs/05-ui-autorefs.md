@@ -387,7 +387,7 @@ Module Navigator 与 UIManager 的边界：
 
 ## 返回键
 
-硬件返回键或 `app.navigator.back()` 应先交给 UIManager：
+硬件返回键或 `app.back()` 应先交给 UIManager：
 
 ```text
 if System modal blocks back:

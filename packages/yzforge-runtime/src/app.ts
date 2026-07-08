@@ -135,6 +135,17 @@ export class App {
         return this.appState;
     }
 
+    public async back(): Promise<boolean> {
+        const transitionStart = this.stateTransitions.length;
+        try {
+            this.assertState('back', [AppState.Started]);
+            return await this.kernel.navigator.back();
+        } catch (error) {
+            this.recordFailure('back', error, transitionStart);
+            throw error;
+        }
+    }
+
     public async start(options: AppStartOptions = {}): Promise<void> {
         if (this.startTask) {
             return await this.startTask;
@@ -190,7 +201,7 @@ export class App {
         kernel.viewport.initialize();
         await kernel.extensions.installAfterMainBinding();
         await kernel.global.initialize();
-        kernel.ui.installBackKeyHandler(async () => kernel.navigator.back());
+        kernel.ui.installBackKeyHandler(async () => this.back());
         kernel.logger.info('App started.');
     }
 

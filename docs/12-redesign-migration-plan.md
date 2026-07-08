@@ -219,7 +219,7 @@ MainRoot
 
 - 设计 `defineLibraryProviders`。
 - Library 模板生成 `code/providers.ts`。
-- `entry.generated.ts` 引入 providers。
+- `generated/entry.ts` 引入 providers。
 - Validator 检查：
   - public token map key。
   - providers key。
@@ -244,7 +244,7 @@ MainRoot
   - primary key。
   - row interface。
   - get / require / all。
-- `config.generated.ts` 生成 table refs。
+- `generated/config.ts` 生成 table refs。
 - Runtime ConfigLoader 创建 `ConfigScope`。
 - ContentPack runtime 读取或使用 generated manifest。
 - ContentPack config 挂到 `LoadedContentPack.config`。

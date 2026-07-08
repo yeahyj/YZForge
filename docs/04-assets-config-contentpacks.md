@@ -21,8 +21,8 @@ const table = await module.assets.load(assets.runtime.itemTable);
 
 资源规则：
 
-- `assets.generated.ts` 属于对应真实 Bundle。
-- `registry` 和 `contracts` 不能 import 目标 Bundle 的 `assets.generated.ts`。
+- `generated/assets.ts` 属于对应真实 Bundle。
+- `registry` 和 `contracts` 不能 import 目标 Bundle 的 `generated/assets.ts`。
 - 显式加载资源进入 manifest。
 - 间接依赖资源放 `content`，默认不生成普通 asset ref。
 - 加载出的资源由对应 Scope 的 asset handle 追踪并释放。
@@ -32,7 +32,7 @@ const table = await module.assets.load(assets.runtime.itemTable);
 每个 Module、Global、Shared Resource、Library 都可以生成：
 
 ```text
-code/assets.generated.ts
+code/generated/assets.ts
 ```
 
 示例：
@@ -129,7 +129,7 @@ Shared Resource:
   res/sound     通用音频
 ```
 
-`content` 默认不进入普通 `assets.generated.ts`。如果代码需要显式加载某个资源，它应该移动到 `runtime` 或通过专门 manifest 标记。
+`content` 默认不进入普通 `generated/assets.ts`。如果代码需要显式加载某个资源，它应该移动到 `runtime` 或通过专门 manifest 标记。
 
 ## Shared Resource
 
@@ -159,9 +159,9 @@ bundle    配成 yzforge-shared-res，适合字体、通用图集、通用音效
 | --- | --- | --- |
 | Authoring Source | 策划或工具维护的原始数据 | xlsx、csv、json、yaml、自研表格 |
 | Runtime Payload | 构建后运行时加载的数据 | json、binary、compressed binary |
-| Generated Contract | TypeScript 类型、表入口、索引入口 | `config.generated.ts` |
+| Generated Contract | TypeScript 类型、表入口、索引入口 | `generated/config.ts` |
 
-`config.generated.ts` 不内嵌大表数据，只生成类型安全访问入口。真实数据仍然作为资源随对应 Scope 的 Bundle 或 ContentPack 加载。
+`generated/config.ts` 不内嵌大表数据，只生成类型安全访问入口。真实数据仍然作为资源随对应 Scope 的 Bundle 或 ContentPack 加载。
 
 原始文件：
 
@@ -176,13 +176,13 @@ res/content/config/
 生成文件：
 
 ```text
-code/config.generated.ts
+code/generated/config.ts
 ```
 
 终局规则：
 
 - 配置表类型、枚举、索引入口由生成器生成。
-- 配置原始数据不进入普通 `assets.generated.ts`。
+- 配置原始数据不进入普通 `generated/assets.ts`。
 - Config Manager 负责加载、索引、校验。
 - Model 可以保存配置 id 或只读索引，不直接读 JSON。
 - Service 读取配置并写入 Model。
@@ -232,7 +232,7 @@ code/config.generated.ts
 
 ## Config Generated API
 
-`config.generated.ts` 只生成稳定 API，不关心底层数据是 json、binary 还是压缩格式。
+`generated/config.ts` 只生成稳定 API，不关心底层数据是 json、binary 还是压缩格式。
 
 示例：
 
@@ -504,7 +504,7 @@ assets/content-packs/<Owner>/<ContentPackName>/manifest.generated.json
 并生成 owner Module 的类型安全入口：
 
 ```text
-assets/modules/<Owner>/code/content-packs.generated.ts
+assets/modules/<Owner>/code/generated/content-packs.ts
 ```
 
 示例：

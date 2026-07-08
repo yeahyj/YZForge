@@ -54,24 +54,24 @@ YZForge
 
 ```text
 assets/modules/<ModuleName>/module.json
-assets/modules/<ModuleName>/code/entry.generated.ts
+assets/modules/<ModuleName>/code/generated/entry.ts
 assets/modules/<ModuleName>/code/public.ts
 assets/modules/<ModuleName>/code/<ModuleName>Module.ts
 assets/modules/<ModuleName>/res
 ```
 
-`code/entry.generated.ts` 是生成入口，业务不手改。手写业务逻辑目录由项目自行组织；模板默认提供 `<ModuleName>Module.ts`、`flow/`、`service/`、`model/` 作为参考。
+`code/generated/entry.ts` 是生成入口，业务不手改。手写业务逻辑目录由项目自行组织；模板默认提供 `<ModuleName>Module.ts`、`flow/`、`service/`、`model/` 作为参考。
 
 创建 Library：
 
 ```text
 assets/libraries/<LibraryName>/library.json
-assets/libraries/<LibraryName>/code/entry.generated.ts
+assets/libraries/<LibraryName>/code/generated/entry.ts
 assets/libraries/<LibraryName>/code/public.ts
 assets/libraries/<LibraryName>/res
 ```
 
-Library 的 `code/entry.generated.ts` 也是生成入口，负责注册 `LibraryEntry`。
+Library 的 `code/generated/entry.ts` 也是生成入口，负责注册 `LibraryEntry`。
 
 创建 ContentPack：
 
@@ -111,7 +111,7 @@ res/view/PageHome.prefab
 - 生成产物必须带 generator version 和 content hash。
 - `ModuleRef`、`LibraryRef` 只能生成到 `assets/app/registry`。
 - Contract 只能生成到 `assets/app/contracts`。
-- `ModuleEntry`、`LibraryEntry` 只能生成到目标 Scope 的真实 Bundle 内，默认写入 `code/entry.generated.ts`。
+- `ModuleEntry`、`LibraryEntry` 只能生成到目标 Scope 的真实 Bundle 内，默认写入 `code/generated/entry.ts`。
 - Import Maps 和 `tsconfig.paths` 必须同步生成。
 
 generated 文件头：
@@ -133,7 +133,7 @@ Validator 通过 hash 检查 generated 文件是否被手改。
 2. validate descriptor schema
 3. generate contracts from public.ts
 4. generate refs into app/registry
-5. generate entries into scope code/entry.generated.ts
+5. generate entries into scope code/generated/entry.ts
 6. generate asset manifests
 7. generate config types
 8. generate UI refs
@@ -199,13 +199,13 @@ tsconfig.json compilerOptions.paths
 4. `module.json`、`library.json`、`content-pack.json` schema 是否正确。
 5. Scope 对应 Bundle 命名是否正确。
 6. Cocos Bundle meta 是否存在，Bundle 名是否与描述文件一致。
-7. 动态 Bundle 是否包含 `code/entry.generated.ts`。
-8. `entry.generated.ts` 是否只 import 当前 Scope、`yzforge`、首包 contract/registry 和 shared。
+7. 动态 Bundle 是否包含 `code/generated/entry.ts`。
+8. `generated/entry.ts` 是否只 import 当前 Scope、`yzforge`、首包 contract/registry 和 shared。
 9. `module.json`、`library.json`、`content-pack.json` 中声明的依赖是否存在。
 10. 是否有业务模块直接 import 另一个业务模块。
-11. 是否有业务模块 import 另一个模块的 `assets.generated.ts`。
-12. 是否有业务模块 import 另一个模块的 `config.generated.ts` 或运行时 config。
-13. 是否有业务模块直接 import 另一个模块的 `code/entry.generated.ts`。
+11. 是否有业务模块 import 另一个模块的 `generated/assets.ts`。
+12. 是否有业务模块 import 另一个模块的 `generated/config.ts` 或运行时 config。
+13. 是否有业务模块直接 import 另一个模块的 `code/generated/entry.ts`。
 14. 是否有业务模块直接 import Library 内部代码。
 15. Library 是否 import 了 Module 内部代码。
 16. Library 之间是否存在循环依赖。
@@ -226,7 +226,7 @@ tsconfig.json compilerOptions.paths
 31. AutoRefs 引用是否能解析到节点和组件。
 32. `res/` 是否包含业务脚本源码。
 33. Module prefab 挂载的脚本是否来自本 Module、global public、shared 或已声明 Library。
-34. Library 是否只通过 `code/entry.generated.ts` 注册公开 API。
+34. Library 是否只通过 `code/generated/entry.ts` 注册公开 API。
 35. ContentPack 是否包含业务脚本源码。
 36. ContentPack 的 owner Module 是否存在。
 37. ContentPack prefab 挂载脚本是否来自 owner Module、shared 或已声明 Library。
@@ -248,7 +248,7 @@ tsconfig.json compilerOptions.paths
 53. View 是否绕过 `this.listen`、`addDisposer` 长期注册事件、计时器或 tween。
 54. ContentPack 是否提供了 Page、Paper、Popup 这类 UIManager View。
 55. System UI preset 是否存在，且不被 Module 直接持有节点。
-56. `ExtensionContext` callable facade 是否通过 TypeScript AST 进入事务策略：`provide` 必须路由到 `provideInTransaction`，`provideModule` 必须路由到 `provideModuleInTransaction`，`onLifecycle` 必须路由到 `onLifecycleInTransaction`，`registerConfigCodec` 必须路由到 `registerConfigCodecInTransaction`，`registerService` 必须路由到 `registerServiceInTransaction`，`registerSystemUIProvider` 必须路由到 `registerSystemUIProviderInTransaction`，新增 callable context 入口必须先分类，裸 `lifecycle` 不能暴露。
+56. `ExtensionContext` callable facade 是否通过 TypeScript AST 进入事务策略：`provide` 必须路由到 `provideInTransaction`，`provideModule` 必须路由到 `provideModuleInTransaction`，`onLifecycle` 必须路由到 `onLifecycleInTransaction`，`registerConfigCodec` 必须路由到 `registerConfigCodecInTransaction`，`registerAppService` 必须路由到 `registerAppServiceInTransaction`，`registerSystemUIProvider` 必须路由到 `registerSystemUIProviderInTransaction`，新增 callable context 入口必须先分类，裸 `lifecycle` 不能暴露。
 57. `openForResult` 是否用于 Toast 或没有结果策略的 View。
 
 ## 检查方式
@@ -270,7 +270,7 @@ asset check        扫描 meta、bundle 配置、资源路径和大小写
 - “手写资源路径”检查 `resources.load`、`bundle.load`、`assetManager.loadBundle` 和字符串白名单。
 - “generated 被手改”检查文件头 hash。
 - “Prefab 脚本来源”检查脚本 UUID 对应资产路径。
-- “entry 是否入包”检查 `entry.generated.ts` 所在目录、Bundle meta 和构建配置。
+- “entry 是否入包”检查 `generated/entry.ts` 所在目录、Bundle meta 和构建配置。
 - “手动实例化未登记”检查 `instantiate(...)` 调用是否进入 `assets.instantiate`、`ui.open` 或 `trackNode` 白名单。
 - “ViewPolicy 是否一致”检查生成的 ViewRef、prefab 命名、挂载脚本和 UI layer 配置。
 - “View 事件未登记”检查 `node.on`、`schedule`、`tween` 等调用是否被 `listen` 或 `addDisposer` 包裹。
@@ -286,9 +286,9 @@ service -> view node field
 view -> other view node field
 module A -> module B internal code
 module A -> module B view
-module A -> module B assets.generated
-module A -> module B config.generated
-module A -> module B code/entry.generated.ts
+module A -> module B generated/assets
+module A -> module B generated/config
+module A -> module B code/generated/entry.ts
 module A -> module B content pack
 module -> library internal code
 library -> module

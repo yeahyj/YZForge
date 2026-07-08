@@ -22,7 +22,7 @@ function isInsideProject(projectRoot, filePath) {
 }
 
 function isGeneratedTs(filePath) {
-  if (!filePath.endsWith('.generated.ts')) {
+  if (!filePath.endsWith('.ts')) {
     return false;
   }
   if (!fs.existsSync(filePath)) {
@@ -51,7 +51,7 @@ function isGeneratedJson(projectRoot, filePath) {
 }
 
 function isCleanableGeneratedFile(projectRoot, filePath, options = {}) {
-  if (options.includeScripts === false && filePath.endsWith('.generated.ts')) {
+  if (options.includeScripts === false && isGeneratedTs(filePath)) {
     return false;
   }
   return isGeneratedTs(filePath) || isGeneratedJson(projectRoot, filePath);

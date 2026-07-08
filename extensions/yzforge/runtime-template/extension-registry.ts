@@ -18,7 +18,7 @@ export interface ExtensionPhaseRollbackReason {
     readonly cause: unknown;
 }
 
-export interface ExtensionServiceOptions<TValue> {
+export interface ExtensionAppServiceOptions<TValue> {
     dispose?(value: TValue): void;
 }
 
@@ -37,10 +37,10 @@ export interface ExtensionContext {
         handler: (payload: AppLifecycleEvents[TKey]) => void,
     ): () => void;
     registerConfigCodec(codec: ConfigCodec): () => void;
-    registerService<TValue>(
+    registerAppService<TValue>(
         token: ExtensionToken<TValue>,
         value: TValue,
-        options?: ExtensionServiceOptions<TValue>,
+        options?: ExtensionAppServiceOptions<TValue>,
     ): () => void;
     registerSystemUIProvider(provider: SystemUIProvider): () => void;
 }
@@ -73,7 +73,7 @@ interface ExtensionTransaction {
     readonly moduleFactories: Map<string, TransactionValue<ModuleTokenFactory<unknown>>>;
     readonly lifecycleDisposers: TransactionDisposer[];
     readonly configCodecDisposers: TransactionDisposer[];
-    readonly serviceDisposers: TransactionDisposer[];
+    readonly appServiceDisposers: TransactionDisposer[];
     readonly systemUiProviderDisposers: TransactionDisposer[];
 }
 
@@ -101,7 +101,7 @@ export class ExtensionRegistry {
     private readonly phaseDone = new Map<string, Set<ExtensionInstallPhase>>();
     private readonly lifecycleDisposers = new Map<string, Set<() => void>>();
     private readonly configCodecDisposers = new Map<string, Set<() => void>>();
-    private readonly serviceDisposers = new Map<string, Set<() => void>>();
+    private readonly appServiceDisposers = new Map<string, Set<() => void>>();
     private readonly systemUiProviderDisposers = new Map<string, Set<() => void>>();
     private readonly disposedExtensions = new Set<string>();
     private disposed = false;
@@ -206,7 +206,7 @@ export class ExtensionRegistry {
         this.moduleFactories.clear();
         this.lifecycleDisposers.clear();
         this.configCodecDisposers.clear();
-        this.serviceDisposers.clear();
+        this.appServiceDisposers.clear();
         this.systemUiProviderDisposers.clear();
         this.disposedExtensions.clear();
         if (failure) {
@@ -300,9 +300,9 @@ export class ExtensionRegistry {
             registerConfigCodec: (codec) => transaction
                 ? this.registerConfigCodecInTransaction(transaction, extensionName, codec)
                 : this.trackConfigCodecDisposer(extensionName, configCodecs.register(codec)),
-            registerService: (token, value, options) => transaction
-                ? this.registerServiceInTransaction(transaction, extensionName, token, value, options)
-                : this.registerServiceForExtension(extensionName, token, value, options),
+            registerAppService: (token, value, options) => transaction
+                ? this.registerAppServiceInTransaction(transaction, extensionName, token, value, options)
+                : this.registerAppServiceForExtension(extensionName, token, value, options),
             registerSystemUIProvider: (provider) => transaction
                 ? this.registerSystemUIProviderInTransaction(transaction, extensionName, provider)
                 : this.registerSystemUIProviderForExtension(extensionName, provider),
@@ -340,7 +340,7 @@ export class ExtensionRegistry {
             moduleFactories: new Map(),
             lifecycleDisposers: [],
             configCodecDisposers: [],
-            serviceDisposers: [],
+            appServiceDisposers: [],
             systemUiProviderDisposers: [],
         };
     }
@@ -394,31 +394,31 @@ export class ExtensionRegistry {
         return dispose;
     }
 
-    private registerServiceInTransaction<TValue>(
+    private registerAppServiceInTransaction<TValue>(
         transaction: ExtensionTransaction,
         extensionName: string,
         token: ExtensionToken<TValue>,
         value: TValue,
-        options?: ExtensionServiceOptions<TValue>,
+        options?: ExtensionAppServiceOptions<TValue>,
     ): () => void {
-        const dispose = this.registerServiceForExtension(extensionName, token, value, options);
-        transaction.serviceDisposers.push({ extensionName, dispose });
+        const dispose = this.registerAppServiceForExtension(extensionName, token, value, options);
+        transaction.appServiceDisposers.push({ extensionName, dispose });
         return dispose;
     }
 
-    private registerServiceForExtension<TValue>(
+    private registerAppServiceForExtension<TValue>(
         extensionName: string,
         token: ExtensionToken<TValue>,
         value: TValue,
-        options?: ExtensionServiceOptions<TValue>,
+        options?: ExtensionAppServiceOptions<TValue>,
     ): () => void {
         if (this.appValues.has(token.id)) {
-            throw new YZForgeError(`Extension service is already registered: ${token.id}`, 'extension.service_duplicate', {
+            throw new YZForgeError(`Extension app service is already registered: ${token.id}`, 'extension.app_service_duplicate', {
                 token: token.id,
             });
         }
         this.provide(token, value);
-        return this.trackServiceDisposer(extensionName, () => {
+        return this.trackAppServiceDisposer(extensionName, () => {
             if (this.appValues.get(token.id) === value) {
                 this.appValues.delete(token.id);
             }
@@ -492,7 +492,7 @@ export class ExtensionRegistry {
         return tracked;
     }
 
-    private trackServiceDisposer(extensionName: string, dispose: () => void): () => void {
+    private trackAppServiceDisposer(extensionName: string, dispose: () => void): () => void {
         let active = true;
         const tracked = (): void => {
             if (!active) {
@@ -500,16 +500,16 @@ export class ExtensionRegistry {
             }
             active = false;
             dispose();
-            const disposers = this.serviceDisposers.get(extensionName);
+            const disposers = this.appServiceDisposers.get(extensionName);
             disposers?.delete(tracked);
             if (disposers?.size === 0) {
-                this.serviceDisposers.delete(extensionName);
+                this.appServiceDisposers.delete(extensionName);
             }
         };
-        let disposers = this.serviceDisposers.get(extensionName);
+        let disposers = this.appServiceDisposers.get(extensionName);
         if (!disposers) {
             disposers = new Set();
-            this.serviceDisposers.set(extensionName, disposers);
+            this.appServiceDisposers.set(extensionName, disposers);
         }
         disposers.add(tracked);
         return tracked;
@@ -568,7 +568,7 @@ export class ExtensionRegistry {
                 failures.push({ extensionName: item.extensionName, error });
             }
         }
-        for (const item of Array.from(transaction.serviceDisposers).reverse()) {
+        for (const item of Array.from(transaction.appServiceDisposers).reverse()) {
             try {
                 item.dispose();
             } catch (error) {
@@ -588,9 +588,9 @@ export class ExtensionRegistry {
     private disposeExtensionSideEffects(extensionName: string): unknown {
         const lifecycleFailure = this.disposeExtensionLifecycle(extensionName);
         const codecFailure = this.disposeExtensionConfigCodecs(extensionName);
-        const serviceFailure = this.disposeExtensionServices(extensionName);
+        const appServiceFailure = this.disposeExtensionAppServices(extensionName);
         const systemUiProviderFailure = this.disposeExtensionSystemUIProviders(extensionName);
-        return lifecycleFailure ?? codecFailure ?? serviceFailure ?? systemUiProviderFailure;
+        return lifecycleFailure ?? codecFailure ?? appServiceFailure ?? systemUiProviderFailure;
     }
 
     private disposeExtensionLifecycle(extensionName: string): unknown {
@@ -627,8 +627,8 @@ export class ExtensionRegistry {
         return failure;
     }
 
-    private disposeExtensionServices(extensionName: string): unknown {
-        const disposers = this.serviceDisposers.get(extensionName);
+    private disposeExtensionAppServices(extensionName: string): unknown {
+        const disposers = this.appServiceDisposers.get(extensionName);
         if (!disposers) {
             return undefined;
         }
@@ -640,7 +640,7 @@ export class ExtensionRegistry {
                 failure = failure ?? error;
             }
         }
-        this.serviceDisposers.delete(extensionName);
+        this.appServiceDisposers.delete(extensionName);
         return failure;
     }
 

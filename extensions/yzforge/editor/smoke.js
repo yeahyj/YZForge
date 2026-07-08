@@ -519,7 +519,7 @@ async function assertExtensionRegistryBehavior() {
     installBeforeStart(context) {
       events.push(`Core:${context.phase}`);
       context.provide(appToken, 'ready');
-      context.registerService(serviceToken, { ready: true }, {
+      context.registerAppService(serviceToken, { ready: true }, {
         dispose(value) {
           events.push(`service-dispose:${value.ready}`);
         },
@@ -550,7 +550,7 @@ async function assertExtensionRegistryBehavior() {
     'Extension before-start phase must run dependencies before dependents.',
   );
   assert(registry.use(appToken) === 'ready', 'ExtensionContext.provide must register app tokens.');
-  assert(registry.use(serviceToken).ready === true, 'ExtensionContext.registerService must register managed app services.');
+  assert(registry.use(serviceToken).ready === true, 'ExtensionContext.registerAppService must register managed app services.');
   assert(registry.useModuleToken({ name: 'Battle' }, moduleToken) === 'module:Battle', 'ExtensionContext.provideModule must register module-scoped tokens.');
   assert(configCodecStore.has('core-binary'), 'ExtensionContext.registerConfigCodec must register config codecs.');
   assert(systemUIProviderStore.has('core-system-ui'), 'ExtensionContext.registerSystemUIProvider must register SystemUI providers.');
@@ -589,7 +589,7 @@ async function assertExtensionRegistryBehavior() {
   );
   assert(!configCodecStore.has('core-binary'), 'Extension config codecs must be removed when the registry is disposed.');
   assert(configCodecEvents.includes('dispose:core-binary'), 'Extension config codec disposer must run when the registry is disposed.');
-  assert(events.includes('service-dispose:true'), 'Extension services must be disposed when the registry is disposed.');
+  assert(events.includes('service-dispose:true'), 'Extension app services must be disposed when the registry is disposed.');
   assert(!systemUIProviderStore.has('core-system-ui'), 'Extension SystemUI providers must be removed when the registry is disposed.');
   assert(systemUIProviderEvents.includes('dispose:core-system-ui'), 'Extension SystemUI provider disposer must run when the registry is disposed.');
 
@@ -600,7 +600,7 @@ async function assertExtensionRegistryBehavior() {
     name: 'DisposeFailure',
     installBeforeStart(context) {
       context.onLifecycle('foreground', () => disposeFailureEvents.push('foreground'));
-      context.registerService(disposeFailureServiceToken, { alive: true }, {
+      context.registerAppService(disposeFailureServiceToken, { alive: true }, {
         dispose() {
           disposeFailureEvents.push('service-disposed');
         },
@@ -638,7 +638,7 @@ async function assertExtensionRegistryBehavior() {
   assert(disposeFailure?.message === 'dispose boom', 'Extension dispose failure must still be reported.');
   emitLifecycle('foreground');
   assert(disposeFailureEvents.filter((event) => event === 'foreground').length === 1, 'Extension side effects must be cleaned even when dispose throws.');
-  assert(disposeFailureEvents.includes('service-disposed'), 'Extension services must be disposed even when dispose throws.');
+  assert(disposeFailureEvents.includes('service-disposed'), 'Extension app services must be disposed even when dispose throws.');
   assert(!configCodecStore.has('dispose-failure-binary'), 'Extension config codecs must be removed even when dispose throws.');
   assert(!systemUIProviderStore.has('dispose-failure-system-ui'), 'Extension SystemUI providers must be removed even when dispose throws.');
   assert(disposeFailureEvents.includes('system-ui-disposed'), 'Extension SystemUI provider disposer must run even when dispose throws.');
@@ -676,7 +676,7 @@ async function assertExtensionRegistryBehavior() {
     installBeforeStart(context) {
       rollbackEvents.push(`Core:${context.phase}`);
       context.provide(rollbackToken, 'core-ready');
-      context.registerService(rollbackServiceToken, { source: 'core' }, {
+      context.registerAppService(rollbackServiceToken, { source: 'core' }, {
         dispose() {
           rollbackEvents.push('Core:service-dispose');
         },
@@ -705,7 +705,7 @@ async function assertExtensionRegistryBehavior() {
     dependencies: ['Core'],
     installBeforeStart(context) {
       context.provide(badRollbackToken, 'bad-leak');
-      context.registerService(badRollbackServiceToken, { source: 'bad' }, {
+      context.registerAppService(badRollbackServiceToken, { source: 'bad' }, {
         dispose() {
           rollbackEvents.push('Bad:service-dispose');
         },
@@ -1840,15 +1840,15 @@ function assertGeneratedOutput(projectRoot) {
   requireText(projectRoot, 'assets/modules/Battle/code/part/refs/PartReward.refs.generated.ts', 'protected amount!: Label;');
   requireText(projectRoot, 'assets/app/global/code/view/refs/ToastNotice.refs.generated.ts', 'protected message!: Label;');
   requireText(projectRoot, 'assets/app/contracts/libraries/BattleCore.contract.generated.ts', 'export const BattleCoreTokens = defineLibraryTokens<BattleCoreTokenMap>');
-  requireText(projectRoot, 'assets/libraries/BattleCore/code/entry.generated.ts', "import { providers } from './providers';");
-  requireText(projectRoot, 'assets/libraries/BattleCore/code/entry.generated.ts', 'tokens: providers,');
-  requireText(projectRoot, 'assets/app/global/code/assets.generated.ts', "toastNotice: viewRef('Global', ToastNotice, 'res/view/ToastNotice'");
-  requireText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle'");
-  requireText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', "partReward: partRef(PartReward, 'res/part/PartReward')");
-  requireText(projectRoot, 'assets/modules/Battle/code/config.generated.ts', "battleItems: tableRef({ name: 'res/content/config/BattleItems', primaryKey: 'id' })");
-  requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', 'export const BattleLevel001ContentPack = defineContentPack');
-  requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', "levelRoot: contentPackAssetRef(Prefab, 'res/prefab/LevelRoot')");
-  requireText(projectRoot, 'assets/modules/Battle/code/content-packs.generated.ts', "enemyWaves: contentPackConfigRef('res/content/config/EnemyWaves', { primaryKey: 'id' })");
+  requireText(projectRoot, 'assets/libraries/BattleCore/code/generated/entry.ts', "import { providers } from '../providers';");
+  requireText(projectRoot, 'assets/libraries/BattleCore/code/generated/entry.ts', 'tokens: providers,');
+  requireText(projectRoot, 'assets/app/global/code/generated/assets.ts', "toastNotice: viewRef('Global', ToastNotice, 'res/view/ToastNotice'");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/assets.ts', "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle'");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/assets.ts', "partReward: partRef(PartReward, 'res/part/PartReward')");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', "battleItems: tableRef({ name: 'res/content/config/BattleItems', primaryKey: 'id' })");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export const BattleLevel001ContentPack = defineContentPack');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "levelRoot: contentPackAssetRef(Prefab, 'res/prefab/LevelRoot')");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "enemyWaves: contentPackConfigRef('res/content/config/EnemyWaves', { primaryKey: 'id' })");
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'AnalyticsExtension');
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'app.installExtension(AnalyticsExtension)');
   requireText(projectRoot, 'assets/app/extensions/Analytics.ts', 'AnalyticsModuleToken');
@@ -2012,6 +2012,7 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes('export enum AppState'), 'App must expose a public AppState enum.');
   assert(appSource.includes('private appState = AppState.Created'), 'App must store explicit AppState.');
   assert(appSource.includes("this.assertState('preloadModule', [AppState.Started])"), 'preloadModule must require Started App state.');
+  assert(appSource.includes("this.assertState('back', [AppState.Started])"), 'back must require Started App state.');
   assert(appSource.includes("this.assertState('loadModule', [AppState.Started])"), 'loadModule must require Started App state.');
   assert(appSource.includes("this.assertState('enterModule', [AppState.Started])"), 'enterModule must require Started App state.');
   assert(appSource.includes("this.assertState('purgeResourceCache', [AppState.Started, AppState.Disposing])"), 'purgeResourceCache must require Started/Disposing App state.');
@@ -2038,7 +2039,7 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes('private setState('), 'App state transitions must go through a centralized recorder.');
   assert(appSource.includes('private recordFailure('), 'App must centralize failure snapshot recording.');
   assert(appSource.includes('transitions: this.stateTransitions.slice(transitionStart)'), 'App failure diagnostics must include state transition evidence.');
-  for (const api of ['preloadModule', 'loadModule', 'enterModule', 'unloadModule', 'use', 'installExtension', 'useModuleToken', 'purgeResourceCache']) {
+  for (const api of ['back', 'preloadModule', 'loadModule', 'enterModule', 'unloadModule', 'use', 'installExtension', 'useModuleToken', 'purgeResourceCache']) {
     assert(appSource.includes(`this.recordFailure('${api}'`), `App.${api} failures must update App failure diagnostics.`);
   }
   assert(appSource.includes('private readonly preloadTasks = new Map<string, Promise<ReleaseScope>>()'), 'App must track pending preload tasks explicitly.');
@@ -2067,6 +2068,8 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes('instance = new entry.type()'), 'loadModule/createModule must create Module instances.');
   assert(appSource.indexOf('await instance.__yzforgeCreate()') < appSource.indexOf('await instance.__yzforgeLoad()'), 'Module load must call onCreate before onLoad.');
   assert(enterBody.includes('this.kernel.navigator.enter') && !enterBody.includes('__yzforgeEnter'), 'App.enterModule must delegate enter lifecycle to ModuleNavigator through AppKernel.');
+  assert(appSource.includes('public async back(): Promise<boolean>'), 'App must expose a narrow back navigation facade.');
+  assert(appSource.includes('kernel.ui.installBackKeyHandler(async () => this.back())'), 'Hardware back handling must go through App.back.');
   assert(navigatorSource.includes('await target.instance.__yzforgeEnter(params)'), 'ModuleNavigator must call module onEnter.');
   assert(navigatorSource.includes('target.instance.state = ModuleState.Ready'), 'ModuleNavigator must roll back entering module state on enter failure.');
   assert(moduleSource.includes('module.lifecycle_unload_failed'), 'Module unload lifecycle must aggregate hook failures.');
@@ -2091,9 +2094,9 @@ function assertRuntimeLifecycleInvariants() {
   assert(extensionRegistrySource.includes('registerConfigCodecInTransaction'), 'ExtensionContext.registerConfigCodec must register config codecs through the transaction.');
   assert(extensionRegistrySource.includes('readonly configCodecDisposers'), 'ExtensionTransaction must track config codec disposers.');
   assert(extensionRegistrySource.includes('disposeExtensionConfigCodecs'), 'ExtensionRegistry must remove config codecs during extension disposal.');
-  assert(extensionRegistrySource.includes('registerServiceInTransaction'), 'ExtensionContext.registerService must register managed services through the transaction.');
-  assert(extensionRegistrySource.includes('readonly serviceDisposers'), 'ExtensionTransaction must track service disposers.');
-  assert(extensionRegistrySource.includes('disposeExtensionServices'), 'ExtensionRegistry must remove services during extension disposal.');
+  assert(extensionRegistrySource.includes('registerAppServiceInTransaction'), 'ExtensionContext.registerAppService must register managed app services through the transaction.');
+  assert(extensionRegistrySource.includes('readonly appServiceDisposers'), 'ExtensionTransaction must track app service disposers.');
+  assert(extensionRegistrySource.includes('disposeExtensionAppServices'), 'ExtensionRegistry must remove app services during extension disposal.');
   assert(extensionRegistrySource.includes('registerSystemUIProviderInTransaction'), 'ExtensionContext.registerSystemUIProvider must register SystemUI providers through the transaction.');
   assert(extensionRegistrySource.includes('readonly systemUiProviderDisposers'), 'ExtensionTransaction must track SystemUI provider disposers.');
   assert(extensionRegistrySource.includes('disposeExtensionSystemUIProviders'), 'ExtensionRegistry must remove SystemUI providers during extension disposal.');
@@ -2536,15 +2539,15 @@ async function smoke(options = {}) {
     for (const rel of extensionRegistryRels) {
       updateText(projectRoot, rel, (content) => {
         const updated = content.replace(
-          '? this.registerServiceInTransaction(transaction, extensionName, token, value, options)',
-          '? this.registerServiceForExtension(extensionName, token, value, options)',
+          '? this.registerAppServiceInTransaction(transaction, extensionName, token, value, options)',
+          '? this.registerAppServiceForExtension(extensionName, token, value, options)',
         );
-        assert(updated !== content, `Expected to mutate ${rel} ExtensionContext.registerService transaction route.`);
+        assert(updated !== content, `Expected to mutate ${rel} ExtensionContext.registerAppService transaction route.`);
         return updated;
       });
     }
-    const extensionServiceRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.registerService must route through registerServiceInTransaction');
-    const extensionServiceRouteDetail = extensionServiceRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.registerService must route through registerServiceInTransaction'));
+    const extensionServiceRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.registerAppService must route through registerAppServiceInTransaction');
+    const extensionServiceRouteDetail = extensionServiceRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.registerAppService must route through registerAppServiceInTransaction'));
     assert(extensionServiceRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext service transaction route issue code.');
     for (const [rel, content] of extensionRegistryOriginals) {
       writeText(projectRoot, rel, content);
@@ -2838,7 +2841,7 @@ async function smoke(options = {}) {
     ]));
     assertOkValidation(projectRoot);
 
-    updateText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', (content) => {
+    updateText(projectRoot, 'assets/modules/Battle/code/generated/assets.ts', (content) => {
       return content.replace(
         "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle', { kind: ViewKind.Page })",
         "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle', { kind: ViewKind.Popup })",
@@ -2849,10 +2852,10 @@ async function smoke(options = {}) {
     assert(policyDetail.code === 'ui.policy_kind_mismatch', 'Expected ViewPolicy mismatch issue code.');
     assert(policyDetail.target === 'assets/modules/Battle/res/view/PageBattle.prefab', 'Expected ViewPolicy mismatch target prefab.');
     const policyRepair = generate(projectRoot);
-    assert(policyRepair.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected generate to repair stale ViewPolicy.');
+    assert(policyRepair.changed.includes('assets/modules/Battle/code/generated/assets.ts'), 'Expected generate to repair stale ViewPolicy.');
     assertOkValidation(projectRoot);
 
-    updateText(projectRoot, 'assets/modules/Battle/code/assets.generated.ts', (content) => {
+    updateText(projectRoot, 'assets/modules/Battle/code/generated/assets.ts', (content) => {
       return content.replace(
         "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle', { kind: ViewKind.Page })",
         "pageBattle: viewRef('OtherModule', PageBattle, 'res/view/PageBattle', { kind: ViewKind.Page })",
@@ -2862,7 +2865,7 @@ async function smoke(options = {}) {
     const ownerDetail = ownerViolation.issueDetails.find((issue) => issue.message.includes('ViewRef owner for PageBattle'));
     assert(ownerDetail.code === 'ui.policy_owner_mismatch', 'Expected ViewRef owner mismatch issue code.');
     const ownerRepair = generate(projectRoot);
-    assert(ownerRepair.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected generate to repair stale View owner.');
+    assert(ownerRepair.changed.includes('assets/modules/Battle/code/generated/assets.ts'), 'Expected generate to repair stale View owner.');
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/prefab/PageInjected.prefab', serializedPrefab('10000000-0000-4000-8000-000000000003'));
@@ -2873,7 +2876,7 @@ async function smoke(options = {}) {
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/app/global/code/view/BadToastResult.ts', [
-      "import { assets } from '../assets.generated';",
+      "import { assets } from '../generated/assets';",
       '',
       'export class BadToastResult {',
       '    public async run(): Promise<void> {',
@@ -2890,15 +2893,15 @@ async function smoke(options = {}) {
     assertOkValidation(projectRoot);
 
     const cleanPreview = cleanGenerated(projectRoot, { dryRun: true });
-    assert(cleanPreview.files.includes('assets/app/global/code/assets.generated.ts'), 'Expected clean preview to include Global assets.');
-    assert(cleanPreview.files.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected clean preview to include Module assets.');
+    assert(cleanPreview.files.includes('assets/app/global/code/generated/assets.ts'), 'Expected clean preview to include Global assets.');
+    assert(cleanPreview.files.includes('assets/modules/Battle/code/generated/assets.ts'), 'Expected clean preview to include Module assets.');
     assert(cleanPreview.files.includes('assets/content-packs/Battle/Level001/manifest.generated.json'), 'Expected clean preview to include ContentPack manifest.');
     const clean = cleanGenerated(projectRoot);
     assert(clean.ok, `Clean generated failed:\n${JSON.stringify(clean.failed, null, 2)}`);
-    assert(!fs.existsSync(path.join(projectRoot, 'assets/modules/Battle/code/assets.generated.ts')), 'Expected generated module assets to be removed.');
+    assert(!fs.existsSync(path.join(projectRoot, 'assets/modules/Battle/code/generated/assets.ts')), 'Expected generated module assets to be removed.');
     assert(!fs.existsSync(path.join(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json')), 'Expected generated ContentPack manifest to be removed.');
     const regenerated = generate(projectRoot);
-    assert(regenerated.changed.includes('assets/modules/Battle/code/assets.generated.ts'), 'Expected regenerate to restore cleaned module assets.');
+    assert(regenerated.changed.includes('assets/modules/Battle/code/generated/assets.ts'), 'Expected regenerate to restore cleaned module assets.');
     assert(regenerated.changed.includes('assets/content-packs/Battle/Level001/manifest.generated.json'), 'Expected regenerate to restore cleaned ContentPack manifest.');
     assertOkValidation(projectRoot);
 
@@ -2917,7 +2920,7 @@ async function smoke(options = {}) {
     fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadImport.ts'));
 
     writeText(projectRoot, 'assets/modules/Battle/code/service/BadGlobalImport.ts', [
-      "import { assets as globalAssets } from '../../../../app/global/code/assets.generated';",
+      "import { assets as globalAssets } from '../../../../app/global/code/generated/assets';",
       '',
       'export const badGlobalView = globalAssets.views.toastNotice;',
       '',
@@ -2925,7 +2928,7 @@ async function smoke(options = {}) {
     const globalImportViolation = expectValidationIssue(projectRoot, 'imports global internal path');
     const globalImportDetail = globalImportViolation.issueDetails.find((issue) => issue.message.includes('imports global internal path'));
     assert(globalImportDetail.code === 'import.boundary', 'Expected Global import boundary issue code.');
-    assert(globalImportDetail.target === 'assets/app/global/code/assets.generated.ts', 'Expected Global import boundary target.');
+    assert(globalImportDetail.target === 'assets/app/global/code/generated/assets.ts', 'Expected Global import boundary target.');
     fs.unlinkSync(path.join(projectRoot, 'assets/modules/Battle/code/service/BadGlobalImport.ts'));
 
     writeText(projectRoot, 'assets/modules/Battle/code/model/BadModel.ts', [

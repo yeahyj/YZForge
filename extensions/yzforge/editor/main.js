@@ -446,6 +446,7 @@ function createTargetDetails(kind, options = {}) {
     details.push({ ...fileDetail(`assets/modules/${owner}/code/${kind}/${name}.ts`), code: 'create.target', message: `assets/modules/${owner}/code/${kind}/${name}.ts` });
   } else if (kind === 'event-file' && owner) {
     details.push({ ...fileDetail(`assets/modules/${owner}/code/events/${name}.ts`), code: 'create.target', message: `assets/modules/${owner}/code/events/${name}.ts` });
+    details.push({ ...fileDetail(`assets/modules/${owner}/code/events/index.ts`), code: 'create.index', message: `assets/modules/${owner}/code/events/index.ts` });
   } else if (kind === 'extension-stub') {
     details.push({ ...fileDetail(`assets/app/extensions/${name}.ts`), code: 'create.target', message: `assets/app/extensions/${name}.ts` });
   }

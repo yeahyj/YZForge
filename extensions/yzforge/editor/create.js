@@ -37,10 +37,49 @@ function writeEmptyAutoRefs(projectRoot, relativePath, source, baseType, classNa
   }
 }
 
+function eventFileNames(projectRoot, root) {
+  const eventsDir = path.join(projectRoot, root, 'code', 'events');
+  if (!fs.existsSync(eventsDir)) {
+    return [];
+  }
+  return fs.readdirSync(eventsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts') && entry.name !== 'index.ts')
+    .map((entry) => path.basename(entry.name, '.ts'))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function renderEventIndex(owner, eventNames) {
+  const lines = [];
+  for (const name of eventNames) {
+    lines.push(`import type { ${name}Events } from './${name}';`);
+  }
+  if (eventNames.length > 0) {
+    lines.push('');
+    for (const name of eventNames) {
+      lines.push(`export { ${name} } from './${name}';`);
+      lines.push(`export type { ${name}Events, ${name}Payload } from './${name}';`);
+    }
+    lines.push('');
+  }
+  const extensions = eventNames.length > 0 ? ` extends ${eventNames.map((name) => `${name}Events`).join(', ')}` : '';
+  lines.push(`export interface ${owner}Events${extensions} {}`);
+  lines.push('');
+  return lines.join('\n');
+}
+
+function writeEventIndex(projectRoot, root, owner, changed) {
+  const relativePath = `${root}/code/events/index.ts`;
+  if (writeTextIfChanged(path.join(projectRoot, relativePath), renderEventIndex(owner, eventFileNames(projectRoot, root)))) {
+    changed.push(relativePath);
+  }
+}
+
 function createModule(projectRoot, name) {
   assertPascalName(name, 'Module');
   const root = `assets/modules/${name}`;
   ensureDir(path.join(projectRoot, root, 'code'));
+  ensureDir(path.join(projectRoot, root, 'code/generated'));
+  ensureDir(path.join(projectRoot, root, 'code/events'));
   ensureDir(path.join(projectRoot, root, 'res/view'));
   ensureDir(path.join(projectRoot, root, 'res/part'));
   ensureDir(path.join(projectRoot, root, 'res/runtime'));
@@ -60,7 +99,7 @@ function createModule(projectRoot, name) {
     kind: 'module',
     name,
     bundle: `yzforge-module-${kebabCase(name)}`,
-    entry: 'code/entry.generated.ts',
+    entry: 'code/generated/entry.ts',
     public: 'code/public.ts',
     enterParams: `${name}EnterParams`,
     libraries: [],
@@ -82,7 +121,7 @@ function createModule(projectRoot, name) {
     '}',
     '',
   ].join('\n'));
-  write(`${root}/code/events.ts`, `export interface ${name}Events {}\n`);
+  writeEventIndex(projectRoot, root, name, changed);
   return { kind: 'module', name, changed };
 }
 
@@ -90,6 +129,7 @@ function createLibrary(projectRoot, name) {
   assertPascalName(name, 'Library');
   const root = `assets/libraries/${name}`;
   ensureDir(path.join(projectRoot, root, 'code'));
+  ensureDir(path.join(projectRoot, root, 'code/generated'));
   ensureDir(path.join(projectRoot, root, 'res/prefab'));
   ensureDir(path.join(projectRoot, root, 'res/runtime'));
   ensureDir(path.join(projectRoot, root, 'res/content'));
@@ -108,7 +148,7 @@ function createLibrary(projectRoot, name) {
     kind: 'library',
     name,
     bundle: `yzforge-lib-${kebabCase(name)}`,
-    entry: 'code/entry.generated.ts',
+    entry: 'code/generated/entry.ts',
     public: 'code/public.ts',
     libraries: [],
   });
@@ -367,6 +407,7 @@ function createEventFile(projectRoot, owner, name) {
     '}',
     '',
   ].join('\n'));
+  writeEventIndex(projectRoot, root, owner, changed);
 
   return {
     kind: 'event-file',

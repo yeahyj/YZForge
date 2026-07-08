@@ -64,7 +64,7 @@ extensions/yzforge/runtime-template/*
 当前 ExtensionTransaction 已经落地第一版：
 
 - 每个 install phase 都有事务记录。
-- `ExtensionContext.provide`、`provideModule`、`onLifecycle`、`registerConfigCodec`、`registerService` 和 `registerSystemUIProvider` 在 phase 失败时会恢复到 phase 前状态。
+- `ExtensionContext.provide`、`provideModule`、`onLifecycle`、`registerConfigCodec`、`registerAppService` 和 `registerSystemUIProvider` 在 phase 失败时会恢复到 phase 前状态。
 - phase 中已成功执行 hook 的 Extension 会在后续 hook 失败时按反向顺序优先执行 phase-specific rollback hook；没有 hook 的旧扩展再用 `dispose/uninstall` 兜底。
 - late install 失败会从 registry 中移除该 Extension。
 - phase error 会保留 extension name、phase、dependency chain、cause，并附带 rollback failure 摘要。
@@ -76,7 +76,7 @@ extensions/yzforge/runtime-template/*
 - runtime deep import 是否绕过 `yzforge` 顶层入口。
 - Cocos editor / preview assembly 是否还存在 unresolved `yzforge` import。
 - Main 场景结构、Main script 挂载和 Main 生命周期关键调用。
-- `ExtensionContext.provide` / `provideModule` / `onLifecycle` / `registerConfigCodec` / `registerService` / `registerSystemUIProvider` 是否通过事务入口接入 rollback helper；新增 callable context 入口必须先进入事务策略；裸 `lifecycle` 不能重新暴露。
+- `ExtensionContext.provide` / `provideModule` / `onLifecycle` / `registerConfigCodec` / `registerAppService` / `registerSystemUIProvider` 是否通过事务入口接入 rollback helper；新增 callable context 入口必须先进入事务策略；裸 `lifecycle` 不能重新暴露。
 
 这些边界让当前框架从“能跑”进入了“有架构边界”的状态。
 
@@ -108,9 +108,9 @@ Failed
 
 但我仍不满意这些点：
 
-- `start` 失败回滚已经会调用 dispose 路径，token、lifecycle listener、config codec、managed service 与 SystemUI provider 类 Extension 副作用也已纳入事务；未来新增副作用类型时，仍必须扩展同一套 transaction，而不是另开旁路。
+- `start` 失败回滚已经会调用 dispose 路径，token、lifecycle listener、config codec、managed app service 与 SystemUI provider 类 Extension 副作用也已纳入事务；未来新增副作用类型时，仍必须扩展同一套 transaction，而不是另开旁路。
 - Validator 已经用 AST 枚举 `App` class public method / accessor / field：新增 public API 如果既没有 `this.assertState(...)`，也没有被显式列入无守卫白名单，会触发 `app.state_machine`。
-- Validator 已经用 AST 检查 `ExtensionContext` 的 callable facade 入口：`provide` 必须走 `provideInTransaction`，`provideModule` 必须走 `provideModuleInTransaction`，`onLifecycle` 必须走 `onLifecycleInTransaction`，`registerConfigCodec` 必须走 `registerConfigCodecInTransaction`，`registerService` 必须走 `registerServiceInTransaction`，`registerSystemUIProvider` 必须走 `registerSystemUIProviderInTransaction`；新增 callable context 入口必须先被事务策略分类，裸 `lifecycle` 不能重新暴露。
+- Validator 已经用 AST 检查 `ExtensionContext` 的 callable facade 入口：`provide` 必须走 `provideInTransaction`，`provideModule` 必须走 `provideModuleInTransaction`，`onLifecycle` 必须走 `onLifecycleInTransaction`，`registerConfigCodec` 必须走 `registerConfigCodecInTransaction`，`registerAppService` 必须走 `registerAppServiceInTransaction`，`registerSystemUIProvider` 必须走 `registerSystemUIProviderInTransaction`；新增 callable context 入口必须先被事务策略分类，裸 `lifecycle` 不能重新暴露。
 
 后续硬终局要求：每个新增 public API 必须同时增加状态规则、行为 smoke 和文档表格；无守卫 public getter 必须显式登记为只读观察口。
 
@@ -120,9 +120,9 @@ Failed
 
 剩余遗憾：
 
-- 事务目前覆盖 token side effect、lifecycle listener、config codec、managed service、SystemUI provider 和本 phase hook rollback/dispose。
+- 事务目前覆盖 token side effect、lifecycle listener、config codec、managed app service、SystemUI provider 和本 phase hook rollback/dispose。
 - phase-specific rollback hook 已经落地；没有定义 hook 的旧扩展仍使用 `dispose/uninstall` 兜底。
-- Validator 已经能守住当前 `ExtensionContext.provide` / `provideModule` / `onLifecycle` / `registerConfigCodec` / `registerService` / `registerSystemUIProvider` 的事务入口，但未来新增副作用类型时，还需要同步扩展 transaction 数据结构和 smoke 反例。
+- Validator 已经能守住当前 `ExtensionContext.provide` / `provideModule` / `onLifecycle` / `registerConfigCodec` / `registerAppService` / `registerSystemUIProvider` 的事务入口，但未来新增副作用类型时，还需要同步扩展 transaction 数据结构和 smoke 反例。
 
 硬终局要求：
 
@@ -216,7 +216,7 @@ generated copy rule:
 
 - Main 生命周期使用 TypeScript AST 检查 `app.start({ mainRoot: this.node })`。
 - Main 生命周期使用 AST 调用图，从 `onDestroy` 跟踪 `this.*` 方法调用链，确认可达路径中有 `App.dispose` 和 `clearYZForgeApp`。
-- Extension 事务入口使用 TypeScript AST 检查 `ExtensionContext.provide` / `provideModule` / `onLifecycle` / `registerConfigCodec` / `registerService` / `registerSystemUIProvider` 的 facade 是否路由到 transaction helper，并阻断未分类的新增 callable context 入口和裸 `lifecycle` 回流。
+- Extension 事务入口使用 TypeScript AST 检查 `ExtensionContext.provide` / `provideModule` / `onLifecycle` / `registerConfigCodec` / `registerAppService` / `registerSystemUIProvider` 的 facade 是否路由到 transaction helper，并阻断未分类的新增 callable context 入口和裸 `lifecycle` 回流。
 
 硬终局要求：
 
@@ -695,11 +695,11 @@ strict validator sees App state guards
 已落地：
 
 - `ExtensionRegistry` 支持 transaction。
-- `ExtensionContext.provide`、`provideModule`、`onLifecycle`、`registerConfigCodec`、`registerService`、`registerSystemUIProvider` 等副作用可回滚。
+- `ExtensionContext.provide`、`provideModule`、`onLifecycle`、`registerConfigCodec`、`registerAppService`、`registerSystemUIProvider` 等副作用可回滚。
 - 安装失败 dispose 已完成部分。
 - 错误包含 extension name、phase、dependency chain、rollback failures。
-- Smoke 覆盖 phase 失败后 token / config codec / managed service / SystemUI provider 回滚和 completed extension rollback dispose。
-- strict Validator 用 TypeScript AST 检查 `ExtensionContext.provide` / `provideModule` / `onLifecycle` / `registerConfigCodec` / `registerService` / `registerSystemUIProvider` 必须路由到事务 helper，并禁止裸 `lifecycle` 回流；Smoke 覆盖绕过事务 helper 和裸 lifecycle 的反例。
+- Smoke 覆盖 phase 失败后 token / config codec / managed app service / SystemUI provider 回滚和 completed extension rollback dispose。
+- strict Validator 用 TypeScript AST 检查 `ExtensionContext.provide` / `provideModule` / `onLifecycle` / `registerConfigCodec` / `registerAppService` / `registerSystemUIProvider` 必须路由到事务 helper，并禁止裸 `lifecycle` 回流；Smoke 覆盖绕过事务 helper 和裸 lifecycle 的反例。
 - Extension 支持 `rollbackBeforeStart` / `rollbackAfterMainBinding` / `rollbackBeforeFirstModule`，phase 失败时优先调用对应 hook；Smoke 覆盖 phase rollback hook 不会把 Extension 标记为 fully disposed。
 
 验收：

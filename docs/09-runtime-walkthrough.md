@@ -16,10 +16,10 @@ YZForge Generate All
 scan module.json / library.json / content-pack.json
 generate contracts
 generate registry refs
-generate entry.generated.ts
-generate assets.generated.ts
-generate config.generated.ts
-generate content-packs.generated.ts
+generate generated/entry.ts
+generate generated/assets.ts
+generate generated/config.ts
+generate generated/content-packs.ts
 update package.json exports for the yzforge package boundary
 generate import-map.json
 update Cocos project setting to project://import-map.json
@@ -38,8 +38,8 @@ assets/app/bootstrap/install.generated.ts
 业务 Bundle 内拥有：
 
 ```text
-assets/modules/Home/code/entry.generated.ts
-assets/libraries/BattleCore/code/entry.generated.ts
+assets/modules/Home/code/generated/entry.ts
+assets/libraries/BattleCore/code/generated/entry.ts
 ```
 
 ## 2. 启动 App
@@ -79,7 +79,7 @@ await app.enterModule(HomeRef);
 read HomeRef.libraries
 acquire declared libraries
 load yzforge-module-home
-wait Home entry.generated.ts registration
+wait Home generated/entry.ts registration
 validate ModuleEntry == HomeRef
 new HomeModule
 bind assets / config / libraries / contentPacks / ui / event
@@ -88,7 +88,7 @@ onLoad
 onEnter
 ```
 
-`entry.generated.ts` 只负责注册：
+`generated/entry.ts` 只负责注册：
 
 ```ts
 registerModuleEntry(defineModuleEntry(...));
@@ -109,7 +109,7 @@ protected async onEnter(): Promise<void> {
 Flow 打开 UI：
 
 ```ts
-import { assets } from '../assets.generated';
+import { assets } from '../generated/assets';
 
 export class HomeFlow extends Flow {
     public async enter(): Promise<void> {
@@ -192,7 +192,7 @@ await app.enterModule(ActivitySpringRef, params, {
     mode: EnterMode.Push,
 });
 
-await app.navigator.back();
+await app.back();
 ```
 
 `Push` 会暂停前一个 Module，并让 UIManager 暂停前一个模块的 Page、Paper、Top，关闭前一个模块的 Popup、Toast；返回时 UIManager 恢复前一个模块被暂停的 UI。
@@ -202,7 +202,7 @@ await app.navigator.back();
 Battle Module 加载关卡内容：
 
 ```ts
-import { BattleLevel001ContentPack } from './content-packs.generated';
+import { BattleLevel001ContentPack } from './generated/content-packs';
 
 const contentPack = await this.contentPacks.load(BattleLevel001ContentPack);
 ```
@@ -292,7 +292,7 @@ Library 只有 refCount 归零才释放。
 关键检查：
 
 ```text
-entry.generated.ts 是否入 Bundle
+generated/entry.ts 是否入 Bundle
 Bundle 名是否和 manifest 一致
 禁止跨 Module import 内部代码
 禁止跨 Module 读取 config

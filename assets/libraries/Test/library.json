@@ -3,7 +3,7 @@
   "kind": "library",
   "name": "Test",
   "bundle": "yzforge-lib-test",
-  "entry": "code/entry.generated.ts",
+  "entry": "code/generated/entry.ts",
   "public": "code/public.ts",
   "libraries": []
 }

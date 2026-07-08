@@ -59,7 +59,7 @@ import { BattleCoreRef } from 'yzforge/libraries/BattleCore';
 
 ```ts
 import { BattleModule } from '../../modules/Battle/code/BattleModule';
-import { assets } from '../../modules/Battle/code/assets.generated';
+import { assets } from '../../modules/Battle/code/generated/assets';
 import { DamageSystem } from '../../libraries/BattleCore/code/system/DamageSystem';
 ```
 
@@ -104,7 +104,7 @@ export const BattleRef = defineModuleRef<BattleEnterParams>({
 });
 ```
 
-`ModuleRef` 不 import 模块类、Service、Model、View、assets.generated，也不 import 目标模块 `code/entry.generated.ts`。
+`ModuleRef` 不 import 模块类、Service、Model、View、`generated/assets`，也不 import 目标模块 `code/generated/entry.ts`。
 
 真实 `ModuleEntry` 在模块 Bundle 加载后注册：
 
@@ -123,16 +123,16 @@ registerModuleEntry(defineModuleEntry({
 
 ## Bundle 入口执行
 
-每个动态代码 Bundle 必须有 `code/entry.generated.ts`，并在顶层注册真实入口。
+每个动态代码 Bundle 必须有 `code/generated/entry.ts`，并在顶层注册真实入口。
 
 ```text
-assets/modules/Home/code/entry.generated.ts
-assets/libraries/BattleCore/code/entry.generated.ts
+assets/modules/Home/code/generated/entry.ts
+assets/libraries/BattleCore/code/generated/entry.ts
 ```
 
 运行时不动态 import 这个文件。运行时只调用 `BundleManager.loadBundle(bundleName)`，等待 Cocos 加载该 Bundle 的脚本。脚本顶层执行后，入口注册到 `EntryRegistry`。
 
-`code/entry.generated.ts` 由生成器维护，不写业务逻辑。手写业务代码放在 Module、Service、Flow、Model、Library System 等文件中。
+`code/generated/entry.ts` 由生成器维护，不写业务逻辑。手写业务代码放在 Module、Service、Flow、Model、Library System 等文件中。
 
 同一个 Scope 内部的脚本可以按正常 TypeScript 方式互相 import。YZForge 禁止的是跨 Scope 直接 import 内部实现，不限制 Scope 内部的文件组织。
 
@@ -227,7 +227,7 @@ assets/content-packs/Battle/Level001/
 
 `manifest.generated.json` 是 ContentPack 内资源映射，运行时由 `ContentPackManager` 读取。
 
-`content-pack.json` 声明 owner、Bundle 名和依赖 Library。owner Module 的生成器再生成 `code/content-packs.generated.ts`。ContentPack 自身不生成业务 TS，不提供可调用 API。
+`content-pack.json` 声明 owner、Bundle 名和依赖 Library。owner Module 的生成器再生成 `code/generated/content-packs.ts`。ContentPack 自身不生成业务 TS，不提供可调用 API。
 
 使用方式：
 
@@ -260,8 +260,8 @@ global -> extensions
 
 module -> shared
 module -> own code
-module -> own assets.generated
-module -> own config.generated
+module -> own generated/assets
+module -> own generated/config
 module -> declared LibraryRef
 module -> LoadedLibrary handle
 module -> declared Library config through LoadedLibrary
@@ -270,8 +270,8 @@ module -> extensions
 
 library -> shared
 library -> own code
-library -> own assets.generated
-library -> own config.generated
+library -> own generated/assets
+library -> own generated/config
 library -> declared LibraryRef
 
 content pack prefab -> shared scripts
@@ -283,10 +283,10 @@ content pack prefab -> declared library scripts
 
 ```text
 module A -> module B internal code
-module A -> module B assets.generated
-module A -> module B config.generated
+module A -> module B generated/assets
+module A -> module B generated/config
 module A -> module B runtime config
-module A -> module B code/entry.generated.ts
+module A -> module B code/generated/entry.ts
 module A -> module B content pack
 module -> library internal code
 library -> module

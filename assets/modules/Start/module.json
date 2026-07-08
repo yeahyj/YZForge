@@ -3,7 +3,7 @@
   "kind": "module",
   "name": "Start",
   "bundle": "yzforge-module-start",
-  "entry": "code/entry.generated.ts",
+  "entry": "code/generated/entry.ts",
   "public": "code/public.ts",
   "enterParams": "StartEnterParams",
   "libraries": []

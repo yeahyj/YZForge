@@ -22,7 +22,7 @@ assets/
       libraries/
         BattleCore.ref.generated.ts
       content-packs/
-        Battle.content-packs.generated.ts
+        Battle.generated.ts
       extensions/
         storage.ref.generated.ts
       entries.generated.ts
@@ -38,9 +38,11 @@ assets/
     global/
       code/
         GlobalRoot.ts
-        assets.generated.ts
-        config.generated.ts
-        events.ts
+        generated/
+          assets.ts
+          config.ts
+        events/
+          index.ts
         ...
       res/
         view/
@@ -61,13 +63,15 @@ assets/
     Home/
       module.json
       code/
-        entry.generated.ts
         HomeModule.ts
         public.ts
-        assets.generated.ts
-        config.generated.ts
-        content-packs.generated.ts
-        events.ts
+        generated/
+          entry.ts
+          assets.ts
+          config.ts
+          content-packs.ts
+        events/
+          index.ts
         ...
       res/
         view/
@@ -80,10 +84,11 @@ assets/
     BattleCore/
       library.json
       code/
-        entry.generated.ts
         public.ts
-        assets.generated.ts
-        config.generated.ts
+        generated/
+          entry.ts
+          assets.ts
+          config.ts
         ...
       res/
         prefab/
@@ -164,9 +169,9 @@ examples/
 | `assets/app/contracts/extensions/*.contract.generated.ts` | Extension 公开 token 和配置类型。 | 生成，不手改 |
 | `assets/app/global/` | 全局有状态能力，随 App 启动，不随 Module 卸载。 | 手写 + 生成 |
 | `assets/app/global/code/GlobalRoot.ts` | 全局根对象，管理账号、会话、全局 UI、全局服务。 | 手写 |
-| `assets/app/global/code/assets.generated.ts` | GlobalScope 资源清单。 | 生成，不手改 |
-| `assets/app/global/code/config.generated.ts` | GlobalScope 配置类型和索引。 | 生成，不手改 |
-| `assets/app/global/code/events.ts` | 全局事件定义。 | 手写 |
+| `assets/app/global/code/generated/assets.ts` | GlobalScope 资源清单。 | 生成，不手改 |
+| `assets/app/global/code/generated/config.ts` | GlobalScope 配置类型和索引。 | 生成，不手改 |
+| `assets/app/global/code/events/index.ts` | 全局事件定义入口；单个事件可拆到 `code/events/<Event>.ts`。 | 手写 |
 | `assets/app/global/code/...` | GlobalScope 手写代码，内部结构由项目自行组织。 | 手写 |
 | `assets/app/global/res/view/` | 全局可打开 UI prefab。 | 手工维护 |
 | `assets/app/global/res/part/` | 全局 UI 片段 prefab。 | 手工维护 |
@@ -216,13 +221,13 @@ Module 内部手写代码目录不强制固定。`flow/`、`model/`、`service/`
 | 路径 | 作用 | 维护方式 |
 | --- | --- | --- |
 | `assets/modules/<Module>/module.json` | Module 描述文件，声明 name、bundle、entry、public、libraries。 | 手写，Validator 校验 |
-| `assets/modules/<Module>/code/entry.generated.ts` | Module Bundle 注册脚本，注册 `ModuleEntry`。 | 生成，不手改 |
+| `assets/modules/<Module>/code/generated/entry.ts` | Module Bundle 注册脚本，注册 `ModuleEntry`。 | 生成，不手改 |
 | `assets/modules/<Module>/code/<Module>Module.ts` | Module 主类，承接生命周期。 | 手写 |
 | `assets/modules/<Module>/code/public.ts` | Module 公开契约源文件，只写类型。 | 手写，生成器读取 |
-| `assets/modules/<Module>/code/assets.generated.ts` | Module 资源清单。 | 生成，不手改 |
-| `assets/modules/<Module>/code/config.generated.ts` | Module 配置类型和索引。 | 生成，不手改 |
-| `assets/modules/<Module>/code/content-packs.generated.ts` | owner Module 可使用的 ContentPack 类型安全入口。 | 生成，不手改 |
-| `assets/modules/<Module>/code/events.ts` | 模块内事件定义。 | 手写 |
+| `assets/modules/<Module>/code/generated/assets.ts` | Module 资源清单。 | 生成，不手改 |
+| `assets/modules/<Module>/code/generated/config.ts` | Module 配置类型和索引。 | 生成，不手改 |
+| `assets/modules/<Module>/code/generated/content-packs.ts` | owner Module 可使用的 ContentPack 类型安全入口。 | 生成，不手改 |
+| `assets/modules/<Module>/code/events/index.ts` | 模块内事件定义入口；单个事件可拆到 `code/events/<Event>.ts`。 | 手写 |
 | `assets/modules/<Module>/code/...` | Module 手写代码，内部结构由项目自行组织。 | 手写 |
 | `assets/modules/<Module>/res/view/` | 模块可被 UIManager 打开的 View prefab。 | 手工维护 |
 | `assets/modules/<Module>/res/part/` | 模块动态 UI 片段 prefab。 | 手工维护 |
@@ -237,10 +242,10 @@ Library 内部手写代码目录不强制固定。`types/`、`system/`、`compon
 | 路径 | 作用 | 维护方式 |
 | --- | --- | --- |
 | `assets/libraries/<Library>/library.json` | Library 描述文件，声明 name、bundle、entry、public、libraries。 | 手写，Validator 校验 |
-| `assets/libraries/<Library>/code/entry.generated.ts` | Library Bundle 注册脚本，注册 `LibraryEntry`。 | 生成，不手改 |
+| `assets/libraries/<Library>/code/generated/entry.ts` | Library Bundle 注册脚本，注册 `LibraryEntry`。 | 生成，不手改 |
 | `assets/libraries/<Library>/code/public.ts` | Library 公开契约源文件，声明公开类型和 token map。 | 手写，生成器读取 |
-| `assets/libraries/<Library>/code/assets.generated.ts` | Library 资源清单。 | 生成，不手改 |
-| `assets/libraries/<Library>/code/config.generated.ts` | Library 配置类型和索引。 | 生成，不手改 |
+| `assets/libraries/<Library>/code/generated/assets.ts` | Library 资源清单。 | 生成，不手改 |
+| `assets/libraries/<Library>/code/generated/config.ts` | Library 配置类型和索引。 | 生成，不手改 |
 | `assets/libraries/<Library>/code/...` | Library 手写代码，内部结构由项目自行组织。 | 手写 |
 | `assets/libraries/<Library>/res/prefab/` | 领域共享 prefab。 | 手工维护 |
 | `assets/libraries/<Library>/res/runtime/` | Library 显式加载资源。 | 手工维护，生成清单 |
@@ -305,7 +310,7 @@ assets/shared/res            -> yzforge-shared-res   可选
 
 `code/` 和 `res/` 是逻辑目录，不再强制拆成两个物理 Bundle。
 
-`code/entry.generated.ts` 是动态代码 Bundle 的生成入口，负责顶层注册 `ModuleEntry` 或 `LibraryEntry`。业务逻辑写在 `HomeModule.ts`、`Service`、`Flow`、`System` 等手写文件里，不写进生成入口。
+`code/generated/entry.ts` 是动态代码 Bundle 的生成入口，负责顶层注册 `ModuleEntry` 或 `LibraryEntry`。业务逻辑写在 `HomeModule.ts`、`Service`、`Flow`、`System` 等手写文件里，不写进生成入口。
 
 同一个 Scope 内部的手写脚本可以按需要互相 import。限制只发生在跨 Scope 时：跨 Module、跨 Library、跨 ContentPack 不能直接 import 内部实现。
 
@@ -325,8 +330,8 @@ Editor 插件应自动配置或校验 Cocos Bundle 设置：
 
 - Bundle 名必须由生成器根据目录和 manifest 计算，不能手写随意名称。
 - `module.json`、`library.json`、`content-pack.json` 中的 `bundle` 必须与 Cocos Bundle meta 配置一致。
-- 动态 Bundle 必须包含自己的 `code/entry.generated.ts`。
-- `entry.generated.ts` 必须随目标 Bundle 构建，并在 Bundle 加载后注册 Entry。
+- 动态 Bundle 必须包含自己的 `code/generated/entry.ts`。
+- `generated/entry.ts` 必须随目标 Bundle 构建，并在 Bundle 加载后注册 Entry。
 - `assets/shared/res` 如果作为 Bundle，优先级必须高于依赖它的业务 Bundle，并在业务 Bundle 前加载。
 - 远程 Bundle、小游戏分包、压缩方式等平台差异由 Extension 或构建配置处理，核心只要求运行时能通过 `bundle` 名加载。
 
@@ -342,7 +347,7 @@ Editor 插件应自动配置或校验 Cocos Bundle 设置：
   "kind": "module",
   "name": "Battle",
   "bundle": "yzforge-module-battle",
-  "entry": "code/entry.generated.ts",
+  "entry": "code/generated/entry.ts",
   "public": "code/public.ts",
   "enterParams": "BattleEnterParams",
   "libraries": ["BattleCore"]
@@ -363,7 +368,7 @@ Editor 插件应自动配置或校验 Cocos Bundle 设置：
 }
 ```
 
-`assets/app/registry/content-packs` 记录首包可见的内容包元信息，便于预下载、版本检查和工具面板展示。owner Module 运行时使用的类型安全入口仍然生成到 `assets/modules/<Owner>/code/content-packs.generated.ts`。
+`assets/app/registry/content-packs` 记录首包可见的内容包元信息，便于预下载、版本检查和工具面板展示。owner Module 运行时使用的类型安全入口仍然生成到 `assets/modules/<Owner>/code/generated/content-packs.ts`。
 
 ## Public Contract
 

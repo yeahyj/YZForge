@@ -18,6 +18,14 @@ function contentPackBundleName(owner, name) {
   return `yzforge-content-pack-${kebabCase(owner)}-${kebabCase(name)}`;
 }
 
+function generatedCodePath(descriptor, fileName) {
+  return `assets/${descriptor.kind === 'library' ? 'libraries' : 'modules'}/${descriptor.name}/code/generated/${fileName}`;
+}
+
+function generatedCodeDir(descriptor) {
+  return path.join(descriptor.dir, 'code', 'generated');
+}
+
 function renderContract(descriptor, kind) {
   const publicPath = path.join(descriptor.dir, descriptor.public || 'code/public.ts');
   let body = 'export {};';
@@ -98,14 +106,14 @@ function renderLibraryRef(library) {
 
 function renderModuleEntry(module) {
   const libraryImports = module.libraries
-    .map((name) => `import { ${name}Ref } from '../../../app/registry/libraries/${name}.ref.generated';`)
+    .map((name) => `import { ${name}Ref } from '../../../../app/registry/libraries/${name}.ref.generated';`)
     .join('\n');
   const librariesExpr = module.libraries.map((name) => `${name}Ref`).join(', ');
   return [
     "import { defineModuleEntry, registerModuleEntry } from 'yzforge';",
-    `import { ${module.name}Module } from './${module.name}Module';`,
-    "import { assets } from './assets.generated';",
-    "import { config } from './config.generated';",
+    `import { ${module.name}Module } from '../${module.name}Module';`,
+    "import { assets } from './assets';",
+    "import { config } from './config';",
     libraryImports,
     '',
     'registerModuleEntry(defineModuleEntry({',
@@ -121,14 +129,14 @@ function renderModuleEntry(module) {
 
 function renderLibraryEntry(library) {
   const libraryImports = library.libraries
-    .map((name) => `import { ${name}Ref } from '../../../app/registry/libraries/${name}.ref.generated';`)
+    .map((name) => `import { ${name}Ref } from '../../../../app/registry/libraries/${name}.ref.generated';`)
     .join('\n');
   const librariesExpr = library.libraries.map((name) => `${name}Ref`).join(', ');
   return [
     "import { defineLibraryEntry, registerLibraryEntry } from 'yzforge';",
-    "import { assets } from './assets.generated';",
-    "import { config } from './config.generated';",
-    "import { providers } from './providers';",
+    "import { assets } from './assets';",
+    "import { config } from './config';",
+    "import { providers } from '../providers';",
     libraryImports,
     '',
     'registerLibraryEntry(defineLibraryEntry({',
@@ -343,6 +351,7 @@ function writeAutoRefs(projectRoot, descriptor, writeGenerated) {
 
 function renderAssets(descriptor) {
   const codeDir = path.join(descriptor.dir, 'code');
+  const outputDir = generatedCodeDir(descriptor);
   const viewFiles = scanFiles(path.join(descriptor.dir, 'res', 'view'), '.prefab');
   const partFiles = scanFiles(path.join(descriptor.dir, 'res', 'part'), '.prefab');
   const runtimeFiles = scanRuntimeFiles(path.join(descriptor.dir, 'res', 'runtime'));
@@ -362,12 +371,12 @@ function renderAssets(descriptor) {
   for (const filePath of viewFiles) {
     const className = path.basename(filePath, '.prefab');
     const scriptPath = path.join(codeDir, 'view', `${className}.ts`);
-    imports.push(`import { ${className} } from '${codeImportPath(codeDir, scriptPath)}';`);
+    imports.push(`import { ${className} } from '${codeImportPath(outputDir, scriptPath)}';`);
   }
   for (const filePath of partFiles) {
     const className = path.basename(filePath, '.prefab');
     const scriptPath = path.join(codeDir, 'part', `${className}.ts`);
-    imports.push(`import { ${className} } from '${codeImportPath(codeDir, scriptPath)}';`);
+    imports.push(`import { ${className} } from '${codeImportPath(outputDir, scriptPath)}';`);
   }
 
   const viewEntries = viewFiles.map((filePath) => {
@@ -629,7 +638,7 @@ function renderModuleContentPacks(module, packs) {
   const imports = owned
     .flatMap((pack) => pack.libraries || [])
     .filter((name, index, all) => all.indexOf(name) === index)
-    .map((name) => `import { ${name}Ref } from '../../../app/registry/libraries/${name}.ref.generated';`);
+    .map((name) => `import { ${name}Ref } from '../../../../app/registry/libraries/${name}.ref.generated';`);
   const entries = owned.map((pack) => {
     const libraries = (pack.libraries || []).map((name) => `${name}Ref`).join(', ');
     const exportName = `${pack.owner}${pack.name}ContentPack`;
@@ -890,9 +899,9 @@ function generate(projectRoot, options = {}) {
     library.libraries = library.libraries || [];
     writeGenerated(`assets/app/contracts/libraries/${library.name}.contract.generated.ts`, library.projectPath, renderContract(library, 'library'));
     writeGenerated(`assets/app/registry/libraries/${library.name}.ref.generated.ts`, library.projectPath, renderLibraryRef(library));
-    writeGenerated(`assets/libraries/${library.name}/code/entry.generated.ts`, library.projectPath, renderLibraryEntry(library));
-    writeGenerated(`assets/libraries/${library.name}/code/assets.generated.ts`, `assets/libraries/${library.name}/res`, renderAssets(library));
-    writeGenerated(`assets/libraries/${library.name}/code/config.generated.ts`, `assets/libraries/${library.name}/res/content/config`, renderConfig(library));
+    writeGenerated(generatedCodePath(library, 'entry.ts'), library.projectPath, renderLibraryEntry(library));
+    writeGenerated(generatedCodePath(library, 'assets.ts'), `assets/libraries/${library.name}/res`, renderAssets(library));
+    writeGenerated(generatedCodePath(library, 'config.ts'), `assets/libraries/${library.name}/res/content/config`, renderConfig(library));
   }
 
   for (const module of project.modules) {
@@ -901,16 +910,16 @@ function generate(projectRoot, options = {}) {
     writeGenerated(`assets/app/contracts/modules/${module.name}.contract.generated.ts`, module.projectPath, renderContract(module, 'module'));
     writeGenerated(`assets/app/registry/modules/${module.name}.ref.generated.ts`, module.projectPath, renderModuleRef(module, project.libraries));
     writeAutoRefs(projectRoot, module, writeGenerated);
-    writeGenerated(`assets/modules/${module.name}/code/entry.generated.ts`, module.projectPath, renderModuleEntry(module));
-    writeGenerated(`assets/modules/${module.name}/code/assets.generated.ts`, `assets/modules/${module.name}/res`, renderAssets(module));
-    writeGenerated(`assets/modules/${module.name}/code/config.generated.ts`, `assets/modules/${module.name}/res/content/config`, renderConfig(module));
-    writeGenerated(`assets/modules/${module.name}/code/content-packs.generated.ts`, `assets/content-packs/${module.name}`, renderModuleContentPacks(module, project.contentPacks));
+    writeGenerated(generatedCodePath(module, 'entry.ts'), module.projectPath, renderModuleEntry(module));
+    writeGenerated(generatedCodePath(module, 'assets.ts'), `assets/modules/${module.name}/res`, renderAssets(module));
+    writeGenerated(generatedCodePath(module, 'config.ts'), `assets/modules/${module.name}/res/content/config`, renderConfig(module));
+    writeGenerated(generatedCodePath(module, 'content-packs.ts'), `assets/content-packs/${module.name}`, renderModuleContentPacks(module, project.contentPacks));
   }
 
   if (project.global) {
     writeAutoRefs(projectRoot, project.global, writeGenerated);
-    writeGenerated('assets/app/global/code/assets.generated.ts', 'assets/app/global/res', renderAssets(project.global));
-    writeGenerated('assets/app/global/code/config.generated.ts', 'assets/app/global/res/content/config', renderConfig(project.global));
+    writeGenerated('assets/app/global/code/generated/assets.ts', 'assets/app/global/res', renderAssets(project.global));
+    writeGenerated('assets/app/global/code/generated/config.ts', 'assets/app/global/res/content/config', renderConfig(project.global));
   }
 
   const entryExports = project.modules

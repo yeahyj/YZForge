@@ -151,7 +151,7 @@ export interface ExtensionContext {
         handler: (payload: AppLifecycleEvents[TEvent]) => void,
     ): () => void;
     registerConfigCodec(codec: ConfigCodec): () => void;
-    registerService<T>(
+    registerAppService<T>(
         token: ExtensionToken<T>,
         value: T,
         options?: { dispose?(value: T): void },
@@ -194,10 +194,10 @@ const analytics = this.use(ModuleAnalyticsToken);
 - Module-level token 随 Module 创建和卸载。
 - Extension install 失败时，App 启动失败，并报告 extension name 和 dependency chain。
 - Extension 能力必须通过 token 暴露，不往 `app` 上直接挂 `app.audio`、`app.net` 这类字段。
-- Extension phase 使用事务。某个 phase 失败时，本 phase 中已提供的 app token / module token / config codec / managed service / SystemUI provider 会回滚，本 phase 已完成 hook 的 Extension 会按反向顺序优先执行 phase-specific rollback hook；没有 hook 的旧扩展才使用 `dispose/uninstall` 兜底。
+- Extension phase 使用事务。某个 phase 失败时，本 phase 中已提供的 app token / module token / config codec / managed app service / SystemUI provider 会回滚，本 phase 已完成 hook 的 Extension 会按反向顺序优先执行 phase-specific rollback hook；没有 hook 的旧扩展才使用 `dispose/uninstall` 兜底。
 - Extension lifecycle listener 必须通过 `ExtensionContext.onLifecycle` 注册，不能直接持有裸 `AppLifecycle`；phase 失败和 Extension dispose 时由框架解绑。
 - Extension config codec 必须通过 `ExtensionContext.registerConfigCodec` 注册，名称必须全局唯一；phase 失败和 Extension dispose 时由框架 unregister。
-- Extension managed service 必须通过 `ExtensionContext.registerService` 注册，需要清理外部资源时传入 `dispose`；phase 失败和 Extension dispose 时由框架删除 token 并调用 disposer。
+- Extension managed app service 必须通过 `ExtensionContext.registerAppService` 注册，需要清理外部资源时传入 `dispose`；phase 失败和 Extension dispose 时由框架删除 token 并调用 disposer。
 - Extension SystemUI provider 必须通过 `ExtensionContext.registerSystemUIProvider` 注册；phase 失败和 Extension dispose 时由框架 unregister。
 - 新增 `ExtensionContext` callable 能力时，必须同步扩展 transaction 数据结构、rollback 逻辑、Validator AST 分类和 smoke 反例；不能直接在 facade 上暴露绕过 rollback 的副作用。
 
@@ -280,7 +280,7 @@ release failed:
 - `App` 通过它把轻量 ref 解析成真实 entry。
 - Entry 注册必须校验 ref 和 entry 的 name、bundle、libraries 是否一致。
 
-动态 Bundle 的 `code/entry.generated.ts` 负责顶层注册：
+动态 Bundle 的 `code/generated/entry.ts` 负责顶层注册：
 
 ```ts
 registerModuleEntry(defineModuleEntry(...));
@@ -289,9 +289,9 @@ registerLibraryEntry(defineLibraryEntry(...));
 
 运行时要求：
 
-- `entry.generated.ts` 必须位于对应 Bundle 目录内，并参与 Cocos Bundle 构建。
-- `entry.generated.ts` 只能 import 当前 Scope 内部实现、`yzforge` runtime、首包 contract/registry 和 `shared`。
-- `entry.generated.ts` 不允许 import 其他动态 Bundle 内部脚本。
+- `generated/entry.ts` 必须位于对应 Bundle 目录内，并参与 Cocos Bundle 构建。
+- `generated/entry.ts` 只能 import 当前 Scope 内部实现、`yzforge` runtime、首包 contract/registry 和 `shared`。
+- `generated/entry.ts` 不允许 import 其他动态 Bundle 内部脚本。
 - `BundleManager.loadBundle(ref.bundle)` 返回后，`EntryRegistry` 必须能在同一 tick 或一个明确超时时间内解析到对应 Entry。
 - 如果 Bundle 加载成功但 Entry 未注册，视为 `EntryMissingError`，加载流程失败并回滚本次 acquire。
 

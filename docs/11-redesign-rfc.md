@@ -276,7 +276,7 @@ Library contract 和 runtime provider 必须形成闭环。
 ```text
 assets/libraries/BattleCore/code/public.ts
 assets/libraries/BattleCore/code/providers.ts
-assets/libraries/BattleCore/code/entry.generated.ts
+assets/libraries/BattleCore/code/generated/entry.ts
 ```
 
 `public.ts` 只声明类型和 token map。`providers.ts` 绑定实现：
@@ -287,7 +287,7 @@ export const providers = defineLibraryProviders<BattleCoreTokenMap>({
 });
 ```
 
-`entry.generated.ts` 只组装：
+`generated/entry.ts` 只组装：
 
 ```ts
 registerLibraryEntry(defineLibraryEntry({
@@ -313,12 +313,12 @@ Config 不是普通 asset ref，也不是空对象。它应有独立 manifest、
 
 ```text
 res/content/config/manifest.json
-code/config.generated.ts
+code/generated/config.ts
 ```
 
 规则：
 
-- `config.generated.ts` 生成 typed table ref，不内嵌大表。
+- `generated/config.ts` 生成 typed table ref，不内嵌大表。
 - Runtime 通过 ConfigManager 加载表数据并创建 `ConfigScope`。
 - ContentPack 的 `LoadedContentPack.config` 必须来自自身配置 manifest。
 - ContentPack manifest generated 文件必须被 runtime 或构建索引实际使用，而不是只作为编辑器产物存在。

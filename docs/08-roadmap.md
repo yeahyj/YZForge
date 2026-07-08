@@ -142,7 +142,7 @@ examples/module-preload
 
 必须完成：
 
-- `assets.generated.ts`。
+- `generated/assets.ts`。
 - `Asset Loader`。
 - `UIManager`。
 - `View` / `Part`。
@@ -193,7 +193,7 @@ examples/library
 
 - `content-pack.json`。
 - `manifest.generated.json`。
-- owner Module 的 `content-packs.generated.ts`。
+- owner Module 的 `generated/content-packs.ts`。
 - `ContentPackManager`。
 - ContentPack 资源加载和 prefab 实例所有权。
 - ContentPack prefab 脚本来源 Validator。
@@ -211,7 +211,7 @@ examples/content-pack
 
 必须完成：
 
-- `config.generated.ts`。
+- `generated/config.ts`。
 - `Config Registry`。
 - JSON table codec。
 - primary key `get` / `require` / `all`。
@@ -272,7 +272,7 @@ examples/ui
   Page、Paper、Popup、Toast、Top、openForResult
 
 examples/resource
-  assets.generated.ts、runtime 资源加载、模块卸载释放
+  generated/assets.ts、runtime 资源加载、模块卸载释放
 
 examples/library
   BattleCore Library、共享战斗脚本、共享战斗 prefab
@@ -284,7 +284,7 @@ examples/module-preload
   ActivitySpring Module 预加载、进入、卸载
 
 examples/config
-  config.generated.ts、配置读取、Service 写入 Model
+  generated/config.ts、配置读取、Service 写入 Model
 
 examples/extension
   自定义 StorageToken、自定义模块扩展
