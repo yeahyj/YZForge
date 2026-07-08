@@ -56,8 +56,26 @@ export class ConfigCodecRegistry {
         this.register(new JsonConfigCodec());
     }
 
-    public register(codec: ConfigCodec): void {
+    public register(codec: ConfigCodec): () => void {
+        if (!codec.name) {
+            throw new YZForgeError('Config codec name is required.', 'config.codec_invalid');
+        }
+        if (this.codecs.has(codec.name)) {
+            throw new YZForgeError(`Config codec already registered: ${codec.name}`, 'config.codec_duplicate', {
+                codec: codec.name,
+            });
+        }
         this.codecs.set(codec.name, codec);
+        let active = true;
+        return () => {
+            if (!active) {
+                return;
+            }
+            active = false;
+            if (this.codecs.get(codec.name) === codec) {
+                this.codecs.delete(codec.name);
+            }
+        };
     }
 
     public get(name: string): ConfigCodec | undefined {

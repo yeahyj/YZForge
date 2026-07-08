@@ -268,7 +268,7 @@ export interface ConfigCodec {
 }
 ```
 
-第一版内置 `yzforge-json`。自定义二进制格式通过 Extension 注册 codec。
+第一版内置 `yzforge-json`。自定义二进制格式通过 Extension 的 `context.registerConfigCodec(...)` 注册 codec；codec 名称必须唯一，Extension phase 失败或 registry dispose 时由框架自动 unregister。
 
 ## Config 类型
 

@@ -404,7 +404,32 @@ async function assertExtensionRegistryBehavior() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
   const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
   const logger = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/logger.ts');
+  const configCodecStore = new Map();
+  const configCodecEvents = [];
+  const configRuntime = {
+    configCodecs: {
+      register(codec) {
+        if (configCodecStore.has(codec.name)) {
+          throw new Error(`Duplicate smoke config codec: ${codec.name}`);
+        }
+        configCodecStore.set(codec.name, codec);
+        configCodecEvents.push(`register:${codec.name}`);
+        let active = true;
+        return () => {
+          if (!active) {
+            return;
+          }
+          active = false;
+          if (configCodecStore.get(codec.name) === codec) {
+            configCodecStore.delete(codec.name);
+            configCodecEvents.push(`dispose:${codec.name}`);
+          }
+        };
+      },
+    },
+  };
   const extensionRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/extension-registry.ts', {
+    './config': configRuntime,
     './errors': errors,
     './logger': logger,
   });
@@ -470,6 +495,13 @@ async function assertExtensionRegistryBehavior() {
       events.push(`Core:${context.phase}`);
       context.provide(appToken, 'ready');
       context.onLifecycle('foreground', () => events.push('Core:foreground'));
+      context.registerConfigCodec({
+        name: 'core-binary',
+        version: 1,
+        decode(data) {
+          return data;
+        },
+      });
     },
     dispose(context) {
       events.push(`Core:${context.phase}`);
@@ -483,6 +515,7 @@ async function assertExtensionRegistryBehavior() {
   );
   assert(registry.use(appToken) === 'ready', 'ExtensionContext.provide must register app tokens.');
   assert(registry.useModuleToken({ name: 'Battle' }, moduleToken) === 'module:Battle', 'ExtensionContext.provideModule must register module-scoped tokens.');
+  assert(configCodecStore.has('core-binary'), 'ExtensionContext.registerConfigCodec must register config codecs.');
   emitLifecycle('foreground');
   assert(events.includes('Core:foreground'), 'ExtensionContext.onLifecycle must register lifecycle listeners.');
 
@@ -514,6 +547,41 @@ async function assertExtensionRegistryBehavior() {
     events.filter((event) => event === 'Core:foreground').length === foregroundEventCount,
     'Extension lifecycle listeners must be removed when the registry is disposed.',
   );
+  assert(!configCodecStore.has('core-binary'), 'Extension config codecs must be removed when the registry is disposed.');
+  assert(configCodecEvents.includes('dispose:core-binary'), 'Extension config codec disposer must run when the registry is disposed.');
+
+  const disposeFailureRegistry = new ExtensionRegistry(app, quietLogger);
+  const disposeFailureEvents = [];
+  await disposeFailureRegistry.install({
+    name: 'DisposeFailure',
+    installBeforeStart(context) {
+      context.onLifecycle('foreground', () => disposeFailureEvents.push('foreground'));
+      context.registerConfigCodec({
+        name: 'dispose-failure-binary',
+        version: 1,
+        decode(data) {
+          return data;
+        },
+      });
+    },
+    dispose() {
+      throw new Error('dispose boom');
+    },
+  });
+  await disposeFailureRegistry.installBeforeStart();
+  emitLifecycle('foreground');
+  assert(disposeFailureEvents.length === 1, 'Dispose failure smoke must register a lifecycle listener before disposal.');
+  assert(configCodecStore.has('dispose-failure-binary'), 'Dispose failure smoke must register a config codec before disposal.');
+  let disposeFailure;
+  try {
+    await disposeFailureRegistry.dispose({ type: 'dispose_failure_smoke' });
+  } catch (error) {
+    disposeFailure = error;
+  }
+  assert(disposeFailure?.message === 'dispose boom', 'Extension dispose failure must still be reported.');
+  emitLifecycle('foreground');
+  assert(disposeFailureEvents.length === 1, 'Extension side effects must be cleaned even when dispose throws.');
+  assert(!configCodecStore.has('dispose-failure-binary'), 'Extension config codecs must be removed even when dispose throws.');
 
   const missing = new ExtensionRegistry(app, quietLogger);
   await missing.install({ name: 'NeedsMissing', dependencies: ['Missing'] });
@@ -547,6 +615,13 @@ async function assertExtensionRegistryBehavior() {
       rollbackEvents.push(`Core:${context.phase}`);
       context.provide(rollbackToken, 'core-ready');
       context.onLifecycle('foreground', () => rollbackEvents.push('Core:foreground'));
+      context.registerConfigCodec({
+        name: 'rollback-core-binary',
+        version: 1,
+        decode(data) {
+          return data;
+        },
+      });
     },
     dispose(context, reason) {
       rollbackEvents.push(`Core:${context.phase}:${reason?.type}`);
@@ -557,6 +632,13 @@ async function assertExtensionRegistryBehavior() {
     dependencies: ['Core'],
     installBeforeStart(context) {
       context.provide(badRollbackToken, 'bad-leak');
+      context.registerConfigCodec({
+        name: 'rollback-bad-binary',
+        version: 1,
+        decode(data) {
+          return data;
+        },
+      });
       throw new Error('boom');
     },
   });
@@ -576,6 +658,8 @@ async function assertExtensionRegistryBehavior() {
   );
   emitLifecycle('foreground');
   assert(!rollbackEvents.includes('Core:foreground'), 'Extension phase rollback must remove lifecycle listeners registered in the failed transaction.');
+  assert(!configCodecStore.has('rollback-core-binary'), 'Extension phase rollback must remove config codecs from completed hooks.');
+  assert(!configCodecStore.has('rollback-bad-binary'), 'Extension phase rollback must remove config codecs from the failing hook.');
   let rollbackTokenError;
   try {
     failing.use(rollbackToken);
@@ -1899,6 +1983,9 @@ function assertRuntimeLifecycleInvariants() {
   assert(extensionRegistrySource.includes('disposeCompletedPhaseExtensions'), 'ExtensionRegistry must dispose completed phase extensions on rollback.');
   assert(extensionRegistrySource.includes('onLifecycleInTransaction'), 'ExtensionContext.onLifecycle must register lifecycle listeners through the transaction.');
   assert(extensionRegistrySource.includes('readonly lifecycleDisposers'), 'ExtensionTransaction must track lifecycle listener disposers.');
+  assert(extensionRegistrySource.includes('registerConfigCodecInTransaction'), 'ExtensionContext.registerConfigCodec must register config codecs through the transaction.');
+  assert(extensionRegistrySource.includes('readonly configCodecDisposers'), 'ExtensionTransaction must track config codec disposers.');
+  assert(extensionRegistrySource.includes('disposeExtensionConfigCodecs'), 'ExtensionRegistry must remove config codecs during extension disposal.');
   assert(!extensionRegistrySource.includes('readonly lifecycle: App'), 'ExtensionContext must not expose raw AppLifecycle; use onLifecycle instead.');
   assert(extensionRegistrySource.includes('export interface ExtensionPhaseRollbackReason'), 'ExtensionRegistry must expose phase-specific rollback reason context.');
   assert(extensionRegistrySource.includes('rollbackBeforeStart'), 'Extension must expose a before-start phase rollback hook.');
@@ -2348,6 +2435,24 @@ async function smoke(options = {}) {
     const extensionLifecycleRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.onLifecycle must route through onLifecycleInTransaction');
     const extensionLifecycleRouteDetail = extensionLifecycleRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.onLifecycle must route through onLifecycleInTransaction'));
     assert(extensionLifecycleRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext lifecycle transaction route issue code.');
+    for (const [rel, content] of extensionRegistryOriginals) {
+      writeText(projectRoot, rel, content);
+    }
+    assertOkValidation(projectRoot);
+
+    for (const rel of extensionRegistryRels) {
+      updateText(projectRoot, rel, (content) => {
+        const updated = content.replace(
+          '? this.registerConfigCodecInTransaction(transaction, extensionName, codec)',
+          '? configCodecs.register(codec)',
+        );
+        assert(updated !== content, `Expected to mutate ${rel} ExtensionContext.registerConfigCodec transaction route.`);
+        return updated;
+      });
+    }
+    const extensionConfigCodecRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.registerConfigCodec must route through registerConfigCodecInTransaction');
+    const extensionConfigCodecRouteDetail = extensionConfigCodecRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.registerConfigCodec must route through registerConfigCodecInTransaction'));
+    assert(extensionConfigCodecRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext config codec transaction route issue code.');
     for (const [rel, content] of extensionRegistryOriginals) {
       writeText(projectRoot, rel, content);
     }

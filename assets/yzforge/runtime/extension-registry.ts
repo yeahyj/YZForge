@@ -1,4 +1,6 @@
 import type { App } from './app';
+import { configCodecs } from './config';
+import type { ConfigCodec } from './config';
 import { YZForgeError } from './errors';
 import type { AppLifecycleEvents } from './lifecycle';
 import { Logger } from './logger';
@@ -29,6 +31,7 @@ export interface ExtensionContext {
         event: TKey,
         handler: (payload: AppLifecycleEvents[TKey]) => void,
     ): () => void;
+    registerConfigCodec(codec: ConfigCodec): () => void;
 }
 
 export interface Extension {
@@ -58,6 +61,7 @@ interface ExtensionTransaction {
     readonly appValues: Map<string, TransactionValue<unknown>>;
     readonly moduleFactories: Map<string, TransactionValue<ModuleTokenFactory<unknown>>>;
     readonly lifecycleDisposers: TransactionDisposer[];
+    readonly configCodecDisposers: TransactionDisposer[];
 }
 
 interface TransactionDisposer {
@@ -77,6 +81,7 @@ export class ExtensionRegistry {
     private readonly completedPhases = new Set<ExtensionInstallPhase>();
     private readonly phaseDone = new Map<string, Set<ExtensionInstallPhase>>();
     private readonly lifecycleDisposers = new Map<string, Set<() => void>>();
+    private readonly configCodecDisposers = new Map<string, Set<() => void>>();
     private readonly disposedExtensions = new Set<string>();
     private disposed = false;
 
@@ -167,7 +172,8 @@ export class ExtensionRegistry {
             } catch (error) {
                 failure = failure ?? error;
             } finally {
-                failure = failure ?? this.disposeExtensionLifecycle(extension.name);
+                const sideEffectFailure = this.disposeExtensionSideEffects(extension.name);
+                failure = failure ?? sideEffectFailure;
                 this.disposedExtensions.add(extension.name);
             }
         }
@@ -177,6 +183,7 @@ export class ExtensionRegistry {
         this.appValues.clear();
         this.moduleFactories.clear();
         this.lifecycleDisposers.clear();
+        this.configCodecDisposers.clear();
         this.disposedExtensions.clear();
         if (failure) {
             throw failure;
@@ -266,6 +273,9 @@ export class ExtensionRegistry {
             onLifecycle: (event, handler) => transaction
                 ? this.onLifecycleInTransaction(transaction, extensionName, event, handler)
                 : this.trackLifecycleDisposer(extensionName, this.app.lifecycle.on(event, handler)),
+            registerConfigCodec: (codec) => transaction
+                ? this.registerConfigCodecInTransaction(transaction, extensionName, codec)
+                : this.trackConfigCodecDisposer(extensionName, configCodecs.register(codec)),
         };
     }
 
@@ -299,6 +309,7 @@ export class ExtensionRegistry {
             appValues: new Map(),
             moduleFactories: new Map(),
             lifecycleDisposers: [],
+            configCodecDisposers: [],
         };
     }
 
@@ -341,6 +352,16 @@ export class ExtensionRegistry {
         return dispose;
     }
 
+    private registerConfigCodecInTransaction(
+        transaction: ExtensionTransaction,
+        extensionName: string,
+        codec: ConfigCodec,
+    ): () => void {
+        const dispose = this.trackConfigCodecDisposer(extensionName, configCodecs.register(codec));
+        transaction.configCodecDisposers.push({ extensionName, dispose });
+        return dispose;
+    }
+
     private trackLifecycleDisposer(extensionName: string, dispose: () => void): () => void {
         let active = true;
         const tracked = (): void => {
@@ -359,6 +380,29 @@ export class ExtensionRegistry {
         if (!disposers) {
             disposers = new Set();
             this.lifecycleDisposers.set(extensionName, disposers);
+        }
+        disposers.add(tracked);
+        return tracked;
+    }
+
+    private trackConfigCodecDisposer(extensionName: string, dispose: () => void): () => void {
+        let active = true;
+        const tracked = (): void => {
+            if (!active) {
+                return;
+            }
+            active = false;
+            dispose();
+            const disposers = this.configCodecDisposers.get(extensionName);
+            disposers?.delete(tracked);
+            if (disposers?.size === 0) {
+                this.configCodecDisposers.delete(extensionName);
+            }
+        };
+        let disposers = this.configCodecDisposers.get(extensionName);
+        if (!disposers) {
+            disposers = new Set();
+            this.configCodecDisposers.set(extensionName, disposers);
         }
         disposers.add(tracked);
         return tracked;
@@ -387,7 +431,20 @@ export class ExtensionRegistry {
                 failures.push({ extensionName: item.extensionName, error });
             }
         }
+        for (const item of Array.from(transaction.configCodecDisposers).reverse()) {
+            try {
+                item.dispose();
+            } catch (error) {
+                failures.push({ extensionName: item.extensionName, error });
+            }
+        }
         return failures;
+    }
+
+    private disposeExtensionSideEffects(extensionName: string): unknown {
+        const lifecycleFailure = this.disposeExtensionLifecycle(extensionName);
+        const codecFailure = this.disposeExtensionConfigCodecs(extensionName);
+        return lifecycleFailure ?? codecFailure;
     }
 
     private disposeExtensionLifecycle(extensionName: string): unknown {
@@ -404,6 +461,23 @@ export class ExtensionRegistry {
             }
         }
         this.lifecycleDisposers.delete(extensionName);
+        return failure;
+    }
+
+    private disposeExtensionConfigCodecs(extensionName: string): unknown {
+        const disposers = this.configCodecDisposers.get(extensionName);
+        if (!disposers) {
+            return undefined;
+        }
+        let failure: unknown;
+        for (const dispose of Array.from(disposers).reverse()) {
+            try {
+                dispose();
+            } catch (error) {
+                failure = failure ?? error;
+            }
+        }
+        this.configCodecDisposers.delete(extensionName);
         return failure;
     }
 
@@ -438,7 +512,7 @@ export class ExtensionRegistry {
                             await extension.uninstall?.(this.createContext('dispose', undefined, extension.name));
                         }
                     } finally {
-                        lifecycleFailure = this.disposeExtensionLifecycle(extension.name);
+                        lifecycleFailure = this.disposeExtensionSideEffects(extension.name);
                         this.disposedExtensions.add(extension.name);
                     }
                     if (lifecycleFailure) {

@@ -1155,6 +1155,7 @@ function validateExtensionTransactions(projectRoot, issues) {
     [/\bcreateTransaction\s*\(/, 'ExtensionRegistry must create phase transactions.', 'createTransaction'],
     [/\bprovideInTransaction\s*\(/, 'ExtensionContext.provide must be transaction-aware.', 'provideInTransaction'],
     [/\bprovideModuleInTransaction\s*\(/, 'ExtensionContext.provideModule must be transaction-aware.', 'provideModuleInTransaction'],
+    [/\bregisterConfigCodecInTransaction\s*\(/, 'ExtensionContext.registerConfigCodec must be transaction-aware.', 'registerConfigCodecInTransaction'],
     [/\brollbackTransaction\s*\(/, 'ExtensionRegistry must rollback transaction token side effects.', 'rollbackTransaction'],
     [/\bdisposeCompletedPhaseExtensions\s*\(/, 'ExtensionRegistry must dispose completed phase extensions during rollback.', 'disposeCompletedPhaseExtensions'],
     [/\brollbackFailures\b/, 'Extension phase errors must include rollback failure details.', 'rollbackFailures'],
@@ -1210,6 +1211,7 @@ function validateExtensionTransactionAst(rel, source, issues) {
     ['provide', 'provideInTransaction'],
     ['provideModule', 'provideModuleInTransaction'],
     ['onLifecycle', 'onLifecycleInTransaction'],
+    ['registerConfigCodec', 'registerConfigCodecInTransaction'],
   ]);
   for (const member of extensionContext.members) {
     if (ts.isPropertySignature(member) && propertyNameText(ts, member.name) === 'lifecycle') {
