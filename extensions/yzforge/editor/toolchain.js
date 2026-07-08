@@ -552,7 +552,7 @@ function prepareTypecheckTsconfig(projectRoot) {
   const rootTsconfig = readJsonc(path.join(root, 'tsconfig.json'));
   const outputPath = path.join(root, TYPECHECK_TSCONFIG_PATH);
   const outputDir = path.dirname(outputPath);
-  const baseUrl = toPosix(path.relative(outputDir, root)) || '.';
+  const projectRootRelative = toPosix(path.relative(outputDir, root)) || '.';
   const engineRoot = resolveCocosEngineRoot(root);
   const cocosEngineAssets = resolveCocosEngineAssets(root);
   const ccDeclaration = path.join(engineRoot, 'bin', '.declarations', 'cc.d.ts');
@@ -575,15 +575,33 @@ function prepareTypecheckTsconfig(projectRoot) {
 
   const rootCompilerOptions = rootTsconfig.compilerOptions || {};
   const rootPaths = rootCompilerOptions.paths || {};
+  const rebaseProjectPath = (target) => {
+    if (typeof target !== 'string' || path.isAbsolute(target)) {
+      return target;
+    }
+    const normalized = toPosix(target);
+    if (normalized.startsWith('./')) {
+      return `${projectRootRelative}/${normalized.slice(2)}`;
+    }
+    return `${projectRootRelative}/${normalized}`;
+  };
+  const rebaseProjectPaths = (paths) => Object.fromEntries(
+    Object.entries(paths).map(([alias, targets]) => [
+      alias,
+      Array.isArray(targets)
+        ? targets.map(rebaseProjectPath)
+        : rebaseProjectPath(targets),
+    ]),
+  );
   const compilerOptions = {
     ...rootCompilerOptions,
-    baseUrl,
     paths: {
-      ...rootPaths,
+      ...rebaseProjectPaths(rootPaths),
       'db://internal/*': [`${toPosix(cocosEngineAssets)}/*`],
     },
     types: [],
   };
+  delete compilerOptions.baseUrl;
   delete compilerOptions.composite;
   delete compilerOptions.declaration;
   delete compilerOptions.declarationMap;
@@ -599,15 +617,15 @@ function prepareTypecheckTsconfig(projectRoot) {
       toPosix(macroDeclaration),
     ],
     include: [
-      `${baseUrl}/assets/**/*.ts`,
-      `${baseUrl}/packages/yzforge-runtime/src/**/*.ts`,
-      `${baseUrl}/extensions/yzforge/runtime-template/**/*.ts`,
+      `${projectRootRelative}/assets/**/*.ts`,
+      `${projectRootRelative}/packages/yzforge-runtime/src/**/*.ts`,
+      `${projectRootRelative}/extensions/yzforge/runtime-template/**/*.ts`,
     ],
     exclude: [
-      `${baseUrl}/build/**`,
-      `${baseUrl}/library/**`,
-      `${baseUrl}/node_modules/**`,
-      `${baseUrl}/temp/**`,
+      `${projectRootRelative}/build/**`,
+      `${projectRootRelative}/library/**`,
+      `${projectRootRelative}/node_modules/**`,
+      `${projectRootRelative}/temp/**`,
     ],
   };
 

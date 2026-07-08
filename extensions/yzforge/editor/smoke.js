@@ -1957,7 +1957,9 @@ function assertDashboardProfileResolver() {
 function assertTypecheckConfigPortability(projectRoot) {
   const rootTsconfig = readJson(projectRoot, 'tsconfig.json');
   assert(rootTsconfig.extends === undefined, 'Root tsconfig must not extend Cocos temp config.');
-  assert(rootTsconfig.compilerOptions?.paths?.['db://assets/*']?.[0] === 'assets/*', 'Root tsconfig db://assets path must be project-relative.');
+  assert(rootTsconfig.compilerOptions?.baseUrl === undefined, 'Root tsconfig must not set deprecated baseUrl.');
+  assert(rootTsconfig.compilerOptions?.moduleResolution === 'bundler', 'Root tsconfig must use bundler moduleResolution.');
+  assert(rootTsconfig.compilerOptions?.paths?.['db://assets/*']?.[0] === './assets/*', 'Root tsconfig db://assets path must be explicit relative.');
   assert(rootTsconfig.compilerOptions?.paths?.['db://internal/*'] === undefined, 'Root tsconfig must not commit Cocos internal path.');
 
   const generatedTsconfigPath = prepareTypecheckTsconfig(projectRoot);
@@ -1965,8 +1967,9 @@ function assertTypecheckConfigPortability(projectRoot) {
   assert(generatedRel === 'temp/yzforge/tsconfig.typecheck.json', 'Typecheck tsconfig must be generated under temp/yzforge.');
   const generated = JSON.parse(fs.readFileSync(generatedTsconfigPath, 'utf8'));
   assert(generated.extends === undefined, 'Generated typecheck tsconfig must be self-contained.');
-  assert(generated.compilerOptions?.baseUrl === '../..', 'Generated typecheck tsconfig must point baseUrl back to project root.');
-  assert(generated.compilerOptions?.paths?.['db://assets/*']?.[0] === 'assets/*', 'Generated typecheck config must preserve project-relative db://assets path.');
+  assert(generated.compilerOptions?.baseUrl === undefined, 'Generated typecheck tsconfig must not set deprecated baseUrl.');
+  assert(generated.compilerOptions?.moduleResolution === 'bundler', 'Generated typecheck tsconfig must use bundler moduleResolution.');
+  assert(generated.compilerOptions?.paths?.['db://assets/*']?.[0] === '../../assets/*', 'Generated typecheck config must rebase project paths relative to temp/yzforge.');
   assert(Array.isArray(generated.compilerOptions?.paths?.['db://internal/*']), 'Generated typecheck config must inject Cocos internal path at runtime.');
   assert(generated.files?.some((item) => toPosix(item).endsWith('/bin/.declarations/cc.d.ts')), 'Generated typecheck config must include Cocos cc declarations.');
   assert(generated.files?.some((item) => toPosix(item).endsWith('/@types/jsb.d.ts')), 'Generated typecheck config must include Cocos jsb declarations.');
@@ -2317,7 +2320,7 @@ async function smoke(options = {}) {
     updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
       tsconfig.compilerOptions.paths.yzforge = ['extensions/yzforge/runtime-template/index.ts'];
     });
-    const tsconfigPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.yzforge must be ["packages/yzforge-runtime/src/index.ts"]');
+    const tsconfigPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.yzforge must be ["./packages/yzforge-runtime/src/index.ts"]');
     const tsconfigPathDetail = tsconfigPathViolation.issueDetails.find((issue) => issue.message.includes('paths.yzforge'));
     assert(tsconfigPathDetail.code === 'path_map.tsconfig', 'Expected tsconfig path map issue code.');
     const tsconfigRepair = generate(projectRoot);
@@ -2327,10 +2330,13 @@ async function smoke(options = {}) {
     updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
       tsconfig.extends = './temp/tsconfig.cocos.json';
       tsconfig.compilerOptions.types = ['./temp/declarations/cc'];
+      tsconfig.compilerOptions.moduleResolution = 'node';
     });
     const tempTsconfigViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not extend Cocos temp config');
     const tempTsconfigDetail = tempTsconfigViolation.issueDetails.find((issue) => issue.message.includes('must not extend Cocos temp config'));
     assert(tempTsconfigDetail.code === 'path_map.tsconfig_portability', 'Expected tsconfig portability issue code.');
+    const moduleResolutionDetail = tempTsconfigViolation.issueDetails.find((issue) => issue.message.includes("compilerOptions.moduleResolution must be 'bundler'"));
+    assert(moduleResolutionDetail.code === 'path_map.tsconfig_module_resolution', 'Expected moduleResolution issue code.');
     const tempTsconfigRepair = generate(projectRoot);
     assert(tempTsconfigRepair.changed.includes('tsconfig.json'), 'Expected generate to remove Cocos temp tsconfig dependency.');
     assertOkValidation(projectRoot);
@@ -2338,7 +2344,7 @@ async function smoke(options = {}) {
     updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
       tsconfig.compilerOptions.paths['db://assets/*'] = [`${toPosix(projectRoot)}/assets/*`];
     });
-    const absoluteAssetsPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.db://assets/* must be ["assets/*"]');
+    const absoluteAssetsPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.db://assets/* must be ["./assets/*"]');
     const absoluteAssetsPathDetail = absoluteAssetsPathViolation.issueDetails.find((issue) => issue.message.includes('paths.db://assets/* must be'));
     assert(absoluteAssetsPathDetail.code === 'path_map.tsconfig', 'Expected project-relative db://assets path map issue code.');
     const absoluteAssetsPathRepair = generate(projectRoot);

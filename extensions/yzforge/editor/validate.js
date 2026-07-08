@@ -537,15 +537,15 @@ function validateAppFacadeAccess(projectRoot, issues) {
 
 function validatePathMaps(projectRoot, issues) {
   const expectedTsPaths = {
-    yzforge: ['packages/yzforge-runtime/src/index.ts'],
-    'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
-    'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
-    'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
-    'yzforge/contracts/modules/*': ['assets/app/contracts/modules/*.contract.generated.ts'],
-    'yzforge/contracts/libraries/*': ['assets/app/contracts/libraries/*.contract.generated.ts'],
-    'yzforge/contracts/content-packs/*': ['assets/app/contracts/content-packs/*.contract.generated.ts'],
-    'yzforge/contracts/extensions/*': ['assets/app/contracts/extensions/*.contract.generated.ts'],
-    'yzforge/shared/*': ['assets/shared/code/*'],
+    yzforge: ['./packages/yzforge-runtime/src/index.ts'],
+    'yzforge/modules/*': ['./assets/app/registry/modules/*.ref.generated.ts'],
+    'yzforge/libraries/*': ['./assets/app/registry/libraries/*.ref.generated.ts'],
+    'yzforge/content-packs/*': ['./assets/app/registry/content-packs/*.generated.ts'],
+    'yzforge/contracts/modules/*': ['./assets/app/contracts/modules/*.contract.generated.ts'],
+    'yzforge/contracts/libraries/*': ['./assets/app/contracts/libraries/*.contract.generated.ts'],
+    'yzforge/contracts/content-packs/*': ['./assets/app/contracts/content-packs/*.contract.generated.ts'],
+    'yzforge/contracts/extensions/*': ['./assets/app/contracts/extensions/*.contract.generated.ts'],
+    'yzforge/shared/*': ['./assets/shared/code/*'],
   };
   const expectedImports = {
     yzforge: './assets/yzforge/runtime/index.ts',
@@ -591,6 +591,20 @@ function validatePathMaps(projectRoot, issues) {
       target: 'compilerOptions.types',
     });
   }
+  if (tsconfig?.compilerOptions?.baseUrl !== undefined) {
+    issues.push('tsconfig.json compilerOptions.baseUrl must not be set; TypeScript 6 deprecates baseUrl and YZForge path aliases resolve relative to tsconfig.json without it.', {
+      path: 'tsconfig.json',
+      code: 'path_map.tsconfig_baseurl_deprecated',
+      target: 'compilerOptions.baseUrl',
+    });
+  }
+  if (tsconfig?.compilerOptions?.moduleResolution !== 'bundler') {
+    issues.push(`tsconfig.json compilerOptions.moduleResolution must be 'bundler', got '${tsconfig?.compilerOptions?.moduleResolution}'.`, {
+      path: 'tsconfig.json',
+      code: 'path_map.tsconfig_module_resolution',
+      target: 'compilerOptions.moduleResolution',
+    });
+  }
 
   const projectRootPosix = toPosix(path.resolve(projectRoot)).toLowerCase();
   for (const [alias, targets] of Object.entries(actualPaths)) {
@@ -610,7 +624,7 @@ function validatePathMaps(projectRoot, issues) {
     }
   }
 
-  const expectedDbAssetsPath = ['assets/*'];
+  const expectedDbAssetsPath = ['./assets/*'];
   const actualDbAssetsPath = actualPaths['db://assets/*'];
   if (JSON.stringify(actualDbAssetsPath) !== JSON.stringify(expectedDbAssetsPath)) {
     issues.push(`tsconfig.json paths.db://assets/* must be ${JSON.stringify(expectedDbAssetsPath)}, got ${JSON.stringify(actualDbAssetsPath)}.`, {
@@ -771,7 +785,7 @@ function validatePathMaps(projectRoot, issues) {
 
   const runtimeTsPath = actualPaths.yzforge?.[0];
   const runtimeImportPath = actualImports.yzforge;
-  if (runtimeTsPath !== 'packages/yzforge-runtime/src/index.ts' || runtimeImportPath !== './assets/yzforge/runtime/index.ts') {
+  if (runtimeTsPath !== './packages/yzforge-runtime/src/index.ts' || runtimeImportPath !== './assets/yzforge/runtime/index.ts') {
     issues.push('tsconfig.json must point yzforge to the runtime source package, while import-map.json points Cocos to the synced runtime copy.', {
       path: 'import-map.json',
       code: 'path_map.runtime_mismatch',

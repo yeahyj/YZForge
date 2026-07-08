@@ -410,7 +410,7 @@ YZForge runtime 的包身份属于 `packages/yzforge-runtime/package.json`，不
 
 生成器同步维护两套解析目标：
 
-- TypeScript / 工具侧：`yzforge` 指向 `packages/yzforge-runtime/src/index.ts`。
+- TypeScript / 工具侧：`tsconfig.paths.yzforge` 指向 `./packages/yzforge-runtime/src/index.ts`，使用显式相对路径，不依赖已弃用的 `baseUrl`。
 - Cocos runtime 侧：Import Map 的 `yzforge` 指向 `assets/yzforge/runtime/index.ts`。
 
 推荐别名：

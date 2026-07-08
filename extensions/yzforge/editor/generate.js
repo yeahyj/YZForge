@@ -845,24 +845,24 @@ function updateTsconfig(projectRoot, options, changed) {
   tsconfig.compilerOptions.module = 'ES2015';
   tsconfig.compilerOptions.strict = true;
   tsconfig.compilerOptions.skipLibCheck = true;
-  tsconfig.compilerOptions.baseUrl = '.';
   tsconfig.compilerOptions.experimentalDecorators = true;
   tsconfig.compilerOptions.isolatedModules = true;
-  tsconfig.compilerOptions.moduleResolution = 'node';
+  tsconfig.compilerOptions.moduleResolution = 'bundler';
   tsconfig.compilerOptions.noEmit = true;
   tsconfig.compilerOptions.forceConsistentCasingInFileNames = true;
+  delete tsconfig.compilerOptions.baseUrl;
   delete tsconfig.compilerOptions.types;
   tsconfig.compilerOptions.paths = {
-    'db://assets/*': ['assets/*'],
-    yzforge: ['packages/yzforge-runtime/src/index.ts'],
-    'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
-    'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],
-    'yzforge/content-packs/*': ['assets/app/registry/content-packs/*.generated.ts'],
-    'yzforge/contracts/modules/*': ['assets/app/contracts/modules/*.contract.generated.ts'],
-    'yzforge/contracts/libraries/*': ['assets/app/contracts/libraries/*.contract.generated.ts'],
-    'yzforge/contracts/content-packs/*': ['assets/app/contracts/content-packs/*.contract.generated.ts'],
-    'yzforge/contracts/extensions/*': ['assets/app/contracts/extensions/*.contract.generated.ts'],
-    'yzforge/shared/*': ['assets/shared/code/*'],
+    'db://assets/*': ['./assets/*'],
+    yzforge: ['./packages/yzforge-runtime/src/index.ts'],
+    'yzforge/modules/*': ['./assets/app/registry/modules/*.ref.generated.ts'],
+    'yzforge/libraries/*': ['./assets/app/registry/libraries/*.ref.generated.ts'],
+    'yzforge/content-packs/*': ['./assets/app/registry/content-packs/*.generated.ts'],
+    'yzforge/contracts/modules/*': ['./assets/app/contracts/modules/*.contract.generated.ts'],
+    'yzforge/contracts/libraries/*': ['./assets/app/contracts/libraries/*.contract.generated.ts'],
+    'yzforge/contracts/content-packs/*': ['./assets/app/contracts/content-packs/*.contract.generated.ts'],
+    'yzforge/contracts/extensions/*': ['./assets/app/contracts/extensions/*.contract.generated.ts'],
+    'yzforge/shared/*': ['./assets/shared/code/*'],
   };
   writeText(projectRoot, 'tsconfig.json', `${JSON.stringify(tsconfig, null, 2)}\n`, options, changed);
 }

@@ -149,7 +149,7 @@ Extension 不允许靠“安装一半，之后手工清理”维持正确性。
 
 - `packages/yzforge-runtime/package.json` 拥有 `name: "yzforge"` 和 runtime public export。
 - 项目根 `package.json.name` 已恢复为游戏项目身份，不再占用 `yzforge`。
-- `tsconfig.paths.yzforge` 指向 `packages/yzforge-runtime/src/index.ts`。
+- `tsconfig.paths.yzforge` 指向 `./packages/yzforge-runtime/src/index.ts`。
 - `import-map.json` 的 `yzforge` 指向 `assets/yzforge/runtime/index.ts`，作为 Cocos 可见 copy。
 - Generator 会把 `packages/yzforge-runtime/src` 同步到 `extensions/yzforge/runtime-template` 和 `assets/yzforge/runtime`。
 - Validator 会检查 root package identity、runtime package exports、source/template/assets drift，以及 runtime deep physical import。
@@ -238,7 +238,7 @@ regex 只能作为兜底，不应该作为核心架构规则的唯一证据。
 - `npm run yzforge:cocos:build:web` 会调用 Cocos CLI 生成 web-desktop debug build，并要求预期 output 目录存在才算成功。
 - `runCocosBuild` 会为 Cocos CLI 子进程移除 `ELECTRON_RUN_AS_NODE`，避免 Electron 版 `CocosCreator.exe` 被当前 Node 环境误当成普通 Node 进程解析参数。
 - `package.json` 的 `typecheck` 不再硬编码本机 Cocos 路径，而是走 `node extensions/yzforge/editor/cli.js typecheck`。
-- `generate` 只维护可提交的稳定 `tsconfig.json`：`db://assets/*` 指向 `assets/*`，不再写入项目根绝对路径、`db://internal/*` 或 Cocos temp 配置。
+- `generate` 只维护可提交的稳定 `tsconfig.json`：不设置已弃用的 `baseUrl`，`moduleResolution` 使用 `bundler`，`db://assets/*` 指向 `./assets/*`，不再写入项目根绝对路径、`db://internal/*` 或 Cocos temp 配置。
 - `typecheck` 由 ToolchainResolver 在运行时生成 `temp/yzforge/tsconfig.typecheck.json`，动态注入 Cocos `cc` / `jsb` 声明、`cc/env` shim 和 `db://internal/*`。
 - `generate` 会生成 `.yzforge/toolchain.schema.json`、`.yzforge/toolchain.example.json` 和 `.yzforge/.gitignore`；真实 `.yzforge/toolchain.json` 是本机配置，不提交。
 - ToolchainResolver 可以从环境变量、`.yzforge/toolchain.json` 和 Cocos Dashboard profile JSON 中解析 editor root，再退回 known fallback paths。
