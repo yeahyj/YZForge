@@ -150,6 +150,13 @@ export interface ExtensionContext {
         event: TEvent,
         handler: (payload: AppLifecycleEvents[TEvent]) => void,
     ): () => void;
+    registerConfigCodec(codec: ConfigCodec): () => void;
+    registerService<T>(
+        token: ExtensionToken<T>,
+        value: T,
+        options?: { dispose?(value: T): void },
+    ): () => void;
+    registerSystemUIProvider(provider: SystemUIProvider): () => void;
 }
 
 export interface Extension {
@@ -187,9 +194,11 @@ const analytics = this.use(ModuleAnalyticsToken);
 - Module-level token 随 Module 创建和卸载。
 - Extension install 失败时，App 启动失败，并报告 extension name 和 dependency chain。
 - Extension 能力必须通过 token 暴露，不往 `app` 上直接挂 `app.audio`、`app.net` 这类字段。
-- Extension phase 使用事务。某个 phase 失败时，本 phase 中已提供的 app token / module token / config codec 会回滚，本 phase 已完成 hook 的 Extension 会按反向顺序优先执行 phase-specific rollback hook；没有 hook 的旧扩展才使用 `dispose/uninstall` 兜底。
+- Extension phase 使用事务。某个 phase 失败时，本 phase 中已提供的 app token / module token / config codec / managed service / SystemUI provider 会回滚，本 phase 已完成 hook 的 Extension 会按反向顺序优先执行 phase-specific rollback hook；没有 hook 的旧扩展才使用 `dispose/uninstall` 兜底。
 - Extension lifecycle listener 必须通过 `ExtensionContext.onLifecycle` 注册，不能直接持有裸 `AppLifecycle`；phase 失败和 Extension dispose 时由框架解绑。
 - Extension config codec 必须通过 `ExtensionContext.registerConfigCodec` 注册，名称必须全局唯一；phase 失败和 Extension dispose 时由框架 unregister。
+- Extension managed service 必须通过 `ExtensionContext.registerService` 注册，需要清理外部资源时传入 `dispose`；phase 失败和 Extension dispose 时由框架删除 token 并调用 disposer。
+- Extension SystemUI provider 必须通过 `ExtensionContext.registerSystemUIProvider` 注册；phase 失败和 Extension dispose 时由框架 unregister。
 - 新增 `ExtensionContext` callable 能力时，必须同步扩展 transaction 数据结构、rollback 逻辑、Validator AST 分类和 smoke 反例；不能直接在 facade 上暴露绕过 rollback 的副作用。
 
 ## 启动流程

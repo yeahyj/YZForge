@@ -5,6 +5,7 @@ import { YZForgeError } from './errors';
 import type { AppLifecycleEvents } from './lifecycle';
 import { Logger } from './logger';
 import type { Module } from './module';
+import type { SystemUIProvider } from './system-ui';
 import type { ExtensionToken, ModuleExtensionToken } from './tokens';
 
 export type ExtensionInstallPhase = 'before-start' | 'after-main-binding' | 'before-first-module';
@@ -15,6 +16,10 @@ export interface ExtensionPhaseRollbackReason {
     readonly phase: ExtensionInstallPhase;
     readonly failedExtension: string;
     readonly cause: unknown;
+}
+
+export interface ExtensionServiceOptions<TValue> {
+    dispose?(value: TValue): void;
 }
 
 export interface ExtensionContext {
@@ -32,6 +37,12 @@ export interface ExtensionContext {
         handler: (payload: AppLifecycleEvents[TKey]) => void,
     ): () => void;
     registerConfigCodec(codec: ConfigCodec): () => void;
+    registerService<TValue>(
+        token: ExtensionToken<TValue>,
+        value: TValue,
+        options?: ExtensionServiceOptions<TValue>,
+    ): () => void;
+    registerSystemUIProvider(provider: SystemUIProvider): () => void;
 }
 
 export interface Extension {
@@ -62,6 +73,8 @@ interface ExtensionTransaction {
     readonly moduleFactories: Map<string, TransactionValue<ModuleTokenFactory<unknown>>>;
     readonly lifecycleDisposers: TransactionDisposer[];
     readonly configCodecDisposers: TransactionDisposer[];
+    readonly serviceDisposers: TransactionDisposer[];
+    readonly systemUiProviderDisposers: TransactionDisposer[];
 }
 
 interface TransactionDisposer {
@@ -74,6 +87,12 @@ interface RollbackFailure {
     readonly error: unknown;
 }
 
+export interface ExtensionRegistryOptions {
+    readonly systemUI?: {
+        registerProvider(provider: SystemUIProvider): () => void;
+    };
+}
+
 export class ExtensionRegistry {
     private readonly appValues = new Map<string, unknown>();
     private readonly moduleFactories = new Map<string, ModuleTokenFactory<unknown>>();
@@ -82,12 +101,15 @@ export class ExtensionRegistry {
     private readonly phaseDone = new Map<string, Set<ExtensionInstallPhase>>();
     private readonly lifecycleDisposers = new Map<string, Set<() => void>>();
     private readonly configCodecDisposers = new Map<string, Set<() => void>>();
+    private readonly serviceDisposers = new Map<string, Set<() => void>>();
+    private readonly systemUiProviderDisposers = new Map<string, Set<() => void>>();
     private readonly disposedExtensions = new Set<string>();
     private disposed = false;
 
     public constructor(
         private readonly app: App,
         private readonly logger: Logger = new Logger(),
+        private readonly options: ExtensionRegistryOptions = {},
     ) {}
 
     public provide<TValue>(token: ExtensionToken<TValue>, value: TValue): void {
@@ -184,6 +206,8 @@ export class ExtensionRegistry {
         this.moduleFactories.clear();
         this.lifecycleDisposers.clear();
         this.configCodecDisposers.clear();
+        this.serviceDisposers.clear();
+        this.systemUiProviderDisposers.clear();
         this.disposedExtensions.clear();
         if (failure) {
             throw failure;
@@ -276,6 +300,12 @@ export class ExtensionRegistry {
             registerConfigCodec: (codec) => transaction
                 ? this.registerConfigCodecInTransaction(transaction, extensionName, codec)
                 : this.trackConfigCodecDisposer(extensionName, configCodecs.register(codec)),
+            registerService: (token, value, options) => transaction
+                ? this.registerServiceInTransaction(transaction, extensionName, token, value, options)
+                : this.registerServiceForExtension(extensionName, token, value, options),
+            registerSystemUIProvider: (provider) => transaction
+                ? this.registerSystemUIProviderInTransaction(transaction, extensionName, provider)
+                : this.registerSystemUIProviderForExtension(extensionName, provider),
         };
     }
 
@@ -310,6 +340,8 @@ export class ExtensionRegistry {
             moduleFactories: new Map(),
             lifecycleDisposers: [],
             configCodecDisposers: [],
+            serviceDisposers: [],
+            systemUiProviderDisposers: [],
         };
     }
 
@@ -362,6 +394,58 @@ export class ExtensionRegistry {
         return dispose;
     }
 
+    private registerServiceInTransaction<TValue>(
+        transaction: ExtensionTransaction,
+        extensionName: string,
+        token: ExtensionToken<TValue>,
+        value: TValue,
+        options?: ExtensionServiceOptions<TValue>,
+    ): () => void {
+        const dispose = this.registerServiceForExtension(extensionName, token, value, options);
+        transaction.serviceDisposers.push({ extensionName, dispose });
+        return dispose;
+    }
+
+    private registerServiceForExtension<TValue>(
+        extensionName: string,
+        token: ExtensionToken<TValue>,
+        value: TValue,
+        options?: ExtensionServiceOptions<TValue>,
+    ): () => void {
+        if (this.appValues.has(token.id)) {
+            throw new YZForgeError(`Extension service is already registered: ${token.id}`, 'extension.service_duplicate', {
+                token: token.id,
+            });
+        }
+        this.provide(token, value);
+        return this.trackServiceDisposer(extensionName, () => {
+            if (this.appValues.get(token.id) === value) {
+                this.appValues.delete(token.id);
+            }
+            options?.dispose?.(value);
+        });
+    }
+
+    private registerSystemUIProviderInTransaction(
+        transaction: ExtensionTransaction,
+        extensionName: string,
+        provider: SystemUIProvider,
+    ): () => void {
+        const dispose = this.registerSystemUIProviderForExtension(extensionName, provider);
+        transaction.systemUiProviderDisposers.push({ extensionName, dispose });
+        return dispose;
+    }
+
+    private registerSystemUIProviderForExtension(extensionName: string, provider: SystemUIProvider): () => void {
+        const systemUI = this.options.systemUI;
+        if (!systemUI) {
+            throw new YZForgeError('SystemUI provider registry is not available.', 'extension.system_ui_unavailable', {
+                provider: provider.name,
+            });
+        }
+        return this.trackSystemUIProviderDisposer(extensionName, systemUI.registerProvider(provider));
+    }
+
     private trackLifecycleDisposer(extensionName: string, dispose: () => void): () => void {
         let active = true;
         const tracked = (): void => {
@@ -408,6 +492,52 @@ export class ExtensionRegistry {
         return tracked;
     }
 
+    private trackServiceDisposer(extensionName: string, dispose: () => void): () => void {
+        let active = true;
+        const tracked = (): void => {
+            if (!active) {
+                return;
+            }
+            active = false;
+            dispose();
+            const disposers = this.serviceDisposers.get(extensionName);
+            disposers?.delete(tracked);
+            if (disposers?.size === 0) {
+                this.serviceDisposers.delete(extensionName);
+            }
+        };
+        let disposers = this.serviceDisposers.get(extensionName);
+        if (!disposers) {
+            disposers = new Set();
+            this.serviceDisposers.set(extensionName, disposers);
+        }
+        disposers.add(tracked);
+        return tracked;
+    }
+
+    private trackSystemUIProviderDisposer(extensionName: string, dispose: () => void): () => void {
+        let active = true;
+        const tracked = (): void => {
+            if (!active) {
+                return;
+            }
+            active = false;
+            dispose();
+            const disposers = this.systemUiProviderDisposers.get(extensionName);
+            disposers?.delete(tracked);
+            if (disposers?.size === 0) {
+                this.systemUiProviderDisposers.delete(extensionName);
+            }
+        };
+        let disposers = this.systemUiProviderDisposers.get(extensionName);
+        if (!disposers) {
+            disposers = new Set();
+            this.systemUiProviderDisposers.set(extensionName, disposers);
+        }
+        disposers.add(tracked);
+        return tracked;
+    }
+
     private rollbackTransaction(transaction: ExtensionTransaction): RollbackFailure[] {
         const failures: RollbackFailure[] = [];
         for (const [id, previous] of Array.from(transaction.appValues.entries()).reverse()) {
@@ -438,13 +568,29 @@ export class ExtensionRegistry {
                 failures.push({ extensionName: item.extensionName, error });
             }
         }
+        for (const item of Array.from(transaction.serviceDisposers).reverse()) {
+            try {
+                item.dispose();
+            } catch (error) {
+                failures.push({ extensionName: item.extensionName, error });
+            }
+        }
+        for (const item of Array.from(transaction.systemUiProviderDisposers).reverse()) {
+            try {
+                item.dispose();
+            } catch (error) {
+                failures.push({ extensionName: item.extensionName, error });
+            }
+        }
         return failures;
     }
 
     private disposeExtensionSideEffects(extensionName: string): unknown {
         const lifecycleFailure = this.disposeExtensionLifecycle(extensionName);
         const codecFailure = this.disposeExtensionConfigCodecs(extensionName);
-        return lifecycleFailure ?? codecFailure;
+        const serviceFailure = this.disposeExtensionServices(extensionName);
+        const systemUiProviderFailure = this.disposeExtensionSystemUIProviders(extensionName);
+        return lifecycleFailure ?? codecFailure ?? serviceFailure ?? systemUiProviderFailure;
     }
 
     private disposeExtensionLifecycle(extensionName: string): unknown {
@@ -478,6 +624,40 @@ export class ExtensionRegistry {
             }
         }
         this.configCodecDisposers.delete(extensionName);
+        return failure;
+    }
+
+    private disposeExtensionServices(extensionName: string): unknown {
+        const disposers = this.serviceDisposers.get(extensionName);
+        if (!disposers) {
+            return undefined;
+        }
+        let failure: unknown;
+        for (const dispose of Array.from(disposers).reverse()) {
+            try {
+                dispose();
+            } catch (error) {
+                failure = failure ?? error;
+            }
+        }
+        this.serviceDisposers.delete(extensionName);
+        return failure;
+    }
+
+    private disposeExtensionSystemUIProviders(extensionName: string): unknown {
+        const disposers = this.systemUiProviderDisposers.get(extensionName);
+        if (!disposers) {
+            return undefined;
+        }
+        let failure: unknown;
+        for (const dispose of Array.from(disposers).reverse()) {
+            try {
+                dispose();
+            } catch (error) {
+                failure = failure ?? error;
+            }
+        }
+        this.systemUiProviderDisposers.delete(extensionName);
         return failure;
     }
 

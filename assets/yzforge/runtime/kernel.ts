@@ -40,11 +40,11 @@ export class AppKernel {
         this.bundles = new BundleManager(this.logger.child('bundle'), {}, this.ownership);
         this.shared = new SharedRegistry();
         this.libraries = new LibraryRegistry(this);
-        this.extensions = new ExtensionRegistry(app, this.logger.child('extension'));
         this.global = new GlobalRoot(app);
         this.lifecycle = new AppLifecycle();
         this.viewport = new ViewportManager();
         this.ui = new UIManager({}, this.ownership);
+        this.extensions = new ExtensionRegistry(app, this.logger.child('extension'), { systemUI: this.ui.system });
         this.navigator = new ModuleNavigator(app);
     }
 }

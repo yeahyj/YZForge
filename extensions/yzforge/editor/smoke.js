@@ -467,8 +467,33 @@ async function assertExtensionRegistryBehavior() {
       logs.push({ level, scope, message, data });
     },
   });
-  const registry = new ExtensionRegistry(app, quietLogger);
+  const systemUIProviderStore = new Map();
+  const systemUIProviderEvents = [];
+  const systemUI = {
+    registerProvider(provider) {
+      if (systemUIProviderStore.has(provider.name)) {
+        throw new Error(`Duplicate smoke SystemUI provider: ${provider.name}`);
+      }
+      systemUIProviderStore.set(provider.name, provider);
+      systemUIProviderEvents.push(`register:${provider.name}`);
+      let active = true;
+      return () => {
+        if (!active) {
+          return;
+        }
+        active = false;
+        if (systemUIProviderStore.get(provider.name) === provider) {
+          systemUIProviderStore.delete(provider.name);
+          systemUIProviderEvents.push(`dispose:${provider.name}`);
+          provider.dispose?.();
+        }
+      };
+    },
+  };
+  const newRegistry = () => new ExtensionRegistry(app, quietLogger, { systemUI });
+  const registry = newRegistry();
   const appToken = { id: 'analytics.app' };
+  const serviceToken = { id: 'analytics.service' };
   const moduleToken = { id: 'analytics.module' };
   const events = [];
 
@@ -494,12 +519,23 @@ async function assertExtensionRegistryBehavior() {
     installBeforeStart(context) {
       events.push(`Core:${context.phase}`);
       context.provide(appToken, 'ready');
+      context.registerService(serviceToken, { ready: true }, {
+        dispose(value) {
+          events.push(`service-dispose:${value.ready}`);
+        },
+      });
       context.onLifecycle('foreground', () => events.push('Core:foreground'));
       context.registerConfigCodec({
         name: 'core-binary',
         version: 1,
         decode(data) {
           return data;
+        },
+      });
+      context.registerSystemUIProvider({
+        name: 'core-system-ui',
+        dispose() {
+          events.push('system-provider-dispose:core');
         },
       });
     },
@@ -514,8 +550,10 @@ async function assertExtensionRegistryBehavior() {
     'Extension before-start phase must run dependencies before dependents.',
   );
   assert(registry.use(appToken) === 'ready', 'ExtensionContext.provide must register app tokens.');
+  assert(registry.use(serviceToken).ready === true, 'ExtensionContext.registerService must register managed app services.');
   assert(registry.useModuleToken({ name: 'Battle' }, moduleToken) === 'module:Battle', 'ExtensionContext.provideModule must register module-scoped tokens.');
   assert(configCodecStore.has('core-binary'), 'ExtensionContext.registerConfigCodec must register config codecs.');
+  assert(systemUIProviderStore.has('core-system-ui'), 'ExtensionContext.registerSystemUIProvider must register SystemUI providers.');
   emitLifecycle('foreground');
   assert(events.includes('Core:foreground'), 'ExtensionContext.onLifecycle must register lifecycle listeners.');
 
@@ -538,7 +576,9 @@ async function assertExtensionRegistryBehavior() {
 
   await registry.dispose({ type: 'test_dispose' });
   assert(
-    events.slice(-2).join('|') === 'Gameplay:dispose|Core:dispose',
+    events.indexOf('Gameplay:dispose') >= 0
+      && events.indexOf('Core:dispose') >= 0
+      && events.indexOf('Gameplay:dispose') < events.indexOf('Core:dispose'),
     'Extension dispose must run dependents before dependencies.',
   );
   const foregroundEventCount = events.filter((event) => event === 'Core:foreground').length;
@@ -549,18 +589,33 @@ async function assertExtensionRegistryBehavior() {
   );
   assert(!configCodecStore.has('core-binary'), 'Extension config codecs must be removed when the registry is disposed.');
   assert(configCodecEvents.includes('dispose:core-binary'), 'Extension config codec disposer must run when the registry is disposed.');
+  assert(events.includes('service-dispose:true'), 'Extension services must be disposed when the registry is disposed.');
+  assert(!systemUIProviderStore.has('core-system-ui'), 'Extension SystemUI providers must be removed when the registry is disposed.');
+  assert(systemUIProviderEvents.includes('dispose:core-system-ui'), 'Extension SystemUI provider disposer must run when the registry is disposed.');
 
-  const disposeFailureRegistry = new ExtensionRegistry(app, quietLogger);
+  const disposeFailureRegistry = newRegistry();
   const disposeFailureEvents = [];
+  const disposeFailureServiceToken = { id: 'dispose.failure.service' };
   await disposeFailureRegistry.install({
     name: 'DisposeFailure',
     installBeforeStart(context) {
       context.onLifecycle('foreground', () => disposeFailureEvents.push('foreground'));
+      context.registerService(disposeFailureServiceToken, { alive: true }, {
+        dispose() {
+          disposeFailureEvents.push('service-disposed');
+        },
+      });
       context.registerConfigCodec({
         name: 'dispose-failure-binary',
         version: 1,
         decode(data) {
           return data;
+        },
+      });
+      context.registerSystemUIProvider({
+        name: 'dispose-failure-system-ui',
+        dispose() {
+          disposeFailureEvents.push('system-ui-disposed');
         },
       });
     },
@@ -571,7 +626,9 @@ async function assertExtensionRegistryBehavior() {
   await disposeFailureRegistry.installBeforeStart();
   emitLifecycle('foreground');
   assert(disposeFailureEvents.length === 1, 'Dispose failure smoke must register a lifecycle listener before disposal.');
+  assert(disposeFailureRegistry.use(disposeFailureServiceToken).alive === true, 'Dispose failure smoke must register a service before disposal.');
   assert(configCodecStore.has('dispose-failure-binary'), 'Dispose failure smoke must register a config codec before disposal.');
+  assert(systemUIProviderStore.has('dispose-failure-system-ui'), 'Dispose failure smoke must register a SystemUI provider before disposal.');
   let disposeFailure;
   try {
     await disposeFailureRegistry.dispose({ type: 'dispose_failure_smoke' });
@@ -580,10 +637,13 @@ async function assertExtensionRegistryBehavior() {
   }
   assert(disposeFailure?.message === 'dispose boom', 'Extension dispose failure must still be reported.');
   emitLifecycle('foreground');
-  assert(disposeFailureEvents.length === 1, 'Extension side effects must be cleaned even when dispose throws.');
+  assert(disposeFailureEvents.filter((event) => event === 'foreground').length === 1, 'Extension side effects must be cleaned even when dispose throws.');
+  assert(disposeFailureEvents.includes('service-disposed'), 'Extension services must be disposed even when dispose throws.');
   assert(!configCodecStore.has('dispose-failure-binary'), 'Extension config codecs must be removed even when dispose throws.');
+  assert(!systemUIProviderStore.has('dispose-failure-system-ui'), 'Extension SystemUI providers must be removed even when dispose throws.');
+  assert(disposeFailureEvents.includes('system-ui-disposed'), 'Extension SystemUI provider disposer must run even when dispose throws.');
 
-  const missing = new ExtensionRegistry(app, quietLogger);
+  const missing = newRegistry();
   await missing.install({ name: 'NeedsMissing', dependencies: ['Missing'] });
   let missingError;
   try {
@@ -594,7 +654,7 @@ async function assertExtensionRegistryBehavior() {
   assert(missingError?.code === 'extension.dependency_missing', 'Extension missing dependency must fail with a typed error.');
   assert(missingError?.details?.dependencyChain?.join(' -> ') === 'NeedsMissing -> Missing', 'Extension missing dependency must report dependency chain.');
 
-  const cycle = new ExtensionRegistry(app, quietLogger);
+  const cycle = newRegistry();
   await cycle.install({ name: 'A', dependencies: ['B'] });
   await cycle.install({ name: 'B', dependencies: ['A'] });
   let cycleError;
@@ -605,21 +665,34 @@ async function assertExtensionRegistryBehavior() {
   }
   assert(cycleError?.code === 'extension.dependency_cycle', 'Extension dependency cycle must fail with a typed error.');
 
-  const failing = new ExtensionRegistry(app, quietLogger);
+  const failing = newRegistry();
   const rollbackEvents = [];
   const rollbackToken = { id: 'rollback.core' };
+  const rollbackServiceToken = { id: 'rollback.service.core' };
   const badRollbackToken = { id: 'rollback.bad' };
+  const badRollbackServiceToken = { id: 'rollback.service.bad' };
   await failing.install({
     name: 'Core',
     installBeforeStart(context) {
       rollbackEvents.push(`Core:${context.phase}`);
       context.provide(rollbackToken, 'core-ready');
+      context.registerService(rollbackServiceToken, { source: 'core' }, {
+        dispose() {
+          rollbackEvents.push('Core:service-dispose');
+        },
+      });
       context.onLifecycle('foreground', () => rollbackEvents.push('Core:foreground'));
       context.registerConfigCodec({
         name: 'rollback-core-binary',
         version: 1,
         decode(data) {
           return data;
+        },
+      });
+      context.registerSystemUIProvider({
+        name: 'rollback-core-system-ui',
+        dispose() {
+          rollbackEvents.push('Core:system-provider-dispose');
         },
       });
     },
@@ -632,11 +705,22 @@ async function assertExtensionRegistryBehavior() {
     dependencies: ['Core'],
     installBeforeStart(context) {
       context.provide(badRollbackToken, 'bad-leak');
+      context.registerService(badRollbackServiceToken, { source: 'bad' }, {
+        dispose() {
+          rollbackEvents.push('Bad:service-dispose');
+        },
+      });
       context.registerConfigCodec({
         name: 'rollback-bad-binary',
         version: 1,
         decode(data) {
           return data;
+        },
+      });
+      context.registerSystemUIProvider({
+        name: 'rollback-bad-system-ui',
+        dispose() {
+          rollbackEvents.push('Bad:system-provider-dispose');
         },
       });
       throw new Error('boom');
@@ -652,14 +736,35 @@ async function assertExtensionRegistryBehavior() {
   assert(phaseError?.details?.extensionName === 'Bad', 'Extension phase failure must include extension name.');
   assert(phaseError?.details?.phase === 'before-start', 'Extension phase failure must include phase.');
   assert(phaseError?.details?.dependencyChain?.join(' -> ') === 'Bad -> Core', 'Extension phase failure must include dependency chain.');
+  assert(rollbackEvents.includes('Core:before-start'), 'Extension phase failure smoke must run completed dependency hooks before failure.');
   assert(
-    rollbackEvents.join('|') === 'Core:before-start|Core:dispose:extension_phase_rollback',
+    rollbackEvents.includes('Core:dispose:extension_phase_rollback'),
     'Extension phase failure must dispose completed extensions from the failed transaction.',
   );
+  assert(rollbackEvents.includes('Core:service-dispose'), 'Extension phase rollback must dispose services from completed hooks.');
+  assert(rollbackEvents.includes('Bad:service-dispose'), 'Extension phase rollback must dispose services from the failing hook.');
+  assert(rollbackEvents.includes('Core:system-provider-dispose'), 'Extension phase rollback must dispose SystemUI providers from completed hooks.');
+  assert(rollbackEvents.includes('Bad:system-provider-dispose'), 'Extension phase rollback must dispose SystemUI providers from the failing hook.');
   emitLifecycle('foreground');
   assert(!rollbackEvents.includes('Core:foreground'), 'Extension phase rollback must remove lifecycle listeners registered in the failed transaction.');
   assert(!configCodecStore.has('rollback-core-binary'), 'Extension phase rollback must remove config codecs from completed hooks.');
   assert(!configCodecStore.has('rollback-bad-binary'), 'Extension phase rollback must remove config codecs from the failing hook.');
+  assert(!systemUIProviderStore.has('rollback-core-system-ui'), 'Extension phase rollback must remove SystemUI providers from completed hooks.');
+  assert(!systemUIProviderStore.has('rollback-bad-system-ui'), 'Extension phase rollback must remove SystemUI providers from the failing hook.');
+  let rollbackServiceTokenError;
+  try {
+    failing.use(rollbackServiceToken);
+  } catch (error) {
+    rollbackServiceTokenError = error;
+  }
+  assert(rollbackServiceTokenError?.code === 'extension.token_missing', 'Extension phase rollback must remove services registered by completed extensions.');
+  let badRollbackServiceTokenError;
+  try {
+    failing.use(badRollbackServiceToken);
+  } catch (error) {
+    badRollbackServiceTokenError = error;
+  }
+  assert(badRollbackServiceTokenError?.code === 'extension.token_missing', 'Extension phase rollback must remove services registered before a failing hook throws.');
   let rollbackTokenError;
   try {
     failing.use(rollbackToken);
@@ -1986,6 +2091,12 @@ function assertRuntimeLifecycleInvariants() {
   assert(extensionRegistrySource.includes('registerConfigCodecInTransaction'), 'ExtensionContext.registerConfigCodec must register config codecs through the transaction.');
   assert(extensionRegistrySource.includes('readonly configCodecDisposers'), 'ExtensionTransaction must track config codec disposers.');
   assert(extensionRegistrySource.includes('disposeExtensionConfigCodecs'), 'ExtensionRegistry must remove config codecs during extension disposal.');
+  assert(extensionRegistrySource.includes('registerServiceInTransaction'), 'ExtensionContext.registerService must register managed services through the transaction.');
+  assert(extensionRegistrySource.includes('readonly serviceDisposers'), 'ExtensionTransaction must track service disposers.');
+  assert(extensionRegistrySource.includes('disposeExtensionServices'), 'ExtensionRegistry must remove services during extension disposal.');
+  assert(extensionRegistrySource.includes('registerSystemUIProviderInTransaction'), 'ExtensionContext.registerSystemUIProvider must register SystemUI providers through the transaction.');
+  assert(extensionRegistrySource.includes('readonly systemUiProviderDisposers'), 'ExtensionTransaction must track SystemUI provider disposers.');
+  assert(extensionRegistrySource.includes('disposeExtensionSystemUIProviders'), 'ExtensionRegistry must remove SystemUI providers during extension disposal.');
   assert(!extensionRegistrySource.includes('readonly lifecycle: App'), 'ExtensionContext must not expose raw AppLifecycle; use onLifecycle instead.');
   assert(extensionRegistrySource.includes('export interface ExtensionPhaseRollbackReason'), 'ExtensionRegistry must expose phase-specific rollback reason context.');
   assert(extensionRegistrySource.includes('rollbackBeforeStart'), 'Extension must expose a before-start phase rollback hook.');
@@ -2417,6 +2528,42 @@ async function smoke(options = {}) {
     const extensionTransactionRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.provide must route through provideInTransaction');
     const extensionTransactionRouteDetail = extensionTransactionRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.provide must route through provideInTransaction'));
     assert(extensionTransactionRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext transaction route issue code.');
+    for (const [rel, content] of extensionRegistryOriginals) {
+      writeText(projectRoot, rel, content);
+    }
+    assertOkValidation(projectRoot);
+
+    for (const rel of extensionRegistryRels) {
+      updateText(projectRoot, rel, (content) => {
+        const updated = content.replace(
+          '? this.registerServiceInTransaction(transaction, extensionName, token, value, options)',
+          '? this.registerServiceForExtension(extensionName, token, value, options)',
+        );
+        assert(updated !== content, `Expected to mutate ${rel} ExtensionContext.registerService transaction route.`);
+        return updated;
+      });
+    }
+    const extensionServiceRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.registerService must route through registerServiceInTransaction');
+    const extensionServiceRouteDetail = extensionServiceRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.registerService must route through registerServiceInTransaction'));
+    assert(extensionServiceRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext service transaction route issue code.');
+    for (const [rel, content] of extensionRegistryOriginals) {
+      writeText(projectRoot, rel, content);
+    }
+    assertOkValidation(projectRoot);
+
+    for (const rel of extensionRegistryRels) {
+      updateText(projectRoot, rel, (content) => {
+        const updated = content.replace(
+          '? this.registerSystemUIProviderInTransaction(transaction, extensionName, provider)',
+          '? this.registerSystemUIProviderForExtension(extensionName, provider)',
+        );
+        assert(updated !== content, `Expected to mutate ${rel} ExtensionContext.registerSystemUIProvider transaction route.`);
+        return updated;
+      });
+    }
+    const extensionSystemUIRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.registerSystemUIProvider must route through registerSystemUIProviderInTransaction');
+    const extensionSystemUIRouteDetail = extensionSystemUIRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.registerSystemUIProvider must route through registerSystemUIProviderInTransaction'));
+    assert(extensionSystemUIRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext SystemUI provider transaction route issue code.');
     for (const [rel, content] of extensionRegistryOriginals) {
       writeText(projectRoot, rel, content);
     }
