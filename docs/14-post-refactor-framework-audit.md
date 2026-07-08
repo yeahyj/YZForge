@@ -562,6 +562,7 @@ fresh Cocos editor restart
 - `BundleManager` 区分 owner release 与物理 bundle purge，snapshot 暴露 `cacheState`。
 - `BundleManager.purgeUnusedBundles` 可以清理零引用 hot bundle cache。
 - `App.purgeResourceCache` 作为 facade API 触发 cache purge。
+- `AppLifecycle` 接入 Cocos `Game.EVENT_LOW_MEMORY`，`App` 在 `memory-warning` 时自动触发零引用 hot bundle cache purge。
 
 ReleaseScope 和 OwnershipLedger 继续保留，但资源释放已经拆成更细的策略。
 
@@ -582,7 +583,7 @@ CachePolicy
   whether released resources stay warm
 
 MemoryPressurePolicy
-  when cache must be purged
+  Cocos low-memory signal and manual purge decide when cache must be purged
 ```
 
 Module 卸载时的顺序：
@@ -612,7 +613,6 @@ Validator or runtime diagnostic reports leaked ownerKey
 
 剩余遗憾：
 
-- MemoryPressurePolicy 还没有平台事件输入，只能由 `App.purgeResourceCache` 或内部策略主动触发。
 - Bundle cache policy 目前以 Bundle 为粒度，还没有区分图集、材质、Spine、音频等资源类别。
 - leak evidence 已可见，但还没有 editor 面板专门展示 ownerKey -> resource 的释放链路。
 
@@ -803,7 +803,8 @@ npm run yzforge:validate:build-matrix
 - 区分 owner release、asset release、bundle release、cache purge。
 - OwnershipLedger 能显示 leaked ownerKey。
 - `App.purgeResourceCache` 可触发零引用 hot bundle cache 清理。
-- Smoke 覆盖 release failure 聚合、leak evidence、Bundle hot cache 和 purge result。
+- Cocos `Game.EVENT_LOW_MEMORY` 会进入 `AppLifecycle.memory-warning`，并由 `App` 自动触发 `{ type: 'memory_pressure' }` cache purge。
+- Smoke 覆盖 release failure 聚合、leak evidence、Bundle hot cache、manual purge 和 memory-warning purge。
 
 验收：
 
@@ -817,7 +818,6 @@ npm run yzforge:smoke
 
 后续增强：
 
-- 接入真实平台 memory pressure 事件。
 - 按资源类型拆分 cache policy。
 - 在 editor 面板展示 leaked ownerKey、resource key、scope release 状态和失败原因。
 

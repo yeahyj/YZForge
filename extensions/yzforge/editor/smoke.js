@@ -719,6 +719,13 @@ async function assertAppStateMachineBehavior() {
   const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
   const events = [];
   const controls = {};
+  const lifecycleHandlers = new Map();
+  const emitLifecycle = (event, payload) => {
+    for (const handler of Array.from(lifecycleHandlers.get(event) || [])) {
+      handler(payload);
+    }
+  };
+  controls.emitLifecycle = emitLifecycle;
 
   function createLogger(scope = 'app') {
     return {
@@ -860,6 +867,22 @@ async function assertAppStateMachineBehavior() {
       this.lifecycle = {
         install: () => events.push('lifecycle.install'),
         dispose: () => events.push('lifecycle.dispose'),
+        on: (event, handler) => {
+          events.push(`lifecycle.on:${event}`);
+          let handlers = lifecycleHandlers.get(event);
+          if (!handlers) {
+            handlers = new Set();
+            lifecycleHandlers.set(event, handlers);
+          }
+          handlers.add(handler);
+          return () => {
+            events.push(`lifecycle.off:${event}`);
+            handlers.delete(handler);
+            if (handlers.size === 0) {
+              lifecycleHandlers.delete(event);
+            }
+          };
+        },
         emitViewportChanged: () => events.push('lifecycle.viewport-changed'),
       };
       this.viewport = new SmokeViewportManager();
@@ -913,8 +936,12 @@ async function assertAppStateMachineBehavior() {
 
   await app.start();
   assert(app.state === AppState.Started, 'App.start must transition to Started.');
+  assert(events.includes('lifecycle.on:memory-warning'), 'App.start must install the memory pressure cache policy.');
   await app.purgeResourceCache({ type: 'smoke_cache_purge' });
   assert(events.includes('bundle.purge:smoke_cache_purge'), 'App.purgeResourceCache must delegate to BundleManager purge.');
+  controls.emitLifecycle('memory-warning');
+  await Promise.resolve();
+  assert(events.includes('bundle.purge:memory_pressure'), 'App memory-warning policy must purge unused hot bundles.');
 
   let moduleLoadFailure;
   try {
@@ -964,6 +991,14 @@ async function assertAppStateMachineBehavior() {
   await disposeDuringPreload;
   controls.preloadBundle = undefined;
   assert(app.state === AppState.Disposed, 'App.dispose must transition to Disposed.');
+  assert(events.includes('lifecycle.off:memory-warning'), 'App.dispose must unbind the memory pressure cache policy.');
+  const memoryPressurePurgeCount = events.filter((event) => event === 'bundle.purge:memory_pressure').length;
+  controls.emitLifecycle('memory-warning');
+  await Promise.resolve();
+  assert(
+    events.filter((event) => event === 'bundle.purge:memory_pressure').length === memoryPressurePurgeCount,
+    'App.dispose must prevent memory-warning from purging after lifecycle teardown.',
+  );
   await app.dispose({ type: 'repeat_dispose' });
   assert(app.state === AppState.Disposed, 'App.dispose must be idempotent after Disposed.');
 
@@ -1762,6 +1797,7 @@ function assertRuntimeLifecycleInvariants() {
   const assetsSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/assets.ts'), 'utf8');
   const bundleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/bundle-manager.ts'), 'utf8');
   const kernelSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/kernel.ts'), 'utf8');
+  const lifecycleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/lifecycle.ts'), 'utf8');
   const lifetimeSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts'), 'utf8');
   const moduleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/module.ts'), 'utf8');
   const navigatorSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/navigator.ts'), 'utf8');
@@ -1779,6 +1815,12 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes("this.assertState('enterModule', [AppState.Started])"), 'enterModule must require Started App state.');
   assert(appSource.includes("this.assertState('purgeResourceCache', [AppState.Started, AppState.Disposing])"), 'purgeResourceCache must require Started/Disposing App state.');
   assert(appSource.includes('purgeUnusedBundles'), 'App.purgeResourceCache must delegate to BundleManager.');
+  assert(lifecycleSource.includes('Game.EVENT_SHOW') && lifecycleSource.includes('Game.EVENT_HIDE'), 'AppLifecycle must listen to Cocos Game foreground/background events.');
+  assert(lifecycleSource.includes('Game.EVENT_LOW_MEMORY'), 'AppLifecycle must listen to Cocos low-memory events.');
+  assert(appSource.includes("kernel.lifecycle.on('memory-warning'"), 'App must install a memory-warning cache purge policy.');
+  assert(appSource.includes("type: 'memory_pressure'"), 'Memory-warning cache purge must use a structured memory_pressure reason.');
+  assert(appSource.includes('memoryPressurePurgeTask'), 'Memory-warning cache purge must coalesce concurrent purge tasks.');
+  assert(appSource.includes('Memory pressure cache purge failed.'), 'Memory-warning cache purge failures must be logged without breaking App state.');
   assert(appSource.includes("this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed])"), 'dispose must accept Created/Starting/Started/Failed states.');
   assert(appSource.includes("'app.invalid_state'"), 'App state guard must report typed invalid-state errors.');
   assert(appSource.includes('state: this.appState'), 'App snapshot must expose current App state.');

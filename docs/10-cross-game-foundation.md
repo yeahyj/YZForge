@@ -218,6 +218,7 @@ app.lifecycle.on('memory-warning', callback);
 - UI 适配组件刷新布局。
 - Module 可选择刷新显示数据。
 - Audio、Platform、Storage、Net 等 Extension 订阅前后台事件。
+- Runtime 订阅 `memory-warning`，在 Cocos 低内存事件到来时清理零引用热缓存 Bundle。
 
 这些事件只表达 App 状态，不等同于 Module Navigator 的 `pause` / `resume`。Module 被 Push 到后台仍由 Navigator 管理。
 

@@ -84,6 +84,8 @@ export class App {
     private readonly stateTransitions: AppStateTransitionSnapshot[] = [];
     private beforeFirstModuleExtensionsTask?: Promise<void>;
     private disposeViewportChanged?: () => void;
+    private disposeMemoryWarning?: () => void;
+    private memoryPressurePurgeTask?: Promise<void>;
     private appState = AppState.Created;
     private lastFailure?: AppFailureSnapshot;
     private startTask?: Promise<void>;
@@ -156,6 +158,7 @@ export class App {
         kernel.main = createMainBinding({ mainRoot: options.mainRoot });
         kernel.ui.configureRoots(kernel.main.layerRoots);
         kernel.lifecycle.install();
+        this.installMemoryPressurePolicy(kernel);
         this.disposeViewportChanged?.();
         kernel.viewport.dispose();
         kernel.viewport = new ViewportManager(options.viewport);
@@ -428,6 +431,12 @@ export class App {
                 await loading;
             });
         }
+        this.disposeMemoryWarning?.();
+        this.disposeMemoryWarning = undefined;
+        await run(async () => {
+            await this.memoryPressurePurgeTask;
+        });
+        this.memoryPressurePurgeTask = undefined;
         for (const handle of Array.from(this.modules.values()).reverse()) {
             await run(() => this.unloadModule(handle.ref));
         }
@@ -535,6 +544,32 @@ export class App {
             assets: handle.assets.snapshot(),
             contentPacks: handle.contentPacks.snapshots?.() ?? [],
         };
+    }
+
+    private installMemoryPressurePolicy(kernel: AppKernel): void {
+        this.disposeMemoryWarning?.();
+        this.disposeMemoryWarning = kernel.lifecycle.on('memory-warning', () => {
+            void this.purgeMemoryPressureCache(kernel);
+        });
+    }
+
+    private async purgeMemoryPressureCache(kernel: AppKernel): Promise<void> {
+        if (this.memoryPressurePurgeTask) {
+            return await this.memoryPressurePurgeTask;
+        }
+        const task = this.runMemoryPressurePurge(kernel);
+        this.memoryPressurePurgeTask = task;
+        return await task;
+    }
+
+    private async runMemoryPressurePurge(kernel: AppKernel): Promise<void> {
+        try {
+            await kernel.bundles.purgeUnusedBundles({ type: 'memory_pressure' });
+        } catch (error) {
+            kernel.logger.warn('Memory pressure cache purge failed.', describeError(error));
+        } finally {
+            this.memoryPressurePurgeTask = undefined;
+        }
     }
 
     private assertState(api: string, allowed: readonly AppState[]): void {

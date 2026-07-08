@@ -1,4 +1,4 @@
-import { game } from 'cc';
+import { Game, game } from 'cc';
 import { EventBus } from './event-bus';
 
 export interface AppLifecycleEvents {
@@ -20,12 +20,17 @@ export class AppLifecycle {
         this.event.emit('background', undefined);
     };
 
+    private readonly emitMemoryPressure = (): void => {
+        this.event.emit('memory-warning', undefined);
+    };
+
     public install(): void {
         if (this.installed) {
             return;
         }
         game.on(GameEventShow, this.emitForeground);
         game.on(GameEventHide, this.emitBackground);
+        game.on(GameEventLowMemory, this.emitMemoryPressure);
         this.installed = true;
     }
 
@@ -33,6 +38,7 @@ export class AppLifecycle {
         if (this.installed) {
             game.off(GameEventShow, this.emitForeground);
             game.off(GameEventHide, this.emitBackground);
+            game.off(GameEventLowMemory, this.emitMemoryPressure);
             this.installed = false;
         }
         this.event.clear();
@@ -54,5 +60,6 @@ export class AppLifecycle {
     }
 }
 
-const GameEventShow = 'show';
-const GameEventHide = 'hide';
+const GameEventShow = Game.EVENT_SHOW;
+const GameEventHide = Game.EVENT_HIDE;
+const GameEventLowMemory = Game.EVENT_LOW_MEMORY;
