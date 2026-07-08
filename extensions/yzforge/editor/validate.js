@@ -1209,8 +1209,18 @@ function validateExtensionTransactionAst(rel, source, issues) {
   const transactionalMethods = new Map([
     ['provide', 'provideInTransaction'],
     ['provideModule', 'provideModuleInTransaction'],
+    ['onLifecycle', 'onLifecycleInTransaction'],
   ]);
   for (const member of extensionContext.members) {
+    if (ts.isPropertySignature(member) && propertyNameText(ts, member.name) === 'lifecycle') {
+      issues.push(`${rel} ExtensionContext.lifecycle must not expose raw AppLifecycle; use ExtensionContext.onLifecycle.`, {
+        path: rel,
+        code: 'extension.transaction',
+        target: 'ExtensionContext.lifecycle',
+        ...sourceLocation(sourceFile, member),
+      });
+      continue;
+    }
     if (!ts.isMethodSignature(member)) {
       continue;
     }

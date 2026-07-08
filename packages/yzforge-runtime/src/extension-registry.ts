@@ -1,5 +1,6 @@
 import type { App } from './app';
 import { YZForgeError } from './errors';
+import type { AppLifecycleEvents } from './lifecycle';
 import { Logger } from './logger';
 import type { Module } from './module';
 import type { ExtensionToken, ModuleExtensionToken } from './tokens';
@@ -16,7 +17,6 @@ export interface ExtensionPhaseRollbackReason {
 
 export interface ExtensionContext {
     readonly app: App;
-    readonly lifecycle: App['lifecycle'];
     readonly viewport: App['viewport'];
     readonly logger: Logger;
     readonly phase: ExtensionPhase;
@@ -25,6 +25,10 @@ export interface ExtensionContext {
         token: ModuleExtensionToken<TValue>,
         factory: ModuleTokenFactory<TValue>,
     ): void;
+    onLifecycle<TKey extends keyof AppLifecycleEvents>(
+        event: TKey,
+        handler: (payload: AppLifecycleEvents[TKey]) => void,
+    ): () => void;
 }
 
 export interface Extension {
@@ -53,6 +57,12 @@ interface TransactionValue<TValue> {
 interface ExtensionTransaction {
     readonly appValues: Map<string, TransactionValue<unknown>>;
     readonly moduleFactories: Map<string, TransactionValue<ModuleTokenFactory<unknown>>>;
+    readonly lifecycleDisposers: TransactionDisposer[];
+}
+
+interface TransactionDisposer {
+    readonly extensionName: string;
+    readonly dispose: () => void;
 }
 
 interface RollbackFailure {
@@ -66,6 +76,7 @@ export class ExtensionRegistry {
     private readonly installed = new Map<string, Extension>();
     private readonly completedPhases = new Set<ExtensionInstallPhase>();
     private readonly phaseDone = new Map<string, Set<ExtensionInstallPhase>>();
+    private readonly lifecycleDisposers = new Map<string, Set<() => void>>();
     private readonly disposedExtensions = new Set<string>();
     private disposed = false;
 
@@ -141,7 +152,6 @@ export class ExtensionRegistry {
         }
         this.disposed = true;
         const ordered = this.sortInstalled().reverse();
-        const context = this.createContext('dispose');
         let failure: unknown;
         for (const extension of ordered) {
             if (this.disposedExtensions.has(extension.name)) {
@@ -149,14 +159,16 @@ export class ExtensionRegistry {
             }
             try {
                 if (extension.dispose) {
-                    await extension.dispose(context, reason);
+                    await extension.dispose(this.createContext('dispose', undefined, extension.name), reason);
                 } else {
-                    await extension.uninstall?.(context);
+                    await extension.uninstall?.(this.createContext('dispose', undefined, extension.name));
                 }
-                this.disposedExtensions.add(extension.name);
                 this.logger.info(`Extension disposed: ${extension.name}`);
             } catch (error) {
                 failure = failure ?? error;
+            } finally {
+                failure = failure ?? this.disposeExtensionLifecycle(extension.name);
+                this.disposedExtensions.add(extension.name);
             }
         }
         this.installed.clear();
@@ -164,6 +176,7 @@ export class ExtensionRegistry {
         this.completedPhases.clear();
         this.appValues.clear();
         this.moduleFactories.clear();
+        this.lifecycleDisposers.clear();
         this.disposedExtensions.clear();
         if (failure) {
             throw failure;
@@ -172,7 +185,6 @@ export class ExtensionRegistry {
 
     private async runPhase(phase: ExtensionInstallPhase): Promise<void> {
         const transaction = this.createTransaction();
-        const context = this.createContext(phase, transaction);
         const completedInPhase: Extension[] = [];
         const markedInPhase: string[] = [];
         for (const extension of this.sortInstalled()) {
@@ -181,14 +193,17 @@ export class ExtensionRegistry {
             }
             const hook = this.phaseHook(extension, phase);
             if (hook) {
+                const context = this.createContext(phase, transaction, extension.name);
                 try {
                     await hook.call(extension, context);
                 } catch (error) {
-                    this.rollbackTransaction(transaction);
+                    const transactionRollbackFailures = this.rollbackTransaction(transaction);
                     for (const extensionName of markedInPhase) {
                         this.unmarkPhaseDone(extensionName, phase);
                     }
-                    const rollbackFailures = await this.disposeCompletedPhaseExtensions(completedInPhase, phase, extension, error);
+                    const rollbackFailures = transactionRollbackFailures.concat(
+                        await this.disposeCompletedPhaseExtensions(completedInPhase, phase, extension, error),
+                    );
                     throw this.createPhaseError(extension, phase, error, rollbackFailures);
                 }
                 completedInPhase.push(extension);
@@ -232,10 +247,13 @@ export class ExtensionRegistry {
         return undefined;
     }
 
-    private createContext(phase: ExtensionPhase, transaction?: ExtensionTransaction): ExtensionContext {
+    private createContext(
+        phase: ExtensionPhase,
+        transaction?: ExtensionTransaction,
+        extensionName = 'extension',
+    ): ExtensionContext {
         return {
             app: this.app,
-            lifecycle: this.app.lifecycle,
             viewport: this.app.viewport,
             logger: this.logger,
             phase,
@@ -245,6 +263,9 @@ export class ExtensionRegistry {
             provideModule: (token, factory) => transaction
                 ? this.provideModuleInTransaction(transaction, token, factory)
                 : this.provideModule(token, factory),
+            onLifecycle: (event, handler) => transaction
+                ? this.onLifecycleInTransaction(transaction, extensionName, event, handler)
+                : this.trackLifecycleDisposer(extensionName, this.app.lifecycle.on(event, handler)),
         };
     }
 
@@ -277,6 +298,7 @@ export class ExtensionRegistry {
         return {
             appValues: new Map(),
             moduleFactories: new Map(),
+            lifecycleDisposers: [],
         };
     }
 
@@ -308,7 +330,42 @@ export class ExtensionRegistry {
         this.provideModule(token, factory);
     }
 
-    private rollbackTransaction(transaction: ExtensionTransaction): void {
+    private onLifecycleInTransaction<TKey extends keyof AppLifecycleEvents>(
+        transaction: ExtensionTransaction,
+        extensionName: string,
+        event: TKey,
+        handler: (payload: AppLifecycleEvents[TKey]) => void,
+    ): () => void {
+        const dispose = this.trackLifecycleDisposer(extensionName, this.app.lifecycle.on(event, handler));
+        transaction.lifecycleDisposers.push({ extensionName, dispose });
+        return dispose;
+    }
+
+    private trackLifecycleDisposer(extensionName: string, dispose: () => void): () => void {
+        let active = true;
+        const tracked = (): void => {
+            if (!active) {
+                return;
+            }
+            active = false;
+            dispose();
+            const disposers = this.lifecycleDisposers.get(extensionName);
+            disposers?.delete(tracked);
+            if (disposers?.size === 0) {
+                this.lifecycleDisposers.delete(extensionName);
+            }
+        };
+        let disposers = this.lifecycleDisposers.get(extensionName);
+        if (!disposers) {
+            disposers = new Set();
+            this.lifecycleDisposers.set(extensionName, disposers);
+        }
+        disposers.add(tracked);
+        return tracked;
+    }
+
+    private rollbackTransaction(transaction: ExtensionTransaction): RollbackFailure[] {
+        const failures: RollbackFailure[] = [];
         for (const [id, previous] of Array.from(transaction.appValues.entries()).reverse()) {
             if (previous.hadValue) {
                 this.appValues.set(id, previous.value);
@@ -323,6 +380,31 @@ export class ExtensionRegistry {
                 this.moduleFactories.delete(id);
             }
         }
+        for (const item of Array.from(transaction.lifecycleDisposers).reverse()) {
+            try {
+                item.dispose();
+            } catch (error) {
+                failures.push({ extensionName: item.extensionName, error });
+            }
+        }
+        return failures;
+    }
+
+    private disposeExtensionLifecycle(extensionName: string): unknown {
+        const disposers = this.lifecycleDisposers.get(extensionName);
+        if (!disposers) {
+            return undefined;
+        }
+        let failure: unknown;
+        for (const dispose of Array.from(disposers).reverse()) {
+            try {
+                dispose();
+            } catch (error) {
+                failure = failure ?? error;
+            }
+        }
+        this.lifecycleDisposers.delete(extensionName);
+        return failure;
     }
 
     private async disposeCompletedPhaseExtensions(
@@ -345,14 +427,23 @@ export class ExtensionRegistry {
             try {
                 const rollbackHook = this.phaseRollbackHook(extension, phase);
                 if (rollbackHook) {
-                    await rollbackHook.call(extension, this.createContext(phase), rollbackReason);
+                    await rollbackHook.call(extension, this.createContext(phase, undefined, extension.name), rollbackReason);
                     this.logger.info(`Extension phase rolled back: ${extension.name}/${phase}`);
-                } else if (extension.dispose) {
-                    await extension.dispose(this.createContext('dispose'), rollbackReason);
-                    this.disposedExtensions.add(extension.name);
                 } else {
-                    await extension.uninstall?.(this.createContext('dispose'));
-                    this.disposedExtensions.add(extension.name);
+                    let lifecycleFailure: unknown;
+                    try {
+                        if (extension.dispose) {
+                            await extension.dispose(this.createContext('dispose', undefined, extension.name), rollbackReason);
+                        } else {
+                            await extension.uninstall?.(this.createContext('dispose', undefined, extension.name));
+                        }
+                    } finally {
+                        lifecycleFailure = this.disposeExtensionLifecycle(extension.name);
+                        this.disposedExtensions.add(extension.name);
+                    }
+                    if (lifecycleFailure) {
+                        throw lifecycleFailure;
+                    }
                 }
                 this.logger.info(`Extension rolled back: ${extension.name}/${phase}`);
             } catch (error) {

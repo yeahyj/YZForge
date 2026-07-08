@@ -401,8 +401,29 @@ async function assertExtensionRegistryBehavior() {
   const { ExtensionRegistry } = extensionRuntime;
   assert(typeof ExtensionRegistry === 'function', 'Expected ExtensionRegistry runtime export.');
 
+  const lifecycleHandlers = new Map();
+  const emitLifecycle = (event, payload) => {
+    for (const handler of Array.from(lifecycleHandlers.get(event) || [])) {
+      handler(payload);
+    }
+  };
   const app = {
-    lifecycle: {},
+    lifecycle: {
+      on(event, handler) {
+        let handlers = lifecycleHandlers.get(event);
+        if (!handlers) {
+          handlers = new Set();
+          lifecycleHandlers.set(event, handlers);
+        }
+        handlers.add(handler);
+        return () => {
+          handlers.delete(handler);
+          if (handlers.size === 0) {
+            lifecycleHandlers.delete(event);
+          }
+        };
+      },
+    },
     viewport: { profile: {} },
   };
   const logs = [];
@@ -438,6 +459,7 @@ async function assertExtensionRegistryBehavior() {
     installBeforeStart(context) {
       events.push(`Core:${context.phase}`);
       context.provide(appToken, 'ready');
+      context.onLifecycle('foreground', () => events.push('Core:foreground'));
     },
     dispose(context) {
       events.push(`Core:${context.phase}`);
@@ -451,6 +473,8 @@ async function assertExtensionRegistryBehavior() {
   );
   assert(registry.use(appToken) === 'ready', 'ExtensionContext.provide must register app tokens.');
   assert(registry.useModuleToken({ name: 'Battle' }, moduleToken) === 'module:Battle', 'ExtensionContext.provideModule must register module-scoped tokens.');
+  emitLifecycle('foreground');
+  assert(events.includes('Core:foreground'), 'ExtensionContext.onLifecycle must register lifecycle listeners.');
 
   await registry.install({
     name: 'Late',
@@ -473,6 +497,12 @@ async function assertExtensionRegistryBehavior() {
   assert(
     events.slice(-2).join('|') === 'Gameplay:dispose|Core:dispose',
     'Extension dispose must run dependents before dependencies.',
+  );
+  const foregroundEventCount = events.filter((event) => event === 'Core:foreground').length;
+  emitLifecycle('foreground');
+  assert(
+    events.filter((event) => event === 'Core:foreground').length === foregroundEventCount,
+    'Extension lifecycle listeners must be removed when the registry is disposed.',
   );
 
   const missing = new ExtensionRegistry(app, quietLogger);
@@ -506,6 +536,7 @@ async function assertExtensionRegistryBehavior() {
     installBeforeStart(context) {
       rollbackEvents.push(`Core:${context.phase}`);
       context.provide(rollbackToken, 'core-ready');
+      context.onLifecycle('foreground', () => rollbackEvents.push('Core:foreground'));
     },
     dispose(context, reason) {
       rollbackEvents.push(`Core:${context.phase}:${reason?.type}`);
@@ -533,6 +564,8 @@ async function assertExtensionRegistryBehavior() {
     rollbackEvents.join('|') === 'Core:before-start|Core:dispose:extension_phase_rollback',
     'Extension phase failure must dispose completed extensions from the failed transaction.',
   );
+  emitLifecycle('foreground');
+  assert(!rollbackEvents.includes('Core:foreground'), 'Extension phase rollback must remove lifecycle listeners registered in the failed transaction.');
   let rollbackTokenError;
   try {
     failing.use(rollbackToken);
@@ -1803,10 +1836,13 @@ function assertRuntimeLifecycleInvariants() {
   assert(extensionRegistrySource.includes('ExtensionTransaction'), 'ExtensionRegistry must use a transaction for phase side effects.');
   assert(extensionRegistrySource.includes('rollbackTransaction'), 'ExtensionRegistry must rollback phase token side effects.');
   assert(extensionRegistrySource.includes('disposeCompletedPhaseExtensions'), 'ExtensionRegistry must dispose completed phase extensions on rollback.');
+  assert(extensionRegistrySource.includes('onLifecycleInTransaction'), 'ExtensionContext.onLifecycle must register lifecycle listeners through the transaction.');
+  assert(extensionRegistrySource.includes('readonly lifecycleDisposers'), 'ExtensionTransaction must track lifecycle listener disposers.');
+  assert(!extensionRegistrySource.includes('readonly lifecycle: App'), 'ExtensionContext must not expose raw AppLifecycle; use onLifecycle instead.');
   assert(extensionRegistrySource.includes('export interface ExtensionPhaseRollbackReason'), 'ExtensionRegistry must expose phase-specific rollback reason context.');
   assert(extensionRegistrySource.includes('rollbackBeforeStart'), 'Extension must expose a before-start phase rollback hook.');
   assert(extensionRegistrySource.includes('phaseRollbackHook'), 'ExtensionRegistry must select phase-specific rollback hooks.');
-  assert(extensionRegistrySource.includes('rollbackHook.call(extension, this.createContext(phase), rollbackReason)'), 'ExtensionRegistry must run phase-specific rollback hooks during phase rollback.');
+  assert(extensionRegistrySource.includes('rollbackHook.call(extension, this.createContext(phase, undefined, extension.name), rollbackReason)'), 'ExtensionRegistry must run phase-specific rollback hooks during phase rollback.');
   assert(extensionRegistrySource.includes('provideModule'), 'ExtensionContext must expose module-scoped token registration.');
   assert(extensionRegistrySource.includes('dependencyChain'), 'Extension failures must expose a dependency chain.');
   assert(contentPackSource.includes('manifest.generated'), 'ContentPack manifest.generated.json must be loaded at runtime.');
@@ -2233,6 +2269,42 @@ async function smoke(options = {}) {
     const extensionTransactionRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.provide must route through provideInTransaction');
     const extensionTransactionRouteDetail = extensionTransactionRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.provide must route through provideInTransaction'));
     assert(extensionTransactionRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext transaction route issue code.');
+    for (const [rel, content] of extensionRegistryOriginals) {
+      writeText(projectRoot, rel, content);
+    }
+    assertOkValidation(projectRoot);
+
+    for (const rel of extensionRegistryRels) {
+      updateText(projectRoot, rel, (content) => {
+        const updated = content.replace(
+          '? this.onLifecycleInTransaction(transaction, extensionName, event, handler)',
+          '? this.app.lifecycle.on(event, handler)',
+        );
+        assert(updated !== content, `Expected to mutate ${rel} ExtensionContext.onLifecycle transaction route.`);
+        return updated;
+      });
+    }
+    const extensionLifecycleRouteViolation = expectValidationIssue(projectRoot, 'ExtensionContext.onLifecycle must route through onLifecycleInTransaction');
+    const extensionLifecycleRouteDetail = extensionLifecycleRouteViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.onLifecycle must route through onLifecycleInTransaction'));
+    assert(extensionLifecycleRouteDetail.code === 'extension.transaction', 'Expected ExtensionContext lifecycle transaction route issue code.');
+    for (const [rel, content] of extensionRegistryOriginals) {
+      writeText(projectRoot, rel, content);
+    }
+    assertOkValidation(projectRoot);
+
+    for (const rel of extensionRegistryRels) {
+      updateText(projectRoot, rel, (content) => {
+        const updated = content.replace(
+          "    readonly viewport: App['viewport'];",
+          "    readonly lifecycle: App['lifecycle'];\n    readonly viewport: App['viewport'];",
+        );
+        assert(updated !== content, `Expected to mutate ${rel} ExtensionContext raw lifecycle exposure.`);
+        return updated;
+      });
+    }
+    const extensionLifecycleExposureViolation = expectValidationIssue(projectRoot, 'ExtensionContext.lifecycle must not expose raw AppLifecycle');
+    const extensionLifecycleExposureDetail = extensionLifecycleExposureViolation.issueDetails.find((issue) => issue.message.includes('ExtensionContext.lifecycle must not expose raw AppLifecycle'));
+    assert(extensionLifecycleExposureDetail.code === 'extension.transaction', 'Expected ExtensionContext lifecycle exposure issue code.');
     for (const [rel, content] of extensionRegistryOriginals) {
       writeText(projectRoot, rel, content);
     }

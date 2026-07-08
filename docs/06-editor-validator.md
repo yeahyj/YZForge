@@ -248,7 +248,7 @@ tsconfig.json compilerOptions.paths
 53. View 是否绕过 `this.listen`、`addDisposer` 长期注册事件、计时器或 tween。
 54. ContentPack 是否提供了 Page、Paper、Popup 这类 UIManager View。
 55. System UI preset 是否存在，且不被 Module 直接持有节点。
-56. `ExtensionContext` callable facade 是否通过 TypeScript AST 进入事务策略：`provide` 必须路由到 `provideInTransaction`，`provideModule` 必须路由到 `provideModuleInTransaction`，新增 callable context 入口必须先分类。
+56. `ExtensionContext` callable facade 是否通过 TypeScript AST 进入事务策略：`provide` 必须路由到 `provideInTransaction`，`provideModule` 必须路由到 `provideModuleInTransaction`，`onLifecycle` 必须路由到 `onLifecycleInTransaction`，新增 callable context 入口必须先分类，裸 `lifecycle` 不能暴露。
 57. `openForResult` 是否用于 Toast 或没有结果策略的 View。
 
 ## 检查方式
