@@ -40,6 +40,14 @@ YZForge 的核心模型从旧的三层模型升级为四层：
 
 ## 阅读顺序
 
+如果你是要马上写业务，先看开发帮助文档：
+
+1. [dev/README.md](./dev/README.md)：开发帮助文档索引。
+2. [dev/00-quick-start.md](./dev/00-quick-start.md)：第一次接手和常用命令。
+3. [dev/01-project-layout.md](./dev/01-project-layout.md)：真实开发目录放置规则。
+
+如果你是要理解框架为什么这样设计，再按下面顺序读设计文档：
+
 1. [00-overview.md](./00-overview.md)：目标、非目标、四层模型和终局路线。
 2. [01-project-structure.md](./01-project-structure.md)：标准目录、Scope 身份、Main 场景。
 3. [02-scope-contract-bundle-handle.md](./02-scope-contract-bundle-handle.md)：Scope / Contract / Bundle / Handle 的完整关系。
