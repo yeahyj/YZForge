@@ -239,15 +239,16 @@ tsconfig.json compilerOptions.paths
 44. 生成的 Contract 是否不引用目标 Bundle 运行时实现。
 45. Import Maps 与 `tsconfig.paths` 是否一致。
 46. `App` public API 是否通过 TypeScript AST 声明状态守卫；无守卫 getter 是否在显式白名单内，public field 是否被禁止。
-47. `assets/shared/res` 如果启用 Bundle，优先级是否高于依赖它的业务 Bundle。
-48. ViewRef 是否生成了合法 `ViewPolicy`，且 `ViewKind`、`ViewLayer`、prefab 命名没有明显冲突。
-49. Page 是否在同一 owner 内满足互斥策略，Popup/Paper 是否声明了可入栈策略。
-50. Module 是否只打开本 Scope View 或通过 Global public API 请求 Global UI。
-51. 是否有业务 View 长期持有其他 View 的节点、组件或跨模块 UI handle。
-52. View 是否绕过 `this.listen`、`addDisposer` 长期注册事件、计时器或 tween。
-53. ContentPack 是否提供了 Page、Paper、Popup 这类 UIManager View。
-54. System UI preset 是否存在，且不被 Module 直接持有节点。
-55. `openForResult` 是否用于 Toast 或没有结果策略的 View。
+47. Main 生命周期是否通过 TypeScript AST 绑定 `mainRoot: this.node`，并从 `onDestroy` 可达 `App.dispose` 和 `clearYZForgeApp`。
+48. `assets/shared/res` 如果启用 Bundle，优先级是否高于依赖它的业务 Bundle。
+49. ViewRef 是否生成了合法 `ViewPolicy`，且 `ViewKind`、`ViewLayer`、prefab 命名没有明显冲突。
+50. Page 是否在同一 owner 内满足互斥策略，Popup/Paper 是否声明了可入栈策略。
+51. Module 是否只打开本 Scope View 或通过 Global public API 请求 Global UI。
+52. 是否有业务 View 长期持有其他 View 的节点、组件或跨模块 UI handle。
+53. View 是否绕过 `this.listen`、`addDisposer` 长期注册事件、计时器或 tween。
+54. ContentPack 是否提供了 Page、Paper、Popup 这类 UIManager View。
+55. System UI preset 是否存在，且不被 Module 直接持有节点。
+56. `openForResult` 是否用于 Toast 或没有结果策略的 View。
 
 ## 检查方式
 

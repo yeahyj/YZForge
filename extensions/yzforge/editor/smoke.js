@@ -706,7 +706,13 @@ async function assertAppStateMachineBehavior() {
       };
       this.bundles = {
         snapshots: () => [],
-        preloadBundle: async () => ({}),
+        preloadBundle: async (bundle) => {
+          events.push(`bundle.preload:${bundle}`);
+          if (controls.preloadBundle) {
+            await controls.preloadBundle(bundle);
+          }
+          return {};
+        },
         loadBundle: async () => ({}),
         purgeUnusedBundles: async (reason) => {
           events.push(`bundle.purge:${reason?.type ?? 'unknown'}`);
@@ -803,6 +809,19 @@ async function assertAppStateMachineBehavior() {
   await app.purgeResourceCache({ type: 'smoke_cache_purge' });
   assert(events.includes('bundle.purge:smoke_cache_purge'), 'App.purgeResourceCache must delegate to BundleManager purge.');
 
+  let releaseConcurrentPreload;
+  controls.preloadBundle = () => new Promise((resolve) => {
+    releaseConcurrentPreload = resolve;
+  });
+  const concurrentRef = { name: 'PreloadOnly', bundle: 'yzforge-module-preload-only', libraries: [] };
+  const concurrentPreloadA = app.preloadModule(concurrentRef);
+  const concurrentPreloadB = app.preloadModule(concurrentRef);
+  assert(events.filter((event) => event === 'bundle.preload:yzforge-module-preload-only').length === 1, 'Concurrent App.preloadModule calls must share one preload task.');
+  releaseConcurrentPreload();
+  const [concurrentScopeA, concurrentScopeB] = await Promise.all([concurrentPreloadA, concurrentPreloadB]);
+  assert(concurrentScopeA === concurrentScopeB, 'Concurrent App.preloadModule calls must resolve the same preload scope.');
+  controls.preloadBundle = undefined;
+
   let duplicateStart;
   try {
     await app.start();
@@ -812,7 +831,19 @@ async function assertAppStateMachineBehavior() {
   assert(duplicateStart?.code === 'app.invalid_state', 'App.start must reject duplicate start.');
   assert(duplicateStart?.details?.state === AppState.Started, 'Duplicate start must report Started state.');
 
-  await app.dispose({ type: 'test_dispose' });
+  let releaseDisposePreload;
+  controls.preloadBundle = () => new Promise((resolve) => {
+    releaseDisposePreload = resolve;
+  });
+  const disposePreload = app.preloadModule({ name: 'DisposePreload', bundle: 'yzforge-module-dispose-preload', libraries: [] });
+  const disposeDuringPreload = app.dispose({ type: 'test_dispose' });
+  await Promise.resolve();
+  assert(app.state === AppState.Disposing, 'App.dispose during preload must enter Disposing.');
+  assert(!events.includes('extension.dispose:test_dispose'), 'App.dispose must wait for pending preload tasks before runtime disposal.');
+  releaseDisposePreload();
+  await disposePreload;
+  await disposeDuringPreload;
+  controls.preloadBundle = undefined;
   assert(app.state === AppState.Disposed, 'App.dispose must transition to Disposed.');
   await app.dispose({ type: 'repeat_dispose' });
   assert(app.state === AppState.Disposed, 'App.dispose must be idempotent after Disposed.');
@@ -1173,6 +1204,7 @@ function appStateMachineRuntimeSource() {
     '',
     'export class App {',
     '    private appState = AppState.Created;',
+    '    private readonly preloadTasks = new Map<string, Promise<unknown>>();',
     '    private readonly moduleTasks = new Map<string, Promise<unknown>>();',
     '',
     '    public get state(): AppState {',
@@ -1185,6 +1217,10 @@ function appStateMachineRuntimeSource() {
     '',
     '    public async preloadModule(): Promise<void> {',
     "        this.assertState('preloadModule', [AppState.Started]);",
+    "        const task = this.preloadTasks.get('module');",
+    '        if (task) {',
+    '            await task;',
+    '        }',
     '    }',
     '',
     '    public async loadModule(): Promise<void> {',
@@ -1219,6 +1255,9 @@ function appStateMachineRuntimeSource() {
     '',
     '    public async dispose(): Promise<void> {',
     "        this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed]);",
+    '        for (const task of Array.from(this.preloadTasks.values())) {',
+    '            await task;',
+    '        }',
     '        for (const task of Array.from(this.moduleTasks.values())) {',
     '            await task;',
     '        }',
@@ -1626,6 +1665,12 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes("this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed])"), 'dispose must accept Created/Starting/Started/Failed states.');
   assert(appSource.includes("'app.invalid_state'"), 'App state guard must report typed invalid-state errors.');
   assert(appSource.includes('state: this.appState'), 'App snapshot must expose current App state.');
+  assert(appSource.includes('private readonly preloadTasks = new Map<string, Promise<ReleaseScope>>()'), 'App must track pending preload tasks explicitly.');
+  assert(appSource.includes('const running = this.preloadTasks.get(ref.name)'), 'App.preloadModule must reuse pending preload tasks.');
+  assert(appSource.indexOf('const running = this.preloadTasks.get(ref.name)') < appSource.indexOf('const existing = this.preloadScopes.get(ref.name)'), 'App.preloadModule must prefer pending preload tasks over optimistic preload scopes.');
+  assert(appSource.includes('this.preloadTasks.set(ref.name, task)'), 'App.preloadModule must register pending preload tasks.');
+  assert(appSource.includes('this.preloadTasks.delete(ref.name)'), 'App.preloadModule must clear completed preload tasks.');
+  assert(appSource.includes('Array.from(this.preloadTasks.values())'), 'App.dispose must await pending preload tasks before runtime disposal.');
   assert(appSource.includes('Array.from(this.moduleTasks.values())'), 'App.dispose must await pending module load tasks before unloading modules.');
   assert(appSource.includes('moduleUnloadTasks'), 'App must keep module unload tasks idempotent.');
   assert(appSource.includes('module.unload_during_enter'), 'App must reject unloading a module while it is entering.');
@@ -2216,6 +2261,24 @@ async function smoke(options = {}) {
     const mainLifecycleViolation = expectValidationIssue(projectRoot, 'Main component must dispose App in onDestroy');
     const mainLifecycleDetail = mainLifecycleViolation.issueDetails.find((issue) => issue.message.includes('dispose App in onDestroy'));
     assert(mainLifecycleDetail.code === 'main.lifecycle', 'Expected Main lifecycle issue code.');
+    writeText(projectRoot, 'assets/app/main/Main.ts', mainComponentSource());
+    assertOkValidation(projectRoot);
+
+    updateText(projectRoot, 'assets/app/main/Main.ts', (content) => {
+      return content.replace('        await this.app.start({ mainRoot: this.node });', '        await this.app.start();');
+    });
+    const mainRootViolation = expectValidationIssue(projectRoot, 'Main component must start App with mainRoot: this.node');
+    const mainRootDetail = mainRootViolation.issueDetails.find((issue) => issue.message.includes('mainRoot: this.node'));
+    assert(mainRootDetail.code === 'main.lifecycle', 'Expected Main mainRoot lifecycle issue code.');
+    writeText(projectRoot, 'assets/app/main/Main.ts', mainComponentSource());
+    assertOkValidation(projectRoot);
+
+    updateText(projectRoot, 'assets/app/main/Main.ts', (content) => {
+      return content.replace('        clearYZForgeApp(this.app);\n', '');
+    });
+    const mainClearViolation = expectValidationIssue(projectRoot, 'Main component must clear the exposed App reference on destroy/dispose');
+    const mainClearDetail = mainClearViolation.issueDetails.find((issue) => issue.message.includes('clear the exposed App reference'));
+    assert(mainClearDetail.code === 'main.lifecycle', 'Expected Main clear lifecycle issue code.');
     writeText(projectRoot, 'assets/app/main/Main.ts', mainComponentSource());
     assertOkValidation(projectRoot);
 

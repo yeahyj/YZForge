@@ -64,6 +64,7 @@ export class App {
     private readonly modules = new Map<string, LoadedModule>();
     private readonly moduleTasks = new Map<string, Promise<LoadedModule>>();
     private readonly moduleUnloadTasks = new Map<string, Promise<void>>();
+    private readonly preloadTasks = new Map<string, Promise<ReleaseScope>>();
     private readonly preloadScopes = new Map<string, ReleaseScope>();
     private beforeFirstModuleExtensionsTask?: Promise<void>;
     private disposeViewportChanged?: () => void;
@@ -147,10 +148,26 @@ export class App {
 
     public async preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope> {
         this.assertState('preloadModule', [AppState.Started]);
+        const running = this.preloadTasks.get(ref.name);
+        if (running) {
+            return await running;
+        }
         const existing = this.preloadScopes.get(ref.name);
         if (existing && !existing.released) {
             return existing;
         }
+        const task = this.preloadModuleNow(ref);
+        this.preloadTasks.set(ref.name, task);
+        try {
+            return await task;
+        } finally {
+            if (this.preloadTasks.get(ref.name) === task) {
+                this.preloadTasks.delete(ref.name);
+            }
+        }
+    }
+
+    private async preloadModuleNow<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope> {
         const kernel = this.kernel;
         const scope = kernel.releaseScope.child('preload', ref.name);
         this.preloadScopes.set(ref.name, scope);
@@ -327,6 +344,11 @@ export class App {
                 failure = failure ?? error;
             }
         };
+        for (const preloading of Array.from(this.preloadTasks.values())) {
+            await run(async () => {
+                await preloading;
+            });
+        }
         for (const loading of Array.from(this.moduleTasks.values())) {
             await run(async () => {
                 await loading;

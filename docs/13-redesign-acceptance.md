@@ -101,6 +101,7 @@ npm run yzforge:smoke
 - `SafeAreaRoot` 挂载安全区适配组件。
 - `FullscreenLayer` 和 `SystemLayer` 挂载全屏适配组件。
 - Validator 必须用 TypeScript AST 检查 `App` public API：新增 public method 必须声明 `this.assertState(...)`，无守卫 public getter 必须显式白名单化，public field 不允许暴露。
+- Validator 必须用 TypeScript AST 检查 Main 生命周期：`App.start` 必须传入 `mainRoot: this.node`，`onDestroy` 的可达调用链必须执行 `App.dispose` 并清理 `clearYZForgeApp`。
 - `app.viewport.profile` 可读取。
 - viewport changed 能触发订阅。
 - 业务代码直接调用 `sys.getSafeAreaRect` 时 Validator 失败。

@@ -1184,6 +1184,155 @@ function validateCaseConflicts(projectRoot, issues) {
   }
 }
 
+function classMethodMap(ts, classNode) {
+  const methods = new Map();
+  for (const member of classNode.members || []) {
+    if (!ts.isMethodDeclaration(member)) {
+      continue;
+    }
+    const name = propertyNameText(ts, member.name);
+    if (name) {
+      methods.set(name, member);
+    }
+  }
+  return methods;
+}
+
+function isThisClassMethodCall(ts, sourceFile, node, methods) {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) {
+    return undefined;
+  }
+  if (node.expression.expression.getText(sourceFile) !== 'this') {
+    return undefined;
+  }
+  const name = node.expression.name.text;
+  return methods.has(name) ? name : undefined;
+}
+
+function isMainRootThisNodeProperty(ts, sourceFile, property) {
+  const name = propertyNameText(ts, property.name);
+  if (name !== 'mainRoot' || !ts.isPropertyAssignment(property)) {
+    return false;
+  }
+  return property.initializer.getText(sourceFile) === 'this.node';
+}
+
+function isAppStartWithMainRoot(ts, sourceFile, node) {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) {
+    return false;
+  }
+  if (node.expression.name.text !== 'start') {
+    return false;
+  }
+  const target = node.expression.expression.getText(sourceFile);
+  if (!/(?:^|\.)app$/.test(target)) {
+    return false;
+  }
+  const [options] = node.arguments;
+  return Boolean(
+    options
+    && ts.isObjectLiteralExpression(options)
+    && options.properties.some((property) => isMainRootThisNodeProperty(ts, sourceFile, property)),
+  );
+}
+
+function methodReachableFacts(ts, sourceFile, methods, methodName, visited = new Set()) {
+  if (visited.has(methodName)) {
+    return { dispose: false, clear: false };
+  }
+  visited.add(methodName);
+  const method = methods.get(methodName);
+  if (!method?.body) {
+    return { dispose: false, clear: false };
+  }
+
+  const facts = { dispose: false, clear: false };
+  const visit = (node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(sourceFile).replace(/\?\./g, '.');
+      if (expression === 'clearYZForgeApp') {
+        facts.clear = true;
+      }
+      if (expression.endsWith('.dispose')) {
+        facts.dispose = true;
+      }
+      const nextMethod = isThisClassMethodCall(ts, sourceFile, node, methods);
+      if (nextMethod) {
+        const childFacts = methodReachableFacts(ts, sourceFile, methods, nextMethod, visited);
+        facts.dispose = facts.dispose || childFacts.dispose;
+        facts.clear = facts.clear || childFacts.clear;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(method.body);
+  return facts;
+}
+
+function validateMainComponentLifecycle(projectRoot, rel, content, issues) {
+  const parsed = parseTypeScriptFile(content, path.join(projectRoot, rel));
+  if (!parsed) {
+    return false;
+  }
+  const { ts, sourceFile } = parsed;
+  const mainClass = sourceFile.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === 'Main');
+  if (!mainClass) {
+    issues.push('Main component must define class Main.', {
+      path: rel,
+      code: 'main.lifecycle',
+    });
+    return true;
+  }
+
+  const methods = classMethodMap(ts, mainClass);
+  let hasStartWithMainRoot = false;
+  for (const method of methods.values()) {
+    if (!method.body) {
+      continue;
+    }
+    const visit = (node) => {
+      if (isAppStartWithMainRoot(ts, sourceFile, node)) {
+        hasStartWithMainRoot = true;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(method.body);
+  }
+  if (!hasStartWithMainRoot) {
+    issues.push('Main component must start App with mainRoot: this.node.', {
+      path: rel,
+      code: 'main.lifecycle',
+      ...sourceLocation(sourceFile, mainClass),
+    });
+  }
+
+  if (!methods.has('onDestroy')) {
+    issues.push('Main component must dispose App in onDestroy.', {
+      path: rel,
+      code: 'main.lifecycle',
+      ...sourceLocation(sourceFile, mainClass),
+    });
+  } else {
+    const facts = methodReachableFacts(ts, sourceFile, methods, 'onDestroy');
+    if (!facts.dispose) {
+      issues.push('Main component must dispose App in onDestroy.', {
+        path: rel,
+        code: 'main.lifecycle',
+        ...sourceLocation(sourceFile, methods.get('onDestroy')),
+      });
+    }
+    if (!facts.clear) {
+      issues.push('Main component must clear the exposed App reference on destroy/dispose.', {
+        path: rel,
+        code: 'main.lifecycle',
+        ...sourceLocation(sourceFile, methods.get('onDestroy')),
+      });
+    }
+  }
+
+  return true;
+}
+
 function validateMainScene(projectRoot, issues) {
   const scenePath = path.join(projectRoot, 'assets', 'app', 'main', 'Main.scene');
   const scriptPath = path.join(projectRoot, 'assets', 'app', 'main', 'Main.ts');
@@ -1201,24 +1350,27 @@ function validateMainScene(projectRoot, issues) {
       code: 'main.scene',
     });
   } else {
-    const scriptSource = stripCodeComments(fs.readFileSync(scriptPath, 'utf8'));
-    if (!/\.start\s*\(\s*{[^}]*\bmainRoot\s*:\s*this\.node\b/.test(scriptSource)) {
-      issues.push('Main component must start App with mainRoot: this.node.', {
-        path: 'assets/app/main/Main.ts',
-        code: 'main.lifecycle',
-      });
-    }
-    if (!/\bonDestroy\s*\(/.test(scriptSource) || !/\.dispose\s*\(/.test(scriptSource)) {
-      issues.push('Main component must dispose App in onDestroy.', {
-        path: 'assets/app/main/Main.ts',
-        code: 'main.lifecycle',
-      });
-    }
-    if (!/\bclearYZForgeApp\s*\(/.test(scriptSource)) {
-      issues.push('Main component must clear the exposed App reference on destroy/dispose.', {
-        path: 'assets/app/main/Main.ts',
-        code: 'main.lifecycle',
-      });
+    const rawScriptSource = fs.readFileSync(scriptPath, 'utf8');
+    if (!validateMainComponentLifecycle(projectRoot, 'assets/app/main/Main.ts', rawScriptSource, issues)) {
+      const scriptSource = stripCodeComments(rawScriptSource);
+      if (!/\.start\s*\(\s*{[^}]*\bmainRoot\s*:\s*this\.node\b/.test(scriptSource)) {
+        issues.push('Main component must start App with mainRoot: this.node.', {
+          path: 'assets/app/main/Main.ts',
+          code: 'main.lifecycle',
+        });
+      }
+      if (!/\bonDestroy\s*\(/.test(scriptSource) || !/\.dispose\s*\(/.test(scriptSource)) {
+        issues.push('Main component must dispose App in onDestroy.', {
+          path: 'assets/app/main/Main.ts',
+          code: 'main.lifecycle',
+        });
+      }
+      if (!/\bclearYZForgeApp\s*\(/.test(scriptSource)) {
+        issues.push('Main component must clear the exposed App reference on destroy/dispose.', {
+          path: 'assets/app/main/Main.ts',
+          code: 'main.lifecycle',
+        });
+      }
     }
   }
 

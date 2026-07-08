@@ -56,7 +56,8 @@ extensions/yzforge/runtime-template/*
 - `App.state` 和 `AppRuntimeSnapshot.state` 暴露当前状态。
 - `start`、`preloadModule`、`loadModule`、`enterModule`、`unloadModule`、`installExtension`、`use`、`useModuleToken`、`dispose` 都有状态守卫。
 - `dispose` 支持 `Created`、`Starting`、`Started`、`Failed`，并对 `Disposed` 幂等。
-- `dispose` 会等待正在进行的 `start` 和 module load task 收口，再卸载模块。
+- `preloadModule` 有独立 task map；同名并发 preload 会共享同一个任务。
+- `dispose` 会等待正在进行的 `start`、preload task 和 module load task 收口，再卸载模块。
 - 非法状态调用抛出 `app.invalid_state`。
 
 当前 ExtensionTransaction 已经落地第一版：
@@ -97,7 +98,6 @@ Failed
 但我仍不满意这些点：
 
 - `start` 失败回滚已经会调用 dispose 路径，但 Extension 安装副作用还不是事务化记录。
-- `preloadModule` 目前没有独立 task map，依赖 ReleaseScope 在释放后登记动作时立即执行。
 - Validator 已经用 AST 枚举 `App` class public method / accessor / field：新增 public API 如果既没有 `this.assertState(...)`，也没有被显式列入无守卫白名单，会触发 `app.state_machine`。
 - `Failed` 状态后的二次诊断还比较薄，只能通过原始错误和 snapshot 判断。
 
@@ -198,9 +198,12 @@ generated copy rule:
 
 当前 Validator 很有用，但有一些规则仍是源码文本匹配：
 
-- Main 是否调用 `app.start({ mainRoot: this.node })`。
-- Main 是否调用 `app.dispose`。
 - 某些 forbidden import / forbidden API 检查。
+
+已经收敛：
+
+- Main 生命周期使用 TypeScript AST 检查 `app.start({ mainRoot: this.node })`。
+- Main 生命周期使用 AST 调用图，从 `onDestroy` 跟踪 `this.*` 方法调用链，确认可达路径中有 `App.dispose` 和 `clearYZForgeApp`。
 
 硬终局要求：
 
@@ -348,7 +351,7 @@ Failed -> enterModule
 | API | 允许状态 | 失败行为 |
 | --- | --- | --- |
 | `start` | `Created` | 启动事务回滚，进入 `Failed` 或 `Disposed` |
-| `preloadModule` | `Started` | 失败释放 preload scope |
+| `preloadModule` | `Started` | 同名并发共享 pending task，失败释放 preload scope |
 | `loadModule` | `Started` | 失败释放 module scope |
 | `enterModule` | `Started` | 导航状态回滚 |
 | `unloadModule` | `Started` / `Disposing` | 聚合错误，继续释放 |
@@ -655,6 +658,7 @@ regex 只允许用于补充提示，不作为唯一验收依据。
 - `dispose` 支持 Starting / Failed 回滚。
 - Smoke 覆盖重复 start、start 中 dispose、disposed 后 enterModule。
 - `dispose` 等待 pending module load task 后再卸载模块。
+- `preloadModule` 使用独立 task map；同名并发 preload 复用同一个 Promise，`dispose` 等待 pending preload task。
 - strict Validator 使用 TypeScript AST 检查新增 public App API 是否声明状态守卫或进入显式无守卫白名单。
 
 验收：
@@ -667,7 +671,6 @@ strict validator sees App state guards
 
 后续增强：
 
-- `preloadModule` 增加 task map，让 preload 与 dispose 的关系和 module load 一样显式。
 - App failure snapshot 展示最后一次失败 API、状态迁移和错误摘要。
 
 ### Phase B：Extension 事务
