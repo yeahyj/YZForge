@@ -184,6 +184,8 @@ tsconfig.json compilerOptions.paths
 - Import Maps 是 Cocos 运行时兼容映射，指向同步后的 `assets/yzforge/runtime` copy。
 - Cocos 项目设置必须指向 `project://import-map.json`，否则编辑器脚本编译不会加载项目根目录的映射。
 - `tsconfig.paths` 是 TypeScript 检查规则，`yzforge` 指向 `packages/yzforge-runtime/src/index.ts`。
+- root `tsconfig.json` 必须保持可迁移：`db://assets/*` 指向 `assets/*`，不能写入项目根绝对路径。
+- root `tsconfig.json` 不能 extend `temp/tsconfig.cocos.json`，也不能提交 `db://internal/*` 或 `temp/declarations/*`。Cocos engine declarations、`cc/env` shim 和本机 `db://internal/*` 路径由 ToolchainResolver 在 `npm run typecheck` 时写入 `temp/yzforge/tsconfig.typecheck.json`。
 - 这些映射必须由同一个生成器源数据生成，Validator 会检查旧别名、runtime deep alias、root package identity、runtime package drift 和 Cocos assembly unresolved import。
 
 ## Architecture Validator

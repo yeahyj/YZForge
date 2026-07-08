@@ -18,6 +18,43 @@ const COCOS_EXECUTABLE_ENV_VARS = [
   'COCOS_CREATOR_EXECUTABLE',
   'COCOS_EXECUTABLE',
 ];
+const TYPECHECK_TSCONFIG_PATH = path.join('temp', 'yzforge', 'tsconfig.typecheck.json');
+const COCOS_ENV_CONSTANTS = [
+  ['HTML5', 'boolean'],
+  ['NATIVE', 'boolean'],
+  ['ANDROID', 'boolean'],
+  ['IOS', 'boolean'],
+  ['MAC', 'boolean'],
+  ['WINDOWS', 'boolean'],
+  ['LINUX', 'boolean'],
+  ['OHOS', 'boolean'],
+  ['OPEN_HARMONY', 'boolean'],
+  ['WECHAT', 'boolean'],
+  ['WECHAT_MINI_PROGRAM', 'boolean'],
+  ['XIAOMI', 'boolean'],
+  ['ALIPAY', 'boolean'],
+  ['TAOBAO', 'boolean'],
+  ['TAOBAO_MINIGAME', 'boolean'],
+  ['BYTEDANCE', 'boolean'],
+  ['OPPO', 'boolean'],
+  ['VIVO', 'boolean'],
+  ['HUAWEI', 'boolean'],
+  ['MIGU', 'boolean'],
+  ['HONOR', 'boolean'],
+  ['COCOS_RUNTIME', 'boolean'],
+  ['EDITOR', 'boolean'],
+  ['EDITOR_NOT_IN_PREVIEW', 'boolean'],
+  ['PREVIEW', 'boolean'],
+  ['BUILD', 'boolean'],
+  ['TEST', 'boolean'],
+  ['DEBUG', 'boolean'],
+  ['DEV', 'boolean'],
+  ['MINIGAME', 'boolean'],
+  ['RUNTIME_BASED', 'boolean'],
+  ['SUPPORT_JIT', 'boolean'],
+  ['JSB', 'boolean'],
+  ['NET_MODE', 'number'],
+];
 
 let cachedTypeScript;
 let typeScriptLoaded = false;
@@ -279,6 +316,26 @@ function resolveCocosTypeScriptCli(projectRoot, options = {}) {
   throw createResolveError(path.resolve(projectRoot || process.cwd()), 'Cocos TypeScript CLI', [cliPath]);
 }
 
+function resolveCocosEngineRoot(projectRoot, options = {}) {
+  const editorRoot = resolveCocosEditorRoot(projectRoot, options);
+  if (!editorRoot) {
+    return undefined;
+  }
+  const candidates = [
+    path.join(editorRoot, 'resources', 'resources', '3d', 'engine'),
+    path.join(editorRoot, 'resources', '3d', 'engine'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  if (options.required === false) {
+    return undefined;
+  }
+  throw createResolveError(path.resolve(projectRoot || process.cwd()), 'Cocos engine root', candidates);
+}
+
 function loadTypeScript(projectRoot, options = {}) {
   if (typeScriptLoaded) {
     if (!cachedTypeScript && options.required) {
@@ -305,13 +362,12 @@ function loadTypeScript(projectRoot, options = {}) {
 }
 
 function resolveCocosEngineAssets(projectRoot, options = {}) {
-  const editorRoot = resolveCocosEditorRoot(projectRoot, options);
-  if (!editorRoot) {
+  const engineRoot = resolveCocosEngineRoot(projectRoot, options);
+  if (!engineRoot) {
     return undefined;
   }
   const candidates = [
-    path.join(editorRoot, 'resources', 'resources', '3d', 'engine', 'editor', 'assets'),
-    path.join(editorRoot, 'resources', '3d', 'engine', 'editor', 'assets'),
+    path.join(engineRoot, 'editor', 'assets'),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -322,6 +378,93 @@ function resolveCocosEngineAssets(projectRoot, options = {}) {
     return undefined;
   }
   throw createResolveError(path.resolve(projectRoot || process.cwd()), 'Cocos engine editor assets', candidates);
+}
+
+function renderCocosEnvDeclarations() {
+  return [
+    "declare module 'cc/env' {",
+    ...COCOS_ENV_CONSTANTS.map(([name, type]) => `  export const ${name}: ${type};`),
+    '}',
+    '',
+  ].join('\n');
+}
+
+function writeGeneratedToolchainFile(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const next = content.endsWith('\n') ? content : `${content}\n`;
+  if (fs.existsSync(filePath) && fs.readFileSync(filePath, 'utf8') === next) {
+    return false;
+  }
+  fs.writeFileSync(filePath, next, 'utf8');
+  return true;
+}
+
+function prepareTypecheckTsconfig(projectRoot) {
+  const root = path.resolve(projectRoot || process.cwd());
+  const rootTsconfig = readJsonc(path.join(root, 'tsconfig.json'));
+  const outputPath = path.join(root, TYPECHECK_TSCONFIG_PATH);
+  const outputDir = path.dirname(outputPath);
+  const baseUrl = toPosix(path.relative(outputDir, root)) || '.';
+  const engineRoot = resolveCocosEngineRoot(root);
+  const cocosEngineAssets = resolveCocosEngineAssets(root);
+  const ccDeclaration = path.join(engineRoot, 'bin', '.declarations', 'cc.d.ts');
+  const jsbDeclaration = path.join(engineRoot, '@types', 'jsb.d.ts');
+  const envDeclaration = path.join(outputDir, 'declarations', 'cc.env.d.ts');
+  const macroDeclaration = path.join(outputDir, 'declarations', 'cc.custom-macro.d.ts');
+
+  for (const filePath of [ccDeclaration, jsbDeclaration]) {
+    if (!fs.existsSync(filePath)) {
+      throw createResolveError(root, `Cocos declaration ${path.basename(filePath)}`, [filePath]);
+    }
+  }
+
+  writeGeneratedToolchainFile(envDeclaration, renderCocosEnvDeclarations());
+  writeGeneratedToolchainFile(macroDeclaration, [
+    'declare module "cc/userland/macro" {',
+    '}',
+    '',
+  ].join('\n'));
+
+  const rootCompilerOptions = rootTsconfig.compilerOptions || {};
+  const rootPaths = rootCompilerOptions.paths || {};
+  const compilerOptions = {
+    ...rootCompilerOptions,
+    baseUrl,
+    paths: {
+      ...rootPaths,
+      'db://internal/*': [`${toPosix(cocosEngineAssets)}/*`],
+    },
+    types: [],
+  };
+  delete compilerOptions.composite;
+  delete compilerOptions.declaration;
+  delete compilerOptions.declarationMap;
+  delete compilerOptions.emitDeclarationOnly;
+
+  const config = {
+    $schema: rootTsconfig.$schema || 'https://json.schemastore.org/tsconfig',
+    compilerOptions,
+    files: [
+      toPosix(ccDeclaration),
+      toPosix(jsbDeclaration),
+      toPosix(envDeclaration),
+      toPosix(macroDeclaration),
+    ],
+    include: [
+      `${baseUrl}/assets/**/*.ts`,
+      `${baseUrl}/packages/yzforge-runtime/src/**/*.ts`,
+      `${baseUrl}/extensions/yzforge/runtime-template/**/*.ts`,
+    ],
+    exclude: [
+      `${baseUrl}/build/**`,
+      `${baseUrl}/library/**`,
+      `${baseUrl}/node_modules/**`,
+      `${baseUrl}/temp/**`,
+    ],
+  };
+
+  writeGeneratedToolchainFile(outputPath, `${JSON.stringify(config, null, 2)}\n`);
+  return outputPath;
 }
 
 function resolveCocosProjectSettings(projectRoot) {
@@ -343,9 +486,12 @@ function resolveCocosTempAssembly(projectRoot, target) {
 function runTypecheck(projectRoot, options = {}) {
   const root = path.resolve(projectRoot || process.cwd());
   const tscPath = resolveCocosTypeScriptCli(root);
+  const tsconfigPath = options.args && options.args.length > 0
+    ? undefined
+    : prepareTypecheckTsconfig(root);
   const args = options.args && options.args.length > 0
     ? options.args
-    : ['-p', 'tsconfig.json', '--noEmit', '--pretty', 'false'];
+    : ['-p', tsconfigPath, '--noEmit', '--pretty', 'false'];
   const result = childProcess.spawnSync(process.execPath, [tscPath, ...args], {
     cwd: root,
     env: process.env,
@@ -357,6 +503,7 @@ function runTypecheck(projectRoot, options = {}) {
     signal: result.signal,
     error: result.error,
     command: `node ${toPosix(tscPath)} ${args.join(' ')}`,
+    tsconfig: tsconfigPath ? toPosix(tsconfigPath) : undefined,
   };
 }
 
@@ -429,8 +576,10 @@ module.exports = {
   COCOS_EXECUTABLE_ENV_VARS,
   EDITOR_ROOT_ENV_VARS,
   loadTypeScript,
+  prepareTypecheckTsconfig,
   resolveCocosExecutable,
   resolveCocosEditorRoot,
+  resolveCocosEngineRoot,
   resolveCocosEngineAssets,
   resolveCocosProjectSettings,
   resolveCocosTempAssembly,

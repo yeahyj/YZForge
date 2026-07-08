@@ -144,8 +144,8 @@ Extension 不允许靠“安装一半，之后手工清理”维持正确性。
 
 剩余风险：
 
-- 真实 Cocos editor / preview / build 对“root package 不叫 yzforge，只靠 import-map”的解析还需要 BuildMatrixValidator 和编辑器重启验收继续证明。
-- 当前 TypeScript 和 smoke 已证明 source package 路径可用，但 Cocos assembly 证据仍来自现有 temp assembly guard，不是完整 build matrix。
+- 真实 Cocos editor / preview / Web build 对“root package 不叫 yzforge，只靠 import-map”的解析已经由 BuildMatrixValidator 和 Cocos CLI build 证明；Native / 小游戏平台仍需要按项目目标继续扩展。
+- 当前 TypeScript、smoke、fresh clone 和 Web build 已证明 source package 路径与 Cocos 可见 copy 可用；仍缺少 fresh Cocos editor restart 的自动化矩阵。
 - `extensions/yzforge/runtime-template` 还保留为 copy/cache；未来可以退化成安装缓存或直接由 package 发布物生成。
 
 目标形态保持：
@@ -222,15 +222,16 @@ regex 只能作为兜底，不应该作为核心架构规则的唯一证据。
 - `npm run yzforge:cocos:build:web` 会调用 Cocos CLI 生成 web-desktop debug build，并要求预期 output 目录存在才算成功。
 - `runCocosBuild` 会为 Cocos CLI 子进程移除 `ELECTRON_RUN_AS_NODE`，避免 Electron 版 `CocosCreator.exe` 被当前 Node 环境误当成普通 Node 进程解析参数。
 - `package.json` 的 `typecheck` 不再硬编码本机 Cocos 路径，而是走 `node extensions/yzforge/editor/cli.js typecheck`。
-- `generate` 通过 ToolchainResolver 写入 `db://internal/*`，并统一维护 YZForge CLI scripts。
+- `generate` 只维护可提交的稳定 `tsconfig.json`：`db://assets/*` 指向 `assets/*`，不再写入项目根绝对路径、`db://internal/*` 或 Cocos temp 配置。
+- `typecheck` 由 ToolchainResolver 在运行时生成 `temp/yzforge/tsconfig.typecheck.json`，动态注入 Cocos `cc` / `jsb` 声明、`cc/env` shim 和 `db://internal/*`。
 - `validate` 和 `smoke` 通过 ToolchainResolver 加载 TypeScript。
-- strict Validator 会检查 package scripts、`db://assets/*`、`db://internal/*`，并扫描 editor 工具，禁止 Cocos 安装路径散落在 `toolchain.js` 之外。
+- strict Validator 会检查 package scripts、`db://assets/*`、禁止提交态 `db://internal/*`、禁止 `extends ./temp/tsconfig.cocos.json`、禁止 `temp/declarations/*`，并扫描 editor 工具，禁止 Cocos 安装路径散落在 `toolchain.js` 之外。
 
 我仍不满意这些点：
 
 - resolver 支持 `.yzforge/toolchain.json` 和环境变量，但还没有生成 schema/template。
 - known fallback paths 仍是实用兜底，不等于真正解析 Cocos Dashboard profile。
-- smoke 已经覆盖脚本和 path map 负例，但还没有自动执行“重命名本机 Cocos 路径后重新配置”的物理验收。
+- smoke 已经覆盖脚本、path map、Cocos temp tsconfig、`temp/declarations`、项目根绝对路径和提交态 `db://internal/*` 负例，但还没有自动执行“重命名本机 Cocos 路径后重新配置”的物理验收。
 - BuildMatrixValidator 已经把 editor / preview / Web build 全目标解析证据统一收口；Native / 小游戏平台仍需要按项目能力扩展。
 
 硬终局要求：
@@ -446,9 +447,11 @@ assets/
 resolveProjectRoot()
 resolveCocosEditorRoot()
 resolveCocosTypeScript()
+resolveCocosEngineRoot()
 resolveCocosEngineAssets()
 resolveCocosProjectSettings()
 resolveCocosTempAssembly(target)
+prepareTypecheckTsconfig()
 ```
 
 禁止在业务代码、生成器、Validator、Smoke 中散落硬编码路径。
@@ -461,9 +464,11 @@ extensions/yzforge/editor/toolchain.js
   resolveCocosExecutable
   resolveCocosBuildOutputPath
   resolveCocosTypeScript
+  resolveCocosEngineRoot
   resolveCocosEngineAssets
   resolveCocosProjectSettings
   resolveCocosTempAssembly
+  prepareTypecheckTsconfig
   runTypecheck
   runCocosBuild
 
@@ -471,7 +476,7 @@ package.json
   typecheck -> node extensions/yzforge/editor/cli.js typecheck
 ```
 
-`generate --check` 和 `validate --strict` 必须证明这些映射没有漂移。`smoke` 必须证明把 `typecheck` 脚本或 `db://internal/*` 改回本机路径时，strict Validator 会失败，并且 `generate` 可以修复。
+`generate --check` 和 `validate --strict` 必须证明这些映射没有漂移。`smoke` 必须证明把 `typecheck` 脚本、`db://assets/*`、`db://internal/*` 或 `temp/tsconfig.cocos.json` 改回本机/临时路径时，strict Validator 会失败，并且 `generate` 可以修复。
 
 失败信息必须可执行：
 
@@ -495,7 +500,18 @@ Set YZFORGE_COCOS_EDITOR_ROOT or configure .yzforge/toolchain.json.
 - 随后 `npm run yzforge:validate:build-matrix` 已证明 `build:yzforge-build-matrix` 产物中裸 `yzforge` import、unresolved marker 和 MissingScript marker 都为 0。
 - MissingScript 检查会忽略 Cocos 引擎自身导出的 `MissingScript` 符号，只对日志诊断、`cc.MissingScript` 或序列化资产中的 MissingScript 类型失败。
 
-当前 editor / preview / Web build 已经有结构化证据；仍未覆盖的是 Native / 小游戏平台、fresh clone bootstrap 和 fresh Cocos editor restart 的自动化矩阵。
+当前 editor / preview / Web build 已经有结构化证据；fresh clone bootstrap 已经通过 `generate:check`、`validate:strict`、`typecheck`、`smoke`。仍未覆盖的是 Native / 小游戏平台和 fresh Cocos editor restart 的自动化矩阵。
+
+fresh clone bootstrap 证据：
+
+```text
+clone to temp directory
+apply current working diff
+npm run yzforge:generate:check   -> passed, changed = []
+npm run yzforge:validate:strict  -> passed, issues = []
+npm run typecheck                -> passed, generated temp/yzforge/tsconfig.typecheck.json
+npm run yzforge:smoke            -> passed
+```
 
 硬终局验收矩阵：
 
@@ -685,9 +701,10 @@ App returns to defined state
 - 移除硬编码 Cocos 路径。
 - 支持 `.yzforge/toolchain.json` 和环境变量。
 - `typecheck` 通过 YZForge CLI 调用 Cocos TypeScript。
-- `generate` 通过 resolver 写入 Cocos engine editor assets path。
-- strict Validator 检查 package scripts、Cocos path map 和 editor 工具硬编码路径。
-- Smoke 覆盖 typecheck script 和 `db://internal/*` 负例。
+- `generate` 只写可迁移 root `tsconfig.json`，不提交 Cocos temp、项目根绝对路径或 `db://internal/*`。
+- `typecheck` 运行时生成 `temp/yzforge/tsconfig.typecheck.json`，由 resolver 注入 Cocos engine declarations 和 `db://internal/*`。
+- strict Validator 检查 package scripts、可迁移 path map、Cocos temp 依赖和 editor 工具硬编码路径。
+- Smoke 覆盖 typecheck script、Cocos temp tsconfig、项目根绝对路径和 `db://internal/*` 负例。
 
 验收：
 

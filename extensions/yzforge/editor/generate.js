@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { generatedJson, generatedText, isTextChanged, kebabCase, readJsonc, toPosix, walk, writeTextIfChanged } = require('./fs-utils');
 const { scanProject } = require('./scanner');
-const { resolveCocosEngineAssets, yzforgePackageScripts } = require('./toolchain');
+const { yzforgePackageScripts } = require('./toolchain');
 
 function moduleBundleName(name) {
   return `yzforge-module-${kebabCase(name)}`;
@@ -732,14 +732,21 @@ function renderContentPackManifest(pack) {
 function updateTsconfig(projectRoot, options, changed) {
   const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
   const tsconfig = readJsonc(tsconfigPath);
-  const cocosEngineAssets = resolveCocosEngineAssets(projectRoot);
+  delete tsconfig.extends;
   tsconfig.compilerOptions = tsconfig.compilerOptions || {};
+  tsconfig.compilerOptions.target = 'ES2015';
+  tsconfig.compilerOptions.module = 'ES2015';
   tsconfig.compilerOptions.strict = true;
   tsconfig.compilerOptions.skipLibCheck = true;
   tsconfig.compilerOptions.baseUrl = '.';
+  tsconfig.compilerOptions.experimentalDecorators = true;
+  tsconfig.compilerOptions.isolatedModules = true;
+  tsconfig.compilerOptions.moduleResolution = 'node';
+  tsconfig.compilerOptions.noEmit = true;
+  tsconfig.compilerOptions.forceConsistentCasingInFileNames = true;
+  delete tsconfig.compilerOptions.types;
   tsconfig.compilerOptions.paths = {
-    'db://internal/*': [`${toPosix(cocosEngineAssets)}/*`],
-    'db://assets/*': [`${toPosix(projectRoot)}/assets/*`],
+    'db://assets/*': ['assets/*'],
     yzforge: ['packages/yzforge-runtime/src/index.ts'],
     'yzforge/modules/*': ['assets/app/registry/modules/*.ref.generated.ts'],
     'yzforge/libraries/*': ['assets/app/registry/libraries/*.ref.generated.ts'],

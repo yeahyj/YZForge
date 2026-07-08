@@ -9,7 +9,7 @@ const { cleanGenerated } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { kebabCase, toPosix } = require('./fs-utils');
-const { loadTypeScript: loadToolchainTypeScript } = require('./toolchain');
+const { loadTypeScript: loadToolchainTypeScript, prepareTypecheckTsconfig } = require('./toolchain');
 const { validate } = require('./validate');
 
 const UUID_BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -1241,9 +1241,11 @@ function toolchainResolverSmokeSource() {
     'function resolveCocosExecutable() { return undefined; }',
     'function resolveCocosBuildOutputPath() { return undefined; }',
     'function resolveCocosTypeScript() { return undefined; }',
+    'function resolveCocosEngineRoot() { return undefined; }',
     'function resolveCocosEngineAssets() { return undefined; }',
     'function resolveCocosProjectSettings() { return undefined; }',
     'function resolveCocosTempAssembly() { return undefined; }',
+    'function prepareTypecheckTsconfig() { return undefined; }',
     'function runCocosBuild() { return { ok: true }; }',
     'function runTypecheck() { return { ok: true }; }',
     '',
@@ -1252,9 +1254,11 @@ function toolchainResolverSmokeSource() {
     '  resolveCocosExecutable,',
     '  resolveCocosBuildOutputPath,',
     '  resolveCocosTypeScript,',
+    '  resolveCocosEngineRoot,',
     '  resolveCocosEngineAssets,',
     '  resolveCocosProjectSettings,',
     '  resolveCocosTempAssembly,',
+    '  prepareTypecheckTsconfig,',
     '  runCocosBuild,',
     '  runTypecheck,',
     '};',
@@ -1273,8 +1277,8 @@ function setupBaseline(projectRoot) {
   ].join('\n'));
   writeText(projectRoot, 'extensions/yzforge/editor/generate.js', [
     "'use strict';",
-    "const { resolveCocosEngineAssets } = require('./toolchain');",
-    'void resolveCocosEngineAssets;',
+    "const { yzforgePackageScripts } = require('./toolchain');",
+    'void yzforgePackageScripts;',
     '',
   ].join('\n'));
   writeText(projectRoot, 'extensions/yzforge/editor/validate.js', [
@@ -1481,13 +1485,34 @@ function assertToolchainResolverInvariants() {
   assert(toolchainSource.includes('resolveCocosExecutable'), 'ToolchainResolver must expose Cocos executable resolution.');
   assert(toolchainSource.includes('resolveCocosBuildOutputPath'), 'ToolchainResolver must expose Cocos build output path resolution.');
   assert(toolchainSource.includes('resolveCocosTypeScript'), 'ToolchainResolver must expose Cocos TypeScript resolution.');
+  assert(toolchainSource.includes('resolveCocosEngineRoot'), 'ToolchainResolver must expose Cocos engine root resolution.');
   assert(toolchainSource.includes('resolveCocosEngineAssets'), 'ToolchainResolver must expose Cocos engine assets resolution.');
+  assert(toolchainSource.includes('prepareTypecheckTsconfig'), 'ToolchainResolver must generate local typecheck tsconfig.');
   assert(toolchainSource.includes('runCocosBuild'), 'ToolchainResolver must own Cocos build execution.');
   assert(toolchainSource.includes('runTypecheck'), 'ToolchainResolver must own typecheck execution.');
   assert(cliSource.includes("command === 'typecheck'") && cliSource.includes('runTypecheck'), 'CLI must route typecheck through ToolchainResolver.');
-  assert(generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must resolve Cocos engine paths through ToolchainResolver.');
+  assert(!generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must not write local Cocos engine paths into committed project config.');
   assert(validateSource.includes('loadToolchainTypeScript') && !validateSource.includes(forbiddenCocosInstallPath), 'Validator must load TypeScript through ToolchainResolver.');
   assert(smokeSource.includes('loadToolchainTypeScript') && !smokeSource.includes(forbiddenCocosInstallPath), 'Smoke must load TypeScript through ToolchainResolver.');
+}
+
+function assertTypecheckConfigPortability(projectRoot) {
+  const rootTsconfig = readJson(projectRoot, 'tsconfig.json');
+  assert(rootTsconfig.extends === undefined, 'Root tsconfig must not extend Cocos temp config.');
+  assert(rootTsconfig.compilerOptions?.paths?.['db://assets/*']?.[0] === 'assets/*', 'Root tsconfig db://assets path must be project-relative.');
+  assert(rootTsconfig.compilerOptions?.paths?.['db://internal/*'] === undefined, 'Root tsconfig must not commit Cocos internal path.');
+
+  const generatedTsconfigPath = prepareTypecheckTsconfig(projectRoot);
+  const generatedRel = toPosix(path.relative(projectRoot, generatedTsconfigPath));
+  assert(generatedRel === 'temp/yzforge/tsconfig.typecheck.json', 'Typecheck tsconfig must be generated under temp/yzforge.');
+  const generated = JSON.parse(fs.readFileSync(generatedTsconfigPath, 'utf8'));
+  assert(generated.extends === undefined, 'Generated typecheck tsconfig must be self-contained.');
+  assert(generated.compilerOptions?.baseUrl === '../..', 'Generated typecheck tsconfig must point baseUrl back to project root.');
+  assert(generated.compilerOptions?.paths?.['db://assets/*']?.[0] === 'assets/*', 'Generated typecheck config must preserve project-relative db://assets path.');
+  assert(Array.isArray(generated.compilerOptions?.paths?.['db://internal/*']), 'Generated typecheck config must inject Cocos internal path at runtime.');
+  assert(generated.files?.some((item) => toPosix(item).endsWith('/bin/.declarations/cc.d.ts')), 'Generated typecheck config must include Cocos cc declarations.');
+  assert(generated.files?.some((item) => toPosix(item).endsWith('/@types/jsb.d.ts')), 'Generated typecheck config must include Cocos jsb declarations.');
+  assert(generated.files?.some((item) => toPosix(item).endsWith('/temp/yzforge/declarations/cc.env.d.ts')), 'Generated typecheck config must include YZForge cc/env shim.');
 }
 
 function assertRuntimeLifecycleInvariants() {
@@ -1618,6 +1643,7 @@ async function smoke(options = {}) {
     assert(generated.changed.length > 0, 'Expected initial generation to write files.');
 
     assertGeneratedOutput(projectRoot);
+    assertTypecheckConfigPortability(projectRoot);
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
     const validation = assertOkValidation(projectRoot);
@@ -1762,6 +1788,27 @@ async function smoke(options = {}) {
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+      tsconfig.extends = './temp/tsconfig.cocos.json';
+      tsconfig.compilerOptions.types = ['./temp/declarations/cc'];
+    });
+    const tempTsconfigViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not extend Cocos temp config');
+    const tempTsconfigDetail = tempTsconfigViolation.issueDetails.find((issue) => issue.message.includes('must not extend Cocos temp config'));
+    assert(tempTsconfigDetail.code === 'path_map.tsconfig_portability', 'Expected tsconfig portability issue code.');
+    const tempTsconfigRepair = generate(projectRoot);
+    assert(tempTsconfigRepair.changed.includes('tsconfig.json'), 'Expected generate to remove Cocos temp tsconfig dependency.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+      tsconfig.compilerOptions.paths['db://assets/*'] = [`${toPosix(projectRoot)}/assets/*`];
+    });
+    const absoluteAssetsPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.db://assets/* must be ["assets/*"]');
+    const absoluteAssetsPathDetail = absoluteAssetsPathViolation.issueDetails.find((issue) => issue.message.includes('paths.db://assets/* must be'));
+    assert(absoluteAssetsPathDetail.code === 'path_map.tsconfig', 'Expected project-relative db://assets path map issue code.');
+    const absoluteAssetsPathRepair = generate(projectRoot);
+    assert(absoluteAssetsPathRepair.changed.includes('tsconfig.json'), 'Expected generate to repair absolute db://assets path.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
       tsconfig.compilerOptions.paths['db://internal/*'] = [[
         'D:',
         '/Applications/Cocos/Editor/Creator/0.0.0/',
@@ -1769,12 +1816,12 @@ async function smoke(options = {}) {
         '/resources/3d/engine/editor/assets/*',
       ].join('')];
     });
-    const cocosInternalPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.db://internal/* must be');
-    const cocosInternalPathDetail = cocosInternalPathViolation.issueDetails.find((issue) => issue.message.includes('paths.db://internal/*'));
-    assert(cocosInternalPathDetail.code === 'path_map.tsconfig', 'Expected Cocos internal path map issue code.');
+    const cocosInternalPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not commit paths.db://internal/*');
+    const cocosInternalPathDetail = cocosInternalPathViolation.issueDetails.find((issue) => issue.message.includes('must not commit paths.db://internal/*'));
+    assert(cocosInternalPathDetail.code === 'path_map.tsconfig_portability', 'Expected Cocos internal portability issue code.');
     assert(cocosInternalPathDetail.target === 'db://internal/*', 'Expected Cocos internal path map target.');
     const cocosInternalPathRepair = generate(projectRoot);
-    assert(cocosInternalPathRepair.changed.includes('tsconfig.json'), 'Expected generate to repair Cocos internal path map.');
+    assert(cocosInternalPathRepair.changed.includes('tsconfig.json'), 'Expected generate to remove Cocos internal path map.');
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'import-map.json', (importMap) => {

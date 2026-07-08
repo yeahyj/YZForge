@@ -35,6 +35,17 @@ npm run yzforge:smoke
 
 `yzforge:cocos:build:web` 必须通过 Cocos CLI 生成真实 Web Desktop build。`validate:build-matrix` 必须证明 Cocos editor / preview assembly 中的 `yzforge` import 没有 unresolved error，并且真实 build output 中没有裸 `yzforge` import、unresolved marker 和 MissingScript marker。如果 build output 还没有产物，`validate:build-matrix` 必须在 evidence 中明确显示 `not_collected`，这表示验收证据不完整，不能当作终局完成。
 
+fresh clone 自举也属于硬验收。必须在一个不同目录的干净 clone 中直接通过下面命令，不能先靠手动 `generate` 修复本机绝对路径：
+
+```text
+npm run yzforge:generate:check
+npm run yzforge:validate:strict
+npm run typecheck
+npm run yzforge:smoke
+```
+
+这条验收证明提交态本身可迁移：root `tsconfig.json` 不能依赖 `temp/tsconfig.cocos.json`，不能提交项目根绝对路径，也不能把 `db://internal/*` 的 Cocos 安装路径写进仓库。
+
 ## Scanner / Manifest
 
 必须满足：
@@ -63,6 +74,8 @@ npm run yzforge:smoke
 - `generate --check` 能发现 stale generated 文件。
 - `generate` 输出稳定排序，重复运行没有 diff。
 - root `package.json` scripts、`packages/yzforge-runtime/package.json` exports、`tsconfig.paths`、`import-map.json` 与 `settings/v2/packages/project.json` 的 `script.importMap` 由同一份源数据生成。
+- root `tsconfig.json` 是可提交、可迁移的项目契约：`db://assets/*` 指向 `assets/*`，`yzforge` 指向 `packages/yzforge-runtime/src/index.ts`，不能 `extends` Cocos `temp` 配置，不能包含 `db://internal/*`，不能包含项目根绝对路径。
+- `npm run typecheck` 由 ToolchainResolver 在运行时生成 `temp/yzforge/tsconfig.typecheck.json`，再动态注入 Cocos engine declarations、`cc/env` shim 和 `db://internal/*`。这些本机路径只允许出现在 `temp` 派生产物里，不能出现在提交态配置中。
 
 ## Runtime 目录
 

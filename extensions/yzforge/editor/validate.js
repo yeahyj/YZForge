@@ -6,7 +6,7 @@ const path = require('path');
 const { generatedJson, generatedText, isPascalCase, isTextChanged, kebabCase, readJsonc, toPosix, verifyGeneratedHash, verifyGeneratedJsonHash, walk } = require('./fs-utils');
 const { renderAutoRefsBase, scanAutoRefs } = require('./generate');
 const { scanProject } = require('./scanner');
-const { loadTypeScript: loadToolchainTypeScript, resolveCocosEngineAssets, yzforgePackageScripts } = require('./toolchain');
+const { loadTypeScript: loadToolchainTypeScript, yzforgePackageScripts } = require('./toolchain');
 
 let activeProjectRoot = process.cwd();
 
@@ -559,7 +559,43 @@ function validatePathMaps(projectRoot, issues) {
     });
   }
   const actualPaths = tsconfig?.compilerOptions?.paths || {};
-  const expectedDbAssetsPath = [`${toPosix(projectRoot)}/assets/*`];
+  const normalizedExtends = typeof tsconfig?.extends === 'string' ? toPosix(tsconfig.extends) : undefined;
+  if (normalizedExtends && normalizedExtends.includes('temp/tsconfig.cocos.json')) {
+    issues.push(`tsconfig.json must not extend Cocos temp config '${tsconfig.extends}'; YZForge typecheck generates its local Cocos config at runtime.`, {
+      path: 'tsconfig.json',
+      code: 'path_map.tsconfig_portability',
+      target: 'extends',
+    });
+  }
+
+  const actualTypes = tsconfig?.compilerOptions?.types;
+  if (Array.isArray(actualTypes) && actualTypes.some((entry) => toPosix(entry).includes('temp/declarations/'))) {
+    issues.push('tsconfig.json compilerOptions.types must not depend on temp/declarations; ToolchainResolver provides Cocos declarations for typecheck.', {
+      path: 'tsconfig.json',
+      code: 'path_map.tsconfig_portability',
+      target: 'compilerOptions.types',
+    });
+  }
+
+  const projectRootPosix = toPosix(path.resolve(projectRoot)).toLowerCase();
+  for (const [alias, targets] of Object.entries(actualPaths)) {
+    const values = Array.isArray(targets) ? targets : [targets];
+    for (const target of values) {
+      if (typeof target !== 'string') {
+        continue;
+      }
+      const normalizedTarget = toPosix(target);
+      if (path.isAbsolute(target) && normalizedTarget.toLowerCase().startsWith(projectRootPosix)) {
+        issues.push(`tsconfig.json paths.${alias} must not contain project-root absolute path '${normalizedTarget}'; use project-relative paths.`, {
+          path: 'tsconfig.json',
+          code: 'path_map.tsconfig_portability',
+          target: alias,
+        });
+      }
+    }
+  }
+
+  const expectedDbAssetsPath = ['assets/*'];
   const actualDbAssetsPath = actualPaths['db://assets/*'];
   if (JSON.stringify(actualDbAssetsPath) !== JSON.stringify(expectedDbAssetsPath)) {
     issues.push(`tsconfig.json paths.db://assets/* must be ${JSON.stringify(expectedDbAssetsPath)}, got ${JSON.stringify(actualDbAssetsPath)}.`, {
@@ -568,28 +604,11 @@ function validatePathMaps(projectRoot, issues) {
       target: 'db://assets/*',
     });
   }
-  let expectedCocosInternalPath;
-  try {
-    const cocosEngineAssets = resolveCocosEngineAssets(projectRoot, { required: false });
-    expectedCocosInternalPath = cocosEngineAssets ? [`${toPosix(cocosEngineAssets)}/*`] : undefined;
-  } catch (error) {
-    issues.push(error.message, {
-      path: 'tsconfig.json',
-      code: 'toolchain.resolver',
-      target: 'db://internal/*',
-    });
-  }
   const actualCocosInternalPath = actualPaths['db://internal/*'];
-  if (expectedCocosInternalPath && JSON.stringify(actualCocosInternalPath) !== JSON.stringify(expectedCocosInternalPath)) {
-    issues.push(`tsconfig.json paths.db://internal/* must be ${JSON.stringify(expectedCocosInternalPath)}, got ${JSON.stringify(actualCocosInternalPath)}.`, {
+  if (actualCocosInternalPath !== undefined) {
+    issues.push(`tsconfig.json must not commit paths.db://internal/* (${JSON.stringify(actualCocosInternalPath)}); ToolchainResolver injects Cocos internal paths into the generated typecheck config.`, {
       path: 'tsconfig.json',
-      code: 'path_map.tsconfig',
-      target: 'db://internal/*',
-    });
-  } else if (!expectedCocosInternalPath && actualCocosInternalPath !== undefined) {
-    issues.push('Cannot validate tsconfig.json paths.db://internal/* because ToolchainResolver cannot resolve Cocos engine editor assets.', {
-      path: 'tsconfig.json',
-      code: 'toolchain.resolver',
+      code: 'path_map.tsconfig_portability',
       target: 'db://internal/*',
     });
   }
@@ -776,9 +795,11 @@ function validateToolchainResolver(projectRoot, issues) {
     'resolveCocosExecutable',
     'resolveCocosBuildOutputPath',
     'resolveCocosTypeScript',
+    'resolveCocosEngineRoot',
     'resolveCocosEngineAssets',
     'resolveCocosProjectSettings',
     'resolveCocosTempAssembly',
+    'prepareTypecheckTsconfig',
     'runCocosBuild',
     'runTypecheck',
   ];
