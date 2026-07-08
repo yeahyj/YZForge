@@ -8,10 +8,22 @@ local/
 build/
 profiles/
 native
+.creator/asset-template/
+
+# Keep only the project-owned YZForge editor extension in source control.
+extensions/*
+!extensions/yzforge/
+!extensions/yzforge/**
+
 #//////////////////////////
 # NPM
 #//////////////////////////
 node_modules/
+
+#//////////////////////////
+# Logs
+#//////////////////////////
+*.log
 
 #//////////////////////////
 # VSCode
