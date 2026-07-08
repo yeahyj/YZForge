@@ -120,11 +120,19 @@ register module-level token factories through ExtensionContext.provideModule
 Extension 接口：
 
 ```ts
-export type ExtensionPhase =
+export type ExtensionInstallPhase =
     | 'before-start'
     | 'after-main-binding'
-    | 'before-first-module'
-    | 'dispose';
+    | 'before-first-module';
+
+export type ExtensionPhase = ExtensionInstallPhase | 'dispose';
+
+export interface ExtensionPhaseRollbackReason {
+    readonly type: 'extension_phase_rollback';
+    readonly phase: ExtensionInstallPhase;
+    readonly failedExtension: string;
+    readonly cause: unknown;
+}
 
 export interface ExtensionContext {
     readonly app: App;
@@ -146,6 +154,9 @@ export interface Extension {
     installBeforeStart?(context: ExtensionContext): void | Promise<void>;
     installAfterMainBinding?(context: ExtensionContext): void | Promise<void>;
     installBeforeFirstModule?(context: ExtensionContext): void | Promise<void>;
+    rollbackBeforeStart?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
+    rollbackAfterMainBinding?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
+    rollbackBeforeFirstModule?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
     dispose?(context: ExtensionContext, reason?: unknown): void | Promise<void>;
     uninstall?(context: ExtensionContext): void | Promise<void>;
 }
@@ -171,7 +182,7 @@ const analytics = this.use(ModuleAnalyticsToken);
 - Module-level token 随 Module 创建和卸载。
 - Extension install 失败时，App 启动失败，并报告 extension name 和 dependency chain。
 - Extension 能力必须通过 token 暴露，不往 `app` 上直接挂 `app.audio`、`app.net` 这类字段。
-- Extension phase 使用事务。某个 phase 失败时，本 phase 中已提供的 app token / module token 会回滚，本 phase 已完成 hook 的 Extension 会按反向顺序 dispose。
+- Extension phase 使用事务。某个 phase 失败时，本 phase 中已提供的 app token / module token 会回滚，本 phase 已完成 hook 的 Extension 会按反向顺序优先执行 phase-specific rollback hook；没有 hook 的旧扩展才使用 `dispose/uninstall` 兜底。
 - 新增 `ExtensionContext` callable 能力时，必须同步扩展 transaction 数据结构、rollback 逻辑、Validator AST 分类和 smoke 反例；不能直接在 facade 上暴露绕过 rollback 的副作用。
 
 ## 启动流程

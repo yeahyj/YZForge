@@ -65,7 +65,7 @@ extensions/yzforge/runtime-template/*
 
 - 每个 install phase 都有事务记录。
 - `ExtensionContext.provide` 和 `provideModule` 在 phase 失败时会恢复到 phase 前状态。
-- phase 中已成功执行 hook 的 Extension 会在后续 hook 失败时按反向顺序 dispose。
+- phase 中已成功执行 hook 的 Extension 会在后续 hook 失败时按反向顺序优先执行 phase-specific rollback hook；没有 hook 的旧扩展再用 `dispose/uninstall` 兜底。
 - late install 失败会从 registry 中移除该 Extension。
 - phase error 会保留 extension name、phase、dependency chain、cause，并附带 rollback failure 摘要。
 
@@ -112,7 +112,7 @@ Failed
 剩余遗憾：
 
 - 事务目前覆盖 token side effect 和本 phase hook dispose，还没有统一记录 lifecycle listener、codec、service、system ui provider 等未来扩展点。
-- rollback dispose 使用 Extension 的全局 `dispose/uninstall`，还没有 phase-specific rollback hook。
+- phase-specific rollback hook 已经落地；没有定义 hook 的旧扩展仍使用 `dispose/uninstall` 兜底。
 - Validator 已经能守住当前 `ExtensionContext.provide` / `provideModule` 的事务入口，但未来新增副作用类型时，还需要同步扩展 transaction 数据结构和 smoke 反例。
 
 硬终局要求：
@@ -125,7 +125,8 @@ begin extension install transaction
 commit
 
 if any phase fails:
-  -> dispose already installed extensions in reverse order
+  -> rollback already completed phase hooks in reverse order
+  -> fall back to dispose/uninstall for legacy extensions without phase rollback hooks
   -> clear provided tokens from this transaction
   -> restore App to pre-phase state
   -> throw diagnostic error with extension name and dependency chain
@@ -689,6 +690,7 @@ strict validator sees App state guards
 - 错误包含 extension name、phase、dependency chain、rollback failures。
 - Smoke 覆盖 phase 失败后 token 回滚和 completed extension rollback dispose。
 - strict Validator 用 TypeScript AST 检查 `ExtensionContext.provide` / `provideModule` 必须路由到事务 helper；Smoke 覆盖绕过 `provideInTransaction` 的反例。
+- Extension 支持 `rollbackBeforeStart` / `rollbackAfterMainBinding` / `rollbackBeforeFirstModule`，phase 失败时优先调用对应 hook；Smoke 覆盖 phase rollback hook 不会把 Extension 标记为 fully disposed。
 
 验收：
 
@@ -702,7 +704,6 @@ App returns to defined state
 后续增强：
 
 - 将 lifecycle listener、codec、service、system ui provider 等副作用纳入同一个 transaction。
-- 为 Extension 增加可选 phase-specific rollback hook。
 
 ### Phase C：ToolchainResolver
 

@@ -547,6 +547,51 @@ async function assertExtensionRegistryBehavior() {
     badRollbackTokenError = error;
   }
   assert(badRollbackTokenError?.code === 'extension.token_missing', 'Extension phase rollback must remove tokens provided before a failing hook throws.');
+
+  const preciseRollback = new ExtensionRegistry(app, quietLogger);
+  const preciseEvents = [];
+  const preciseToken = { id: 'rollback.precise' };
+  await preciseRollback.install({
+    name: 'Core',
+    installBeforeStart(context) {
+      preciseEvents.push(`Core:${context.phase}`);
+      context.provide(preciseToken, 'precise-ready');
+    },
+    rollbackBeforeStart(context, reason) {
+      preciseEvents.push(`Core:${context.phase}:rollback:${reason.phase}:${reason.failedExtension}:${reason.type}`);
+    },
+    dispose(context, reason) {
+      preciseEvents.push(`Core:${context.phase}:dispose:${reason?.type}`);
+    },
+  });
+  await preciseRollback.install({
+    name: 'Bad',
+    dependencies: ['Core'],
+    installBeforeStart() {
+      throw new Error('precise boom');
+    },
+  });
+  try {
+    await preciseRollback.installBeforeStart();
+  } catch (_error) {
+    // Expected: the assertion below checks the precise rollback path.
+  }
+  assert(
+    preciseEvents.join('|') === 'Core:before-start|Core:before-start:rollback:before-start:Bad:extension_phase_rollback',
+    'Extension phase-specific rollback hook must run instead of full dispose during phase rollback.',
+  );
+  let preciseRollbackTokenError;
+  try {
+    preciseRollback.use(preciseToken);
+  } catch (error) {
+    preciseRollbackTokenError = error;
+  }
+  assert(preciseRollbackTokenError?.code === 'extension.token_missing', 'Extension phase-specific rollback must still run after transaction token rollback.');
+  await preciseRollback.dispose({ type: 'precise_dispose_after_failed_phase' });
+  assert(
+    preciseEvents.includes('Core:dispose:dispose:precise_dispose_after_failed_phase'),
+    'Extension phase-specific rollback must not mark the extension as fully disposed.',
+  );
 }
 
 async function assertViewResultCloseBehavior() {
@@ -1758,6 +1803,10 @@ function assertRuntimeLifecycleInvariants() {
   assert(extensionRegistrySource.includes('ExtensionTransaction'), 'ExtensionRegistry must use a transaction for phase side effects.');
   assert(extensionRegistrySource.includes('rollbackTransaction'), 'ExtensionRegistry must rollback phase token side effects.');
   assert(extensionRegistrySource.includes('disposeCompletedPhaseExtensions'), 'ExtensionRegistry must dispose completed phase extensions on rollback.');
+  assert(extensionRegistrySource.includes('export interface ExtensionPhaseRollbackReason'), 'ExtensionRegistry must expose phase-specific rollback reason context.');
+  assert(extensionRegistrySource.includes('rollbackBeforeStart'), 'Extension must expose a before-start phase rollback hook.');
+  assert(extensionRegistrySource.includes('phaseRollbackHook'), 'ExtensionRegistry must select phase-specific rollback hooks.');
+  assert(extensionRegistrySource.includes('rollbackHook.call(extension, this.createContext(phase), rollbackReason)'), 'ExtensionRegistry must run phase-specific rollback hooks during phase rollback.');
   assert(extensionRegistrySource.includes('provideModule'), 'ExtensionContext must expose module-scoped token registration.');
   assert(extensionRegistrySource.includes('dependencyChain'), 'Extension failures must expose a dependency chain.');
   assert(contentPackSource.includes('manifest.generated'), 'ContentPack manifest.generated.json must be loaded at runtime.');

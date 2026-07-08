@@ -4,7 +4,15 @@ import { Logger } from './logger';
 import type { Module } from './module';
 import type { ExtensionToken, ModuleExtensionToken } from './tokens';
 
-export type ExtensionPhase = 'before-start' | 'after-main-binding' | 'before-first-module' | 'dispose';
+export type ExtensionInstallPhase = 'before-start' | 'after-main-binding' | 'before-first-module';
+export type ExtensionPhase = ExtensionInstallPhase | 'dispose';
+
+export interface ExtensionPhaseRollbackReason {
+    readonly type: 'extension_phase_rollback';
+    readonly phase: ExtensionInstallPhase;
+    readonly failedExtension: string;
+    readonly cause: unknown;
+}
 
 export interface ExtensionContext {
     readonly app: App;
@@ -26,13 +34,16 @@ export interface Extension {
     installBeforeStart?(context: ExtensionContext): void | Promise<void>;
     installAfterMainBinding?(context: ExtensionContext): void | Promise<void>;
     installBeforeFirstModule?(context: ExtensionContext): void | Promise<void>;
+    rollbackBeforeStart?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
+    rollbackAfterMainBinding?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
+    rollbackBeforeFirstModule?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
     dispose?(context: ExtensionContext, reason?: unknown): void | Promise<void>;
     uninstall?(context: ExtensionContext): void | Promise<void>;
 }
 
 export type ModuleTokenFactory<TValue> = (module: Module) => TValue;
 
-const INSTALL_PHASES: readonly ExtensionPhase[] = ['before-start', 'after-main-binding', 'before-first-module'];
+const INSTALL_PHASES: readonly ExtensionInstallPhase[] = ['before-start', 'after-main-binding', 'before-first-module'];
 
 interface TransactionValue<TValue> {
     readonly hadValue: boolean;
@@ -53,8 +64,8 @@ export class ExtensionRegistry {
     private readonly appValues = new Map<string, unknown>();
     private readonly moduleFactories = new Map<string, ModuleTokenFactory<unknown>>();
     private readonly installed = new Map<string, Extension>();
-    private readonly completedPhases = new Set<ExtensionPhase>();
-    private readonly phaseDone = new Map<string, Set<ExtensionPhase>>();
+    private readonly completedPhases = new Set<ExtensionInstallPhase>();
+    private readonly phaseDone = new Map<string, Set<ExtensionInstallPhase>>();
     private readonly disposedExtensions = new Set<string>();
     private disposed = false;
 
@@ -159,7 +170,7 @@ export class ExtensionRegistry {
         }
     }
 
-    private async runPhase(phase: ExtensionPhase): Promise<void> {
+    private async runPhase(phase: ExtensionInstallPhase): Promise<void> {
         const transaction = this.createTransaction();
         const context = this.createContext(phase, transaction);
         const completedInPhase: Extension[] = [];
@@ -191,7 +202,7 @@ export class ExtensionRegistry {
 
     private phaseHook(
         extension: Extension,
-        phase: ExtensionPhase,
+        phase: ExtensionInstallPhase,
     ): ((context: ExtensionContext) => void | Promise<void>) | undefined {
         if (phase === 'before-start') {
             return extension.installBeforeStart ?? extension.install;
@@ -201,6 +212,22 @@ export class ExtensionRegistry {
         }
         if (phase === 'before-first-module') {
             return extension.installBeforeFirstModule;
+        }
+        return undefined;
+    }
+
+    private phaseRollbackHook(
+        extension: Extension,
+        phase: ExtensionInstallPhase,
+    ): ((context: ExtensionContext, reason: ExtensionPhaseRollbackReason) => void | Promise<void>) | undefined {
+        if (phase === 'before-start') {
+            return extension.rollbackBeforeStart;
+        }
+        if (phase === 'after-main-binding') {
+            return extension.rollbackAfterMainBinding;
+        }
+        if (phase === 'before-first-module') {
+            return extension.rollbackBeforeFirstModule;
         }
         return undefined;
     }
@@ -300,28 +327,33 @@ export class ExtensionRegistry {
 
     private async disposeCompletedPhaseExtensions(
         extensions: readonly Extension[],
-        phase: ExtensionPhase,
+        phase: ExtensionInstallPhase,
         failedExtension: Extension,
         cause: unknown,
     ): Promise<RollbackFailure[]> {
         const failures: RollbackFailure[] = [];
-        const context = this.createContext('dispose');
+        const rollbackReason: ExtensionPhaseRollbackReason = {
+            type: 'extension_phase_rollback',
+            phase,
+            failedExtension: failedExtension.name,
+            cause,
+        };
         for (const extension of Array.from(extensions).reverse()) {
             if (this.disposedExtensions.has(extension.name)) {
                 continue;
             }
             try {
-                if (extension.dispose) {
-                    await extension.dispose(context, {
-                        type: 'extension_phase_rollback',
-                        phase,
-                        failedExtension: failedExtension.name,
-                        cause,
-                    });
+                const rollbackHook = this.phaseRollbackHook(extension, phase);
+                if (rollbackHook) {
+                    await rollbackHook.call(extension, this.createContext(phase), rollbackReason);
+                    this.logger.info(`Extension phase rolled back: ${extension.name}/${phase}`);
+                } else if (extension.dispose) {
+                    await extension.dispose(this.createContext('dispose'), rollbackReason);
+                    this.disposedExtensions.add(extension.name);
                 } else {
-                    await extension.uninstall?.(context);
+                    await extension.uninstall?.(this.createContext('dispose'));
+                    this.disposedExtensions.add(extension.name);
                 }
-                this.disposedExtensions.add(extension.name);
                 this.logger.info(`Extension rolled back: ${extension.name}/${phase}`);
             } catch (error) {
                 failures.push({ extensionName: extension.name, error });
@@ -406,11 +438,11 @@ export class ExtensionRegistry {
         return chain;
     }
 
-    private isPhaseDone(extensionName: string, phase: ExtensionPhase): boolean {
+    private isPhaseDone(extensionName: string, phase: ExtensionInstallPhase): boolean {
         return this.phaseDone.get(extensionName)?.has(phase) ?? false;
     }
 
-    private markPhaseDone(extensionName: string, phase: ExtensionPhase): void {
+    private markPhaseDone(extensionName: string, phase: ExtensionInstallPhase): void {
         let done = this.phaseDone.get(extensionName);
         if (!done) {
             done = new Set();
@@ -419,7 +451,7 @@ export class ExtensionRegistry {
         done.add(phase);
     }
 
-    private unmarkPhaseDone(extensionName: string, phase: ExtensionPhase): void {
+    private unmarkPhaseDone(extensionName: string, phase: ExtensionInstallPhase): void {
         const done = this.phaseDone.get(extensionName);
         if (!done) {
             return;
