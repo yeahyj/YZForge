@@ -224,12 +224,12 @@ regex 只能作为兜底，不应该作为核心架构规则的唯一证据。
 - `package.json` 的 `typecheck` 不再硬编码本机 Cocos 路径，而是走 `node extensions/yzforge/editor/cli.js typecheck`。
 - `generate` 只维护可提交的稳定 `tsconfig.json`：`db://assets/*` 指向 `assets/*`，不再写入项目根绝对路径、`db://internal/*` 或 Cocos temp 配置。
 - `typecheck` 由 ToolchainResolver 在运行时生成 `temp/yzforge/tsconfig.typecheck.json`，动态注入 Cocos `cc` / `jsb` 声明、`cc/env` shim 和 `db://internal/*`。
+- `generate` 会生成 `.yzforge/toolchain.schema.json`、`.yzforge/toolchain.example.json` 和 `.yzforge/.gitignore`；真实 `.yzforge/toolchain.json` 是本机配置，不提交。
 - `validate` 和 `smoke` 通过 ToolchainResolver 加载 TypeScript。
-- strict Validator 会检查 package scripts、`db://assets/*`、禁止提交态 `db://internal/*`、禁止 `extends ./temp/tsconfig.cocos.json`、禁止 `temp/declarations/*`，并扫描 editor 工具，禁止 Cocos 安装路径散落在 `toolchain.js` 之外。
+- strict Validator 会检查 package scripts、`db://assets/*`、禁止提交态 `db://internal/*`、禁止 `extends ./temp/tsconfig.cocos.json`、禁止 `temp/declarations/*`、ToolchainResolver schema/template，并扫描 editor 工具，禁止 Cocos 安装路径散落在 `toolchain.js` 之外。
 
 我仍不满意这些点：
 
-- resolver 支持 `.yzforge/toolchain.json` 和环境变量，但还没有生成 schema/template。
 - known fallback paths 仍是实用兜底，不等于真正解析 Cocos Dashboard profile。
 - smoke 已经覆盖脚本、path map、Cocos temp tsconfig、`temp/declarations`、项目根绝对路径和提交态 `db://internal/*` 负例，但还没有自动执行“重命名本机 Cocos 路径后重新配置”的物理验收。
 - BuildMatrixValidator 已经把 editor / preview / Web build 全目标解析证据统一收口；Native / 小游戏平台仍需要按项目能力扩展。
@@ -703,8 +703,9 @@ App returns to defined state
 - `typecheck` 通过 YZForge CLI 调用 Cocos TypeScript。
 - `generate` 只写可迁移 root `tsconfig.json`，不提交 Cocos temp、项目根绝对路径或 `db://internal/*`。
 - `typecheck` 运行时生成 `temp/yzforge/tsconfig.typecheck.json`，由 resolver 注入 Cocos engine declarations 和 `db://internal/*`。
+- `generate` 生成 `.yzforge/toolchain.schema.json`、`.yzforge/toolchain.example.json` 和 `.yzforge/.gitignore`，让本机 toolchain 配置有稳定模板且默认不提交真实路径。
 - strict Validator 检查 package scripts、可迁移 path map、Cocos temp 依赖和 editor 工具硬编码路径。
-- Smoke 覆盖 typecheck script、Cocos temp tsconfig、项目根绝对路径和 `db://internal/*` 负例。
+- Smoke 覆盖 typecheck script、Cocos temp tsconfig、项目根绝对路径、`db://internal/*` 和 ToolchainResolver template 负例。
 
 验收：
 
@@ -717,7 +718,6 @@ npm run yzforge:smoke
 
 后续增强：
 
-- 为 `.yzforge/toolchain.json` 生成 schema/template。
 - 结构化读取 Cocos Dashboard profile，而不是只依赖环境变量和 known fallback paths。
 - 增加真实物理验收：临时移除本机 fallback，确认 tool 报错，配置 resolver 后恢复通过。
 

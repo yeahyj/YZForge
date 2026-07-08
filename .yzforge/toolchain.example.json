@@ -1,0 +1,6 @@
+{
+  "$schema": "./toolchain.schema.json",
+  "cocosVersion": "3.8.8",
+  "cocosEditorRoot": "<absolute path to Cocos Creator editor root>",
+  "cocosExecutable": "<optional absolute path to CocosCreator executable>"
+}

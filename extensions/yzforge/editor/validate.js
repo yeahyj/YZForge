@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { generatedJson, generatedText, isPascalCase, isTextChanged, kebabCase, readJsonc, toPosix, verifyGeneratedHash, verifyGeneratedJsonHash, walk } = require('./fs-utils');
-const { renderAutoRefsBase, scanAutoRefs } = require('./generate');
+const { renderAutoRefsBase, scanAutoRefs, toolchainExample, toolchainGitignore, toolchainSchema } = require('./generate');
 const { scanProject } = require('./scanner');
 const { loadTypeScript: loadToolchainTypeScript, yzforgePackageScripts } = require('./toolchain');
 
@@ -831,6 +831,64 @@ function validateToolchainResolver(projectRoot, issues) {
         code: 'toolchain.script',
         target: `scripts.${name}`,
       });
+    }
+  }
+
+  const expectedToolchainFiles = [
+    {
+      path: '.yzforge/.gitignore',
+      kind: 'text',
+      value: toolchainGitignore(),
+      message: '.yzforge/.gitignore must ignore local toolchain.json while keeping schema/template tracked.',
+    },
+    {
+      path: '.yzforge/toolchain.schema.json',
+      kind: 'json',
+      value: toolchainSchema(),
+      message: '.yzforge/toolchain.schema.json must be generated from ToolchainResolver config schema.',
+    },
+    {
+      path: '.yzforge/toolchain.example.json',
+      kind: 'json',
+      value: toolchainExample(projectRoot),
+      message: '.yzforge/toolchain.example.json must be generated from project Cocos version.',
+    },
+  ];
+  for (const expected of expectedToolchainFiles) {
+    const filePath = path.join(projectRoot, expected.path);
+    if (!fs.existsSync(filePath)) {
+      issues.push(`${expected.path} is missing; run yzforge:generate to create the ToolchainResolver config template.`, {
+        path: expected.path,
+        code: 'toolchain.template',
+      });
+      continue;
+    }
+    if (expected.kind === 'json') {
+      let actual;
+      try {
+        actual = readJsonc(filePath);
+      } catch (error) {
+        issues.push(`${expected.path} cannot be read: ${error.message}.`, {
+          path: expected.path,
+          code: 'toolchain.template',
+        });
+        continue;
+      }
+      if (JSON.stringify(actual) !== JSON.stringify(expected.value)) {
+        issues.push(expected.message, {
+          path: expected.path,
+          code: 'toolchain.template',
+        });
+      }
+    } else {
+      const actual = fs.readFileSync(filePath, 'utf8').replace(/\r\n?/g, '\n');
+      const expectedText = expected.value.endsWith('\n') ? expected.value : `${expected.value}\n`;
+      if (actual !== expectedText) {
+        issues.push(expected.message, {
+          path: expected.path,
+          code: 'toolchain.template',
+        });
+      }
     }
   }
 

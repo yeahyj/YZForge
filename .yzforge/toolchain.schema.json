@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "YZForge Toolchain Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Relative path to this schema, usually ./toolchain.schema.json."
+    },
+    "cocosVersion": {
+      "type": "string",
+      "description": "Optional Cocos Creator version hint used when scanning known install roots."
+    },
+    "cocosEditorRoot": {
+      "type": "string",
+      "description": "Absolute path to the Cocos Creator editor root directory."
+    },
+    "editorRoot": {
+      "type": "string",
+      "description": "Alias for cocosEditorRoot."
+    },
+    "creatorRoot": {
+      "type": "string",
+      "description": "Alias for cocosEditorRoot."
+    },
+    "cocosExecutable": {
+      "type": "string",
+      "description": "Absolute path to CocosCreator executable when it is outside the editor root."
+    },
+    "creatorExecutable": {
+      "type": "string",
+      "description": "Alias for cocosExecutable."
+    },
+    "cocos": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "editorRoot": {
+          "type": "string",
+          "description": "Nested alias for cocosEditorRoot."
+        },
+        "executable": {
+          "type": "string",
+          "description": "Nested alias for cocosExecutable."
+        }
+      }
+    }
+  }
+}

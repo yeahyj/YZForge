@@ -729,6 +729,91 @@ function renderContentPackManifest(pack) {
   };
 }
 
+function toolchainSchema() {
+  return {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    title: 'YZForge Toolchain Config',
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      $schema: {
+        type: 'string',
+        description: 'Relative path to this schema, usually ./toolchain.schema.json.',
+      },
+      cocosVersion: {
+        type: 'string',
+        description: 'Optional Cocos Creator version hint used when scanning known install roots.',
+      },
+      cocosEditorRoot: {
+        type: 'string',
+        description: 'Absolute path to the Cocos Creator editor root directory.',
+      },
+      editorRoot: {
+        type: 'string',
+        description: 'Alias for cocosEditorRoot.',
+      },
+      creatorRoot: {
+        type: 'string',
+        description: 'Alias for cocosEditorRoot.',
+      },
+      cocosExecutable: {
+        type: 'string',
+        description: 'Absolute path to CocosCreator executable when it is outside the editor root.',
+      },
+      creatorExecutable: {
+        type: 'string',
+        description: 'Alias for cocosExecutable.',
+      },
+      cocos: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          editorRoot: {
+            type: 'string',
+            description: 'Nested alias for cocosEditorRoot.',
+          },
+          executable: {
+            type: 'string',
+            description: 'Nested alias for cocosExecutable.',
+          },
+        },
+      },
+    },
+  };
+}
+
+function toolchainExample(projectRoot) {
+  let cocosVersion = '3.8.8';
+  try {
+    cocosVersion = readJsonc(path.join(projectRoot, 'package.json'))?.creator?.version || cocosVersion;
+  } catch (error) {
+    // Keep the template deterministic even when package.json is temporarily invalid.
+  }
+  return {
+    $schema: './toolchain.schema.json',
+    cocosVersion,
+    cocosEditorRoot: '<absolute path to Cocos Creator editor root>',
+    cocosExecutable: '<optional absolute path to CocosCreator executable>',
+  };
+}
+
+function toolchainGitignore() {
+  return [
+    '# Local machine-specific Cocos toolchain config.',
+    '/toolchain.json',
+    '!/toolchain.schema.json',
+    '!/toolchain.example.json',
+    '!/.gitignore',
+    '',
+  ].join('\n');
+}
+
+function updateToolchainTemplate(projectRoot, options, changed) {
+  writeText(projectRoot, '.yzforge/.gitignore', toolchainGitignore(), options, changed);
+  writeJson(projectRoot, '.yzforge/toolchain.schema.json', toolchainSchema(), options, changed);
+  writeJson(projectRoot, '.yzforge/toolchain.example.json', toolchainExample(projectRoot), options, changed);
+}
+
 function updateTsconfig(projectRoot, options, changed) {
   const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
   const tsconfig = readJsonc(tsconfigPath);
@@ -833,6 +918,7 @@ function generate(projectRoot, options = {}) {
   }, options, changed);
   updatePackageJson(projectRoot, options, changed);
   updateCocosProjectSettings(projectRoot, options, changed);
+  updateToolchainTemplate(projectRoot, options, changed);
   updateTsconfig(projectRoot, options, changed);
   writeGenerated('assets/app/bootstrap/install.generated.ts', 'assets/app/bootstrap', renderInstallGenerated(projectRoot));
 
@@ -862,4 +948,7 @@ module.exports = {
   moduleBundleName,
   renderAutoRefsBase,
   scanAutoRefs,
+  toolchainExample,
+  toolchainGitignore,
+  toolchainSchema,
 };

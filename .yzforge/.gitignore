@@ -1,0 +1,5 @@
+# Local machine-specific Cocos toolchain config.
+/toolchain.json
+!/toolchain.schema.json
+!/toolchain.example.json
+!/.gitignore

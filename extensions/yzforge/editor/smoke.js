@@ -1515,6 +1515,24 @@ function assertTypecheckConfigPortability(projectRoot) {
   assert(generated.files?.some((item) => toPosix(item).endsWith('/temp/yzforge/declarations/cc.env.d.ts')), 'Generated typecheck config must include YZForge cc/env shim.');
 }
 
+function assertToolchainTemplate(projectRoot) {
+  const gitignore = fs.readFileSync(path.join(projectRoot, '.yzforge/.gitignore'), 'utf8').replace(/\r\n?/g, '\n');
+  assert(gitignore.includes('/toolchain.json'), '.yzforge/.gitignore must ignore local toolchain.json.');
+  assert(gitignore.includes('!/toolchain.schema.json'), '.yzforge/.gitignore must keep toolchain schema tracked.');
+  assert(gitignore.includes('!/toolchain.example.json'), '.yzforge/.gitignore must keep toolchain example tracked.');
+
+  const schema = readJson(projectRoot, '.yzforge/toolchain.schema.json');
+  assert(schema.additionalProperties === false, 'Toolchain schema must reject unknown top-level keys.');
+  assert(schema.properties?.cocosEditorRoot?.type === 'string', 'Toolchain schema must document cocosEditorRoot.');
+  assert(schema.properties?.cocosExecutable?.type === 'string', 'Toolchain schema must document cocosExecutable.');
+  assert(schema.properties?.cocos?.properties?.editorRoot?.type === 'string', 'Toolchain schema must document nested cocos.editorRoot.');
+
+  const example = readJson(projectRoot, '.yzforge/toolchain.example.json');
+  assert(example.$schema === './toolchain.schema.json', 'Toolchain example must point at the local schema.');
+  assert(example.cocosVersion === '3.8.8', 'Toolchain example must inherit the project Cocos version.');
+  assert(example.cocosEditorRoot.includes('absolute path'), 'Toolchain example must use a placeholder, not a local machine path.');
+}
+
 function assertRuntimeLifecycleInvariants() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
   const appSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/app.ts'), 'utf8');
@@ -1644,9 +1662,20 @@ async function smoke(options = {}) {
 
     assertGeneratedOutput(projectRoot);
     assertTypecheckConfigPortability(projectRoot);
+    assertToolchainTemplate(projectRoot);
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
     const validation = assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, '.yzforge/toolchain.example.json', (example) => {
+      example.cocosVersion = '0.0.0';
+    });
+    const toolchainExampleViolation = expectValidationIssue(projectRoot, '.yzforge/toolchain.example.json must be generated from project Cocos version');
+    const toolchainExampleDetail = toolchainExampleViolation.issueDetails.find((issue) => issue.message.includes('toolchain.example.json'));
+    assert(toolchainExampleDetail.code === 'toolchain.template', 'Expected toolchain template issue code.');
+    const toolchainExampleRepair = generate(projectRoot);
+    assert(toolchainExampleRepair.changed.includes('.yzforge/toolchain.example.json'), 'Expected generate to repair toolchain example template.');
+    assertOkValidation(projectRoot);
 
     writeAssemblyRecord(projectRoot, 'editor');
     writeAssemblyRecord(projectRoot, 'preview');
