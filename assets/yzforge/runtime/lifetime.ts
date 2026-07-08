@@ -12,7 +12,14 @@ export interface ReleaseScopeSnapshot {
     readonly released: boolean;
     readonly releasing: boolean;
     readonly actionCount: number;
+    readonly lastFailure?: ReleaseScopeFailureSnapshot;
     readonly children: readonly ReleaseScopeSnapshot[];
+}
+
+export interface ReleaseScopeFailureSnapshot {
+    readonly code: 'release.scope_failed';
+    readonly message: string;
+    readonly errors: readonly unknown[];
 }
 
 export type OwnershipKind = 'bundle' | 'asset' | 'library' | 'content-pack' | 'view' | 'node' | 'custom';
@@ -30,6 +37,7 @@ export interface OwnershipScopeSnapshot {
     readonly kind: string;
     readonly key: string;
     readonly released: boolean;
+    readonly lastFailure?: ReleaseScopeFailureSnapshot;
 }
 
 export interface OwnershipLedgerSnapshot {
@@ -62,6 +70,7 @@ export class OwnershipLedger {
             kind: scope.kind,
             key: scope.key,
             released: scope.released,
+            ...(scope.lastFailure ? { lastFailure: scope.lastFailure } : {}),
         });
     }
 
@@ -71,6 +80,7 @@ export class OwnershipLedger {
             kind: scope.kind,
             key: scope.key,
             released: true,
+            ...(scope.lastFailure ? { lastFailure: scope.lastFailure } : {}),
         });
     }
 
@@ -169,6 +179,7 @@ export class ReleaseScope {
     public readonly ownerKey: string;
     public released = false;
     public releasing = false;
+    public lastFailure?: ReleaseScopeFailureSnapshot;
 
     public constructor(
         public readonly kind: string,
@@ -228,6 +239,7 @@ export class ReleaseScope {
             released: this.released,
             releasing: this.releasing,
             actionCount: this.actions.filter((action) => action.active).length,
+            ...(this.lastFailure ? { lastFailure: this.lastFailure } : {}),
             children: this.childScopes.map((scope) => scope.snapshot()),
         };
     }
@@ -260,13 +272,20 @@ export class ReleaseScope {
         this.actions.length = 0;
         this.releasing = false;
         this.released = true;
-        this.ledger?.markScopeReleased(this);
         if (errors.length > 0) {
-            throw new YZForgeError(`ReleaseScope completed with errors: ${this.ownerKey}`, 'release.scope_failed', {
-                ownerKey: this.ownerKey,
+            this.lastFailure = {
+                code: 'release.scope_failed',
+                message: `ReleaseScope completed with errors: ${this.ownerKey}`,
                 errors: errors.map((error) => describeError(error)),
+            };
+            this.ledger?.markScopeReleased(this);
+            throw new YZForgeError(this.lastFailure.message, this.lastFailure.code, {
+                ownerKey: this.ownerKey,
+                errors: this.lastFailure.errors,
             });
         }
+        this.lastFailure = undefined;
+        this.ledger?.markScopeReleased(this);
     }
 }
 

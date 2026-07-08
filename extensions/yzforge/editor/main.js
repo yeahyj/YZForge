@@ -348,6 +348,36 @@ function withCleanDetails(result) {
   };
 }
 
+function withRuntimeResourceDetails(result) {
+  const diagnostics = result && result.snapshot && result.snapshot.resourceDiagnostics;
+  if (!diagnostics) {
+    return result;
+  }
+  return {
+    ...result,
+    resourceDiagnosticsSummary: {
+      healthy: diagnostics.healthy === true,
+      holdingCount: diagnostics.holdingCount || 0,
+      leakCount: diagnostics.leakCount || 0,
+      failedReleaseCount: diagnostics.failedReleaseCount || 0,
+      hotBundleCount: diagnostics.hotBundleCount || 0,
+      failedBundleCount: diagnostics.failedBundleCount || 0,
+    },
+    details: (diagnostics.details || []).map((item) => ({
+      severity: item.severity,
+      code: item.code,
+      ownerKey: item.ownerKey,
+      kind: item.kind,
+      key: item.key,
+      message: [
+        item.severity ? item.severity.toUpperCase() : undefined,
+        item.code,
+        item.message,
+      ].filter(Boolean).join(' | '),
+    })),
+  };
+}
+
 function isGeneratedScript(relativePath) {
   return /\.generated\.ts$/.test(toPosix(relativePath));
 }
@@ -688,11 +718,12 @@ async function collectRuntimeSnapshot() {
   }
 
   try {
-    return await Editor.Message.request('scene', 'execute-scene-script', {
+    const result = await Editor.Message.request('scene', 'execute-scene-script', {
       name: 'yzforge',
       method: 'getRuntimeSnapshot',
       args: [],
     });
+    return withRuntimeResourceDetails(result);
   } catch (error) {
     return {
       ok: false,

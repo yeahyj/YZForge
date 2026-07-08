@@ -120,6 +120,9 @@ npm run yzforge:smoke
 - release scope 后对应资源引用清零。
 - 重复 release scope 幂等。
 - OwnershipLedger 不能代替 ReleaseScope 执行释放。
+- ReleaseScope 释放失败时，scope snapshot 必须保留 `release.scope_failed` 和嵌套失败原因。
+- `AppRuntimeSnapshot.resourceDiagnostics` 必须汇总 holdings、leaks、release failures、hot bundle cache 和 failed bundle cache。
+- Editor 面板 Runtime Snapshot 必须把资源诊断 details 提到结果列表，能直接看到 leaked ownerKey、resource key、scope release 状态和失败原因。
 
 失败验收：
 

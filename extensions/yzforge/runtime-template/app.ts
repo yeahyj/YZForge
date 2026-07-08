@@ -7,7 +7,7 @@ import type { EntryRegistry } from './entry-registry';
 import type { Extension } from './extension-registry';
 import { AppKernel } from './kernel';
 import { type LibraryRecordSnapshot, ModuleLibraryManager } from './library';
-import { type OwnershipLedgerSnapshot, type ReleaseScope, type ReleaseScopeSnapshot } from './lifetime';
+import { type OwnershipLedgerSnapshot, type OwnershipRecordSnapshot, type OwnershipScopeSnapshot, type ReleaseScope, type ReleaseScopeSnapshot } from './lifetime';
 import type { AppLifecycle } from './lifecycle';
 import type { Logger } from './logger';
 import type { LoadedModule, Module } from './module';
@@ -61,6 +61,29 @@ export interface ModuleRuntimeSnapshot {
     readonly contentPacks: readonly ContentPackRecordSnapshot[];
 }
 
+export type ResourceDiagnosticSeverity = 'info' | 'warning' | 'error';
+
+export interface ResourceDiagnosticDetail {
+    readonly code: string;
+    readonly severity: ResourceDiagnosticSeverity;
+    readonly message: string;
+    readonly ownerKey?: string;
+    readonly kind?: string;
+    readonly key?: string;
+    readonly count?: number;
+    readonly detail?: unknown;
+}
+
+export interface ResourceDiagnosticsSnapshot {
+    readonly healthy: boolean;
+    readonly holdingCount: number;
+    readonly leakCount: number;
+    readonly failedReleaseCount: number;
+    readonly hotBundleCount: number;
+    readonly failedBundleCount: number;
+    readonly details: readonly ResourceDiagnosticDetail[];
+}
+
 export interface AppRuntimeSnapshot {
     readonly state: AppState;
     readonly lastFailure?: AppFailureSnapshot;
@@ -68,6 +91,7 @@ export interface AppRuntimeSnapshot {
     readonly releaseScope: ReleaseScopeSnapshot;
     readonly ownership: OwnershipLedgerSnapshot;
     readonly bundles: readonly BundleRecordSnapshot[];
+    readonly resourceDiagnostics: ResourceDiagnosticsSnapshot;
     readonly libraries: readonly LibraryRecordSnapshot[];
     readonly modules: readonly ModuleRuntimeSnapshot[];
     readonly navigator: NavigatorSnapshot;
@@ -455,13 +479,16 @@ export class App {
 
     public snapshot(): AppRuntimeSnapshot {
         const kernel = this.kernel;
+        const ownership = kernel.ownership.snapshot();
+        const bundles = kernel.bundles.snapshots();
         return {
             state: this.appState,
             lastFailure: this.lastFailure,
             viewport: kernel.viewport.profile,
             releaseScope: kernel.releaseScope.snapshot(),
-            ownership: kernel.ownership.snapshot(),
-            bundles: kernel.bundles.snapshots(),
+            ownership,
+            bundles,
+            resourceDiagnostics: this.snapshotResourceDiagnostics(ownership, bundles),
             libraries: kernel.libraries.snapshots(),
             modules: Array.from(this.modules.values()).map((handle) => this.snapshotModule(handle)),
             navigator: kernel.navigator.snapshot(),
@@ -543,6 +570,81 @@ export class App {
             state: handle.instance.state,
             assets: handle.assets.snapshot(),
             contentPacks: handle.contentPacks.snapshots?.() ?? [],
+        };
+    }
+
+    private snapshotResourceDiagnostics(
+        ownership: OwnershipLedgerSnapshot,
+        bundles: readonly BundleRecordSnapshot[],
+    ): ResourceDiagnosticsSnapshot {
+        const details: ResourceDiagnosticDetail[] = [];
+        const leaks = ownership.leaks ?? [];
+        for (const record of leaks) {
+            details.push(this.describeOwnershipLeak(record, ownership.scopes ?? []));
+        }
+        for (const scope of ownership.scopes ?? []) {
+            if (!scope.lastFailure) {
+                continue;
+            }
+            details.push({
+                code: scope.lastFailure.code,
+                severity: 'error',
+                message: scope.lastFailure.message,
+                ownerKey: scope.ownerKey,
+                kind: scope.kind,
+                key: scope.key,
+                detail: {
+                    errors: scope.lastFailure.errors,
+                },
+            });
+        }
+        for (const bundle of bundles) {
+            if (bundle.cacheState === 'failed') {
+                details.push({
+                    code: 'bundle.cache_failed',
+                    severity: 'error',
+                    message: `Bundle cache is failed: ${bundle.name}`,
+                    key: bundle.name,
+                    detail: bundle,
+                });
+            }
+        }
+
+        const failedReleaseCount = (ownership.scopes ?? []).filter((scope) => Boolean(scope.lastFailure)).length;
+        const failedBundleCount = bundles.filter((bundle) => bundle.cacheState === 'failed').length;
+        return {
+            healthy: leaks.length === 0 && failedReleaseCount === 0 && failedBundleCount === 0,
+            holdingCount: ownership.holdings.length,
+            leakCount: leaks.length,
+            failedReleaseCount,
+            hotBundleCount: bundles.filter((bundle) => bundle.cacheState === 'hot').length,
+            failedBundleCount,
+            details,
+        };
+    }
+
+    private describeOwnershipLeak(
+        record: OwnershipRecordSnapshot,
+        scopes: readonly OwnershipScopeSnapshot[],
+    ): ResourceDiagnosticDetail {
+        const scope = scopes.find((item) => item.ownerKey === record.ownerKey);
+        return {
+            code: 'ownership.leak',
+            severity: 'error',
+            message: `Released scope still holds ${record.kind}: ${record.ownerKey} -> ${record.key}`,
+            ownerKey: record.ownerKey,
+            kind: record.kind,
+            key: record.key,
+            count: record.count,
+            detail: {
+                resource: record.detail,
+                scope: scope ? {
+                    kind: scope.kind,
+                    key: scope.key,
+                    released: scope.released,
+                    lastFailure: scope.lastFailure,
+                } : undefined,
+            },
         };
     }
 

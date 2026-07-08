@@ -166,6 +166,10 @@ async function assertReleaseScopeBehavior() {
 
   await root.release({ type: 'test_release' });
   assert(events.join('|') === 'child:test_release|root:test_release', 'ReleaseScope must release children before parent actions.');
+  assert(
+    ledger.snapshot().scopes.every((scope) => !scope.lastFailure),
+    'OwnershipLedger scopes must not report release failures after a clean release.',
+  );
 
   await root.release({ type: 'repeat_release' });
   assert(events.join('|') === 'child:test_release|root:test_release', 'ReleaseScope.release must be idempotent.');
@@ -250,6 +254,12 @@ async function assertAssetReleasePolicyBehavior() {
     releaseError = error;
   }
   assert(releaseError?.code === 'release.scope_failed', 'ReleaseScope must aggregate AssetScope release failures.');
+  const failedScopeSnapshot = ledger.snapshot().scopes.find((scopeItem) => scopeItem.ownerKey === 'module:Battle');
+  assert(failedScopeSnapshot?.lastFailure?.code === 'release.scope_failed', 'OwnershipLedger must snapshot ReleaseScope failure reason.');
+  assert(
+    failedScopeSnapshot?.lastFailure?.errors?.some((error) => error?.code === 'asset.release_failed'),
+    'OwnershipLedger release failure evidence must include nested asset release failures.',
+  );
   assert(releaseEvents.join('|') === 'good|bad', 'AssetScope releaseAll must continue after a failed asset release.');
   assert(assetScope.snapshot().assets.some((item) => item.path === 'bad'), 'Failed asset release must remain visible in AssetScope snapshot.');
   assert(ledger.snapshot().leaks.some((item) => item.ownerKey === 'module:Battle' && item.kind === 'asset' && item.key.startsWith('bad::')), 'OwnershipLedger must expose failed asset release as leak evidence.');
@@ -808,7 +818,7 @@ async function assertAppStateMachineBehavior() {
         validateModule() {},
       };
       this.ownership = {
-        snapshot: () => ({ scopes: [], holdings: [] }),
+        snapshot: () => ({ scopes: [], holdings: [], leaks: [] }),
       };
       this.releaseScope = new SmokeReleaseScope();
       this.configs = {
@@ -920,6 +930,7 @@ async function assertAppStateMachineBehavior() {
   const app = new App();
   assert(app.state === AppState.Created, 'App must start in Created state.');
   assert(app.snapshot().state === AppState.Created, 'App snapshot must expose current state.');
+  assert(app.snapshot().resourceDiagnostics?.healthy === true, 'App snapshot must expose healthy resource diagnostics when no leaks exist.');
 
   let invalidLoad;
   try {
@@ -1806,6 +1817,7 @@ function assertRuntimeLifecycleInvariants() {
   const contentPackSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/content-pack.ts'), 'utf8');
   const runtimeIndexSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/index.ts'), 'utf8');
   const uiSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/ui.ts'), 'utf8');
+  const editorMainSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/main.js'), 'utf8');
   const preloadBody = appSource.slice(appSource.indexOf('public async preloadModule'), appSource.indexOf('public async loadModule'));
   const enterBody = appSource.slice(appSource.indexOf('public async enterModule'), appSource.indexOf('public async unloadModule'));
   assert(appSource.includes('export enum AppState'), 'App must expose a public AppState enum.');
@@ -1826,6 +1838,13 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes('state: this.appState'), 'App snapshot must expose current App state.');
   assert(appSource.includes('export interface AppFailureSnapshot'), 'App snapshot must expose structured failure diagnostics.');
   assert(appSource.includes('readonly lastFailure?: AppFailureSnapshot'), 'AppRuntimeSnapshot must include last failure diagnostics.');
+  assert(appSource.includes('export interface ResourceDiagnosticsSnapshot'), 'App snapshot must expose structured resource diagnostics.');
+  assert(appSource.includes('resourceDiagnostics: this.snapshotResourceDiagnostics'), 'App snapshot must include resource diagnostics.');
+  assert(appSource.includes("'ownership.leak'"), 'Resource diagnostics must expose ownership leak details.');
+  assert(appSource.includes("'bundle.cache_failed'"), 'Resource diagnostics must expose failed bundle cache details.');
+  assert(lifetimeSource.includes('lastFailure?: ReleaseScopeFailureSnapshot'), 'ReleaseScope snapshots must expose release failure diagnostics.');
+  assert(lifetimeSource.includes('scope.lastFailure'), 'OwnershipLedger must capture ReleaseScope failure diagnostics.');
+  assert(editorMainSource.includes('withRuntimeResourceDetails'), 'Editor Runtime Snapshot must surface resource diagnostics as result details.');
   assert(appSource.includes('private readonly stateTransitions'), 'App must keep state transition evidence for failure diagnostics.');
   assert(appSource.includes('private setState('), 'App state transitions must go through a centralized recorder.');
   assert(appSource.includes('private recordFailure('), 'App must centralize failure snapshot recording.');

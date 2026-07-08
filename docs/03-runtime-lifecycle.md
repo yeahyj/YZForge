@@ -69,6 +69,7 @@ Failed
 - `dispose` 可以从 `Created`、`Starting`、`Started`、`Failed` 调用，且对 `Disposed` 幂等。
 - `dispose` 必须等待正在进行的 `start` 和 module load task 收口，再卸载已注册模块。
 - 非法状态调用抛出 `app.invalid_state`，错误详情包含 API、当前状态和允许状态。
+- `snapshot().resourceDiagnostics` 汇总资源持有、泄漏、释放失败和热缓存状态；Editor 面板 Runtime Snapshot 会把诊断 details 直接列出来。
 
 `Main.ts` 不承担状态机职责。它只把 Cocos 节点生命周期转成 `app.start` 和 `app.dispose`。
 

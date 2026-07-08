@@ -563,6 +563,8 @@ fresh Cocos editor restart
 - `BundleManager.purgeUnusedBundles` 可以清理零引用 hot bundle cache。
 - `App.purgeResourceCache` 作为 facade API 触发 cache purge。
 - `AppLifecycle` 接入 Cocos `Game.EVENT_LOW_MEMORY`，`App` 在 `memory-warning` 时自动触发零引用 hot bundle cache purge。
+- `ReleaseScope` 失败会把 `release.scope_failed` 写入 scope snapshot；`AppRuntimeSnapshot.resourceDiagnostics` 汇总 leaks、release failures 和 failed bundle cache。
+- Editor 面板的 Runtime Snapshot 会把 `resourceDiagnostics.details` 提到结果列表，直接展示 ownerKey、resource key、scope release 状态和失败原因。
 
 ReleaseScope 和 OwnershipLedger 继续保留，但资源释放已经拆成更细的策略。
 
@@ -608,13 +610,12 @@ record ownership snapshot
 every step runs
 errors are aggregated
 ownership snapshot records unreleased holdings
-Validator or runtime diagnostic reports leaked ownerKey
+runtime diagnostics reports leaked ownerKey and release failure reason
 ```
 
 剩余遗憾：
 
 - Bundle cache policy 目前以 Bundle 为粒度，还没有区分图集、材质、Spine、音频等资源类别。
-- leak evidence 已可见，但还没有 editor 面板专门展示 ownerKey -> resource 的释放链路。
 
 ## Validator 重新分层
 
@@ -804,7 +805,9 @@ npm run yzforge:validate:build-matrix
 - OwnershipLedger 能显示 leaked ownerKey。
 - `App.purgeResourceCache` 可触发零引用 hot bundle cache 清理。
 - Cocos `Game.EVENT_LOW_MEMORY` 会进入 `AppLifecycle.memory-warning`，并由 `App` 自动触发 `{ type: 'memory_pressure' }` cache purge。
-- Smoke 覆盖 release failure 聚合、leak evidence、Bundle hot cache、manual purge 和 memory-warning purge。
+- `AppRuntimeSnapshot.resourceDiagnostics` 输出 leak count、failed release count、hot bundle count、failed bundle count 和诊断 details。
+- Editor Runtime Snapshot 结果列表可直接显示资源泄漏和释放失败链路。
+- Smoke 覆盖 release failure 聚合、failure reason snapshot、leak evidence、Bundle hot cache、manual purge、memory-warning purge 和 resource diagnostics。
 
 验收：
 
@@ -819,7 +822,6 @@ npm run yzforge:smoke
 后续增强：
 
 - 按资源类型拆分 cache policy。
-- 在 editor 面板展示 leaked ownerKey、resource key、scope release 状态和失败原因。
 
 ## 不再接受的设计
 
