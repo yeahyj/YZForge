@@ -760,6 +760,14 @@ function toolchainSchema() {
         type: 'string',
         description: 'Absolute path to CocosCreator executable when it is outside the editor root.',
       },
+      dashboardProfile: {
+        type: 'string',
+        description: 'Optional path to a Cocos Dashboard profile JSON file used to discover installed editors.',
+      },
+      cocosDashboardProfile: {
+        type: 'string',
+        description: 'Alias for dashboardProfile.',
+      },
       creatorExecutable: {
         type: 'string',
         description: 'Alias for cocosExecutable.',
@@ -775,6 +783,10 @@ function toolchainSchema() {
           executable: {
             type: 'string',
             description: 'Nested alias for cocosExecutable.',
+          },
+          dashboardProfile: {
+            type: 'string',
+            description: 'Nested alias for dashboardProfile.',
           },
         },
       },
@@ -794,6 +806,7 @@ function toolchainExample(projectRoot) {
     cocosVersion,
     cocosEditorRoot: '<absolute path to Cocos Creator editor root>',
     cocosExecutable: '<optional absolute path to CocosCreator executable>',
+    dashboardProfile: '<optional absolute path to Cocos Dashboard profile JSON>',
   };
 }
 

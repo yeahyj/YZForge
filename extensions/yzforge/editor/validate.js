@@ -800,6 +800,8 @@ function validateToolchainResolver(projectRoot, issues) {
     'resolveCocosProjectSettings',
     'resolveCocosTempAssembly',
     'prepareTypecheckTsconfig',
+    'readCocosDashboardProfiles',
+    'dashboardEditorRootCandidates',
     'runCocosBuild',
     'runTypecheck',
   ];
@@ -992,7 +994,8 @@ function validateAppStateMachine(projectRoot, issues) {
   if (!fs.existsSync(filePath)) {
     return;
   }
-  const source = stripCodeComments(fs.readFileSync(filePath, 'utf8'));
+  const rawSource = fs.readFileSync(filePath, 'utf8');
+  const source = stripCodeComments(rawSource);
   const requirePattern = (pattern, message, target) => {
     if (!pattern.test(source)) {
       issues.push(message, {
@@ -1013,7 +1016,21 @@ function validateAppStateMachine(projectRoot, issues) {
   requirePattern(/['"]app\.invalid_state['"]/, 'App state guard must report app.invalid_state.', 'app.invalid_state');
   requirePattern(/\bArray\.from\s*\(\s*this\.moduleTasks\.values\s*\(\s*\)\s*\)/, 'App.dispose must wait for pending module load tasks before unloading modules.', 'moduleTasks');
 
-  const requiredGuards = [
+  validateAppPublicStateGuards(rel, rawSource, issues);
+}
+
+function validateAppPublicStateGuards(rel, source, issues) {
+  const parsed = parseTypeScriptFile(source, rel);
+  if (!parsed) {
+    issues.push(`${rel} App public API state guards cannot be validated because TypeScript cannot be resolved.`, {
+      path: rel,
+      code: 'app.state_machine_ast_unavailable',
+    });
+    return;
+  }
+
+  const { ts, sourceFile } = parsed;
+  const requiredGuards = new Map([
     ['start', ['AppState.Created']],
     ['preloadModule', ['AppState.Started']],
     ['loadModule', ['AppState.Started']],
@@ -1024,17 +1041,105 @@ function validateAppStateMachine(projectRoot, issues) {
     ['useModuleToken', ['AppState.Started', 'AppState.Disposing']],
     ['purgeResourceCache', ['AppState.Started', 'AppState.Disposing']],
     ['dispose', ['AppState.Created', 'AppState.Starting', 'AppState.Started', 'AppState.Failed']],
-  ];
-  for (const [api, states] of requiredGuards) {
-    const match = new RegExp(`this\\.assertState\\(\\s*['"]${api}['"]\\s*,\\s*\\[([^\\]]+)\\]`, 'm').exec(source);
-    if (!match || !states.every((state) => match[1].includes(state))) {
-      issues.push(`App.${api} must declare AppState guard ${states.join(', ')}.`, {
+  ]);
+  const allowedUnguardedPublicMembers = new Set(['logger', 'lifecycle', 'viewport', 'state', 'snapshot']);
+  const appClass = sourceFile.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === 'App');
+  if (!appClass) {
+    issues.push(`${rel} must declare class App.`, {
+      path: rel,
+      code: 'app.state_machine',
+      target: 'App',
+    });
+    return;
+  }
+
+  for (const member of appClass.members) {
+    const name = propertyNameText(ts, member.name);
+    if (!name || isPrivateOrProtectedMember(ts, member)) {
+      continue;
+    }
+    if (ts.isPropertyDeclaration(member)) {
+      issues.push(`App.${name} must not expose a public field; expose a method with an AppState guard or a deliberate getter.`, {
         path: rel,
         code: 'app.state_machine',
-        target: api,
+        target: name,
+        ...sourceLocation(sourceFile, member),
+      });
+      continue;
+    }
+    if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
+      if (!allowedUnguardedPublicMembers.has(name)) {
+        issues.push(`App.${name} public accessor must be listed as an unguarded App API or converted to a guarded method.`, {
+          path: rel,
+          code: 'app.state_machine',
+          target: name,
+          ...sourceLocation(sourceFile, member),
+        });
+      }
+      continue;
+    }
+    if (!ts.isMethodDeclaration(member)) {
+      continue;
+    }
+    const expectedStates = requiredGuards.get(name);
+    if (!expectedStates) {
+      if (!allowedUnguardedPublicMembers.has(name)) {
+        issues.push(`App.${name} must declare an AppState guard or be listed as an unguarded public App API.`, {
+          path: rel,
+          code: 'app.state_machine',
+          target: name,
+          ...sourceLocation(sourceFile, member),
+        });
+      }
+      continue;
+    }
+    const actualStates = collectAssertStateGuard(ts, sourceFile, member, name);
+    if (!actualStates || !expectedStates.every((state) => actualStates.has(state))) {
+      issues.push(`App.${name} must declare AppState guard ${expectedStates.join(', ')}.`, {
+        path: rel,
+        code: 'app.state_machine',
+        target: name,
+        ...sourceLocation(sourceFile, member),
       });
     }
   }
+}
+
+function isPrivateOrProtectedMember(ts, node) {
+  return Boolean(node.modifiers?.some((modifier) => [
+    ts.SyntaxKind.PrivateKeyword,
+    ts.SyntaxKind.ProtectedKeyword,
+    ts.SyntaxKind.StaticKeyword,
+  ].includes(modifier.kind)));
+}
+
+function collectAssertStateGuard(ts, sourceFile, method, api) {
+  if (!method.body) {
+    return undefined;
+  }
+  let states;
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'assertState'
+      && node.expression.expression.getText(sourceFile) === 'this'
+    ) {
+      const [apiArgument, statesArgument] = node.arguments;
+      if (
+        apiArgument
+        && ts.isStringLiteral(apiArgument)
+        && apiArgument.text === api
+        && statesArgument
+        && ts.isArrayLiteralExpression(statesArgument)
+      ) {
+        states = new Set(statesArgument.elements.map((element) => element.getText(sourceFile)));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(method.body);
+  return states;
 }
 
 function validateExtensionTransactions(projectRoot, issues) {

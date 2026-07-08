@@ -9,7 +9,12 @@ const { cleanGenerated } = require('./cleanup');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { kebabCase, toPosix } = require('./fs-utils');
-const { loadTypeScript: loadToolchainTypeScript, prepareTypecheckTsconfig } = require('./toolchain');
+const {
+  loadTypeScript: loadToolchainTypeScript,
+  prepareTypecheckTsconfig,
+  readCocosDashboardProfiles,
+  resolveCocosEditorRoot,
+} = require('./toolchain');
 const { validate } = require('./validate');
 
 const UUID_BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -1246,6 +1251,8 @@ function toolchainResolverSmokeSource() {
     'function resolveCocosProjectSettings() { return undefined; }',
     'function resolveCocosTempAssembly() { return undefined; }',
     'function prepareTypecheckTsconfig() { return undefined; }',
+    'function readCocosDashboardProfiles() { return []; }',
+    'function dashboardEditorRootCandidates() { return []; }',
     'function runCocosBuild() { return { ok: true }; }',
     'function runTypecheck() { return { ok: true }; }',
     '',
@@ -1259,6 +1266,8 @@ function toolchainResolverSmokeSource() {
     '  resolveCocosProjectSettings,',
     '  resolveCocosTempAssembly,',
     '  prepareTypecheckTsconfig,',
+    '  readCocosDashboardProfiles,',
+    '  dashboardEditorRootCandidates,',
     '  runCocosBuild,',
     '  runTypecheck,',
     '};',
@@ -1488,12 +1497,70 @@ function assertToolchainResolverInvariants() {
   assert(toolchainSource.includes('resolveCocosEngineRoot'), 'ToolchainResolver must expose Cocos engine root resolution.');
   assert(toolchainSource.includes('resolveCocosEngineAssets'), 'ToolchainResolver must expose Cocos engine assets resolution.');
   assert(toolchainSource.includes('prepareTypecheckTsconfig'), 'ToolchainResolver must generate local typecheck tsconfig.');
+  assert(toolchainSource.includes('readCocosDashboardProfiles'), 'ToolchainResolver must read Cocos Dashboard profiles.');
+  assert(toolchainSource.includes('dashboardEditorRootCandidates'), 'ToolchainResolver must derive editor roots from Dashboard profiles.');
   assert(toolchainSource.includes('runCocosBuild'), 'ToolchainResolver must own Cocos build execution.');
   assert(toolchainSource.includes('runTypecheck'), 'ToolchainResolver must own typecheck execution.');
   assert(cliSource.includes("command === 'typecheck'") && cliSource.includes('runTypecheck'), 'CLI must route typecheck through ToolchainResolver.');
   assert(!generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must not write local Cocos engine paths into committed project config.');
   assert(validateSource.includes('loadToolchainTypeScript') && !validateSource.includes(forbiddenCocosInstallPath), 'Validator must load TypeScript through ToolchainResolver.');
   assert(smokeSource.includes('loadToolchainTypeScript') && !smokeSource.includes(forbiddenCocosInstallPath), 'Smoke must load TypeScript through ToolchainResolver.');
+}
+
+function assertDashboardProfileResolver() {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yzforge-smoke-dashboard-profile-'));
+  const previousEnv = {
+    YZFORGE_COCOS_DASHBOARD_PROFILE: process.env.YZFORGE_COCOS_DASHBOARD_PROFILE,
+    YZFORGE_COCOS_EDITOR_ROOT: process.env.YZFORGE_COCOS_EDITOR_ROOT,
+    COCOS_EDITOR_ROOT: process.env.COCOS_EDITOR_ROOT,
+    COCOS_CREATOR_ROOT: process.env.COCOS_CREATOR_ROOT,
+    CREATOR_ROOT: process.env.CREATOR_ROOT,
+  };
+  try {
+    writeJson(projectRoot, 'package.json', { creator: { version: '3.8.8' } });
+    const fakeEditorRoot = path.join(projectRoot, 'dashboard-editors', 'Creator', '3.8.8');
+    const fakeTypeScriptPath = [
+      'resources',
+      ['app.asar', 'unpacked'].join('.'),
+      'node_modules',
+      'typescript',
+      'lib',
+      'typescript.js',
+    ].join('/');
+    writeText(fakeEditorRoot, fakeTypeScriptPath, 'module.exports = {};');
+    writeJson(projectRoot, 'profiles/dashboard.json', {
+      editors: [
+        {
+          version: '3.8.7',
+          path: path.join(projectRoot, 'dashboard-editors', 'Creator', '3.8.7'),
+        },
+        {
+          version: '3.8.8',
+          path: fakeEditorRoot,
+        },
+      ],
+    });
+
+    process.env.YZFORGE_COCOS_DASHBOARD_PROFILE = path.join(projectRoot, 'profiles/dashboard.json');
+    process.env.YZFORGE_COCOS_EDITOR_ROOT = '';
+    process.env.COCOS_EDITOR_ROOT = '';
+    process.env.COCOS_CREATOR_ROOT = '';
+    process.env.CREATOR_ROOT = '';
+
+    const profiles = readCocosDashboardProfiles(projectRoot);
+    assert(profiles.length === 1, 'ToolchainResolver must read the configured Dashboard profile.');
+    const resolved = resolveCocosEditorRoot(projectRoot);
+    assert(path.resolve(resolved) === path.resolve(fakeEditorRoot), 'ToolchainResolver must resolve Cocos editor root from Dashboard profile.');
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    removeTempProject(projectRoot);
+  }
 }
 
 function assertTypecheckConfigPortability(projectRoot) {
@@ -1652,6 +1719,7 @@ async function smoke(options = {}) {
     await assertLibraryOwnerAcquireBehavior();
     await assertExtensionRegistryBehavior();
     await assertViewResultCloseBehavior();
+    assertDashboardProfileResolver();
     setupBaseline(projectRoot);
     const created = createSmokeProject(projectRoot);
     const generated = generate(projectRoot);
@@ -2009,6 +2077,26 @@ async function smoke(options = {}) {
     const appStateViolation = expectValidationIssue(projectRoot, 'App.enterModule must declare AppState guard AppState.Started');
     const appStateDetail = appStateViolation.issueDetails.find((issue) => issue.message.includes('App.enterModule must declare AppState guard'));
     assert(appStateDetail.code === 'app.state_machine', 'Expected App state machine issue code.');
+    for (const root of ['packages/yzforge-runtime/src', 'assets/yzforge/runtime', 'extensions/yzforge/runtime-template']) {
+      writeText(projectRoot, `${root}/app.ts`, appStateMachineRuntimeSource());
+    }
+    assertOkValidation(projectRoot);
+
+    for (const root of ['packages/yzforge-runtime/src', 'assets/yzforge/runtime', 'extensions/yzforge/runtime-template']) {
+      updateText(projectRoot, `${root}/app.ts`, (content) => content.replace(
+        '    public snapshot(): AppRuntimeSnapshot {',
+        [
+          '    public async debugUnsafe(): Promise<void> {',
+          "        await Promise.resolve('unguarded');",
+          '    }',
+          '',
+          '    public snapshot(): AppRuntimeSnapshot {',
+        ].join('\n'),
+      ));
+    }
+    const appPublicApiViolation = expectValidationIssue(projectRoot, 'App.debugUnsafe must declare an AppState guard');
+    const appPublicApiDetail = appPublicApiViolation.issueDetails.find((issue) => issue.message.includes('App.debugUnsafe must declare an AppState guard'));
+    assert(appPublicApiDetail.code === 'app.state_machine', 'Expected unguarded App public API issue code.');
     for (const root of ['packages/yzforge-runtime/src', 'assets/yzforge/runtime', 'extensions/yzforge/runtime-template']) {
       writeText(projectRoot, `${root}/app.ts`, appStateMachineRuntimeSource());
     }

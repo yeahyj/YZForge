@@ -76,7 +76,7 @@ npm run yzforge:smoke
 - root `package.json` scripts、`packages/yzforge-runtime/package.json` exports、`tsconfig.paths`、`import-map.json` 与 `settings/v2/packages/project.json` 的 `script.importMap` 由同一份源数据生成。
 - root `tsconfig.json` 是可提交、可迁移的项目契约：`db://assets/*` 指向 `assets/*`，`yzforge` 指向 `packages/yzforge-runtime/src/index.ts`，不能 `extends` Cocos `temp` 配置，不能包含 `db://internal/*`，不能包含项目根绝对路径。
 - `npm run typecheck` 由 ToolchainResolver 在运行时生成 `temp/yzforge/tsconfig.typecheck.json`，再动态注入 Cocos engine declarations、`cc/env` shim 和 `db://internal/*`。这些本机路径只允许出现在 `temp` 派生产物里，不能出现在提交态配置中。
-- `.yzforge/toolchain.schema.json` 和 `.yzforge/toolchain.example.json` 必须由生成器维护；`.yzforge/.gitignore` 必须忽略真实本机 `.yzforge/toolchain.json`，但保留 schema/example 可提交。
+- `.yzforge/toolchain.schema.json` 和 `.yzforge/toolchain.example.json` 必须由生成器维护；schema 必须覆盖 `cocosEditorRoot`、`cocosExecutable` 和 `dashboardProfile`；`.yzforge/.gitignore` 必须忽略真实本机 `.yzforge/toolchain.json`，但保留 schema/example 可提交。
 
 ## Runtime 目录
 
@@ -100,6 +100,7 @@ npm run yzforge:smoke
 - `MainRoot`、`UIRoot`、`FullscreenLayer`、`SafeAreaRoot`、标准 UI Layer、`SystemLayer` 缺失时 Validator 失败。
 - `SafeAreaRoot` 挂载安全区适配组件。
 - `FullscreenLayer` 和 `SystemLayer` 挂载全屏适配组件。
+- Validator 必须用 TypeScript AST 检查 `App` public API：新增 public method 必须声明 `this.assertState(...)`，无守卫 public getter 必须显式白名单化，public field 不允许暴露。
 - `app.viewport.profile` 可读取。
 - viewport changed 能触发订阅。
 - 业务代码直接调用 `sys.getSafeAreaRect` 时 Validator 失败。

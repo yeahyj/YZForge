@@ -2,5 +2,6 @@
   "$schema": "./toolchain.schema.json",
   "cocosVersion": "3.8.8",
   "cocosEditorRoot": "<absolute path to Cocos Creator editor root>",
-  "cocosExecutable": "<optional absolute path to CocosCreator executable>"
+  "cocosExecutable": "<optional absolute path to CocosCreator executable>",
+  "dashboardProfile": "<optional absolute path to Cocos Dashboard profile JSON>"
 }

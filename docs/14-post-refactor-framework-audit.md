@@ -98,10 +98,10 @@ Failed
 
 - `start` 失败回滚已经会调用 dispose 路径，但 Extension 安装副作用还不是事务化记录。
 - `preloadModule` 目前没有独立 task map，依赖 ReleaseScope 在释放后登记动作时立即执行。
-- 状态守卫是 runtime API 级别，Validator 还没有用 AST 强制每个新增 public API 都声明状态规则。
+- Validator 已经用 AST 枚举 `App` class public method / accessor / field：新增 public API 如果既没有 `this.assertState(...)`，也没有被显式列入无守卫白名单，会触发 `app.state_machine`。
 - `Failed` 状态后的二次诊断还比较薄，只能通过原始错误和 snapshot 判断。
 
-后续硬终局要求：每个新增 public API 必须同时增加状态规则、行为 smoke 和文档表格。
+后续硬终局要求：每个新增 public API 必须同时增加状态规则、行为 smoke 和文档表格；无守卫 public getter 必须显式登记为只读观察口。
 
 ### Extension 安装不是事务
 
@@ -225,12 +225,13 @@ regex 只能作为兜底，不应该作为核心架构规则的唯一证据。
 - `generate` 只维护可提交的稳定 `tsconfig.json`：`db://assets/*` 指向 `assets/*`，不再写入项目根绝对路径、`db://internal/*` 或 Cocos temp 配置。
 - `typecheck` 由 ToolchainResolver 在运行时生成 `temp/yzforge/tsconfig.typecheck.json`，动态注入 Cocos `cc` / `jsb` 声明、`cc/env` shim 和 `db://internal/*`。
 - `generate` 会生成 `.yzforge/toolchain.schema.json`、`.yzforge/toolchain.example.json` 和 `.yzforge/.gitignore`；真实 `.yzforge/toolchain.json` 是本机配置，不提交。
+- ToolchainResolver 可以从环境变量、`.yzforge/toolchain.json` 和 Cocos Dashboard profile JSON 中解析 editor root，再退回 known fallback paths。
 - `validate` 和 `smoke` 通过 ToolchainResolver 加载 TypeScript。
 - strict Validator 会检查 package scripts、`db://assets/*`、禁止提交态 `db://internal/*`、禁止 `extends ./temp/tsconfig.cocos.json`、禁止 `temp/declarations/*`、ToolchainResolver schema/template，并扫描 editor 工具，禁止 Cocos 安装路径散落在 `toolchain.js` 之外。
 
 我仍不满意这些点：
 
-- known fallback paths 仍是实用兜底，不等于真正解析 Cocos Dashboard profile。
+- Dashboard profile 解析已经落地，但仍是对常见 JSON 形态的结构化启发式扫描，还没有绑定 Cocos Dashboard 官方 profile schema。
 - smoke 已经覆盖脚本、path map、Cocos temp tsconfig、`temp/declarations`、项目根绝对路径和提交态 `db://internal/*` 负例，但还没有自动执行“重命名本机 Cocos 路径后重新配置”的物理验收。
 - BuildMatrixValidator 已经把 editor / preview / Web build 全目标解析证据统一收口；Native / 小游戏平台仍需要按项目能力扩展。
 
@@ -452,6 +453,8 @@ resolveCocosEngineAssets()
 resolveCocosProjectSettings()
 resolveCocosTempAssembly(target)
 prepareTypecheckTsconfig()
+readCocosDashboardProfiles()
+dashboardEditorRootCandidates()
 ```
 
 禁止在业务代码、生成器、Validator、Smoke 中散落硬编码路径。
@@ -469,6 +472,8 @@ extensions/yzforge/editor/toolchain.js
   resolveCocosProjectSettings
   resolveCocosTempAssembly
   prepareTypecheckTsconfig
+  readCocosDashboardProfiles
+  dashboardEditorRootCandidates
   runTypecheck
   runCocosBuild
 
@@ -650,6 +655,7 @@ regex 只允许用于补充提示，不作为唯一验收依据。
 - `dispose` 支持 Starting / Failed 回滚。
 - Smoke 覆盖重复 start、start 中 dispose、disposed 后 enterModule。
 - `dispose` 等待 pending module load task 后再卸载模块。
+- strict Validator 使用 TypeScript AST 检查新增 public App API 是否声明状态守卫或进入显式无守卫白名单。
 
 验收：
 
@@ -661,7 +667,6 @@ strict validator sees App state guards
 
 后续增强：
 
-- Validator 使用 AST 检查新增 public API 是否有状态守卫。
 - `preloadModule` 增加 task map，让 preload 与 dispose 的关系和 module load 一样显式。
 - App failure snapshot 展示最后一次失败 API、状态迁移和错误摘要。
 
@@ -704,8 +709,9 @@ App returns to defined state
 - `generate` 只写可迁移 root `tsconfig.json`，不提交 Cocos temp、项目根绝对路径或 `db://internal/*`。
 - `typecheck` 运行时生成 `temp/yzforge/tsconfig.typecheck.json`，由 resolver 注入 Cocos engine declarations 和 `db://internal/*`。
 - `generate` 生成 `.yzforge/toolchain.schema.json`、`.yzforge/toolchain.example.json` 和 `.yzforge/.gitignore`，让本机 toolchain 配置有稳定模板且默认不提交真实路径。
+- ToolchainResolver 可从 Cocos Dashboard profile JSON 解析 editor root，并通过 smoke 覆盖版本匹配和 profile env 配置路径。
 - strict Validator 检查 package scripts、可迁移 path map、Cocos temp 依赖和 editor 工具硬编码路径。
-- Smoke 覆盖 typecheck script、Cocos temp tsconfig、项目根绝对路径、`db://internal/*` 和 ToolchainResolver template 负例。
+- Smoke 覆盖 typecheck script、Cocos temp tsconfig、项目根绝对路径、`db://internal/*`、Dashboard profile resolver 和 ToolchainResolver template 负例。
 
 验收：
 
@@ -716,9 +722,6 @@ npm run yzforge:validate:strict
 npm run yzforge:smoke
 ```
 
-后续增强：
-
-- 结构化读取 Cocos Dashboard profile，而不是只依赖环境变量和 known fallback paths。
 - 增加真实物理验收：临时移除本机 fallback，确认 tool 报错，配置 resolver 后恢复通过。
 
 ### Phase D：Runtime package 解耦

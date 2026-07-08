@@ -186,7 +186,7 @@ tsconfig.json compilerOptions.paths
 - `tsconfig.paths` 是 TypeScript 检查规则，`yzforge` 指向 `packages/yzforge-runtime/src/index.ts`。
 - root `tsconfig.json` 必须保持可迁移：`db://assets/*` 指向 `assets/*`，不能写入项目根绝对路径。
 - root `tsconfig.json` 不能 extend `temp/tsconfig.cocos.json`，也不能提交 `db://internal/*` 或 `temp/declarations/*`。Cocos engine declarations、`cc/env` shim 和本机 `db://internal/*` 路径由 ToolchainResolver 在 `npm run typecheck` 时写入 `temp/yzforge/tsconfig.typecheck.json`。
-- `.yzforge/toolchain.schema.json`、`.yzforge/toolchain.example.json` 和 `.yzforge/.gitignore` 必须由生成器维护；`.yzforge/toolchain.json` 是本机配置，默认不提交。
+- `.yzforge/toolchain.schema.json`、`.yzforge/toolchain.example.json` 和 `.yzforge/.gitignore` 必须由生成器维护；schema 覆盖 `cocosEditorRoot`、`cocosExecutable` 和 `dashboardProfile`；`.yzforge/toolchain.json` 是本机配置，默认不提交。
 - 这些映射必须由同一个生成器源数据生成，Validator 会检查旧别名、runtime deep alias、root package identity、runtime package drift 和 Cocos assembly unresolved import。
 
 ## Architecture Validator
@@ -238,15 +238,16 @@ tsconfig.json compilerOptions.paths
 43. `code/public.ts` 是否只导出类型契约，不包含运行时值、`cc` 导入或业务实现。
 44. 生成的 Contract 是否不引用目标 Bundle 运行时实现。
 45. Import Maps 与 `tsconfig.paths` 是否一致。
-46. `assets/shared/res` 如果启用 Bundle，优先级是否高于依赖它的业务 Bundle。
-47. ViewRef 是否生成了合法 `ViewPolicy`，且 `ViewKind`、`ViewLayer`、prefab 命名没有明显冲突。
-48. Page 是否在同一 owner 内满足互斥策略，Popup/Paper 是否声明了可入栈策略。
-49. Module 是否只打开本 Scope View 或通过 Global public API 请求 Global UI。
-50. 是否有业务 View 长期持有其他 View 的节点、组件或跨模块 UI handle。
-51. View 是否绕过 `this.listen`、`addDisposer` 长期注册事件、计时器或 tween。
-52. ContentPack 是否提供了 Page、Paper、Popup 这类 UIManager View。
-53. System UI preset 是否存在，且不被 Module 直接持有节点。
-54. `openForResult` 是否用于 Toast 或没有结果策略的 View。
+46. `App` public API 是否通过 TypeScript AST 声明状态守卫；无守卫 getter 是否在显式白名单内，public field 是否被禁止。
+47. `assets/shared/res` 如果启用 Bundle，优先级是否高于依赖它的业务 Bundle。
+48. ViewRef 是否生成了合法 `ViewPolicy`，且 `ViewKind`、`ViewLayer`、prefab 命名没有明显冲突。
+49. Page 是否在同一 owner 内满足互斥策略，Popup/Paper 是否声明了可入栈策略。
+50. Module 是否只打开本 Scope View 或通过 Global public API 请求 Global UI。
+51. 是否有业务 View 长期持有其他 View 的节点、组件或跨模块 UI handle。
+52. View 是否绕过 `this.listen`、`addDisposer` 长期注册事件、计时器或 tween。
+53. ContentPack 是否提供了 Page、Paper、Popup 这类 UIManager View。
+54. System UI preset 是否存在，且不被 Module 直接持有节点。
+55. `openForResult` 是否用于 Toast 或没有结果策略的 View。
 
 ## 检查方式
 

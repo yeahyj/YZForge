@@ -18,6 +18,10 @@ const COCOS_EXECUTABLE_ENV_VARS = [
   'COCOS_CREATOR_EXECUTABLE',
   'COCOS_EXECUTABLE',
 ];
+const DASHBOARD_PROFILE_ENV_VARS = [
+  'YZFORGE_COCOS_DASHBOARD_PROFILE',
+  'COCOS_DASHBOARD_PROFILE',
+];
 const TYPECHECK_TSCONFIG_PATH = path.join('temp', 'yzforge', 'tsconfig.typecheck.json');
 const COCOS_ENV_CONSTANTS = [
   ['HTML5', 'boolean'],
@@ -115,6 +119,148 @@ function normalizeEditorRootCandidate(value) {
   return resolved;
 }
 
+function maybeArray(value) {
+  if (value === undefined || value === null || value === '') {
+    return [];
+  }
+  return Array.isArray(value) ? value : [value];
+}
+
+function looksLikePath(value) {
+  const text = String(value || '');
+  return /[\\/]/.test(text) || /^[A-Za-z]:/.test(text) || text.startsWith('~');
+}
+
+function looksLikeVersionKey(value) {
+  return /^\d+(?:\.\d+){1,3}(?:[-\w.]*)?$/.test(String(value || ''));
+}
+
+function versionsMatch(candidateVersion, requestedVersion) {
+  if (!candidateVersion || !requestedVersion) {
+    return true;
+  }
+  return String(candidateVersion) === String(requestedVersion);
+}
+
+function isDashboardPathKey(key) {
+  return /^(?:path|root|location|installPath|installationPath|editorPath|editorRoot|creatorPath|creatorRoot|cocosEditorRoot|executable)$/i.test(String(key || ''));
+}
+
+function candidateDashboardProfilePaths(projectRoot, config = readToolchainConfig(projectRoot)) {
+  const root = path.resolve(projectRoot || process.cwd());
+  const candidates = [];
+  candidates.push(...maybeArray(config.dashboardProfile));
+  candidates.push(...maybeArray(config.cocos?.dashboardProfile));
+  candidates.push(...maybeArray(config.cocosDashboardProfile));
+  for (const envVar of DASHBOARD_PROFILE_ENV_VARS) {
+    candidates.push(...maybeArray(process.env[envVar]));
+  }
+
+  const appData = process.env.APPDATA;
+  const localAppData = process.env.LOCALAPPDATA;
+  const userHome = os.homedir();
+  const profileRoots = [
+    appData ? path.join(appData, 'CocosDashboard') : undefined,
+    appData ? path.join(appData, 'CocosCreator') : undefined,
+    localAppData ? path.join(localAppData, 'CocosDashboard') : undefined,
+    localAppData ? path.join(localAppData, 'CocosCreator') : undefined,
+    userHome ? path.join(userHome, '.CocosCreator') : undefined,
+    userHome ? path.join(userHome, '.CocosDashboard') : undefined,
+  ];
+  const profileNames = [
+    'profile.json',
+    'profiles.json',
+    'config.json',
+    'settings.json',
+    'editors.json',
+    'editors-profile.json',
+  ];
+  for (const profileRoot of profileRoots) {
+    if (!profileRoot) {
+      continue;
+    }
+    for (const profileName of profileNames) {
+      candidates.push(path.join(profileRoot, profileName));
+    }
+  }
+
+  const seen = new Set();
+  const results = [];
+  for (const candidate of candidates) {
+    const expanded = expandUser(candidate);
+    if (!expanded) {
+      continue;
+    }
+    const resolved = path.isAbsolute(expanded) ? expanded : path.resolve(root, expanded);
+    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    results.push(resolved);
+  }
+  return results;
+}
+
+function readCocosDashboardProfiles(projectRoot, options = {}) {
+  const root = path.resolve(projectRoot || process.cwd());
+  const config = options.config || readToolchainConfig(root);
+  const profiles = [];
+  for (const profilePath of candidateDashboardProfilePaths(root, config)) {
+    if (!fs.existsSync(profilePath)) {
+      continue;
+    }
+    try {
+      profiles.push({
+        path: profilePath,
+        data: readJsonc(profilePath),
+      });
+    } catch (error) {
+      if (options.strict) {
+        error.message = `${toPosix(profilePath)} cannot be read: ${error.message}`;
+        throw error;
+      }
+    }
+  }
+  return profiles;
+}
+
+function collectDashboardEditorRoots(value, requestedVersion, results, inheritedVersion) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectDashboardEditorRoots(item, requestedVersion, results, inheritedVersion);
+    }
+    return;
+  }
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  const currentVersion = value.version
+    || value.cocosVersion
+    || value.editorVersion
+    || value.creatorVersion
+    || inheritedVersion;
+  for (const [key, child] of Object.entries(value)) {
+    const childVersion = looksLikeVersionKey(key) ? key : currentVersion;
+    if (typeof child === 'string') {
+      if ((isDashboardPathKey(key) || looksLikeVersionKey(key)) && looksLikePath(child) && versionsMatch(childVersion, requestedVersion)) {
+        results.push(child);
+      }
+    } else if (child && typeof child === 'object') {
+      collectDashboardEditorRoots(child, requestedVersion, results, childVersion);
+    }
+  }
+}
+
+function dashboardEditorRootCandidates(projectRoot, version, config = readToolchainConfig(projectRoot)) {
+  const roots = [];
+  for (const profile of readCocosDashboardProfiles(projectRoot, { config })) {
+    collectDashboardEditorRoots(profile.data, version, roots);
+  }
+  return roots;
+}
+
 function uniqueExistingCandidates(candidates) {
   const seen = new Set();
   const results = [];
@@ -182,6 +328,8 @@ function candidateEditorRoots(projectRoot) {
   for (const envVar of EDITOR_ROOT_ENV_VARS) {
     candidates.push(process.env[envVar]);
   }
+
+  candidates.push(...dashboardEditorRootCandidates(projectRoot, version, config));
 
   const localAppData = process.env.LOCALAPPDATA;
   const programFiles = process.env.ProgramFiles;
@@ -574,9 +722,13 @@ function runCocosBuild(projectRoot, options = {}) {
 module.exports = {
   TOOLCHAIN_CONFIG_PATH,
   COCOS_EXECUTABLE_ENV_VARS,
+  DASHBOARD_PROFILE_ENV_VARS,
   EDITOR_ROOT_ENV_VARS,
+  candidateDashboardProfilePaths,
+  dashboardEditorRootCandidates,
   loadTypeScript,
   prepareTypecheckTsconfig,
+  readCocosDashboardProfiles,
   resolveCocosExecutable,
   resolveCocosEditorRoot,
   resolveCocosEngineRoot,
