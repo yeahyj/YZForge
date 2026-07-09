@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { generate } = require('./generate');
@@ -12,6 +13,7 @@ const CONFIG_EXCEL_ROOT = 'config-source/excel';
 const CONFIG_PLAN_PATH = 'config-source/export-plan.json';
 const CONFIG_META_KEY = '_yzforgeConfig';
 const SUPPORTED_TYPES = new Set(['string', 'number', 'boolean', 'enum', 'string[]', 'number[]', 'boolean[]', 'json']);
+const SUPPORTED_RULES = new Set(['pk', 'client', 'optional', 'ignore']);
 
 function lowerCamelCase(value) {
   const words = String(value || '')
@@ -41,6 +43,23 @@ function normalizeRuleList(value) {
     return ['client'];
   }
   return text.split(/[,;|\s]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
+function normalizeConfigSourcePath(projectRoot, value) {
+  const raw = toPosix(value || '');
+  if (!raw || path.isAbsolute(raw)) {
+    throw new Error(`Config source must be project-relative under ${CONFIG_EXCEL_ROOT}: ${raw || '<empty>'}`);
+  }
+  const root = path.resolve(projectRoot, CONFIG_EXCEL_ROOT);
+  const absolute = path.resolve(projectRoot, raw);
+  const relativeToRoot = path.relative(root, absolute);
+  if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+    throw new Error(`Config source must stay under ${CONFIG_EXCEL_ROOT}: ${raw}`);
+  }
+  if (path.extname(absolute).toLowerCase() !== '.xlsx') {
+    throw new Error(`Config source must be an .xlsx file: ${raw}`);
+  }
+  return toPosix(path.relative(projectRoot, absolute));
 }
 
 function isEmptyCell(value) {
@@ -145,6 +164,10 @@ function parseHeader(planTable, rows) {
       continue;
     }
     const fieldRules = normalizeRuleList(rules[index]);
+    const unknownRules = fieldRules.filter((rule) => !SUPPORTED_RULES.has(rule));
+    if (unknownRules.length > 0) {
+      throw new Error(`${planTable.source}#${planTable.sheet} field ${name} has unsupported rule: ${unknownRules.join(', ')}`);
+    }
     if (fieldRules.includes('ignore')) {
       continue;
     }
@@ -211,8 +234,15 @@ function writePlan(projectRoot, plan) {
   return writeTextIfChanged(target, `${JSON.stringify(normalized, null, 2)}\n`);
 }
 
-function tablePlanId(table) {
-  return table.id || [
+function createPlanTableId() {
+  const value = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : crypto.randomBytes(16).toString('hex');
+  return `cfg_${value}`;
+}
+
+function legacyTablePlanId(table) {
+  return [
     table.scope?.kind,
     table.scope?.name,
     table.scope?.owner,
@@ -222,28 +252,66 @@ function tablePlanId(table) {
   ].filter(Boolean).join(':');
 }
 
+function tablePlanSortKey(table) {
+  return legacyTablePlanId(table) || table.id || '';
+}
+
+function normalizePlanId(value) {
+  const id = String(value || '').trim();
+  if (!id) {
+    return undefined;
+  }
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
+    throw new Error(`Config table rule id is invalid: ${id}`);
+  }
+  return id;
+}
+
 function saveConfigPlanTable(projectRoot, table) {
   const plan = readPlan(projectRoot);
   const normalized = normalizePlanTable(projectRoot, table);
-  const id = tablePlanId(normalized);
-  const index = plan.tables.findIndex((item) => tablePlanId(item) === id);
-  if (index >= 0) {
-    plan.tables[index] = normalized;
-  } else {
-    plan.tables.push(normalized);
+  const legacyId = legacyTablePlanId(normalized);
+  let index = normalized.id
+    ? plan.tables.findIndex((item) => item.id === normalized.id)
+    : -1;
+  if (index < 0) {
+    index = plan.tables.findIndex((item) => legacyTablePlanId(item) === legacyId);
   }
-  plan.tables.sort((a, b) => tablePlanId(a).localeCompare(tablePlanId(b)));
+  const stableId = index >= 0
+    ? plan.tables[index].id || normalized.id || createPlanTableId()
+    : normalized.id || createPlanTableId();
+  const nextTable = { ...normalized, id: stableId };
+  if (index >= 0) {
+    plan.tables[index] = nextTable;
+  } else {
+    plan.tables.push(nextTable);
+  }
+  plan.tables.sort((a, b) => tablePlanSortKey(a).localeCompare(tablePlanSortKey(b)));
   const changed = writePlan(projectRoot, plan);
-  return { ok: true, changed: changed ? [CONFIG_PLAN_PATH] : [], plan };
+  return { ok: true, changed: changed ? [CONFIG_PLAN_PATH] : [], plan, table: nextTable };
+}
+
+function deleteConfigPlanTable(projectRoot, table) {
+  const id = normalizePlanId(table?.id);
+  if (!id) {
+    throw new Error('Config table rule id is required.');
+  }
+  const plan = readPlan(projectRoot);
+  const deleted = plan.tables.find((item) => item.id === id);
+  const nextTables = plan.tables.filter((item) => item.id !== id);
+  if (nextTables.length === plan.tables.length) {
+    throw new Error(`Config table rule not found: ${id}`);
+  }
+  const nextPlan = { ...plan, tables: nextTables };
+  const changed = writePlan(projectRoot, nextPlan);
+  return { ok: true, changed: changed ? [CONFIG_PLAN_PATH] : [], plan: nextPlan, deleted };
 }
 
 function normalizePlanTable(projectRoot, table) {
-  const source = toPosix(table.source || '');
-  if (!source.startsWith(`${CONFIG_SOURCE_ROOT}/`)) {
-    throw new Error(`Config source must stay under ${CONFIG_SOURCE_ROOT}: ${source}`);
-  }
+  const source = normalizeConfigSourcePath(projectRoot, table.source);
   const scope = table.scope || {};
   const normalized = {
+    id: normalizePlanId(table.id),
     source,
     sheet: String(table.sheet || '').trim(),
     table: lowerCamelCase(table.table || table.sheet),
@@ -523,5 +591,6 @@ module.exports = {
   buildConfig,
   configDashboard,
   readPlan,
+  deleteConfigPlanTable,
   saveConfigPlanTable,
 };

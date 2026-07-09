@@ -1,35 +1,46 @@
 import { YZForgeError } from './errors';
-import type { ConfigScope } from './config';
+import type { ConfigDefinition, ConfigScope } from './config';
 import type { LibraryRef, ModuleRef } from './refs';
 import type { Constructor } from './types';
 import type { Module } from './module';
 import type { TokenProvider } from './tokens';
 
-export interface ModuleEntry<TModule extends Module = Module> {
+export type EntryConfig<TConfig extends object> = ConfigDefinition<object> | ConfigScope<TConfig> | Record<string, unknown>;
+
+export interface ModuleEntry<TModule extends Module = Module, TConfig extends object = object> {
     readonly name: string;
     readonly bundle: string;
     readonly type: Constructor<TModule>;
     readonly assets: unknown;
-    readonly config: ConfigScope | Record<string, unknown>;
+    readonly config: EntryConfig<TConfig>;
     readonly libraries: readonly LibraryRef[];
 }
 
-export interface LibraryEntry<TTokens extends Record<string, unknown> = Record<string, unknown>> {
+export interface LibraryEntry<
+    TTokens extends Record<string, unknown> = Record<string, unknown>,
+    TConfig extends object = object,
+> {
     readonly name: string;
     readonly bundle: string;
     readonly assets: unknown;
-    readonly config: ConfigScope | Record<string, unknown>;
+    readonly config: EntryConfig<TConfig>;
     readonly libraries: readonly LibraryRef[];
     readonly tokens: { readonly [TKey in keyof TTokens]: TokenProvider<TTokens[TKey]> };
 }
 
-export function defineModuleEntry<TModule extends Module>(entry: ModuleEntry<TModule>): ModuleEntry<TModule> {
+export function defineModuleEntry<
+    TModule extends Module,
+    TConfig extends object = object,
+>(entry: ModuleEntry<TModule, TConfig>): ModuleEntry<TModule, TConfig> {
     return entry;
 }
 
-export function defineLibraryEntry<TTokens extends Record<string, unknown>>(
-    entry: LibraryEntry<TTokens>,
-): LibraryEntry<TTokens> {
+export function defineLibraryEntry<
+    TTokens extends Record<string, unknown>,
+    TConfig extends object = object,
+>(
+    entry: LibraryEntry<TTokens, TConfig>,
+): LibraryEntry<TTokens, TConfig> {
     return entry;
 }
 

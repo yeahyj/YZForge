@@ -3,7 +3,7 @@
 const path = require('path');
 const { validateBuildMatrix } = require('./build-matrix');
 const { cleanGenerated } = require('./cleanup');
-const { buildConfig, saveConfigPlanTable } = require('./config-builder');
+const { buildConfig, deleteConfigPlanTable, saveConfigPlanTable } = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { smoke } = require('./smoke');
@@ -87,6 +87,7 @@ async function main() {
   if (command === 'config-table') {
     const args = process.argv.slice(3);
     const result = saveConfigPlanTable(projectRoot, {
+      id: readOption(args, '--id', undefined),
       source: readOption(args, '--source', ''),
       sheet: readOption(args, '--sheet', ''),
       scope: parseConfigScope(readOption(args, '--scope', '')),
@@ -95,6 +96,15 @@ async function main() {
       primaryKey: readOption(args, '--primary-key', 'id'),
       format: readOption(args, '--format', 'json'),
       generateKeys: !args.includes('--no-keys'),
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === 'config-remove') {
+    const args = process.argv.slice(3);
+    const result = deleteConfigPlanTable(projectRoot, {
+      id: readOption(args, '--id', ''),
     });
     console.log(JSON.stringify(result, null, 2));
     return;

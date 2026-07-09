@@ -6,6 +6,7 @@
     "yzforge:generate": "node extensions/yzforge/editor/cli.js generate",
     "yzforge:generate:check": "node extensions/yzforge/editor/cli.js generate --check",
     "yzforge:config:table": "node extensions/yzforge/editor/cli.js config-table",
+    "yzforge:config:remove": "node extensions/yzforge/editor/cli.js config-remove",
     "yzforge:config:build": "node extensions/yzforge/editor/cli.js config-build",
     "yzforge:config:check": "node extensions/yzforge/editor/cli.js config-build --check",
     "yzforge:clean:generated": "node extensions/yzforge/editor/cli.js clean-generated",

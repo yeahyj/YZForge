@@ -6,16 +6,18 @@ export interface NamedRef {
     readonly bundle: string;
 }
 
-export interface LibraryRef<TTokens = unknown> extends NamedRef {
+export interface LibraryRef<TTokens = unknown, TConfig extends object = object> extends NamedRef {
     readonly kind: 'library';
     readonly libraries: readonly LibraryRef[];
     readonly __tokens?: TTokens;
+    readonly __config?: TConfig;
 }
 
-export interface ModuleRef<TParams = unknown> extends NamedRef {
+export interface ModuleRef<TParams = unknown, TConfig extends object = object> extends NamedRef {
     readonly kind: 'module';
     readonly libraries: readonly LibraryRef[];
     readonly __params?: TParams;
+    readonly __config?: TConfig;
 }
 
 export type ContentPackManifestRefKind = 'asset' | 'config' | 'unknown';
@@ -101,9 +103,9 @@ export interface ViewPolicyLike {
     readonly cache?: 'none' | 'asset' | 'node';
 }
 
-export function defineModuleRef<TParams = unknown>(
-    options: Omit<ModuleRef<TParams>, 'kind'>,
-): ModuleRef<TParams> {
+export function defineModuleRef<TParams = unknown, TConfig extends object = object>(
+    options: Omit<ModuleRef<TParams, TConfig>, 'kind'>,
+): ModuleRef<TParams, TConfig> {
     return {
         ...options,
         kind: 'module',
@@ -111,9 +113,9 @@ export function defineModuleRef<TParams = unknown>(
     };
 }
 
-export function defineLibraryRef<TTokens = unknown>(
-    options: Omit<LibraryRef<TTokens>, 'kind'>,
-): LibraryRef<TTokens> {
+export function defineLibraryRef<TTokens = unknown, TConfig extends object = object>(
+    options: Omit<LibraryRef<TTokens, TConfig>, 'kind'>,
+): LibraryRef<TTokens, TConfig> {
     return {
         ...options,
         kind: 'library',

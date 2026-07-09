@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { cleanGenerated: cleanGeneratedFiles, collectGeneratedFiles } = require('./cleanup');
-const { buildConfig, configDashboard, saveConfigPlanTable } = require('./config-builder');
+const { buildConfig, configDashboard, deleteConfigPlanTable, saveConfigPlanTable } = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { validate } = require('./validate');
@@ -1060,6 +1060,13 @@ exports.methods = {
     const options = normalizeOptions(first, second);
     const result = saveConfigPlanTable(projectRoot(), options);
     console.log('[YZForge] save config table:', result);
+    return result;
+  },
+
+  async deleteConfigTable(first, second) {
+    const options = normalizeOptions(first, second);
+    const result = deleteConfigPlanTable(projectRoot(), options);
+    console.log('[YZForge] delete config table:', result);
     return result;
   },
 

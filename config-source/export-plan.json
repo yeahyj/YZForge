@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "tables": [
     {
+      "id": "cfg_b8aaa419-be05-49ef-a24d-48f4fd40f345",
       "source": "config-source/excel/TestWaves.xlsx",
       "sheet": "TestWaves",
       "table": "testWaves",
@@ -16,6 +17,7 @@
       "generateKeys": true
     },
     {
+      "id": "cfg_b5302d75-9d73-42a1-bb1c-bbb46104df78",
       "source": "config-source/excel/StartItems.xlsx",
       "sheet": "StartItems",
       "table": "startItems",

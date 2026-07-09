@@ -11,7 +11,9 @@ export interface ConfigCodec {
     decode(data: ConfigPayload): unknown;
 }
 
-export interface ConfigTable<TRow, TKey extends keyof TRow = keyof TRow> {
+export type ConfigRowKey<TRow extends object> = Extract<keyof TRow, string>;
+
+export interface ConfigTable<TRow extends object, TKey extends ConfigRowKey<TRow> = ConfigRowKey<TRow>> {
     readonly name?: string;
     readonly primaryKey?: TKey;
     get(id: TRow[TKey]): TRow | undefined;
@@ -19,7 +21,7 @@ export interface ConfigTable<TRow, TKey extends keyof TRow = keyof TRow> {
     all(): readonly TRow[];
 }
 
-export interface ConfigTableRef<TRow, TKey extends keyof TRow = keyof TRow> {
+export interface ConfigTableRef<TRow extends object, TKey extends ConfigRowKey<TRow> = ConfigRowKey<TRow>> {
     readonly kind: 'config-table';
     readonly name: string;
     readonly primaryKey: TKey;
@@ -33,6 +35,14 @@ export interface ConfigDefinition<TTables = Record<string, unknown>> {
 export interface ConfigScope<TTables = Record<string, unknown>> {
     readonly tables: TTables;
 }
+
+export type LoadedConfigValue<TValue> = TValue extends ConfigTableRef<infer TRow, infer TKey>
+    ? ConfigTable<TRow, TKey>
+    : TValue;
+
+export type LoadedConfigTables<TTables> = {
+    readonly [TKey in keyof TTables]: LoadedConfigValue<TTables[TKey]>;
+};
 
 export class JsonConfigCodec implements ConfigCodec {
     public readonly name = 'yzforge-json';
@@ -98,26 +108,26 @@ export class ConfigCodecRegistry {
 export const configCodecs = new ConfigCodecRegistry();
 
 export class ConfigManager {
-    public async loadScope<TTables = Record<string, unknown>>(
+    public async loadScope<TTables extends object = Record<string, unknown>>(
         definition: ConfigDefinition<TTables> | ConfigScope<TTables> | Record<string, unknown>,
         assets: AssetScope,
-    ): Promise<ConfigScope<Record<string, ConfigTable<Record<string, unknown>> | unknown>>> {
+    ): Promise<ConfigScope<LoadedConfigTables<TTables>>> {
         const sourceTables = tableSource(definition);
-        const tables: Record<string, ConfigTable<Record<string, unknown>> | unknown> = {};
+        const tables: Record<string, unknown> = {};
         for (const key of Object.keys(sourceTables)) {
             const value = sourceTables[key];
             tables[key] = isConfigTableRef(value)
                 ? await this.loadTable(value, assets)
                 : value;
         }
-        return createConfigScope(tables);
+        return createConfigScope(tables) as unknown as ConfigScope<LoadedConfigTables<TTables>>;
     }
 
-    public async loadContentPackScope<TTables = Record<string, ConfigTable<Record<string, unknown>>>>(
+    public async loadContentPackScope<TTables = Record<string, ConfigTable<Record<string, unknown>, string>>>(
         refs: unknown,
         assets: AssetScope,
     ): Promise<ConfigScope<TTables>> {
-        const tables: Record<string, ConfigTable<Record<string, unknown>>> = {};
+        const tables: Record<string, ConfigTable<Record<string, unknown>, string>> = {};
         if (!refs || typeof refs !== 'object') {
             return createConfigScope(tables) as unknown as ConfigScope<TTables>;
         }
@@ -136,7 +146,7 @@ export class ConfigManager {
         return createConfigScope(tables) as unknown as ConfigScope<TTables>;
     }
 
-    public async loadTable<TRow extends Record<string, unknown>, TKey extends keyof TRow = 'id'>(
+    public async loadTable<TRow extends object, TKey extends ConfigRowKey<TRow>>(
         ref: ConfigTableRef<TRow, TKey>,
         assets: AssetScope,
     ): Promise<ConfigTable<TRow, TKey>> {
@@ -154,13 +164,19 @@ export function createConfigScope<TTables = Record<string, unknown>>(tables: TTa
     return { tables };
 }
 
-export function defineConfig<TTables extends Record<string, unknown>>(
+export function defineConfig<TTables extends object>(
     config: ConfigDefinition<TTables>,
 ): ConfigDefinition<TTables> {
     return config;
 }
 
-export function tableRef<TRow extends Record<string, unknown>, TKey extends keyof TRow = 'id'>(
+export function tableRef(
+    options: { readonly name: string; readonly primaryKey?: string; readonly codec?: string },
+): ConfigTableRef<Record<string, unknown>, string>;
+export function tableRef<TRow extends object, TKey extends ConfigRowKey<TRow>>(
+    options: { readonly name: string; readonly primaryKey: TKey; readonly codec?: string },
+): ConfigTableRef<TRow, TKey>;
+export function tableRef<TRow extends object, TKey extends ConfigRowKey<TRow>>(
     options: { readonly name: string; readonly primaryKey?: TKey; readonly codec?: string },
 ): ConfigTableRef<TRow, TKey> {
     return {
@@ -171,26 +187,37 @@ export function tableRef<TRow extends Record<string, unknown>, TKey extends keyo
     };
 }
 
-export function createConfigTable<TRow extends Record<string, unknown>, TKey extends keyof TRow = 'id'>(
+export function createConfigTable(
+    name: string,
+    rows: readonly Record<string, unknown>[],
+    primaryKey?: string,
+): ConfigTable<Record<string, unknown>, string>;
+export function createConfigTable<TRow extends object, TKey extends ConfigRowKey<TRow>>(
     name: string,
     rows: readonly TRow[],
-    primaryKey: TKey = 'id' as TKey,
+    primaryKey: TKey,
+): ConfigTable<TRow, TKey>;
+export function createConfigTable<TRow extends object, TKey extends ConfigRowKey<TRow>>(
+    name: string,
+    rows: readonly TRow[],
+    primaryKey?: TKey,
 ): ConfigTable<TRow, TKey> {
+    const keyName = (primaryKey ?? 'id') as TKey;
     const map = new Map<TRow[TKey], TRow>();
     for (const row of rows) {
-        const key = row[primaryKey];
+        const key = row[keyName];
         if (map.has(key)) {
             throw new YZForgeError(`Duplicate config primary key: ${String(key)}`, 'config.duplicate_key', {
                 table: name,
-                primaryKey,
+                primaryKey: keyName,
                 key,
             });
         }
-        map.set(row[primaryKey], row);
+        map.set(row[keyName], row);
     }
     return {
         name,
-        primaryKey,
+        primaryKey: keyName,
         get(id) {
             return map.get(id);
         },
@@ -199,7 +226,7 @@ export function createConfigTable<TRow extends Record<string, unknown>, TKey ext
             if (!row) {
                 throw new YZForgeError(`Config row not found: ${String(id)}`, 'config.row_missing', {
                     table: name,
-                    primaryKey,
+                    primaryKey: keyName,
                     id,
                 });
             }
@@ -225,7 +252,7 @@ function tableSource(definition: unknown): Record<string, unknown> {
     return tables && typeof tables === 'object' ? tables as Record<string, unknown> : {};
 }
 
-function normalizeConfigRows<TRow extends Record<string, unknown>>(value: unknown, tableName: string): readonly TRow[] {
+function normalizeConfigRows<TRow extends object>(value: unknown, tableName: string): readonly TRow[] {
     if (Array.isArray(value)) {
         return value as readonly TRow[];
     }

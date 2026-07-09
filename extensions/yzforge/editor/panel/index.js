@@ -70,6 +70,10 @@ const template = `
   <section class="section config-section">
     <div class="section-title" data-i18n="config_tables">Config Tables</div>
     <div class="form-grid">
+      <label id="config-plan-row">
+        <span data-i18n="config_saved_table">Saved Rule</span>
+        <select id="config-plan-table"></select>
+      </label>
       <label>
         <span data-i18n="config_source">Source</span>
         <select id="config-source"></select>
@@ -117,6 +121,7 @@ const template = `
       <div class="tool-row config-actions">
         <button id="config-scan" data-i18n="config_scan">Scan Excel</button>
         <button id="config-save-table" class="command-primary" data-i18n="config_save_table">Save Table</button>
+        <button id="config-delete-table" data-i18n="config_delete_table">Delete Rule</button>
         <button id="config-build" class="command-primary" data-i18n="config_build">Build Config</button>
         <button id="config-check" data-i18n="config_check">Config Check</button>
       </div>
@@ -266,7 +271,8 @@ p {
   min-height: 0;
 }
 
-#owner-row {
+#owner-row,
+#config-plan-row {
   grid-column: 1 / -1;
 }
 
@@ -383,7 +389,7 @@ button:disabled {
 }
 
 .config-actions {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
 }
 
 .clean-toggle {
@@ -620,6 +626,38 @@ function placeholderKeyForKind(kind) {
   return 'panel_placeholder_pascal';
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+}
+
+function configScopeTargetValue(scope = {}) {
+  if (scope.kind === 'content-pack') {
+    return `${scope.owner || ''}/${scope.name || ''}`;
+  }
+  if (scope.kind === 'global') {
+    return 'Global';
+  }
+  return scope.name || '';
+}
+
+function configPlanLabel(table) {
+  const scope = table.scope || {};
+  const target = configScopeTargetValue(scope);
+  return [
+    scope.kind || 'unknown',
+    target && target !== 'Global' ? target : undefined,
+    table.table || table.sheet,
+    table.source,
+    table.sheet,
+  ].filter(Boolean).join(' / ');
+}
+
 module.exports = Editor.Panel.define({
   template,
   style,
@@ -645,6 +683,7 @@ module.exports = Editor.Panel.define({
     smokeTest: '#smoke-test',
     runtimeSnapshot: '#runtime-snapshot',
     generateCheck: '#generate-check',
+    configPlanTable: '#config-plan-table',
     configSource: '#config-source',
     configSheet: '#config-sheet',
     configScopeKind: '#config-scope-kind',
@@ -656,6 +695,7 @@ module.exports = Editor.Panel.define({
     configGenerateKeys: '#config-generate-keys',
     configScan: '#config-scan',
     configSaveTable: '#config-save-table',
+    configDeleteTable: '#config-delete-table',
     configBuild: '#config-build',
     configCheck: '#config-check',
     cleanPreview: '#clean-preview',
@@ -697,6 +737,8 @@ module.exports = Editor.Panel.define({
       this.$.cleanScripts.disabled = busy;
       this.$.validateStrict.disabled = busy;
       this.$.configGenerateKeys.disabled = busy;
+      this.$.configPlanTable.disabled = busy;
+      this.$.configDeleteTable.disabled = busy || !this.$.configPlanTable.value;
     },
 
     setCreateGroup(group) {
@@ -903,7 +945,7 @@ module.exports = Editor.Panel.define({
       const source = (dashboard.sources || []).find((item) => item.source === this.$.configSource.value);
       const sheets = source && Array.isArray(source.sheets) ? source.sheets : [];
       this.$.configSheet.innerHTML = sheets.length > 0
-        ? sheets.map((sheet) => `<option value="${sheet}">${sheet}</option>`).join('')
+        ? sheets.map((sheet) => `<option value="${escapeHtml(sheet)}">${escapeHtml(sheet)}</option>`).join('')
         : '<option value="">No sheets</option>';
       this.applyConfigDefaults();
     },
@@ -923,8 +965,48 @@ module.exports = Editor.Panel.define({
         targets = ['Global'];
       }
       this.$.configScopeTarget.innerHTML = targets.length > 0
-        ? targets.map((target) => `<option value="${target}">${target}</option>`).join('')
+        ? targets.map((target) => `<option value="${escapeHtml(target)}">${escapeHtml(target)}</option>`).join('')
         : '<option value="">No target</option>';
+    },
+
+    updateConfigPlanTables(selectedId) {
+      const dashboard = this.configDashboardValue || {};
+      const tables = (dashboard.plan && Array.isArray(dashboard.plan.tables)) ? dashboard.plan.tables : [];
+      const selected = selectedId !== undefined ? selectedId : this.$.configPlanTable.value;
+      this.$.configPlanTable.innerHTML = [
+        `<option value="">${escapeHtml(this.t('config_new_table'))}</option>`,
+        ...tables.map((table) => `<option value="${escapeHtml(table.id || '')}">${escapeHtml(configPlanLabel(table))}</option>`),
+      ].join('');
+      if (selected && tables.some((table) => table.id === selected)) {
+        this.$.configPlanTable.value = selected;
+      }
+      this.$.configDeleteTable.disabled = !this.$.configPlanTable.value;
+    },
+
+    selectedConfigPlanTable() {
+      const dashboard = this.configDashboardValue || {};
+      const tables = (dashboard.plan && Array.isArray(dashboard.plan.tables)) ? dashboard.plan.tables : [];
+      const id = this.$.configPlanTable.value;
+      return id ? tables.find((table) => table.id === id) : undefined;
+    },
+
+    applyConfigPlanTable() {
+      const table = this.selectedConfigPlanTable();
+      this.$.configDeleteTable.disabled = !table;
+      if (!table) {
+        return;
+      }
+      this.$.configSource.value = table.source || '';
+      this.updateConfigSourceSheets();
+      this.$.configSheet.value = table.sheet || '';
+      this.$.configScopeKind.value = table.scope?.kind || 'module';
+      this.updateConfigScopeTargets();
+      this.$.configScopeTarget.value = configScopeTargetValue(table.scope);
+      this.$.configTable.value = table.table || '';
+      this.$.configRow.value = table.row || '';
+      this.$.configPrimaryKey.value = table.primaryKey || 'id';
+      this.$.configFormat.value = table.format || 'json';
+      this.$.configGenerateKeys.checked = table.generateKeys !== false;
     },
 
     applyConfigDefaults() {
@@ -949,13 +1031,15 @@ module.exports = Editor.Panel.define({
         this.configDashboardValue = dashboard;
         const selectedSource = this.$.configSource.value;
         this.$.configSource.innerHTML = (dashboard.sources || []).length > 0
-          ? dashboard.sources.map((item) => `<option value="${item.source}">${item.source}</option>`).join('')
+          ? dashboard.sources.map((item) => `<option value="${escapeHtml(item.source)}">${escapeHtml(item.source)}</option>`).join('')
           : '<option value="">config-source/excel is empty</option>';
         if (selectedSource && (dashboard.sources || []).some((item) => item.source === selectedSource)) {
           this.$.configSource.value = selectedSource;
         }
         this.updateConfigSourceSheets();
         this.updateConfigScopeTargets();
+        this.updateConfigPlanTables();
+        this.applyConfigPlanTable();
         if (!options.silentResult) {
           this.setResult(dashboard);
         }
@@ -979,7 +1063,7 @@ module.exports = Editor.Panel.define({
       } else if (kind !== 'global') {
         scope.name = target;
       }
-      return {
+      const payload = {
         source: this.$.configSource.value,
         sheet: this.$.configSheet.value,
         table: this.$.configTable.value,
@@ -989,6 +1073,10 @@ module.exports = Editor.Panel.define({
         generateKeys: this.$.configGenerateKeys.checked === true,
         scope,
       };
+      if (this.$.configPlanTable.value) {
+        payload.id = this.$.configPlanTable.value;
+      }
+      return payload;
     },
 
     async saveConfigTable() {
@@ -997,6 +1085,31 @@ module.exports = Editor.Panel.define({
       try {
         const result = await this.call('config-save-table', this.configTablePayload());
         this.setResult(result);
+        await this.refreshConfigDashboard({ silentResult: true, keepBusy: true });
+        if (result.table?.id) {
+          this.updateConfigPlanTables(result.table.id);
+          this.applyConfigPlanTable();
+        }
+      } catch (error) {
+        this.setResult(this.errorResult(error));
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
+    async deleteConfigTable() {
+      const table = this.selectedConfigPlanTable();
+      if (!table) {
+        return;
+      }
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(this.t('config_delete_confirm'))) {
+        return;
+      }
+      this.setBusy(true, 'panel_status_generating');
+      try {
+        const result = await this.call('config-delete-table', { id: table.id });
+        this.setResult(result);
+        this.$.configPlanTable.value = '';
         await this.refreshConfigDashboard({ silentResult: true, keepBusy: true });
       } catch (error) {
         this.setResult(this.errorResult(error));
@@ -1186,10 +1299,12 @@ module.exports = Editor.Panel.define({
     this.$.generateCheck.addEventListener('click', () => this.generateCheck());
     this.$.cleanPreview.addEventListener('click', () => this.cleanPreview());
     this.$.configScan.addEventListener('click', () => this.refreshConfigDashboard());
+    this.$.configPlanTable.addEventListener('change', () => this.applyConfigPlanTable());
     this.$.configSource.addEventListener('change', () => this.updateConfigSourceSheets());
     this.$.configSheet.addEventListener('change', () => this.applyConfigDefaults());
     this.$.configScopeKind.addEventListener('change', () => this.updateConfigScopeTargets());
     this.$.configSaveTable.addEventListener('click', () => this.saveConfigTable());
+    this.$.configDeleteTable.addEventListener('click', () => this.deleteConfigTable());
     this.$.configBuild.addEventListener('click', () => this.buildConfig());
     this.$.configCheck.addEventListener('click', () => this.checkConfig());
     this.setCreateGroup(DEFAULT_CREATE_GROUP);

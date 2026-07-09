@@ -60,11 +60,15 @@ export class ModuleNavigator {
         return this.stack.length;
     }
 
-    public async enter<TModule extends Module, TParams>(
-        ref: ModuleRef<TParams>,
+    public async enter<
+        TParams,
+        TConfig extends object = object,
+        TModule extends Module<TParams, TConfig> = Module<TParams, TConfig>,
+    >(
+        ref: ModuleRef<TParams, TConfig>,
         params?: TParams,
         options: EnterModuleOptions = {},
-    ): Promise<LoadedModule<TModule>> {
+    ): Promise<LoadedModule<TModule, TConfig>> {
         const serial = options.cancelPendingEnter === false ? 0 : ++this.enterSerial;
         const run = async (): Promise<LoadedModule<Module>> => {
             this.ensureCurrent(serial);
@@ -77,26 +81,34 @@ export class ModuleNavigator {
         };
         const task = this.enterTask.then(run, run);
         this.enterTask = task.catch(() => undefined);
-        return await task as LoadedModule<TModule>;
+        return await task as LoadedModule<TModule, TConfig>;
     }
 
-    public async replace<TModule extends Module, TParams>(
-        ref: ModuleRef<TParams>,
+    public async replace<
+        TParams,
+        TConfig extends object = object,
+        TModule extends Module<TParams, TConfig> = Module<TParams, TConfig>,
+    >(
+        ref: ModuleRef<TParams, TConfig>,
         params?: TParams,
         options: NavigateModuleOptions = {},
-    ): Promise<LoadedModule<TModule>> {
-        return await this.enter<TModule, TParams>(ref, params, {
+    ): Promise<LoadedModule<TModule, TConfig>> {
+        return await this.enter<TParams, TConfig, TModule>(ref, params, {
             ...options,
             mode: EnterMode.Replace,
         });
     }
 
-    public async push<TModule extends Module, TParams>(
-        ref: ModuleRef<TParams>,
+    public async push<
+        TParams,
+        TConfig extends object = object,
+        TModule extends Module<TParams, TConfig> = Module<TParams, TConfig>,
+    >(
+        ref: ModuleRef<TParams, TConfig>,
         params?: TParams,
         options: NavigateModuleOptions = {},
-    ): Promise<LoadedModule<TModule>> {
-        return await this.enter<TModule, TParams>(ref, params, {
+    ): Promise<LoadedModule<TModule, TConfig>> {
+        return await this.enter<TParams, TConfig, TModule>(ref, params, {
             ...options,
             mode: EnterMode.Push,
         });
@@ -161,17 +173,21 @@ export class ModuleNavigator {
         };
     }
 
-    private async enterNow<TModule extends Module, TParams>(
-        ref: ModuleRef<TParams>,
+    private async enterNow<
+        TParams,
+        TConfig extends object = object,
+        TModule extends Module<TParams, TConfig> = Module<TParams, TConfig>,
+    >(
+        ref: ModuleRef<TParams, TConfig>,
         params: TParams | undefined,
         options: EnterModuleOptions,
         serial: number,
-    ): Promise<LoadedModule<TModule>> {
+    ): Promise<LoadedModule<TModule, TConfig>> {
         const mode = options.mode ?? EnterMode.Replace;
         const closePreviousUi = options.closePreviousUi ?? mode === EnterMode.Replace;
         const restorePreviousUiOnBack = options.restorePreviousUiOnBack ?? mode === EnterMode.Push;
         const previous = this.current;
-        const target = await this.app.loadModule<TModule, TParams>(ref);
+        const target = await this.app.loadModule<TParams, TConfig, TModule>(ref);
         this.ensureCurrent(serial);
 
         if (previous === target) {
@@ -219,8 +235,12 @@ export class ModuleNavigator {
         }
     }
 
-    private async reenterCurrent<TModule extends Module, TParams>(
-        target: LoadedModule<TModule>,
+    private async reenterCurrent<
+        TParams,
+        TConfig extends object,
+        TModule extends Module<TParams, TConfig>,
+    >(
+        target: LoadedModule<TModule, TConfig>,
         params: TParams | undefined,
     ): Promise<void> {
         const previousState = target.instance.state;

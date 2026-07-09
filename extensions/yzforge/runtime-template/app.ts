@@ -2,6 +2,7 @@ import type { Node } from 'cc';
 import type { BundleRecordSnapshot } from './bundle-manager';
 import { ModuleAssets } from './assets';
 import type { AssetScopeSnapshot } from './assets';
+import type { ConfigScope } from './config';
 import { ContentPackManager, type ContentPackRecordSnapshot } from './content-pack';
 import type { EntryRegistry } from './entry-registry';
 import type { Extension } from './extension-registry';
@@ -254,9 +255,13 @@ export class App {
         }
     }
 
-    public async loadModule<TModule extends Module, TParams = unknown>(
-        ref: ModuleRef<TParams>,
-    ): Promise<LoadedModule<TModule>> {
+    public async loadModule<
+        TParams = unknown,
+        TConfig extends object = object,
+        TModule extends Module<TParams, TConfig> = Module<TParams, TConfig>,
+    >(
+        ref: ModuleRef<TParams, TConfig>,
+    ): Promise<LoadedModule<TModule, TConfig>> {
         const transitionStart = this.stateTransitions.length;
         try {
             this.assertState('loadModule', [AppState.Started]);
@@ -266,18 +271,18 @@ export class App {
             }
             const existing = this.modules.get(ref.name);
             if (existing) {
-                return existing as LoadedModule<TModule>;
+                return existing as LoadedModule<TModule, TConfig>;
             }
             const running = this.moduleTasks.get(ref.name);
             if (running) {
-                return await running as LoadedModule<TModule>;
+                return await running as LoadedModule<TModule, TConfig>;
             }
 
             await this.ensureBeforeFirstModuleExtensions();
             const task = this.createModule(ref);
             this.moduleTasks.set(ref.name, task);
             try {
-                return await task as LoadedModule<TModule>;
+                return await task as LoadedModule<TModule, TConfig>;
             } finally {
                 this.moduleTasks.delete(ref.name);
             }
@@ -287,11 +292,15 @@ export class App {
         }
     }
 
-    public async enterModule<TModule extends Module, TParams = unknown>(
-        ref: ModuleRef<TParams>,
+    public async enterModule<
+        TParams = unknown,
+        TConfig extends object = object,
+        TModule extends Module<TParams, TConfig> = Module<TParams, TConfig>,
+    >(
+        ref: ModuleRef<TParams, TConfig>,
         params?: TParams,
         options?: EnterModuleOptions,
-    ): Promise<LoadedModule<TModule>> {
+    ): Promise<LoadedModule<TModule, TConfig>> {
         const transitionStart = this.stateTransitions.length;
         try {
             this.assertState('enterModule', [AppState.Started]);
@@ -507,9 +516,9 @@ export class App {
         };
     }
 
-    private async createModule<TParams>(ref: ModuleRef<TParams>): Promise<LoadedModule> {
+    private async createModule<TParams, TConfig extends object = object>(ref: ModuleRef<TParams, TConfig>): Promise<LoadedModule<Module<TParams, TConfig>, TConfig>> {
         const kernel = this.kernel;
-        let instance: Module | undefined;
+        let instance: Module<TParams, TConfig> | undefined;
         const moduleScope = kernel.releaseScope.child('module', ref.name);
         try {
             for (const library of ref.libraries) {
@@ -520,7 +529,8 @@ export class App {
             const entry = await kernel.entries.waitForModule(ref);
             kernel.entries.validateModule(ref, entry);
 
-            instance = new entry.type();
+            const ModuleType = entry.type as new () => Module<TParams, TConfig>;
+            instance = new ModuleType();
             const assets = new ModuleAssets(
                 ref.name,
                 bundle,
@@ -531,7 +541,7 @@ export class App {
             const libraries = new ModuleLibraryManager(kernel, moduleScope);
             const contentPacks = new ContentPackManager(kernel, ref.name, moduleScope);
             const ui = kernel.ui.createForModule(ref.name, instance, moduleScope);
-            const config = await kernel.configs.loadScope(entry.config, assets);
+            const config = await kernel.configs.loadScope<TConfig>(entry.config as never, assets) as ConfigScope<TConfig>;
 
             instance.__yzforgeBind({
                 app: this,
@@ -547,7 +557,7 @@ export class App {
             await instance.__yzforgeCreate();
             await instance.__yzforgeLoad();
 
-            const handle: LoadedModule = {
+            const handle: LoadedModule<Module<TParams, TConfig>, TConfig> = {
                 ref,
                 bundleName: ref.bundle,
                 instance,

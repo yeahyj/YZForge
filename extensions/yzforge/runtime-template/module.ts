@@ -69,30 +69,32 @@ export interface ModuleUIAccess {
     top(): ViewHandle | undefined;
 }
 
-export interface ModuleRuntimeContext {
+export type ModuleConfigOf<TModule> = TModule extends Module<any, infer TConfig> ? TConfig : object;
+
+export interface ModuleRuntimeContext<TConfig extends object = object> {
     readonly app: App;
     readonly ref: ModuleRef;
     readonly assets: ModuleAssets;
-    readonly config: ConfigScope | Record<string, unknown>;
+    readonly config: ConfigScope<TConfig>;
     readonly libraries: ModuleLibraryAccess;
     readonly contentPacks: ModuleContentPackAccess;
     readonly ui: ModuleUIAccess;
     readonly logger: Logger;
 }
 
-export interface LoadedModule<TModule extends Module = Module> {
+export interface LoadedModule<TModule extends Module = Module, TConfig extends object = ModuleConfigOf<TModule>> {
     readonly ref: ModuleRef;
     readonly bundleName: string;
     readonly instance: TModule;
     readonly assets: ModuleAssets;
-    readonly config: ConfigScope | Record<string, unknown>;
+    readonly config: ConfigScope<TConfig>;
     readonly contentPacks: ModuleContentPackAccess;
     readonly releaseScope: ReleaseScope;
     unload(): Promise<void>;
 }
 
-export abstract class Module<TEnter = unknown> {
-    private context?: ModuleRuntimeContext;
+export abstract class Module<TEnter = unknown, TConfig extends object = object> {
+    private context?: ModuleRuntimeContext<TConfig>;
     private readonly models = new Map<ModelType<Model>, Model>();
     private readonly services = new Map<ServiceType<Service>, Service>();
     private readonly flows = new Map<FlowType<Flow>, Flow>();
@@ -112,7 +114,7 @@ export abstract class Module<TEnter = unknown> {
         return this.requireContext().assets;
     }
 
-    public get config(): ConfigScope | Record<string, unknown> {
+    public get config(): ConfigScope<TConfig> {
         return this.requireContext().config;
     }
 
@@ -169,7 +171,7 @@ export abstract class Module<TEnter = unknown> {
         return this.app.useModuleToken(this, token);
     }
 
-    public __yzforgeBind(context: ModuleRuntimeContext): void {
+    public __yzforgeBind(context: ModuleRuntimeContext<TConfig>): void {
         this.context = context;
     }
 
@@ -275,7 +277,7 @@ export abstract class Module<TEnter = unknown> {
     protected onExit(): MaybePromise<void> {}
     protected onUnload(): MaybePromise<void> {}
 
-    private requireContext(): ModuleRuntimeContext {
+    private requireContext(): ModuleRuntimeContext<TConfig> {
         if (!this.context) {
             throw new YZForgeError('Module has not been bound to an App context.', 'module.context_missing');
         }

@@ -494,7 +494,7 @@ function renderRowInterface(table) {
   }
   const lines = [
     ...tsComment(`${meta.table || table.key} table row. Source: ${meta.source || 'unknown'}${meta.sheet ? ` / ${meta.sheet}` : ''}`),
-    `export interface ${meta.row} extends Record<string, unknown> {`,
+    `export interface ${meta.row} {`,
   ];
   for (const field of meta.fields) {
     lines.push(...tsComment(field.comment, '    '));
@@ -561,6 +561,15 @@ function renderConfig(descriptor) {
     ...renderRowInterface(table),
     ...renderKeyConstants(table),
   ]);
+  const configInterfaceName = `${descriptor.name}ConfigTables`;
+  const configInterfaceLines = tables.length === 0
+    ? []
+    : [
+      `export interface ${configInterfaceName} {`,
+      ...tables.map((table) => `    readonly ${table.key}: ConfigTable<${table.meta.row}, '${table.primaryKey}'>;`),
+      '}',
+      '',
+    ];
   const tableLines = tables.map((table) => {
     const meta = table.meta;
     const typeParams = meta?.row
@@ -572,10 +581,15 @@ function renderConfig(descriptor) {
       `        ${table.key}: tableRef${typeParams}({ name: '${table.path}', primaryKey: '${table.primaryKey}' }),`,
     ].join('\n');
   });
+  const yzforgeImports = ['defineConfig', 'tableRef'];
+  if (tables.length > 0) {
+    yzforgeImports.push('type ConfigTable');
+  }
   return [
-    "import { defineConfig, tableRef } from 'yzforge';",
+    `import { ${yzforgeImports.join(', ')} } from 'yzforge';`,
     '',
     ...declarations,
+    ...configInterfaceLines,
     'export const config = defineConfig({',
     '    tables: {',
     ...tableLines,

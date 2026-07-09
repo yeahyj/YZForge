@@ -1,4 +1,5 @@
 import { LibraryAssets, type AssetScopeSnapshot } from './assets';
+import type { ConfigScope } from './config';
 import type { BundleAssetAccess } from './bundle-manager';
 import type { LibraryEntry } from './entry-registry';
 import { YZForgeError } from './errors';
@@ -7,11 +8,11 @@ import { ownerKeyOf, type OwnerRef, type ReleaseScope } from './lifetime';
 import type { LibraryRef } from './refs';
 import type { LibraryToken, TokenProvider } from './tokens';
 
-export interface LoadedLibrary<TTokens = unknown> {
-    readonly ref: LibraryRef<TTokens>;
+export interface LoadedLibrary<TTokens = unknown, TConfig extends object = object> {
+    readonly ref: LibraryRef<TTokens, TConfig>;
     readonly bundleName: string;
     readonly assets: LibraryAssets;
-    readonly config: LibraryEntry['config'];
+    readonly config: ConfigScope<TConfig>;
     use<TKey extends keyof TTokens>(token: LibraryToken<TTokens, TKey>): TTokens[TKey];
     unload(): Promise<void>;
 }
@@ -44,15 +45,15 @@ export class LibraryRegistry {
 
     public constructor(private readonly kernel: AppKernel) {}
 
-    public async acquire<TTokens>(
-        ref: LibraryRef<TTokens>,
+    public async acquire<TTokens, TConfig extends object = object>(
+        ref: LibraryRef<TTokens, TConfig>,
         owner: OwnerRef,
-    ): Promise<LoadedLibrary<TTokens>> {
+    ): Promise<LoadedLibrary<TTokens, TConfig>> {
         const ownerKey = ownerKeyOf(owner);
         const existing = this.records.get(ref.name);
         if (existing) {
             this.acquireOwner(existing, owner);
-            return existing.handle as LoadedLibrary<TTokens>;
+            return existing.handle as LoadedLibrary<TTokens, TConfig>;
         }
 
         const running = this.inFlight.get(ref.name);
@@ -62,20 +63,20 @@ export class LibraryRegistry {
             if (record) {
                 this.acquireOwner(record, owner);
             }
-            return handle as LoadedLibrary<TTokens>;
+            return handle as LoadedLibrary<TTokens, TConfig>;
         }
 
         const task = this.create(ref, owner);
         this.inFlight.set(ref.name, task);
         try {
-            return (await task) as LoadedLibrary<TTokens>;
+            return (await task) as LoadedLibrary<TTokens, TConfig>;
         } finally {
             this.inFlight.delete(ref.name);
         }
     }
 
-    public get<TTokens>(ref: LibraryRef<TTokens>): LoadedLibrary<TTokens> | undefined {
-        return this.records.get(ref.name)?.handle as LoadedLibrary<TTokens> | undefined;
+    public get<TTokens, TConfig extends object = object>(ref: LibraryRef<TTokens, TConfig>): LoadedLibrary<TTokens, TConfig> | undefined {
+        return this.records.get(ref.name)?.handle as LoadedLibrary<TTokens, TConfig> | undefined;
     }
 
     public snapshot(name: string): LibraryRecordSnapshot | undefined {
@@ -99,10 +100,10 @@ export class LibraryRegistry {
         this.ownerRefs.delete(ownerKey);
     }
 
-    private async create<TTokens>(
-        ref: LibraryRef<TTokens>,
+    private async create<TTokens, TConfig extends object = object>(
+        ref: LibraryRef<TTokens, TConfig>,
         owner: OwnerRef,
-    ): Promise<LoadedLibrary<TTokens>> {
+    ): Promise<LoadedLibrary<TTokens, TConfig>> {
         const ownerKey = ownerKeyOf(owner);
         const scope = this.kernel.releaseScope.child('library', ref.name);
         let bundle: BundleAssetAccess | undefined;
@@ -123,9 +124,9 @@ export class LibraryRegistry {
                 scope.child('assets', ref.name),
                 this.kernel.ownership,
             );
-            const config = await this.kernel.configs.loadScope(entry.config, assets);
+            const config = await this.kernel.configs.loadScope<TConfig>(entry.config as never, assets) as ConfigScope<TConfig>;
             const record = {} as LibraryRecord;
-            const handle: LoadedLibrary<TTokens> = {
+            const handle: LoadedLibrary<TTokens, TConfig> = {
                 ref,
                 bundleName: ref.bundle,
                 assets,
@@ -260,7 +261,7 @@ export class ModuleLibraryManager {
         private readonly owner: ReleaseScope,
     ) {}
 
-    public async load<TTokens>(ref: LibraryRef<TTokens>): Promise<LoadedLibrary<TTokens>> {
+    public async load<TTokens, TConfig extends object = object>(ref: LibraryRef<TTokens, TConfig>): Promise<LoadedLibrary<TTokens, TConfig>> {
         return this.kernel.libraries.acquire(ref, this.owner);
     }
 

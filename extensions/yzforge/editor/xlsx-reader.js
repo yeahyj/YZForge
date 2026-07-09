@@ -23,10 +23,10 @@ function xmlAttributes(source) {
   return attrs;
 }
 
-function columnIndex(cellRef) {
+function columnIndex(cellRef, fallback = 0) {
   const match = String(cellRef || '').match(/^([A-Z]+)/i);
   if (!match) {
-    return 0;
+    return fallback;
   }
   let index = 0;
   for (const char of match[1].toUpperCase()) {
@@ -182,18 +182,29 @@ function parseCellValue(cellXml, attrs, sharedStrings) {
 
 function parseSheetRows(xml, sharedStrings) {
   const rows = [];
-  const rowPattern = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+  const rowPattern = /<row\b([^>]*)>([\s\S]*?)<\/row>/g;
   let row;
   while ((row = rowPattern.exec(xml)) !== null) {
+    const rowAttrs = xmlAttributes(row[1]);
+    const rowIndex = /^\d+$/.test(String(rowAttrs.r || ''))
+      ? Number(rowAttrs.r) - 1
+      : rows.length;
     const values = [];
     const cellPattern = /<c\b([^>]*)>([\s\S]*?)<\/c>/g;
     let cell;
-    while ((cell = cellPattern.exec(row[1])) !== null) {
+    let nextColumn = 0;
+    while ((cell = cellPattern.exec(row[2])) !== null) {
       const attrs = xmlAttributes(cell[1]);
-      const index = columnIndex(attrs.r);
+      const index = columnIndex(attrs.r, nextColumn);
       values[index] = parseCellValue(cell[0], attrs, sharedStrings);
+      nextColumn = index + 1;
     }
-    rows.push(values.map((value) => value ?? ''));
+    rows[rowIndex] = values.map((value) => value ?? '');
+  }
+  for (let index = 0; index < rows.length; index += 1) {
+    if (!rows[index]) {
+      rows[index] = [];
+    }
   }
   return rows;
 }

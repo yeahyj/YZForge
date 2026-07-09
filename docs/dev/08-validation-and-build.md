@@ -42,6 +42,7 @@ npm run yzforge:cocos:build:web
 | `yzforge:generate` | 扫描描述文件，生成 contract、registry、entry、assets、config、import map、工具链模板 |
 | `yzforge:generate:check` | 检查普通生成物是否最新，不写文件 |
 | `yzforge:config:table` | 从 CLI 登记一张 Excel 表到 `config-source/export-plan.json` |
+| `yzforge:config:remove` | 从 CLI 按稳定 ID 删除一条配置表导出规则 |
 | `yzforge:config:build` | 从 Excel 导出配置 JSON，并刷新 `generated/config.ts` |
 | `yzforge:config:check` | 检查配置 JSON 和配置生成入口是否最新，不写文件 |
 | `yzforge:validate` | 基础架构校验 |

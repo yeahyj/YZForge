@@ -6,7 +6,7 @@ const path = require('path');
 const vm = require('vm');
 const { validateBuildMatrix } = require('./build-matrix');
 const { cleanGenerated } = require('./cleanup');
-const { buildConfig, configDashboard, saveConfigPlanTable } = require('./config-builder');
+const { buildConfig, configDashboard, deleteConfigPlanTable, saveConfigPlanTable } = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { kebabCase, toPosix } = require('./fs-utils');
@@ -29,6 +29,17 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function expectThrows(task, expected) {
+  try {
+    task();
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    assert(message.includes(expected), `Expected error to include '${expected}', got:\n${message}`);
+    return error;
+  }
+  throw new Error(`Expected task to throw: ${expected}`);
 }
 
 function loadTypeScript() {
@@ -150,6 +161,9 @@ function makeStoredZip(entries) {
 
 function writeXlsx(projectRoot, relativePath, sheetName, rows) {
   const sheetRows = rows.map((row, rowIndex) => {
+    if (!row) {
+      return '';
+    }
     const cells = row.map((value, columnIndex) => xlsxCell(value, rowIndex, columnIndex)).join('');
     return `<row r="${rowIndex + 1}">${cells}</row>`;
   }).join('');
@@ -1930,7 +1944,7 @@ function createSmokeProject(projectRoot) {
     ['id', 'enemy', 'count'],
     ['string', 'string', 'number'],
     ['pk', 'client', 'client'],
-    ['Wave id', 'Enemy id', 'Enemy count'],
+    undefined,
     ['wave1', 'slime', 3],
   ]);
   saveConfigPlanTable(projectRoot, {
@@ -1994,12 +2008,14 @@ function assertGeneratedOutput(projectRoot) {
   requireText(projectRoot, 'assets/app/global/code/generated/assets.ts', "toastNotice: viewRef('Global', ToastNotice, 'res/view/ToastNotice'");
   requireText(projectRoot, 'assets/modules/Battle/code/generated/assets.ts', "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle'");
   requireText(projectRoot, 'assets/modules/Battle/code/generated/assets.ts', "partReward: partRef(PartReward, 'res/part/PartReward')");
-  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export interface ItemRow extends Record<string, unknown>');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export interface ItemRow {');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export interface BattleConfigTables');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export const BattleItemIds = {');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', "item: tableRef<ItemRow, 'id'>({ name: 'res/content/config/Item', primaryKey: 'id' })");
+  requireText(projectRoot, 'assets/app/registry/modules/Battle.ref.generated.ts', 'defineModuleRef<BattleEnterParams>');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export const BattleLevel001ContentPack = defineContentPack');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "levelRoot: contentPackAssetRef(Prefab, 'res/prefab/LevelRoot')");
-  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export interface EnemyWaveRow extends Record<string, unknown>');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export interface EnemyWaveRow {');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export const BattleLevel001EnemyWaveIds = {');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "enemyWave: contentPackConfigRef<EnemyWaveRow>('res/content/config/EnemyWave', { primaryKey: 'id' })");
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export interface BattleLevel001ContentPackConfigTables');
@@ -2023,6 +2039,7 @@ function assertConfigBuildFromExcel(projectRoot) {
   assert(dashboard.sources.some((source) => source.source === 'config-source/excel/BattleItems.xlsx' && source.sheets.includes('Items')), 'Config dashboard must scan module xlsx sheets.');
   assert(dashboard.sources.some((source) => source.source === 'config-source/excel/Level001Enemies.xlsx' && source.sheets.includes('EnemyWaves')), 'Config dashboard must scan content pack xlsx sheets.');
   assert(dashboard.plan.tables.length === 2, 'Config plan must contain module and content-pack tables.');
+  assert(dashboard.plan.tables.every((table) => /^cfg_[A-Za-z0-9_-]+$/.test(table.id)), 'Config plan tables must have stable ids.');
   const payload = readJson(projectRoot, 'assets/modules/Battle/res/content/config/Item.json');
   assert(payload._yzforgeConfig?.source === 'config-source/excel/BattleItems.xlsx', 'Generated config metadata must keep source.');
   assert(payload._yzforgeConfig?.fields.every((field) => field.name !== 'serverOnly'), 'Ignored config fields must not be exported.');
@@ -2032,6 +2049,7 @@ function assertConfigBuildFromExcel(projectRoot) {
   assert(payload.rows[1].enabled === undefined, 'Optional empty config fields must be omitted.');
   const enemyPayload = readJson(projectRoot, 'assets/content-packs/Battle/Level001/res/content/config/EnemyWave.json');
   assert(enemyPayload._yzforgeConfig?.scope?.kind === 'content-pack', 'ContentPack config metadata must keep scope.');
+  assert(enemyPayload.rows.length === 1, 'Config reader must preserve omitted physical rows instead of collapsing row numbers.');
   assert(enemyPayload.rows[0].count === 3, 'ContentPack config must convert numbers.');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export interface ItemRow');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'readonly type: "consumable" | "weapon";');
@@ -2039,6 +2057,75 @@ function assertConfigBuildFromExcel(projectRoot) {
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export const BattleItemIds = {');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'sword: "sword",');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', "item: tableRef<ItemRow, 'id'>({ name: 'res/content/config/Item', primaryKey: 'id' })");
+
+  const moduleRule = dashboard.plan.tables.find((table) => table.scope?.kind === 'module' && table.scope?.name === 'Battle');
+  assert(moduleRule?.id, 'Expected module config rule id.');
+  const updatedRule = saveConfigPlanTable(projectRoot, {
+    ...moduleRule,
+    generateKeys: false,
+  });
+  assert(updatedRule.table.id === moduleRule.id, 'Config rule update must preserve stable id.');
+  assert(configDashboard(projectRoot).plan.tables.length === 2, 'Config rule update by id must not duplicate plan tables.');
+  saveConfigPlanTable(projectRoot, {
+    ...moduleRule,
+    generateKeys: true,
+  });
+
+  writeXlsx(projectRoot, 'config-source/excel/TempItems.xlsx', 'TempItems', [
+    ['id', 'label'],
+    ['string', 'string'],
+    ['pk', 'client'],
+    ['id', 'label'],
+    ['temp', 'Temp'],
+  ]);
+  const tempRule = saveConfigPlanTable(projectRoot, {
+    source: 'config-source/excel/TempItems.xlsx',
+    sheet: 'TempItems',
+    table: 'tempItem',
+    row: 'TempItemRow',
+    scope: { kind: 'module', name: 'Battle' },
+    primaryKey: 'id',
+    format: 'json',
+    generateKeys: true,
+  });
+  assert(tempRule.table.id, 'New config rules must receive stable ids.');
+  const deletedRule = deleteConfigPlanTable(projectRoot, { id: tempRule.table.id });
+  assert(deletedRule.deleted?.id === tempRule.table.id, 'Config rule delete must report the deleted rule.');
+  assert(configDashboard(projectRoot).plan.tables.length === 2, 'Config rule delete must remove exactly one plan table.');
+
+  expectThrows(() => saveConfigPlanTable(projectRoot, {
+    source: '../Bad.xlsx',
+    sheet: 'Bad',
+    table: 'bad',
+    row: 'BadRow',
+    scope: { kind: 'module', name: 'Battle' },
+    primaryKey: 'id',
+    format: 'json',
+    generateKeys: true,
+  }), 'under config-source/excel');
+
+  writeXlsx(projectRoot, 'config-source/excel/BadRules.xlsx', 'BadRules', [
+    ['id', 'label'],
+    ['string', 'string'],
+    ['pk', 'server'],
+    ['id', 'label'],
+    ['bad', 'Bad'],
+  ]);
+  const badRule = saveConfigPlanTable(projectRoot, {
+    source: 'config-source/excel/BadRules.xlsx',
+    sheet: 'BadRules',
+    table: 'badRule',
+    row: 'BadRuleRow',
+    scope: { kind: 'module', name: 'Battle' },
+    primaryKey: 'id',
+    format: 'json',
+    generateKeys: true,
+  });
+  try {
+    expectThrows(() => buildConfig(projectRoot), 'unsupported rule: server');
+  } finally {
+    deleteConfigPlanTable(projectRoot, { id: badRule.table.id });
+  }
 
   writeJson(projectRoot, 'assets/modules/Battle/res/content/config/Obsolete.json', {
     _yzforgeConfig: {
@@ -2082,6 +2169,7 @@ function assertToolchainResolverInvariants() {
   const forbiddenCocosInstallPath = ['D:', '/Applications/Cocos'].join('');
   assert(packageJson.scripts?.typecheck === 'node extensions/yzforge/editor/cli.js typecheck', 'typecheck script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:config:table'] === 'node extensions/yzforge/editor/cli.js config-table', 'Config table script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:config:remove'] === 'node extensions/yzforge/editor/cli.js config-remove', 'Config remove script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:config:build'] === 'node extensions/yzforge/editor/cli.js config-build', 'Config build script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:config:check'] === 'node extensions/yzforge/editor/cli.js config-build --check', 'Config check script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:validate:build-matrix'] === 'node extensions/yzforge/editor/cli.js validate-build-matrix', 'BuildMatrixValidator script must route through YZForge CLI.');
@@ -2099,6 +2187,7 @@ function assertToolchainResolverInvariants() {
   assert(toolchainSource.includes('runTypecheck'), 'ToolchainResolver must own typecheck execution.');
   assert(cliSource.includes("command === 'typecheck'") && cliSource.includes('runTypecheck'), 'CLI must route typecheck through ToolchainResolver.');
   assert(cliSource.includes("command === 'config-table'") && cliSource.includes('saveConfigPlanTable'), 'CLI must route config table registration through ConfigBuilder.');
+  assert(cliSource.includes("command === 'config-remove'") && cliSource.includes('deleteConfigPlanTable'), 'CLI must route config table deletion through ConfigBuilder.');
   assert(cliSource.includes("command === 'config-build'") && cliSource.includes('buildConfig'), 'CLI must route config build through ConfigBuilder.');
   assert(!generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must not write local Cocos engine paths into committed project config.');
   assert(validateSource.includes('loadToolchainTypeScript') && !validateSource.includes(forbiddenCocosInstallPath), 'Validator must load TypeScript through ToolchainResolver.');
@@ -2275,7 +2364,7 @@ function assertRuntimeLifecycleInvariants() {
   assert(bundleSource.includes('cacheState'), 'Bundle snapshots must expose cache state.');
   assert(preloadBody.includes('kernel.bundles.preloadBundle'), 'preloadModule must preload the module bundle through AppKernel.');
   assert(!preloadBody.includes('new entry.type') && !preloadBody.includes('__yzforgeCreate') && !preloadBody.includes('__yzforgeLoad'), 'preloadModule must not create or load Module instances.');
-  assert(appSource.includes('instance = new entry.type()'), 'loadModule/createModule must create Module instances.');
+  assert(appSource.includes('instance = new ModuleType()'), 'loadModule/createModule must create Module instances.');
   assert(appSource.indexOf('await instance.__yzforgeCreate()') < appSource.indexOf('await instance.__yzforgeLoad()'), 'Module load must call onCreate before onLoad.');
   assert(enterBody.includes('this.kernel.navigator.enter') && !enterBody.includes('__yzforgeEnter'), 'App.enterModule must delegate enter lifecycle to ModuleNavigator through AppKernel.');
   assert(appSource.includes('public async back(): Promise<boolean>'), 'App must expose a narrow back navigation facade.');

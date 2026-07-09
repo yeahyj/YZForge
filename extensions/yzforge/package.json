@@ -103,6 +103,11 @@
           "saveConfigTable"
         ]
       },
+      "config-delete-table": {
+        "methods": [
+          "deleteConfigTable"
+        ]
+      },
       "config-build": {
         "methods": [
           "configBuild"

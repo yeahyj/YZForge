@@ -1,6 +1,6 @@
 # 04. 资源与配置表
 
-这篇只讲日常开发怎么放、怎么生成、怎么读。
+这篇只讲日常开发怎么放资源、怎么维护 Excel 配置表、怎么生成、怎么读。
 
 ## 资源放哪里
 
@@ -33,7 +33,7 @@ const effect = await this.module.assets.instantiate(assets.runtime.effectHit, {
 
 ## 配置表工作流
 
-Excel 原始表放在项目根目录：
+Excel 原始表只放在项目根目录的 `config-source/excel`：
 
 ```text
 config-source/excel/
@@ -46,6 +46,8 @@ config-source/excel/
 ```text
 config-source/export-plan.json
 ```
+
+每条导出规则都有稳定 `id`。后续编辑、删除都按 `id` 命中，不靠表名、Excel 名或 Scope 猜测。
 
 生成后的运行时 JSON 会进入对应 Scope：
 
@@ -64,28 +66,43 @@ assets/libraries/<Library>/code/generated/config.ts
 assets/app/global/code/generated/config.ts
 ```
 
-ContentPack 的配置入口仍通过 `manifest.generated.json` 暴露给 `LoadedContentPack.config`。
+ContentPack 的配置入口通过 `manifest.generated.json` 和 `LoadedContentPack.config` 暴露。
 
 ## 面板生成
 
 打开 Cocos 菜单 `YZForge -> Open Panel`，在 `Config Tables` 区域：
 
 1. 点击 `Scan Excel`，扫描 `config-source/excel/**/*.xlsx`。
-2. 选择 `Source` 和 `Sheet`。
-3. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
-4. 填 `Table`、`Row Type`、`Primary Key`。
-5. 勾选 `Generate ID constants`，生成主键常量，业务代码不用手写字符串。
-6. 点击 `Save Table` 写入 `config-source/export-plan.json`。
-7. 点击 `Build Config` 生成 JSON 和 `generated/config.ts`。
+2. 在 `Saved Rule` 选择已有规则，或选择 `New Rule` 新建规则。
+3. 选择 `Source` 和 `Sheet`。
+4. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
+5. 填 `Table`、`Row Type`、`Primary Key`。
+6. 勾选 `Generate ID constants`，生成主键常量，业务代码不用手写字符串。
+7. 点击 `Save Table` 写入 `config-source/export-plan.json`。
+8. 点击 `Build Config` 生成 JSON 和 `generated/config.ts`。
+
+`Delete Rule` 只删除导出规则，不会直接删除 Excel。下一次 `Build Config` 会清理不再属于导出计划的旧生成 JSON。
 
 `Config Check` 只检查生成物是否最新，不写文件，适合提交前和 CI。
 
-## CLI 生成
+## CLI
 
 登记一张表：
 
 ```bash
 npm run yzforge:config:table -- --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
+```
+
+更新已有规则时传 `--id`：
+
+```bash
+npm run yzforge:config:table -- --id cfg_xxx --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
+```
+
+删除规则：
+
+```bash
+npm run yzforge:config:remove -- --id cfg_xxx
 ```
 
 Scope 写法：
@@ -123,6 +140,8 @@ npm run yzforge:config:check
 | 第 4 行 | 字段注释，会生成到 TS 接口 | `道具 ID`、`显示名称` |
 | 第 5 行起 | 数据 | `sword_001`、`10` |
 
+第 4 行可以整行留空；Excel 物理空行不会导致第 5 行数据被误判成表头。
+
 支持类型：
 
 ```text
@@ -141,9 +160,11 @@ json
 | 规则 | 作用 |
 | --- | --- |
 | `pk` | 标记主键。整张表只能有一个主键 |
-| `client` | 导出到客户端，空白规则默认就是它 |
+| `client` | 导出到客户端；空白规则默认就是它 |
 | `optional` | 数据为空时允许省略这个字段 |
 | `ignore` | 完全不导出这一列 |
+
+未知规则会直接报错。比如 `server`、`clientOnly`、`note` 都不是合法规则；如果要备注，请写在第 4 行注释，不要塞进规则行。
 
 主键规则：
 
@@ -166,30 +187,39 @@ sharp|metal
 生成器会根据 Excel 元信息生成行类型、表入口和可选 ID 常量：
 
 ```ts
-import { BattleItemIds, config } from '../generated/config';
+import { BattleItemIds } from '../generated/config';
 
-const item = this.module.config.tables.item.require(BattleItemIds.sword);
+const item = this.config.tables.item.require(BattleItemIds.sword);
 const price = item.price;
 ```
 
-在 Module 内读自己的配置：
+如果想让模块里的 `this.config.tables` 获得完整类型，把模块类接上生成的 `XxxConfigTables`：
 
 ```ts
-const item = this.module.config.tables.item.require(BattleItemIds.sword);
+import { Module } from 'yzforge';
+import type { BattleConfigTables } from './generated/config';
+import type { BattleEnterParams } from './public';
+
+export class BattleModule extends Module<BattleEnterParams, BattleConfigTables> {
+    protected onEnter(): void {
+        const item = this.config.tables.item.require(BattleItemIds.sword);
+        this.logger.info(item.price);
+    }
+}
 ```
 
-读 Library 配置，先通过依赖拿到 LoadedLibrary：
+读 Library 配置时，先通过依赖拿到 `LoadedLibrary`：
 
 ```ts
-const battleCore = this.module.libraries.require(BattleCoreRef);
+const battleCore = await this.libraries.load(BattleCoreRef);
 const mode = battleCore.config.tables.battleMode.require(BattleCoreBattleModeIds.normal);
 ```
 
 读 ContentPack 配置：
 
 ```ts
-const wave = contentPack.config.tables.enemyWave.require(BattleLevel001EnemyWaveIds.wave1);
-const count = wave.count;
+const pack = await this.contentPacks.load(BattleLevel001ContentPack);
+const wave = pack.config.tables.enemyWave.require(BattleLevel001EnemyWaveIds.wave1);
 ```
 
 不要从一个 Module 直接 import 另一个 Module 的 `generated/config.ts`。如果多处都要读同一张表，把表提升到 Library、Global 或对应 ContentPack。
@@ -212,5 +242,6 @@ assets/libraries/Economy/res/content/config/Item.json
 - 当前导出格式只实现 `json`。
 - 二进制格式通过 runtime codec 预留了接口，但还没有表格导出器。
 - `.xlsx` 读取的是工作簿里保存的单元格值，不负责重新计算公式。
+- `source` 必须是 `config-source/excel` 下的项目相对 `.xlsx` 路径，不能用绝对路径，也不能 `../` 越界。
 - `res/content/config/*.json` 只允许是生成物，必须带 `_yzforgeConfig`；手写旧 JSON 表会被 Validator 拒绝。
 - 生成的 `code/generated/*` 和 `res/content/config/*.json` 不手改；要改 Excel 或 `config-source/export-plan.json`。
