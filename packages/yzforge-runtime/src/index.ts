@@ -3,6 +3,7 @@ export * from './assets';
 export * from './boot';
 export { BundleState } from './bundle-manager';
 export type { BundleHandle, BundleRecordSnapshot } from './bundle-manager';
+export * from './clock';
 export * from './config';
 export * from './entry-registry';
 export * from './errors';

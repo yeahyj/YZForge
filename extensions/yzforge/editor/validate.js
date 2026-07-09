@@ -1045,6 +1045,9 @@ function validateAppStateMachine(projectRoot, issues) {
   requirePattern(/\bpublic\s+get\s+boot\s*\(\)\s*:\s*AppBootProfile\b/, 'App must expose boot profile through a boot getter.', 'boot');
   requirePattern(/\breadonly\s+boot\s*:\s*AppBootProfile\b/, 'AppRuntimeSnapshot must expose AppBootProfile.', 'AppRuntimeSnapshot.boot');
   requirePattern(/\bboot\s*:\s*kernel\.boot\b/, 'App.snapshot must include AppBootProfile.', 'snapshot.boot');
+  requirePattern(/\bpublic\s+get\s+clock\s*\(\)\s*:\s*AppClock\b/, 'App must expose AppClock through a clock getter.', 'clock');
+  requirePattern(/\breadonly\s+clock\s*:\s*AppClockSnapshot\b/, 'AppRuntimeSnapshot must expose AppClockSnapshot.', 'AppRuntimeSnapshot.clock');
+  requirePattern(/\bclock\s*:\s*kernel\.clock\.snapshot\s*\(\s*\)/, 'App.snapshot must include AppClock snapshot.', 'snapshot.clock');
   requirePattern(/['"]app\.invalid_state['"]/, 'App state guard must report app.invalid_state.', 'app.invalid_state');
   requirePattern(/\bArray\.from\s*\(\s*this\.moduleTasks\.values\s*\(\s*\)\s*\)/, 'App.dispose must wait for pending module load tasks before unloading modules.', 'moduleTasks');
 
@@ -1075,7 +1078,7 @@ function validateAppPublicStateGuards(rel, source, issues) {
     ['purgeResourceCache', ['AppState.Started', 'AppState.Disposing']],
     ['dispose', ['AppState.Created', 'AppState.Starting', 'AppState.Started', 'AppState.Failed']],
   ]);
-  const allowedUnguardedPublicMembers = new Set(['logger', 'lifecycle', 'viewport', 'state', 'boot', 'snapshot']);
+  const allowedUnguardedPublicMembers = new Set(['logger', 'lifecycle', 'viewport', 'state', 'boot', 'clock', 'snapshot']);
   const appClass = sourceFile.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === 'App');
   if (!appClass) {
     issues.push(`${rel} must declare class App.`, {

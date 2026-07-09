@@ -20,6 +20,7 @@ export class App {
     public readonly viewport: ViewportManager;
     public readonly state: AppState;
     public readonly boot: AppBootProfile;
+    public readonly clock: AppClock;
 
     public start(options?: AppStartOptions): Promise<void>;
     public preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope>;
@@ -51,6 +52,48 @@ export class App {
 `AppBootSettings` 是项目脚本，开发者可以直接修改其中的渠道枚举。`Main.ts` 读取它并通过 `createYZForgeApp({ boot })` 传给 runtime；运行时通过 `app.boot` 和 `app.snapshot().boot` 暴露只读结果。
 
 它不是配置表，也不承载玩法数值、活动参数或远程开关。
+
+## 时间与刷新周期
+
+`AppClock` 是 App 级时间源。业务代码需要判断每日刷新、每周刷新、跨月、倒计时或服务端时间校准时，统一走 `app.clock`，不要在业务逻辑里散落 `Date.now()`。
+
+```ts
+const now = app.clock.serverUnixMs();
+const today = app.clock.startOfDayMs();
+const left = app.clock.msUntilNextDay();
+```
+
+公开能力：
+
+```ts
+app.clock.nowMs();
+app.clock.unixMs();
+app.clock.serverUnixMs();
+app.clock.setServerUnixMs(serverMs);
+app.clock.clearServerUnixMs();
+app.clock.dayOfWeek();
+app.clock.startOfDayMs();
+app.clock.startOfWeekMs();
+app.clock.startOfMonthMs();
+app.clock.isSameDay(a, b);
+app.clock.isSameWeek(a, b);
+app.clock.isSameMonth(a, b);
+app.clock.hasCrossedDay(lastMs);
+app.clock.hasCrossedWeek(lastMs);
+app.clock.hasCrossedMonth(lastMs);
+app.clock.msUntilNextDay();
+app.clock.msUntilNextWeek();
+app.clock.msUntilNextMonth();
+```
+
+规则：
+
+- 所有时间戳都是 Unix milliseconds。
+- `dayOfWeek` 使用 ISO 规则：周一是 `1`，周日是 `7`。
+- 周期边界默认按本地时区计算，一周从周一开始。
+- 未同步服务端时间时，`serverUnixMs()` 等于本机时间；调用 `setServerUnixMs` 后记录 offset，并用运行时单调时钟推进服务端时间，减少系统时间被改动导致的跳变。
+- `nowMs()` 是单调运行时长，只用于性能、冷却、动画或本地耗时统计，不用于跨天判断。
+- `AppClock` 不做节假日、活动日历、cron 表达式或平台时间校验；这些应由配置表、活动系统或平台扩展解释。
 
 ## App 状态机
 

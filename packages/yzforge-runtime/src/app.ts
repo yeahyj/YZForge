@@ -1,6 +1,7 @@
 import type { Node } from 'cc';
 import type { AppBootProfile, AppBootProfileInput } from './boot';
 import type { BundleRecordSnapshot } from './bundle-manager';
+import type { AppClock, AppClockSnapshot } from './clock';
 import { ModuleAssets } from './assets';
 import type { AssetScopeSnapshot } from './assets';
 import type { ConfigScope } from './config';
@@ -90,6 +91,7 @@ export interface ResourceDiagnosticsSnapshot {
 export interface AppRuntimeSnapshot {
     readonly state: AppState;
     readonly boot: AppBootProfile;
+    readonly clock: AppClockSnapshot;
     readonly lastFailure?: AppFailureSnapshot;
     readonly viewport: DeviceProfile;
     readonly releaseScope: ReleaseScopeSnapshot;
@@ -141,6 +143,10 @@ export class App {
 
     public get boot(): AppBootProfile {
         return this.kernel.boot;
+    }
+
+    public get clock(): AppClock {
+        return this.kernel.clock;
     }
 
     public async back(): Promise<boolean> {
@@ -511,6 +517,7 @@ export class App {
         return {
             state: this.appState,
             boot: kernel.boot,
+            clock: kernel.clock.snapshot(),
             lastFailure: this.lastFailure,
             viewport: kernel.viewport.profile,
             releaseScope: kernel.releaseScope.snapshot(),

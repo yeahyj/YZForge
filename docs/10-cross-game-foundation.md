@@ -8,6 +8,7 @@
 
 - `ViewportManager`：统一读取屏幕、设计分辨率、可视区域、安全区。
 - `AppBootSettings`：启动前渠道和运行 profile 设置。
+- `AppClock`：统一 App 时间源、服务端时间 offset、跨天 / 跨周 / 跨月判断。
 - 标准 `MainRoot` / `UIRoot` / 全屏 UI Layer 结构。
 - 最小安全区与全屏适配组件。
 - 系统 UI preset：Loading、TouchMask、Toast、PopupMask。
@@ -53,6 +54,7 @@ Cocos 官方能力：
 | 能力 | 归属 | 原因 |
 | --- | --- | --- |
 | 安全区、刘海屏、长宽屏适配 | 核心 | UIRoot、PopupMask、Toast、Loading 都依赖同一份屏幕信息。 |
+| 时间源、跨天、跨周、跨月判断 | 核心 | 存档、活动、倒计时、网络校时都会用到，必须避免业务各自散落 `Date.now()`。 |
 | Main 场景 UI 层级 | 核心 | UIManager 需要稳定挂载点。 |
 | Loading / TouchMask / Toast / PopupMask | 核心模板 | 属于系统 UI 基础设施。 |
 | App 前后台、viewport changed | 核心 | 扩展和 Module 都需要统一事件源。 |

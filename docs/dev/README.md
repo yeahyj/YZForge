@@ -55,6 +55,9 @@ npm run yzforge:cocos:build:web
 9. [08-validation-and-build.md](./08-validation-and-build.md)：校验、类型检查和构建。
 10. [09-troubleshooting.md](./09-troubleshooting.md)：常见问题排查。
 11. [10-release-checklist.md](./10-release-checklist.md)：提交前检查清单。
+12. [11-time-clock.md](./11-time-clock.md)：时间、跨天、跨周、跨月和倒计时。
+13. [12-framework-usage-manual.md](./12-framework-usage-manual.md)：框架日常使用手册。
+14. [13-config-table-manual.md](./13-config-table-manual.md)：配置表使用手册。
 
 ## 一句话原则
 

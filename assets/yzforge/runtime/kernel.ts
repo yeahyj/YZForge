@@ -1,5 +1,6 @@
 import { BundleManager } from './bundle-manager';
 import { normalizeAppBootProfile, type AppBootProfile } from './boot';
+import { AppClock } from './clock';
 import { ConfigManager } from './config';
 import { EntryRegistry, getDefaultEntryRegistry } from './entry-registry';
 import { ExtensionRegistry } from './extension-registry';
@@ -18,6 +19,7 @@ import type { MainBinding } from './main-binding';
 export class AppKernel {
     public readonly logger: Logger;
     public readonly boot: AppBootProfile;
+    public readonly clock: AppClock;
     public readonly entries: EntryRegistry;
     public readonly ownership: OwnershipLedger;
     public readonly releaseScope: ReleaseScope;
@@ -35,6 +37,7 @@ export class AppKernel {
 
     public constructor(app: App, options: AppOptions = {}) {
         this.boot = normalizeAppBootProfile(options.boot);
+        this.clock = new AppClock();
         this.logger = options.logger ?? new Logger();
         this.entries = options.entries ?? getDefaultEntryRegistry();
         this.ownership = new OwnershipLedger();

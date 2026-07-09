@@ -1140,9 +1140,30 @@ async function assertAppStateMachineBehavior() {
     }
   }
 
+  class SmokeClock {
+    snapshot() {
+      return {
+        nowMs: 0,
+        unixMs: 0,
+        serverUnixMs: 0,
+        serverOffsetMs: 0,
+        serverSynced: false,
+        timezoneOffsetMinutes: 0,
+        dayOfWeek: 1,
+        startOfDayMs: 0,
+        startOfWeekMs: 0,
+        startOfMonthMs: 0,
+        msUntilNextDay: 0,
+        msUntilNextWeek: 0,
+        msUntilNextMonth: 0,
+      };
+    }
+  }
+
   class SmokeAppKernel {
     constructor(app, options = {}) {
       this.boot = options.boot ?? { channel: 'default', profile: 'debug', debug: true };
+      this.clock = new SmokeClock();
       this.logger = createLogger();
       this.entries = {
         waitForModule: async () => ({}),
@@ -1261,7 +1282,9 @@ async function assertAppStateMachineBehavior() {
   const app = new App({ boot: { channel: 'wechat', profile: 'release', debug: false } });
   assert(app.state === AppState.Created, 'App must start in Created state.');
   assert(app.boot.channel === 'wechat', 'App.boot must expose the configured boot channel.');
+  assert(app.clock.snapshot().serverSynced === false, 'App.clock must expose the AppClock facade.');
   assert(app.snapshot().boot.profile === 'release', 'App snapshot must expose the configured boot profile.');
+  assert(app.snapshot().clock.dayOfWeek === 1, 'App snapshot must expose the AppClock snapshot.');
   assert(app.snapshot().state === AppState.Created, 'App snapshot must expose current state.');
   assert(app.snapshot().resourceDiagnostics?.healthy === true, 'App snapshot must expose healthy resource diagnostics when no leaks exist.');
 
@@ -1390,6 +1413,35 @@ async function assertAppStateMachineBehavior() {
     startFailureSnapshot?.transitions?.map((transition) => `${transition.from}->${transition.to}`).join('|') === 'created->starting|starting->disposing|disposing->disposed',
     'App start failure snapshot must expose rollback state transitions.',
   );
+}
+
+async function assertAppClockBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const clockRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/clock.ts');
+  const { AppClock } = clockRuntime;
+  const clock = new AppClock();
+
+  const mondayNoon = new Date(2026, 6, 6, 12, 0, 0, 0).getTime();
+  const sundayNoon = new Date(2026, 6, 12, 12, 0, 0, 0).getTime();
+  const nextMonday = new Date(2026, 6, 13, 0, 0, 0, 0).getTime();
+  const monthEnd = new Date(2026, 6, 31, 23, 59, 59, 999).getTime();
+  const nextMonth = new Date(2026, 7, 1, 0, 0, 0, 0).getTime();
+
+  assert(clock.dayOfWeek(mondayNoon) === 1, 'AppClock.dayOfWeek must use ISO weekday Monday = 1.');
+  assert(clock.dayOfWeek(sundayNoon) === 7, 'AppClock.dayOfWeek must use ISO weekday Sunday = 7.');
+  assert(clock.startOfDayMs(mondayNoon) === new Date(2026, 6, 6, 0, 0, 0, 0).getTime(), 'AppClock.startOfDayMs must use local midnight.');
+  assert(clock.startOfWeekMs(sundayNoon) === new Date(2026, 6, 6, 0, 0, 0, 0).getTime(), 'AppClock.startOfWeekMs must use Monday as week start.');
+  assert(clock.startOfMonthMs(monthEnd) === new Date(2026, 6, 1, 0, 0, 0, 0).getTime(), 'AppClock.startOfMonthMs must return local month start.');
+  assert(clock.isSameWeek(mondayNoon, sundayNoon), 'AppClock.isSameWeek must keep Monday-Sunday in the same ISO week.');
+  assert(clock.hasCrossedWeek(sundayNoon, nextMonday), 'AppClock.hasCrossedWeek must detect ISO week rollover.');
+  assert(clock.hasCrossedMonth(monthEnd, nextMonth), 'AppClock.hasCrossedMonth must detect month rollover.');
+  assert(clock.msUntilNextMonth(monthEnd) === 1, 'AppClock.msUntilNextMonth must count down to local next month start.');
+
+  clock.setServerUnixMs(mondayNoon, mondayNoon - 5000);
+  assert(clock.snapshot().serverSynced === true, 'AppClock snapshot must expose server sync state.');
+  assert(clock.snapshot().serverOffsetMs === 5000, 'AppClock snapshot must expose server offset.');
+  clock.clearServerUnixMs();
+  assert(clock.snapshot().serverSynced === false, 'AppClock.clearServerUnixMs must clear server sync state.');
 }
 
 function writeBundleMeta(projectRoot, relativeDir, bundleName) {
@@ -1783,14 +1835,26 @@ function appStateMachineRuntimeSource() {
     '    readonly debug: boolean;',
     '}',
     '',
+    'export interface AppClockSnapshot {',
+    '    readonly serverSynced: boolean;',
+    '}',
+    '',
+    'export class AppClock {',
+    '    public snapshot(): AppClockSnapshot {',
+    '        return { serverSynced: false };',
+    '    }',
+    '}',
+    '',
     'export interface AppRuntimeSnapshot {',
     '    readonly state: AppState;',
     '    readonly boot: AppBootProfile;',
+    '    readonly clock: AppClockSnapshot;',
     '}',
     '',
     'export class App {',
     '    private appState = AppState.Created;',
     '    private readonly bootProfile: AppBootProfile = { channel: "default", profile: "debug", debug: true };',
+    '    private readonly appClock = new AppClock();',
     '    private readonly preloadTasks = new Map<string, Promise<unknown>>();',
     '    private readonly moduleTasks = new Map<string, Promise<unknown>>();',
     '',
@@ -1800,6 +1864,10 @@ function appStateMachineRuntimeSource() {
     '',
     '    public get boot(): AppBootProfile {',
     '        return this.bootProfile;',
+    '    }',
+    '',
+    '    public get clock(): AppClock {',
+    '        return this.appClock;',
     '    }',
     '',
     '    public async start(): Promise<void> {',
@@ -1855,8 +1923,8 @@ function appStateMachineRuntimeSource() {
     '    }',
     '',
     '    public snapshot(): AppRuntimeSnapshot {',
-    '        const kernel = { boot: this.bootProfile };',
-    '        return { state: this.appState, boot: kernel.boot };',
+    '        const kernel = { boot: this.bootProfile, clock: this.appClock };',
+    '        return { state: this.appState, boot: kernel.boot, clock: kernel.clock.snapshot() };',
     '    }',
     '',
     '    private assertState(api: string, allowed: readonly AppState[]): void {',
@@ -2425,6 +2493,7 @@ function assertRuntimeLifecycleInvariants() {
   const appSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/app.ts'), 'utf8');
   const assetsSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/assets.ts'), 'utf8');
   const bundleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/bundle-manager.ts'), 'utf8');
+  const clockSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/clock.ts'), 'utf8');
   const kernelSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/kernel.ts'), 'utf8');
   const lifecycleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/lifecycle.ts'), 'utf8');
   const lifetimeSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts'), 'utf8');
@@ -2442,6 +2511,11 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes('readonly boot?: AppBootProfileInput'), 'AppOptions must accept AppBootProfileInput.');
   assert(appSource.includes('private appState = AppState.Created'), 'App must store explicit AppState.');
   assert(appSource.includes('public get boot(): AppBootProfile'), 'App must expose a boot profile getter.');
+  assert(appSource.includes('public get clock(): AppClock'), 'App must expose an AppClock getter.');
+  assert(appSource.includes('clock: kernel.clock.snapshot()'), 'App snapshot must expose clock snapshot.');
+  assert(runtimeIndexSource.includes("export * from './clock'"), 'Runtime public barrel must expose AppClock.');
+  assert(kernelSource.includes('this.clock = new AppClock()'), 'AppKernel must create AppClock.');
+  assert(clockSource.includes('public dayOfWeek') && clockSource.includes('public hasCrossedMonth'), 'AppClock must expose calendar helpers.');
   assert(appSource.includes("this.assertState('preloadModule', [AppState.Started])"), 'preloadModule must require Started App state.');
   assert(appSource.includes("this.assertState('back', [AppState.Started])"), 'back must require Started App state.');
   assert(appSource.includes("this.assertState('loadModule', [AppState.Started])"), 'loadModule must require Started App state.');
@@ -2585,6 +2659,7 @@ async function smoke(options = {}) {
     assertToolchainResolverInvariants();
     assertRuntimeLifecycleInvariants();
     await assertAppStateMachineBehavior();
+    await assertAppClockBehavior();
     await assertReleaseScopeBehavior();
     await assertAssetReleasePolicyBehavior();
     await assertBundleCachePolicyBehavior();

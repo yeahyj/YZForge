@@ -26,3 +26,4 @@ npm run yzforge:smoke
 - 没有跨 Scope 私有 import。
 - 新增能力有文档或 AI 手册更新。
 - 涉及启动渠道或 Debug/Release 行为时，检查 `assets/app/main/AppBootSettings.ts` 和 `app.boot`，不要写进业务配置表。
+- 涉及每日刷新、倒计时、冷却、离线收益或跨月判断时，使用 `app.clock`，不要在业务逻辑里散落 `Date.now()`。
