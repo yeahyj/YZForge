@@ -1,4 +1,4 @@
-# 12. 框架使用手册
+# 框架使用手册
 
 这篇是 YZForge 的日常使用手册。只讲开发时怎么落功能、怎么放代码、怎么读资源、怎么检查结果。
 
@@ -254,7 +254,7 @@ import { BattleItemIds } from '../generated/config';
 const item = this.config.tables.item.require(BattleItemIds.sword);
 ```
 
-更完整规则看 [13-config-table-manual.md](./13-config-table-manual.md)。
+更完整规则看 [配置表使用手册](./config-table.md)。
 
 ## 时间用法
 
@@ -288,7 +288,7 @@ app.storage.cache.setString('bundle/startEtag', etag);
 app.storage.clearCache();
 ```
 
-不要直接调用 `sys.localStorage`，不要把玩家进度写进 `cache`。更完整规则看 [14-local-storage.md](./14-local-storage.md)。
+不要直接调用 `sys.localStorage`，不要把玩家进度写进 `cache`。更完整规则看 [本地存储](./storage.md)。
 
 ## 启动设置
 

@@ -1,4 +1,4 @@
-# 14. 本地存档、设置与缓存
+# 本地存档、设置与缓存
 
 这篇只讲本机键值存储。结论：业务不要直接用 `sys.localStorage` 或 `window.localStorage`，统一走 `app.storage`。
 

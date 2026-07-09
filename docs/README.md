@@ -1,77 +1,50 @@
-﻿# YZForge 文档索引
+# YZForge 文档
 
-YZForge 是一个面向 Cocos Creator 3.8 项目的工程治理框架。它的目标不是堆功能，而是用小核心、强契约、强生成器和强校验器，让长期项目仍然保持清晰边界。
+这里放 YZForge 的公开手册、任务指南、架构说明和设计记录。
 
-终局形态：
+如果你是第一次接触这个项目，按这个顺序读：
 
-```text
-小核心 + ScopeManifest + 首包 Contract + 按需 Bundle + ReleaseScope + 运行时 Handle + 生成器 + Validator + 可插拔 Extension
-```
+1. [快速上手](./getting-started.md)
+2. [框架使用手册](./manual/framework.md)
+3. [配置表使用手册](./manual/config-table.md)
+4. [UI 与 Prefab 流程](./manual/ui.md)
+5. [本地存储](./manual/storage.md)
+6. [时间与刷新周期](./manual/clock.md)
 
-## 核心模型
+## 使用手册
 
-YZForge 的核心模型从旧的三层模型升级为四层：
+面向日常开发，回答“我要做功能，该怎么写”。
 
-| 层 | 作用 | 回答的问题 | 例子 |
-| --- | --- | --- | --- |
-| `Scope` | 代码所有权边界 | 这段代码属于谁，允许依赖谁 | `AppScope`、`SharedScope`、`ModuleScope`、`LibraryScope` |
-| `Contract` | 首包公开契约 | 跨 Scope 可以安全知道什么 | `ModuleRef`、`LibraryRef`、公开参数类型、公开 token |
-| `Bundle` | Cocos 物理加载边界 | 哪些代码和资源按需加载 | `yzforge-module-battle`、`yzforge-lib-battle-core` |
-| `Handle` | 运行时使用句柄 | 加载后如何访问真实能力 | `LoadedModule`、`LoadedLibrary`、`LoadedContentPack` |
+| 文档 | 内容 |
+| --- | --- |
+| [框架使用手册](./manual/framework.md) | 项目结构、Module、Library、ContentPack、资源、本地存储和校验 |
+| [配置表使用手册](./manual/config-table.md) | Excel 表头、面板流程、CLI、生成 JSON 和 TS 读取方式 |
+| [UI 与 Prefab 流程](./manual/ui.md) | View、Part、Prefab、AutoRefs 和 UI 打开流程 |
+| [本地存储](./manual/storage.md) | `save` / `settings` / `cache` 三分区和 key 规则 |
+| [时间与刷新周期](./manual/clock.md) | 服务端时间偏移、跨天 / 跨周 / 跨月和倒计时 |
+| [AI 开发手册](./manual/ai-development.md) | 使用 AI 辅助开发时的上下文、边界和收尾检查 |
 
-这四层不能混用：
+## 任务指南
 
-- `Scope` 是架构边界，不等于 Cocos Bundle。
-- `Contract` 必须在首包，不能 import 目标 Bundle 内部实现。
-- `Bundle` 是 Cocos 的构建与加载结果，不代表业务 API。
-- `Handle` 只能在 Bundle 加载完成后获得。
+更细的操作型文档放在 [dev/](./dev/README.md)：
 
-## 硬规则
+- 创建 Module。
+- 创建 Library。
+- 创建 View / Part。
+- 资源和配置。
+- 生成文件。
+- 校验和构建。
+- 常见问题。
+- 发布前检查。
 
-- 跨 Module 只能通过 `ModuleRef` 进入、预加载或卸载。
-- 跨 Library 只能通过 `LibraryRef` 和 `LoadedLibrary` 使用公开 token。
-- `ModuleRef`、`LibraryRef`、公开类型和公开 token 都生成到首包 contract/registry。
-- `Module`、`Library`、`ContentPack` 才是按需加载 Bundle。
-- `global` 属于 `AppScope`，随首包启动，不是普通按需 Scope。
-- `shared/code` 属于首包共享代码，允许被所有 Scope 静态 import。
-- `ContentPack` 只放内容资源，不放业务 TS 源码，不提供可调用 API。
-- `Service` 不直接打开 UI，`Flow` 负责流程编排和 UI 打开。
-- 所有 generated 文件由生成器维护，Validator 防止手改和边界退化。
+## 架构说明
 
-## 阅读顺序
+设计背景和边界说明放在 [architecture/](./architecture/README.md)。
 
-如果你是要马上写业务，先看开发帮助文档：
+这些文档不要求新用户先读，但适合用来理解 YZForge 为什么坚持 `Scope / Contract / Bundle / Handle`。
 
-1. [dev/README.md](./dev/README.md)：开发帮助文档索引。
-2. [dev/12-framework-usage-manual.md](./dev/12-framework-usage-manual.md)：框架日常使用手册。
-3. [dev/13-config-table-manual.md](./dev/13-config-table-manual.md)：配置表使用手册。
-4. [dev/14-local-storage.md](./dev/14-local-storage.md)：本地存档、设置与缓存分区。
-5. [dev/00-quick-start.md](./dev/00-quick-start.md)：第一次接手和常用命令。
-6. [dev/01-project-layout.md](./dev/01-project-layout.md)：真实开发目录放置规则。
+## RFC 与设计记录
 
-如果你是要理解框架为什么这样设计，再按下面顺序读设计文档：
+重构记录、迁移计划、验收标准和审计记录放在 [rfc/](./rfc/README.md)。
 
-1. [00-overview.md](./00-overview.md)：目标、非目标、四层模型和终局路线。
-2. [01-project-structure.md](./01-project-structure.md)：标准目录、Scope 身份、Main 场景。
-3. [02-scope-contract-bundle-handle.md](./02-scope-contract-bundle-handle.md)：Scope / Contract / Bundle / Handle 的完整关系。
-4. [03-runtime-lifecycle.md](./03-runtime-lifecycle.md)：App、BundleManager、Module 生命周期和并发规则。
-5. [04-assets-config-contentpacks.md](./04-assets-config-contentpacks.md)：资源清单、配置系统、ContentPack manifest。
-6. [05-ui-autorefs.md](./05-ui-autorefs.md)：UI 分层、View、Part、AutoRefs。
-7. [06-editor-validator.md](./06-editor-validator.md)：编辑器生成器、Import Maps、架构校验器。
-8. [07-api-examples.md](./07-api-examples.md)：推荐 API 写法。
-9. [08-roadmap.md](./08-roadmap.md)：分阶段落地路线。
-10. [09-runtime-walkthrough.md](./09-runtime-walkthrough.md)：从启动到卸载的完整运行流程。
-11. [10-cross-game-foundation.md](./10-cross-game-foundation.md)：Viewport、SafeArea 与系统 UI 基础设计。
-12. [11-redesign-rfc.md](./11-redesign-rfc.md)：重构目标架构、核心不变量和终局性说明。
-13. [12-redesign-migration-plan.md](./12-redesign-migration-plan.md)：按阶段推进重构的迁移计划。
-14. [13-redesign-acceptance.md](./13-redesign-acceptance.md)：重构完成必须满足的验收标准。
-15. [14-post-refactor-framework-audit.md](./14-post-refactor-framework-audit.md)：重构后审计、当前遗憾和更硬的终局再设计。
-
-## 核心结论
-
-- YZForge 的边界核心不是目录，而是 `Scope`。
-- YZForge 的跨包核心不是 import，而是首包 `Contract`。
-- YZForge 的加载核心不是业务类，而是 Cocos `Bundle`。
-- YZForge 的运行时核心不是单例，而是 `Handle`。
-- 任何需要跨模块复用的细粒度能力，都应该抽成 `Library`，而不是让模块互相 import。
-- 任何会污染核心的能力，例如音频、存档、网络、平台、热更，都应该以 `Extension` 进入。
+这些是设计决策记录，不是上手必读内容。
