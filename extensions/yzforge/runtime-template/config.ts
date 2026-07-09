@@ -113,13 +113,13 @@ export class ConfigManager {
         return createConfigScope(tables);
     }
 
-    public async loadContentPackScope(
+    public async loadContentPackScope<TTables = Record<string, ConfigTable<Record<string, unknown>>>>(
         refs: unknown,
         assets: AssetScope,
-    ): Promise<ConfigScope<Record<string, ConfigTable<Record<string, unknown>>>>> {
+    ): Promise<ConfigScope<TTables>> {
         const tables: Record<string, ConfigTable<Record<string, unknown>>> = {};
         if (!refs || typeof refs !== 'object') {
-            return createConfigScope(tables);
+            return createConfigScope(tables) as unknown as ConfigScope<TTables>;
         }
         const values = refs as Record<string, unknown>;
         for (const key of Object.keys(values)) {
@@ -133,7 +133,7 @@ export class ConfigManager {
                 codec: ref.codec,
             }), assets);
         }
-        return createConfigScope(tables);
+        return createConfigScope(tables) as unknown as ConfigScope<TTables>;
     }
 
     public async loadTable<TRow extends Record<string, unknown>, TKey extends keyof TRow = 'id'>(

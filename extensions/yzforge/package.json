@@ -37,6 +37,16 @@
         "message": "generate-all"
       },
       {
+        "path": "YZForge/Config",
+        "label": "i18n:yzforge.config_build",
+        "message": "config-build"
+      },
+      {
+        "path": "YZForge/Config",
+        "label": "i18n:yzforge.config_check",
+        "message": "config-check"
+      },
+      {
         "path": "YZForge",
         "label": "i18n:yzforge.clean_generated",
         "message": "clean-generated"
@@ -81,6 +91,26 @@
       "generate-check": {
         "methods": [
           "generateCheck"
+        ]
+      },
+      "config-dashboard": {
+        "methods": [
+          "configDashboard"
+        ]
+      },
+      "config-save-table": {
+        "methods": [
+          "saveConfigTable"
+        ]
+      },
+      "config-build": {
+        "methods": [
+          "configBuild"
+        ]
+      },
+      "config-check": {
+        "methods": [
+          "configCheck"
         ]
       },
       "clean-generated": {

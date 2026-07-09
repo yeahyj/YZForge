@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { cleanGenerated: cleanGeneratedFiles, collectGeneratedFiles } = require('./cleanup');
+const { buildConfig, configDashboard, saveConfigPlanTable } = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { validate } = require('./validate');
@@ -919,6 +920,17 @@ async function createKind(kind, options) {
   }
 }
 
+async function refreshChangedFiles(changed) {
+  const refreshed = [];
+  for (const relativePath of changed || []) {
+    const url = asAssetUrl(relativePath);
+    if (url) {
+      refreshed.push(await refreshAsset(url));
+    }
+  }
+  return refreshed;
+}
+
 function showCreateHelp() {
   const message = t('create_help_detail');
   if (global.Editor && Editor.Dialog && typeof Editor.Dialog.info === 'function') {
@@ -1035,6 +1047,33 @@ exports.methods = {
   async validateArchitectureStrict() {
     const result = withValidationDetails(validate(projectRoot(), { strict: true }));
     console.log('[YZForge] validate architecture strict:', result);
+    return result;
+  },
+
+  async configDashboard() {
+    const result = configDashboard(projectRoot());
+    console.log('[YZForge] config dashboard:', result);
+    return result;
+  },
+
+  async saveConfigTable(first, second) {
+    const options = normalizeOptions(first, second);
+    const result = saveConfigPlanTable(projectRoot(), options);
+    console.log('[YZForge] save config table:', result);
+    return result;
+  },
+
+  async configBuild() {
+    const result = buildConfig(projectRoot());
+    const refreshed = await refreshChangedFiles(result.changed);
+    const completed = { ...result, refreshed };
+    console.log('[YZForge] config build:', completed);
+    return completed;
+  },
+
+  async configCheck() {
+    const result = buildConfig(projectRoot(), { check: true });
+    console.log('[YZForge] config check:', result);
     return result;
   },
 

@@ -67,6 +67,62 @@ const template = `
     </div>
   </section>
 
+  <section class="section config-section">
+    <div class="section-title" data-i18n="config_tables">Config Tables</div>
+    <div class="form-grid">
+      <label>
+        <span data-i18n="config_source">Source</span>
+        <select id="config-source"></select>
+      </label>
+      <label>
+        <span data-i18n="config_sheet">Sheet</span>
+        <select id="config-sheet"></select>
+      </label>
+      <label>
+        <span data-i18n="config_scope_kind">Scope</span>
+        <select id="config-scope-kind">
+          <option value="module">Module</option>
+          <option value="library">Library</option>
+          <option value="content-pack">ContentPack</option>
+          <option value="global">Global</option>
+        </select>
+      </label>
+      <label>
+        <span data-i18n="config_scope_target">Target</span>
+        <select id="config-scope-target"></select>
+      </label>
+      <label>
+        <span data-i18n="config_table">Table</span>
+        <input id="config-table" placeholder="item" />
+      </label>
+      <label>
+        <span data-i18n="config_row">Row Type</span>
+        <input id="config-row" placeholder="ItemRow" />
+      </label>
+      <label>
+        <span data-i18n="config_primary_key">Primary Key</span>
+        <input id="config-primary-key" value="id" />
+      </label>
+      <label>
+        <span data-i18n="config_format">Format</span>
+        <select id="config-format">
+          <option value="json">json</option>
+        </select>
+      </label>
+    </div>
+    <div class="create-footer">
+      <div class="options-row">
+        <label><input id="config-generate-keys" type="checkbox" checked /> <span data-i18n="config_generate_keys">Generate ID constants</span></label>
+      </div>
+      <div class="tool-row config-actions">
+        <button id="config-scan" data-i18n="config_scan">Scan Excel</button>
+        <button id="config-save-table" class="command-primary" data-i18n="config_save_table">Save Table</button>
+        <button id="config-build" class="command-primary" data-i18n="config_build">Build Config</button>
+        <button id="config-check" data-i18n="config_check">Config Check</button>
+      </div>
+    </div>
+  </section>
+
   <section class="section summary">
     <div class="section-title" data-i18n="panel_project">Project</div>
     <div class="summary-grid">
@@ -324,6 +380,10 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+}
+
+.config-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .clean-toggle {
@@ -585,6 +645,19 @@ module.exports = Editor.Panel.define({
     smokeTest: '#smoke-test',
     runtimeSnapshot: '#runtime-snapshot',
     generateCheck: '#generate-check',
+    configSource: '#config-source',
+    configSheet: '#config-sheet',
+    configScopeKind: '#config-scope-kind',
+    configScopeTarget: '#config-scope-target',
+    configTable: '#config-table',
+    configRow: '#config-row',
+    configPrimaryKey: '#config-primary-key',
+    configFormat: '#config-format',
+    configGenerateKeys: '#config-generate-keys',
+    configScan: '#config-scan',
+    configSaveTable: '#config-save-table',
+    configBuild: '#config-build',
+    configCheck: '#config-check',
     cleanPreview: '#clean-preview',
     cleanScripts: '#clean-scripts',
     moduleCount: '#module-count',
@@ -615,7 +688,7 @@ module.exports = Editor.Panel.define({
     setBusy(busy, label) {
       const key = label || (busy ? 'panel_status_working' : 'panel_status_ready');
       this.$.status.textContent = this.t(key);
-      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate, this.$.diagnostics, this.$.smokeTest, this.$.runtimeSnapshot, this.$.generateCheck, this.$.cleanPreview]) {
+      for (const button of [this.$.refresh, this.$.create, this.$.generate, this.$.clean, this.$.validate, this.$.diagnostics, this.$.smokeTest, this.$.runtimeSnapshot, this.$.generateCheck, this.$.configScan, this.$.configSaveTable, this.$.configBuild, this.$.configCheck, this.$.cleanPreview]) {
         button.disabled = busy;
       }
       for (const button of this.$.shell.querySelectorAll('.create-tab')) {
@@ -623,6 +696,7 @@ module.exports = Editor.Panel.define({
       }
       this.$.cleanScripts.disabled = busy;
       this.$.validateStrict.disabled = busy;
+      this.$.configGenerateKeys.disabled = busy;
     },
 
     setCreateGroup(group) {
@@ -824,6 +898,136 @@ module.exports = Editor.Panel.define({
       }
     },
 
+    updateConfigSourceSheets() {
+      const dashboard = this.configDashboardValue || {};
+      const source = (dashboard.sources || []).find((item) => item.source === this.$.configSource.value);
+      const sheets = source && Array.isArray(source.sheets) ? source.sheets : [];
+      this.$.configSheet.innerHTML = sheets.length > 0
+        ? sheets.map((sheet) => `<option value="${sheet}">${sheet}</option>`).join('')
+        : '<option value="">No sheets</option>';
+      this.applyConfigDefaults();
+    },
+
+    updateConfigScopeTargets() {
+      const dashboard = this.configDashboardValue || {};
+      const scopes = dashboard.scopes || {};
+      const kind = this.$.configScopeKind.value;
+      let targets = [];
+      if (kind === 'module') {
+        targets = scopes.modules || [];
+      } else if (kind === 'library') {
+        targets = scopes.libraries || [];
+      } else if (kind === 'content-pack') {
+        targets = (scopes.contentPacks || []).map((item) => `${item.owner}/${item.name}`);
+      } else if (kind === 'global') {
+        targets = ['Global'];
+      }
+      this.$.configScopeTarget.innerHTML = targets.length > 0
+        ? targets.map((target) => `<option value="${target}">${target}</option>`).join('')
+        : '<option value="">No target</option>';
+    },
+
+    applyConfigDefaults() {
+      const sheet = this.$.configSheet.value;
+      if (!this.$.configTable.value && sheet) {
+        this.$.configTable.value = sheet.charAt(0).toLowerCase() + sheet.slice(1);
+      }
+      if (!this.$.configRow.value && sheet) {
+        this.$.configRow.value = `${sheet.charAt(0).toUpperCase()}${sheet.slice(1)}Row`;
+      }
+      if (!this.$.configPrimaryKey.value) {
+        this.$.configPrimaryKey.value = 'id';
+      }
+    },
+
+    async refreshConfigDashboard(options = {}) {
+      if (!options.keepBusy) {
+        this.setBusy(true, 'panel_status_refreshing');
+      }
+      try {
+        const dashboard = await this.call('config-dashboard');
+        this.configDashboardValue = dashboard;
+        const selectedSource = this.$.configSource.value;
+        this.$.configSource.innerHTML = (dashboard.sources || []).length > 0
+          ? dashboard.sources.map((item) => `<option value="${item.source}">${item.source}</option>`).join('')
+          : '<option value="">config-source/excel is empty</option>';
+        if (selectedSource && (dashboard.sources || []).some((item) => item.source === selectedSource)) {
+          this.$.configSource.value = selectedSource;
+        }
+        this.updateConfigSourceSheets();
+        this.updateConfigScopeTargets();
+        if (!options.silentResult) {
+          this.setResult(dashboard);
+        }
+      } catch (error) {
+        this.setResult(this.errorResult(error));
+      } finally {
+        if (!options.keepBusy) {
+          this.setBusy(false);
+        }
+      }
+    },
+
+    configTablePayload() {
+      const kind = this.$.configScopeKind.value;
+      const target = this.$.configScopeTarget.value;
+      const scope = { kind };
+      if (kind === 'content-pack') {
+        const [owner, name] = target.split('/');
+        scope.owner = owner;
+        scope.name = name;
+      } else if (kind !== 'global') {
+        scope.name = target;
+      }
+      return {
+        source: this.$.configSource.value,
+        sheet: this.$.configSheet.value,
+        table: this.$.configTable.value,
+        row: this.$.configRow.value,
+        primaryKey: this.$.configPrimaryKey.value || 'id',
+        format: this.$.configFormat.value || 'json',
+        generateKeys: this.$.configGenerateKeys.checked === true,
+        scope,
+      };
+    },
+
+    async saveConfigTable() {
+      this.applyConfigDefaults();
+      this.setBusy(true, 'panel_status_generating');
+      try {
+        const result = await this.call('config-save-table', this.configTablePayload());
+        this.setResult(result);
+        await this.refreshConfigDashboard({ silentResult: true, keepBusy: true });
+      } catch (error) {
+        this.setResult(this.errorResult(error));
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
+    async buildConfig() {
+      this.setBusy(true, 'panel_status_generating');
+      try {
+        this.setResult(await this.call('config-build'));
+        await this.refreshConfigDashboard({ silentResult: true, keepBusy: true });
+      } catch (error) {
+        this.setResult(this.errorResult(error));
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
+    async checkConfig() {
+      this.setBusy(true, 'panel_status_generating');
+      try {
+        this.setResult(await this.call('config-check'));
+      } catch (error) {
+        this.setResult(this.errorResult(error));
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
     async createItem() {
       const kind = this.$.kind.value;
       const name = normalizeCreateName(kind, this.$.name.value, this.$.viewKind.value);
@@ -981,8 +1185,16 @@ module.exports = Editor.Panel.define({
     this.$.runtimeSnapshot.addEventListener('click', () => this.runtimeSnapshot());
     this.$.generateCheck.addEventListener('click', () => this.generateCheck());
     this.$.cleanPreview.addEventListener('click', () => this.cleanPreview());
+    this.$.configScan.addEventListener('click', () => this.refreshConfigDashboard());
+    this.$.configSource.addEventListener('change', () => this.updateConfigSourceSheets());
+    this.$.configSheet.addEventListener('change', () => this.applyConfigDefaults());
+    this.$.configScopeKind.addEventListener('change', () => this.updateConfigScopeTargets());
+    this.$.configSaveTable.addEventListener('click', () => this.saveConfigTable());
+    this.$.configBuild.addEventListener('click', () => this.buildConfig());
+    this.$.configCheck.addEventListener('click', () => this.checkConfig());
     this.setCreateGroup(DEFAULT_CREATE_GROUP);
     this.refreshSummary();
+    this.refreshConfigDashboard({ silentResult: true });
   },
   beforeClose() {},
   close() {},

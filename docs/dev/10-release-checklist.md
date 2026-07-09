@@ -63,7 +63,7 @@ npm run yzforge:cocos:build:web
 - UI prefab 放 `res/view`。
 - Part prefab 放 `res/part`。
 - 间接依赖放 `res/content`。
-- 配置原始数据放 `res/content/config`。
+- 配置原始数据放 `config-source/excel`，`res/content/config` 只放生成后的 JSON。
 - 配置访问走 `generated/config.ts`。
 
 ## 提交信息

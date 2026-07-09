@@ -151,7 +151,7 @@ bundle    配成 yzforge-shared-res，适合字体、通用图集、通用音效
 
 ## 配置系统
 
-配置不混入普通资源清单。配置由 Config Generator、Config Manifest、Config Codec 和 Config Registry 管理。
+配置不混入普通资源清单。配置由 Config Builder、Config Generator、Config Codec 和 Config Registry 管理。
 
 配置系统分三层：
 
@@ -163,14 +163,16 @@ bundle    配成 yzforge-shared-res，适合字体、通用图集、通用音效
 
 `generated/config.ts` 不内嵌大表数据，只生成类型安全访问入口。真实数据仍然作为资源随对应 Scope 的 Bundle 或 ContentPack 加载。
 
-原始文件：
+当前落地结构：
 
 ```text
-res/content/config/
-  manifest.json
-  schema/
-  tables/
-  patches/
+config-source/excel/
+  *.xlsx
+
+config-source/export-plan.json
+
+assets/<scope>/res/content/config/
+  *.json
 ```
 
 生成文件：
@@ -190,45 +192,34 @@ code/generated/config.ts
 - 配置数据不允许携带可执行 TS 脚本。需要行为时，用配置中的 `type`、`strategyId` 或 `scriptKey` 映射到 Module/Library 中已声明的代码实现。
 - 配置可以引用资源，但必须通过 generated asset ref 或受校验的资源 key，不手写跨 Scope 路径。
 
-## Config Manifest
+## Config Export Plan
 
-`res/content/config/manifest.json` 描述配置表、格式、主键、索引、枚举、补丁和 codec。
+`config-source/export-plan.json` 描述每张 Excel 表导出到哪个 Scope、生成什么表名、行类型、主键和格式。
 
 示例：
 
 ```json
 {
   "schemaVersion": 1,
-  "format": "json",
-  "codec": "yzforge-json",
-  "tables": {
-    "item": {
-      "source": "tables/item.json",
+  "tables": [
+    {
+      "source": "config-source/excel/Battle.xlsx",
+      "sheet": "Items",
+      "table": "item",
       "row": "ItemRow",
+      "scope": {
+        "kind": "module",
+        "name": "Battle"
+      },
       "primaryKey": "id",
-      "indexes": {
-        "byType": { "fields": ["type"], "unique": false },
-        "byQuality": { "fields": ["quality"], "unique": false }
-      }
-    },
-    "skill": {
-      "source": "tables/skill.bytes",
-      "format": "binary",
-      "codec": "game-skill-binary",
-      "row": "SkillRow",
-      "primaryKey": "id"
+      "format": "json",
+      "generateKeys": true
     }
-  },
-  "enums": {
-    "ItemType": ["weapon", "armor", "material"]
-  },
-  "patches": [
-    "patches/dev.json"
   ]
 }
 ```
 
-`format` 是运行时载荷格式，`codec` 是解析器。第一版只必须实现 `json` codec；二进制和压缩格式预留 codec 接口。
+当前导出器实现 `json`。二进制和压缩格式通过 runtime codec 预留接口，但还没有落地表格导出器。
 
 ## Config Generated API
 
@@ -237,26 +228,24 @@ code/generated/config.ts
 示例：
 
 ```ts
-export interface ItemRow {
-    id: string;
-    type: ItemType;
-    quality: number;
+export interface ItemRow extends Record<string, unknown> {
+    readonly id: string;
+    readonly type: 'weapon' | 'armor' | 'material';
+    readonly quality: number;
 }
+
+export const BattleItemIds = {
+    sword: 'sword',
+} as const;
 
 export const config = defineConfig({
     tables: {
-        item: tableRef<ItemRow>({
-            name: 'item',
-            primaryKey: 'id',
-            indexes: {
-                byType: indexRef<ItemRow, 'type'>('type'),
-            },
-        }),
+        item: tableRef<ItemRow, 'id'>({ name: 'res/content/config/Item', primaryKey: 'id' }),
     },
 });
 ```
 
-业务代码只依赖 `config.tables.item.get()` 这类稳定 API，不依赖具体 codec。这样以后从 JSON 切到二进制，不需要改业务调用。
+业务代码只依赖 `module.config.tables.item.require(BattleItemIds.sword)` 这类稳定 API，不依赖具体 codec。这样以后从 JSON 切到二进制，不需要改业务调用。
 
 Config Codec 只负责把运行时载荷解析成框架统一的 table data：
 
@@ -335,11 +324,11 @@ const enemy = contentPack.config.tables.enemy.get(enemyId);
 const item = config.tables.item.get(id);          // ItemRow | undefined
 const item = config.tables.item.require(id);      // ItemRow，不存在则抛清晰错误
 const all = config.tables.item.all();             // readonly ItemRow[]
-const weapons = config.tables.item.index.byType.get('weapon');
-const one = config.tables.item.index.byCode.require('sword_001');
+const weapons = itemIndex.byType.get('weapon');
+const one = config.tables.item.require(BattleItemIds.sword);
 ```
 
-索引必须在 manifest 中声明，由生成器生成类型安全入口。第一版不做任意查询引擎，避免把配置系统做成小数据库。
+主键索引由运行时表对象内置支持。二级索引必须在后续 index schema 中显式声明，由生成器生成类型安全入口。第一版不做任意查询引擎，避免把配置系统做成小数据库。
 
 支持的索引形态：
 
@@ -437,7 +426,8 @@ handler.execute(row);
 
 必须检查：
 
-- manifest schema 正确。
+- export-plan schema 正确。
+- 配置 payload 带 `_yzforgeConfig`，且来自 Config Builder。
 - 表文件存在。
 - 主键唯一。
 - 枚举值合法。
@@ -448,7 +438,7 @@ handler.execute(row);
 - unique index 不重复。
 - patch 能正确合并。
 - binary codec 存在且版本匹配。
-- generated 类型与 manifest 最新。
+- generated 类型与 export-plan 和配置 payload 最新。
 
 ## Config 实现阶段
 
@@ -510,15 +500,31 @@ assets/modules/<Owner>/code/generated/content-packs.ts
 示例：
 
 ```ts
-export const BattleLevel001ContentPack = defineContentPack({
+export interface EnemyWaveRow extends Record<string, unknown> {
+    readonly id: string;
+    readonly enemy: string;
+    readonly count: number;
+}
+
+export const BattleLevel001EnemyWaveIds = {
+    wave1: 'wave-1',
+} as const;
+
+const BattleLevel001ContentPackRefs = {
+    levelRoot: contentPackAssetRef(Prefab, 'res/prefab/LevelRoot'),
+    enemyWave: contentPackConfigRef<EnemyWaveRow>('res/content/config/EnemyWave', { primaryKey: 'id' }),
+};
+
+export interface BattleLevel001ContentPackConfigTables {
+    readonly enemyWave: ConfigTable<EnemyWaveRow, 'id'>;
+}
+
+export const BattleLevel001ContentPack = defineContentPack<typeof BattleLevel001ContentPackRefs, BattleLevel001ContentPackConfigTables>({
     id: 'battle.level001',
     owner: 'Battle',
     bundle: 'yzforge-content-pack-battle-level001',
     libraries: [BattleCoreRef],
-    refs: {
-        levelRoot: contentPackAssetRef(Prefab, 'prefab/LevelRoot'),
-        enemyTable: contentPackConfigRef('enemy'),
-    },
+    refs: BattleLevel001ContentPackRefs,
 });
 ```
 
@@ -528,6 +534,7 @@ export const BattleLevel001ContentPack = defineContentPack({
 const plan = this.contentPacks.explain(BattleLevel001ContentPack);
 const contentPack = await this.contentPacks.load(BattleLevel001ContentPack);
 const levelRoot = await contentPack.assets.load(contentPack.refs.levelRoot);
+const wave = contentPack.config.tables.enemyWave.require(BattleLevel001EnemyWaveIds.wave1);
 await this.useFlow(BattleFlow).startLevel(contentPack);
 ```
 
@@ -536,13 +543,13 @@ await this.useFlow(BattleFlow).startLevel(contentPack);
 ## LoadedContentPack
 
 ```ts
-export interface LoadedContentPack<TConfig = unknown> {
-    readonly ref: ContentPackRef;
+export interface LoadedContentPack<TRefs = unknown, TConfig = unknown> {
+    readonly ref: ContentPackRef<TRefs, TConfig>;
     readonly bundleName: string;
-    readonly refs: ContentPackAssetRefs;
+    readonly refs: TRefs;
     readonly manifest: ContentPackManifest;
     readonly assets: ContentPackAssetScope;
-    readonly config: ContentPackConfigScope<TConfig>;
+    readonly config: ConfigScope<TConfig>;
     unload(): Promise<void>;
 }
 ```

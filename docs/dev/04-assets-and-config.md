@@ -1,10 +1,18 @@
-# 04. 资源与配置
+# 04. 资源与配置表
 
-## 资源原则
+这篇只讲日常开发怎么放、怎么生成、怎么读。
 
-业务代码不要手写动态资源路径，也不要直接加载 Bundle。
+## 资源放哪里
 
-不要这样：
+| 目录 | 用途 | 访问方式 |
+| --- | --- | --- |
+| `res/view` | 能被 UIManager 打开的 View prefab | `module.ui.open(assets.views.xxx)` |
+| `res/part` | View 内部动态 UI 片段 | `module.assets.instantiate(assets.parts.xxx)` |
+| `res/runtime` | 代码主动加载的 prefab、json、texture 等 | `module.assets.load/instantiate` |
+| `res/content` | prefab 间接引用或内容原始文件 | 通常不由业务直接加载 |
+| `res/content/config` | 生成后的运行时配置表 payload | `generated/config.ts` |
+
+不要在业务里手写动态资源路径：
 
 ```ts
 resources.load('view/PageBattle');
@@ -12,7 +20,7 @@ assetManager.loadBundle('yzforge-module-battle');
 bundle.load('runtime/effect/hit');
 ```
 
-应该这样：
+应该走当前 Scope 的生成入口：
 
 ```ts
 import { assets } from '../generated/assets';
@@ -23,107 +31,186 @@ const effect = await this.module.assets.instantiate(assets.runtime.effectHit, {
 });
 ```
 
-## 放到哪个资源目录
+## 配置表工作流
 
-| 目录 | 何时使用 | 访问方式 |
-| --- | --- | --- |
-| `res/view` | 可被 UIManager 打开的 View prefab | `module.ui.open(assets.views.xxx)` |
-| `res/part` | View 内动态 UI 片段 | `module.assets.instantiate(assets.parts.xxx)` |
-| `res/runtime` | 代码显式加载的 prefab、json、texture 等 | `module.assets.load/instantiate` |
-| `res/content` | prefab 间接引用或配置原始文件 | 通常不直接由业务加载 |
-| `res/sound` | 音频资源 | 音频扩展或项目音频系统 |
+Excel 原始表放在项目根目录：
 
-如果一段代码需要主动加载资源，把资源放进 `runtime`。如果只是 prefab 里拖了引用，放进 `content`。
+```text
+config-source/excel/
+  Battle.xlsx
+  Economy/items.xlsx
+```
 
-## 生成资源入口
+导出计划由面板或 CLI 维护：
 
-运行：
+```text
+config-source/export-plan.json
+```
+
+生成后的运行时 JSON 会进入对应 Scope：
+
+```text
+assets/modules/<Module>/res/content/config/<Table>.json
+assets/libraries/<Library>/res/content/config/<Table>.json
+assets/content-packs/<Owner>/<Pack>/res/content/config/<Table>.json
+assets/app/global/res/content/config/<Table>.json
+```
+
+类型安全入口会进入：
+
+```text
+assets/modules/<Module>/code/generated/config.ts
+assets/libraries/<Library>/code/generated/config.ts
+assets/app/global/code/generated/config.ts
+```
+
+ContentPack 的配置入口仍通过 `manifest.generated.json` 暴露给 `LoadedContentPack.config`。
+
+## 面板生成
+
+打开 Cocos 菜单 `YZForge -> Open Panel`，在 `Config Tables` 区域：
+
+1. 点击 `Scan Excel`，扫描 `config-source/excel/**/*.xlsx`。
+2. 选择 `Source` 和 `Sheet`。
+3. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
+4. 填 `Table`、`Row Type`、`Primary Key`。
+5. 勾选 `Generate ID constants`，生成主键常量，业务代码不用手写字符串。
+6. 点击 `Save Table` 写入 `config-source/export-plan.json`。
+7. 点击 `Build Config` 生成 JSON 和 `generated/config.ts`。
+
+`Config Check` 只检查生成物是否最新，不写文件，适合提交前和 CI。
+
+## CLI 生成
+
+登记一张表：
 
 ```bash
-npm run yzforge:generate
+npm run yzforge:config:table -- --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
 ```
 
-生成：
+Scope 写法：
 
 ```text
-assets/modules/Battle/code/generated/assets.ts
-assets/libraries/BattleCore/code/generated/assets.ts
-assets/app/global/code/generated/assets.ts
+global
+module:Battle
+library:BattleCore
+content-pack:Battle/Level001
 ```
 
-业务只 import 自己 Scope 的生成入口：
+生成配置：
 
-```ts
-import { assets } from '../generated/assets';
+```bash
+npm run yzforge:config:build
 ```
 
-不要 import 其他 Module 的 `generated/assets.ts`。
+检查配置生成物是否最新：
 
-## 实例所有权
-
-通过框架实例化的节点会记录 owner：
-
-```ts
-const node = await this.module.assets.instantiate(assets.runtime.hitEffect, {
-    parent: this.effectRoot,
-});
+```bash
+npm run yzforge:config:check
 ```
 
-Module 卸载时，框架会按 owner 清理节点和资源。
+`yzforge:config:build` 会先按导出计划生成配置 JSON，清理不再属于当前导出计划的旧配置 JSON，再调用普通生成器刷新 `generated/config.ts`。
 
-如果项目确实手动 `instantiate(prefab)`，必须把节点登记到当前 owner。能走 `module.assets.instantiate` 时优先走它。
+## Excel 表头规则
 
-## UI prefab
+固定 4 行表头，第 5 行开始是数据。
 
-UI prefab 不走普通 instantiate：
+| 行号 | 含义 | 例子 |
+| --- | --- | --- |
+| 第 1 行 | 字段名，必须 lowerCamelCase | `id`、`type`、`price` |
+| 第 2 行 | 字段类型 | `string`、`number`、`enum` |
+| 第 3 行 | 字段规则，空白等于 `client` | `pk`、`optional`、`ignore` |
+| 第 4 行 | 字段注释，会生成到 TS 接口 | `道具 ID`、`显示名称` |
+| 第 5 行起 | 数据 | `sword_001`、`10` |
 
-```ts
-await this.module.ui.open(assets.views.pageBattle);
-```
-
-这样 UIManager 才能管理层级、返回键、遮罩、暂停、关闭和 `openForResult`。
-
-## 配置放哪里
-
-配置原始文件推荐放：
+支持类型：
 
 ```text
-res/content/config/
-  manifest.json
-  schema/
-  tables/
-  patches/
+string
+number
+boolean
+enum
+string[]
+number[]
+boolean[]
+json
 ```
 
-生成入口在：
+支持规则：
 
-```text
-code/generated/config.ts
-```
-
-业务代码只读生成后的配置入口，不直接散落读取 JSON：
-
-```ts
-import { config } from '../generated/config';
-
-const stage = this.config.tables.stage.require(stageId);
-```
-
-## 配置规则
-
-- 配置类型、索引和表入口由生成器维护。
-- 配置数据不进入普通 `generated/assets.ts`。
-- Model 可以保存配置 id 或只读结果，不直接加载原始 JSON。
-- Service 负责读取配置并写入 Model。
-- 配置里不要写可执行脚本路径，需要行为时用 `type`、`strategyId` 或 `scriptKey` 映射到已声明代码。
-- ContentPack 可以有自己的配置，但必须通过 `LoadedContentPack.config` 访问。
-
-## 常见判断
-
-| 问题 | 结论 |
+| 规则 | 作用 |
 | --- | --- |
-| 我要代码里主动加载一个 prefab | 放 `res/runtime` |
-| View 要打开一个页面 | 放 `res/view`，通过 UIManager 打开 |
-| prefab 里拖了一张背景图 | 放 `res/content` |
-| 策划表原始 JSON | 放 `res/content/config/tables` |
-| 多个模块都用同一张通用字体 | 放 `shared/res` |
+| `pk` | 标记主键。整张表只能有一个主键 |
+| `client` | 导出到客户端，空白规则默认就是它 |
+| `optional` | 数据为空时允许省略这个字段 |
+| `ignore` | 完全不导出这一列 |
+
+主键规则：
+
+- `Primary Key` 和表头 `pk` 必须指向同一个字段。
+- 如果导出计划没有命中字段，但表头只有一个 `pk`，以表头 `pk` 为准。
+- 主键不能为空，不能重复。
+
+数组字段可以写成 JSON 数组，也可以用 `,`、`;` 或 `|` 分隔：
+
+```text
+sharp|metal
+1,2,3
+["a","b"]
+```
+
+`json` 字段必须是合法 JSON。
+
+## 业务读取
+
+生成器会根据 Excel 元信息生成行类型、表入口和可选 ID 常量：
+
+```ts
+import { BattleItemIds, config } from '../generated/config';
+
+const item = this.module.config.tables.item.require(BattleItemIds.sword);
+const price = item.price;
+```
+
+在 Module 内读自己的配置：
+
+```ts
+const item = this.module.config.tables.item.require(BattleItemIds.sword);
+```
+
+读 Library 配置，先通过依赖拿到 LoadedLibrary：
+
+```ts
+const battleCore = this.module.libraries.require(BattleCoreRef);
+const mode = battleCore.config.tables.battleMode.require(BattleCoreBattleModeIds.normal);
+```
+
+读 ContentPack 配置：
+
+```ts
+const wave = contentPack.config.tables.enemyWave.require(BattleLevel001EnemyWaveIds.wave1);
+const count = wave.count;
+```
+
+不要从一个 Module 直接 import 另一个 Module 的 `generated/config.ts`。如果多处都要读同一张表，把表提升到 Library、Global 或对应 ContentPack。
+
+## 同名表
+
+不同 Scope 可以有同名表，例如：
+
+```text
+assets/modules/Battle/res/content/config/Item.json
+assets/libraries/Economy/res/content/config/Item.json
+```
+
+它们分别生成在自己的 `generated/config.ts` 里，不冲突。
+
+同一个 Scope 内不允许两张表生成到同一个输出路径，否则 `Build Config` 会失败。
+
+## 当前边界
+
+- 当前导出格式只实现 `json`。
+- 二进制格式通过 runtime codec 预留了接口，但还没有表格导出器。
+- `.xlsx` 读取的是工作簿里保存的单元格值，不负责重新计算公式。
+- `res/content/config/*.json` 只允许是生成物，必须带 `_yzforgeConfig`；手写旧 JSON 表会被 Validator 拒绝。
+- 生成的 `code/generated/*` 和 `res/content/config/*.json` 不手改；要改 Excel 或 `config-source/export-plan.json`。

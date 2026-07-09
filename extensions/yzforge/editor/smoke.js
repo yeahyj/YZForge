@@ -6,6 +6,7 @@ const path = require('path');
 const vm = require('vm');
 const { validateBuildMatrix } = require('./build-matrix');
 const { cleanGenerated } = require('./cleanup');
+const { buildConfig, configDashboard, saveConfigPlanTable } = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { kebabCase, toPosix } = require('./fs-utils');
@@ -47,6 +48,131 @@ function updateText(projectRoot, relativePath, update) {
 
 function writeJson(projectRoot, relativePath, value) {
   writeText(projectRoot, relativePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeBinary(projectRoot, relativePath, content) {
+  const filePath = path.join(projectRoot, relativePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content);
+}
+
+function xmlEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function xlsxColumnName(index) {
+  let value = index + 1;
+  let name = '';
+  while (value > 0) {
+    value -= 1;
+    name = String.fromCharCode(65 + (value % 26)) + name;
+    value = Math.floor(value / 26);
+  }
+  return name;
+}
+
+function xlsxCell(value, rowIndex, columnIndex) {
+  const ref = `${xlsxColumnName(columnIndex)}${rowIndex + 1}`;
+  if (typeof value === 'number') {
+    return `<c r="${ref}"><v>${value}</v></c>`;
+  }
+  if (typeof value === 'boolean') {
+    return `<c r="${ref}" t="b"><v>${value ? 1 : 0}</v></c>`;
+  }
+  return `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(value)}</t></is></c>`;
+}
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let index = 0; index < 8; index += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function makeStoredZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const [name, content] of entries) {
+    const nameBuffer = Buffer.from(name, 'utf8');
+    const data = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(0, 6);
+    local.writeUInt32LE(0, 10);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuffer.length, 26);
+    local.writeUInt16LE(0, 28);
+    localParts.push(local, nameBuffer, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(0, 8);
+    central.writeUInt32LE(0, 12);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBuffer.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt32LE(0, 34);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, nameBuffer);
+    offset += local.length + nameBuffer.length + data.length;
+  }
+
+  const centralOffset = offset;
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralSize, 12);
+  eocd.writeUInt32LE(centralOffset, 16);
+  return Buffer.concat([...localParts, ...centralParts, eocd]);
+}
+
+function writeXlsx(projectRoot, relativePath, sheetName, rows) {
+  const sheetRows = rows.map((row, rowIndex) => {
+    const cells = row.map((value, columnIndex) => xlsxCell(value, rowIndex, columnIndex)).join('');
+    return `<row r="${rowIndex + 1}">${cells}</row>`;
+  }).join('');
+  const sheetXml = [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+    `<sheetData>${sheetRows}</sheetData>`,
+    '</worksheet>',
+  ].join('');
+  const workbookXml = [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+    `<sheets><sheet name="${xmlEscape(sheetName)}" sheetId="1" r:id="rId1"/></sheets>`,
+    '</workbook>',
+  ].join('');
+  const zip = makeStoredZip([
+    ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'],
+    ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ['xl/workbook.xml', workbookXml],
+    ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'],
+    ['xl/worksheets/sheet1.xml', sheetXml],
+  ]);
+  writeBinary(projectRoot, relativePath, zip);
 }
 
 function listRuntimeSourceFiles(sourceRoot, current = '') {
@@ -1788,22 +1914,45 @@ function createSmokeProject(projectRoot) {
   writeText(projectRoot, 'assets/modules/Battle/code/runtime/LevelActor.ts', 'export class LevelActor {}');
   writeText(projectRoot, 'assets/libraries/BattleCore/code/SharedFx.ts', 'export class SharedFx {}');
   writeText(projectRoot, 'assets/libraries/BattleCore/res/runtime/Rules.json', '{"version":1}');
-  writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
-    primaryKey: 'id',
-    rows: [
-      { id: 'sword', label: 'Sword' },
-    ],
-  }, null, 2));
   writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/runtime/LevelData.json', '{"level":1}');
-  writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/content/config/EnemyWaves.json', JSON.stringify({
-    primaryKey: 'id',
-    rows: [
-      { id: 'wave-1', enemy: 'slime', count: 3 },
-    ],
-  }, null, 2));
   writeText(projectRoot, 'assets/content-packs/Battle/Level001/res/scene/LevelScene.scene', JSON.stringify([
     { __type__: 'cc.SceneAsset' },
   ], null, 2));
+  writeXlsx(projectRoot, 'config-source/excel/BattleItems.xlsx', 'Items', [
+    ['id', 'type', 'label', 'price', 'tags', 'enabled', 'serverOnly'],
+    ['string', 'enum', 'string', 'number', 'string[]', 'boolean', 'string'],
+    ['pk', 'client', 'client', 'client', 'client', 'optional', 'ignore'],
+    ['Stable item id', 'Item category', 'Display name', 'Price', 'Tags', 'Feature switch', 'Server-only note'],
+    ['sword', 'weapon', 'Sword', 10, 'sharp|metal', true, 'secret'],
+    ['potion', 'consumable', 'Potion', 3, 'heal|drink', '', 'secret'],
+  ]);
+  writeXlsx(projectRoot, 'config-source/excel/Level001Enemies.xlsx', 'EnemyWaves', [
+    ['id', 'enemy', 'count'],
+    ['string', 'string', 'number'],
+    ['pk', 'client', 'client'],
+    ['Wave id', 'Enemy id', 'Enemy count'],
+    ['wave1', 'slime', 3],
+  ]);
+  saveConfigPlanTable(projectRoot, {
+    source: 'config-source/excel/BattleItems.xlsx',
+    sheet: 'Items',
+    table: 'item',
+    row: 'ItemRow',
+    scope: { kind: 'module', name: 'Battle' },
+    primaryKey: 'id',
+    format: 'json',
+    generateKeys: true,
+  });
+  saveConfigPlanTable(projectRoot, {
+    source: 'config-source/excel/Level001Enemies.xlsx',
+    sheet: 'EnemyWaves',
+    table: 'enemyWave',
+    row: 'EnemyWaveRow',
+    scope: { kind: 'content-pack', owner: 'Battle', name: 'Level001' },
+    primaryKey: 'id',
+    format: 'json',
+    generateKeys: true,
+  });
 
   const uuids = {
     pageBattle: '10000000-0000-4000-8000-000000000001',
@@ -1845,10 +1994,16 @@ function assertGeneratedOutput(projectRoot) {
   requireText(projectRoot, 'assets/app/global/code/generated/assets.ts', "toastNotice: viewRef('Global', ToastNotice, 'res/view/ToastNotice'");
   requireText(projectRoot, 'assets/modules/Battle/code/generated/assets.ts', "pageBattle: viewRef('Battle', PageBattle, 'res/view/PageBattle'");
   requireText(projectRoot, 'assets/modules/Battle/code/generated/assets.ts', "partReward: partRef(PartReward, 'res/part/PartReward')");
-  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', "battleItems: tableRef({ name: 'res/content/config/BattleItems', primaryKey: 'id' })");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export interface ItemRow extends Record<string, unknown>');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export const BattleItemIds = {');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', "item: tableRef<ItemRow, 'id'>({ name: 'res/content/config/Item', primaryKey: 'id' })");
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export const BattleLevel001ContentPack = defineContentPack');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "levelRoot: contentPackAssetRef(Prefab, 'res/prefab/LevelRoot')");
-  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "enemyWaves: contentPackConfigRef('res/content/config/EnemyWaves', { primaryKey: 'id' })");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export interface EnemyWaveRow extends Record<string, unknown>');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export const BattleLevel001EnemyWaveIds = {');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "enemyWave: contentPackConfigRef<EnemyWaveRow>('res/content/config/EnemyWave', { primaryKey: 'id' })");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export interface BattleLevel001ContentPackConfigTables');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'defineContentPack<typeof BattleLevel001ContentPackRefs, BattleLevel001ContentPackConfigTables>');
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'AnalyticsExtension');
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'app.installExtension(AnalyticsExtension)');
   requireText(projectRoot, 'assets/app/extensions/Analytics.ts', 'AnalyticsModuleToken');
@@ -1858,9 +2013,56 @@ function assertGeneratedOutput(projectRoot) {
   assert(manifest.refs.levelRoot?.type === 'Prefab', 'ContentPack prefab ref missing from manifest.');
   assert(manifest.refs.levelData?.type === 'JsonAsset', 'ContentPack runtime json ref missing from manifest.');
   assert(manifest.refs.levelScene?.type === 'SceneAsset', 'ContentPack scene ref missing from manifest.');
-  assert(manifest.refs.enemyWaves?.kind === 'config', 'ContentPack config ref missing from manifest.');
+  assert(manifest.refs.enemyWave?.kind === 'config', 'ContentPack config ref missing from manifest.');
   assert(manifest._generated?.hash, 'ContentPack manifest generated metadata missing hash.');
   assert(manifest._generated?.source === 'assets/content-packs/Battle/Level001/content-pack.json', 'ContentPack manifest generated source mismatch.');
+}
+
+function assertConfigBuildFromExcel(projectRoot) {
+  const dashboard = configDashboard(projectRoot);
+  assert(dashboard.sources.some((source) => source.source === 'config-source/excel/BattleItems.xlsx' && source.sheets.includes('Items')), 'Config dashboard must scan module xlsx sheets.');
+  assert(dashboard.sources.some((source) => source.source === 'config-source/excel/Level001Enemies.xlsx' && source.sheets.includes('EnemyWaves')), 'Config dashboard must scan content pack xlsx sheets.');
+  assert(dashboard.plan.tables.length === 2, 'Config plan must contain module and content-pack tables.');
+  const payload = readJson(projectRoot, 'assets/modules/Battle/res/content/config/Item.json');
+  assert(payload._yzforgeConfig?.source === 'config-source/excel/BattleItems.xlsx', 'Generated config metadata must keep source.');
+  assert(payload._yzforgeConfig?.fields.every((field) => field.name !== 'serverOnly'), 'Ignored config fields must not be exported.');
+  assert(payload.rows.length === 2, 'Generated config must include data rows.');
+  assert(payload.rows[0].price === 10, 'Generated config must convert numbers.');
+  assert(Array.isArray(payload.rows[0].tags) && payload.rows[0].tags[1] === 'metal', 'Generated config must convert arrays.');
+  assert(payload.rows[1].enabled === undefined, 'Optional empty config fields must be omitted.');
+  const enemyPayload = readJson(projectRoot, 'assets/content-packs/Battle/Level001/res/content/config/EnemyWave.json');
+  assert(enemyPayload._yzforgeConfig?.scope?.kind === 'content-pack', 'ContentPack config metadata must keep scope.');
+  assert(enemyPayload.rows[0].count === 3, 'ContentPack config must convert numbers.');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export interface ItemRow');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'readonly type: "consumable" | "weapon";');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'readonly price: number;');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export const BattleItemIds = {');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'sword: "sword",');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', "item: tableRef<ItemRow, 'id'>({ name: 'res/content/config/Item', primaryKey: 'id' })");
+
+  writeJson(projectRoot, 'assets/modules/Battle/res/content/config/Obsolete.json', {
+    _yzforgeConfig: {
+      schemaVersion: 1,
+      source: 'config-source/excel/Old.xlsx',
+      sheet: 'Old',
+      table: 'obsolete',
+      row: 'ObsoleteRow',
+      scope: { kind: 'module', name: 'Battle' },
+      primaryKey: 'id',
+      format: 'json',
+      generateKeys: true,
+      keyConst: 'BattleObsoleteIds',
+      keyType: 'BattleObsoleteId',
+      fields: [{ name: 'id', type: 'string', rules: ['pk'], comment: '' }],
+    },
+    rows: [],
+  });
+  const cleanup = buildConfig(projectRoot);
+  assert(cleanup.changed.includes('assets/modules/Battle/res/content/config/Obsolete.json'), 'Config build must remove stale generated config payloads.');
+  assert(!fs.existsSync(path.join(projectRoot, 'assets/modules/Battle/res/content/config/Obsolete.json')), 'Stale generated config payload must be deleted.');
+
+  const check = buildConfig(projectRoot, { check: true });
+  assert(check.ok, `Config check found stale files:\n${check.changed.join('\n')}`);
 }
 
 function assertOkValidation(projectRoot) {
@@ -1879,6 +2081,9 @@ function assertToolchainResolverInvariants() {
   const smokeSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/smoke.js'), 'utf8');
   const forbiddenCocosInstallPath = ['D:', '/Applications/Cocos'].join('');
   assert(packageJson.scripts?.typecheck === 'node extensions/yzforge/editor/cli.js typecheck', 'typecheck script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:config:table'] === 'node extensions/yzforge/editor/cli.js config-table', 'Config table script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:config:build'] === 'node extensions/yzforge/editor/cli.js config-build', 'Config build script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:config:check'] === 'node extensions/yzforge/editor/cli.js config-build --check', 'Config check script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:validate:build-matrix'] === 'node extensions/yzforge/editor/cli.js validate-build-matrix', 'BuildMatrixValidator script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:cocos:build:web'] === 'node extensions/yzforge/editor/cli.js cocos-build --platform web-desktop --debug --output yzforge-build-matrix', 'Cocos web build script must route through YZForge CLI.');
   assert(toolchainSource.includes('resolveCocosEditorRoot'), 'ToolchainResolver must expose Cocos editor root resolution.');
@@ -1893,6 +2098,8 @@ function assertToolchainResolverInvariants() {
   assert(toolchainSource.includes('runCocosBuild'), 'ToolchainResolver must own Cocos build execution.');
   assert(toolchainSource.includes('runTypecheck'), 'ToolchainResolver must own typecheck execution.');
   assert(cliSource.includes("command === 'typecheck'") && cliSource.includes('runTypecheck'), 'CLI must route typecheck through ToolchainResolver.');
+  assert(cliSource.includes("command === 'config-table'") && cliSource.includes('saveConfigPlanTable'), 'CLI must route config table registration through ConfigBuilder.');
+  assert(cliSource.includes("command === 'config-build'") && cliSource.includes('buildConfig'), 'CLI must route config build through ConfigBuilder.');
   assert(!generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must not write local Cocos engine paths into committed project config.');
   assert(validateSource.includes('loadToolchainTypeScript') && !validateSource.includes(forbiddenCocosInstallPath), 'Validator must load TypeScript through ToolchainResolver.');
   assert(smokeSource.includes('loadToolchainTypeScript') && !smokeSource.includes(forbiddenCocosInstallPath), 'Smoke must load TypeScript through ToolchainResolver.');
@@ -2165,7 +2372,11 @@ async function smoke(options = {}) {
     assertDashboardProfileResolver();
     setupBaseline(projectRoot);
     const created = createSmokeProject(projectRoot);
-    const generated = generate(projectRoot);
+    const configBuilt = buildConfig(projectRoot);
+    assert(configBuilt.tables.length === 2, 'Expected config build to process two tables.');
+    assert(configBuilt.changed.includes('assets/modules/Battle/res/content/config/Item.json'), 'Expected config build to write module config payload.');
+    assert(configBuilt.changed.includes('assets/content-packs/Battle/Level001/res/content/config/EnemyWave.json'), 'Expected config build to write ContentPack config payload.');
+    const generated = configBuilt.generated;
     assert(generated.modules === 1, 'Expected one generated module.');
     assert(generated.libraries === 1, 'Expected one generated library.');
     assert(generated.contentPacks === 1, 'Expected one generated ContentPack.');
@@ -2176,6 +2387,7 @@ async function smoke(options = {}) {
     assertToolchainTemplate(projectRoot);
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
+    assertConfigBuildFromExcel(projectRoot);
     const validation = assertOkValidation(projectRoot);
 
     updateJson(projectRoot, '.yzforge/toolchain.example.json', (example) => {
@@ -2698,22 +2910,16 @@ async function smoke(options = {}) {
     fs.unlinkSync(path.join(projectRoot, 'packages/yzforge-runtime/src/BadBundleType.ts'));
     assertOkValidation(projectRoot);
 
-    writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
-      primaryKey: 'id',
-      rows: [
-        { id: 'sword', label: 'Sword' },
-        { id: 'sword', label: 'Duplicate Sword' },
-      ],
-    }, null, 2));
+    updateJson(projectRoot, 'assets/modules/Battle/res/content/config/Item.json', (payload) => {
+      payload.rows = [
+        { ...payload.rows[0] },
+        { ...payload.rows[0], label: 'Duplicate Sword' },
+      ];
+    });
     const duplicateConfigViolation = expectValidationIssue(projectRoot, "duplicate config primary key 'sword'");
     const duplicateConfigDetail = duplicateConfigViolation.issueDetails.find((issue) => issue.message.includes('duplicate config primary key'));
     assert(duplicateConfigDetail.code === 'config.duplicate_key', 'Expected duplicate config key issue code.');
-    writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
-      primaryKey: 'id',
-      rows: [
-        { id: 'sword', label: 'Sword' },
-      ],
-    }, null, 2));
+    buildConfig(projectRoot);
     assertOkValidation(projectRoot);
 
     writeText(projectRoot, 'assets/libraries/BattleCore/code/providers.ts', [
@@ -2736,16 +2942,11 @@ async function smoke(options = {}) {
     ].join('\n'));
     assertOkValidation(projectRoot);
 
-    fs.rmSync(path.join(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json'), { force: true });
+    fs.rmSync(path.join(projectRoot, 'assets/modules/Battle/res/content/config/Item.json'), { force: true });
     const missingConfigViolation = expectValidationIssue(projectRoot, 'references missing config payload');
     const missingConfigDetail = missingConfigViolation.issueDetails.find((issue) => issue.message.includes('missing config payload'));
     assert(missingConfigDetail.code === 'config.payload_missing', 'Expected missing config payload issue code.');
-    writeText(projectRoot, 'assets/modules/Battle/res/content/config/BattleItems.json', JSON.stringify({
-      primaryKey: 'id',
-      rows: [
-        { id: 'sword', label: 'Sword' },
-      ],
-    }, null, 2));
+    buildConfig(projectRoot);
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'assets/app/main/Main.scene', (records) => {

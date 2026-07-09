@@ -1,5 +1,38 @@
 {
-  "primaryKey": "id",
+  "_yzforgeConfig": {
+    "schemaVersion": 1,
+    "source": "config-source/excel/StartItems.xlsx",
+    "sheet": "StartItems",
+    "table": "startItems",
+    "row": "StartItemRow",
+    "scope": {
+      "kind": "module",
+      "name": "Start"
+    },
+    "primaryKey": "id",
+    "format": "json",
+    "generateKeys": true,
+    "keyConst": "StartItemsIds",
+    "keyType": "StartItemsId",
+    "fields": [
+      {
+        "name": "id",
+        "type": "string",
+        "rules": [
+          "pk"
+        ],
+        "comment": "Start item id"
+      },
+      {
+        "name": "label",
+        "type": "string",
+        "rules": [
+          "client"
+        ],
+        "comment": "Display label"
+      }
+    ]
+  },
   "rows": [
     {
       "id": "start",

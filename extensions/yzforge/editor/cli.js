@@ -3,6 +3,7 @@
 const path = require('path');
 const { validateBuildMatrix } = require('./build-matrix');
 const { cleanGenerated } = require('./cleanup');
+const { buildConfig, saveConfigPlanTable } = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { smoke } = require('./smoke');
@@ -15,6 +16,25 @@ function readOption(args, name, fallback) {
     return fallback;
   }
   return args[index + 1] ?? fallback;
+}
+
+function parseConfigScope(value) {
+  const text = String(value || '').trim();
+  if (text === 'global') {
+    return { kind: 'global' };
+  }
+  const match = text.match(/^(module|library|content-pack):(.+)$/);
+  if (!match) {
+    throw new Error(`Invalid config scope: ${text}. Use global, module:Name, library:Name, or content-pack:Owner/Name.`);
+  }
+  if (match[1] === 'content-pack') {
+    const [owner, name] = match[2].split('/');
+    if (!owner || !name) {
+      throw new Error(`Invalid content-pack config scope: ${text}. Use content-pack:Owner/Name.`);
+    }
+    return { kind: 'content-pack', owner, name };
+  }
+  return { kind: match[1], name: match[2] };
 }
 
 async function main() {
@@ -51,6 +71,32 @@ async function main() {
     if (!result.ok) {
       process.exitCode = 1;
     }
+    return;
+  }
+
+  if (command === 'config-build') {
+    const check = process.argv.includes('--check');
+    const result = buildConfig(projectRoot, { check });
+    console.log(JSON.stringify(result, null, 2));
+    if (check && !result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (command === 'config-table') {
+    const args = process.argv.slice(3);
+    const result = saveConfigPlanTable(projectRoot, {
+      source: readOption(args, '--source', ''),
+      sheet: readOption(args, '--sheet', ''),
+      scope: parseConfigScope(readOption(args, '--scope', '')),
+      table: readOption(args, '--table', undefined),
+      row: readOption(args, '--row', undefined),
+      primaryKey: readOption(args, '--primary-key', 'id'),
+      format: readOption(args, '--format', 'json'),
+      generateKeys: !args.includes('--no-keys'),
+    });
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 

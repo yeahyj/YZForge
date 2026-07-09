@@ -22,7 +22,7 @@ export interface LoadedContentPack<TRefs = unknown, TConfig = unknown> {
     readonly refs: TRefs;
     readonly manifest: ContentPackManifest;
     readonly assets: ContentPackAssetScope;
-    readonly config: ConfigScope | Record<string, unknown>;
+    readonly config: ConfigScope<TConfig>;
     unload(): Promise<void>;
 }
 
@@ -138,7 +138,7 @@ export class ContentPackManager {
             );
             const manifestAsset = await assets.load(assetRef(JsonAsset, 'manifest.generated'));
             const manifest = readContentPackManifest(ref, manifestAsset);
-            const config = await this.kernel.configs.loadContentPackScope(ref.refs, assets);
+            const config = await this.kernel.configs.loadContentPackScope<TConfig>(ref.refs, assets);
             const handle: LoadedContentPack<TRefs, TConfig> = {
                 ref,
                 bundleName: ref.bundle,

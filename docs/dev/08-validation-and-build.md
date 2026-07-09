@@ -2,7 +2,7 @@
 
 ## 日常检查
 
-写完一个小功能：
+改普通业务代码：
 
 ```bash
 npm run yzforge:generate
@@ -10,45 +10,60 @@ npm run yzforge:validate:strict
 npm run typecheck
 ```
 
-提交前：
+改配置表：
+
+```bash
+npm run yzforge:config:build
+npm run yzforge:validate:strict
+npm run typecheck
+```
+
+提交前建议：
 
 ```bash
 npm run yzforge:generate:check
+npm run yzforge:config:check
 npm run yzforge:validate:strict
 npm run typecheck
 npm run yzforge:smoke
 ```
 
-需要证明 Cocos 真能构建：
+需要真实 Cocos 构建证据时：
 
 ```bash
 npm run yzforge:validate:build-matrix
 npm run yzforge:cocos:build:web
 ```
 
-## 每个命令检查什么
+## 命令说明
 
 | 命令 | 作用 |
 | --- | --- |
-| `yzforge:generate` | 扫描描述文件、生成 contract、registry、entry、assets、config、import map |
-| `yzforge:generate:check` | 检查生成物是否最新，不写文件 |
+| `yzforge:generate` | 扫描描述文件，生成 contract、registry、entry、assets、config、import map、工具链模板 |
+| `yzforge:generate:check` | 检查普通生成物是否最新，不写文件 |
+| `yzforge:config:table` | 从 CLI 登记一张 Excel 表到 `config-source/export-plan.json` |
+| `yzforge:config:build` | 从 Excel 导出配置 JSON，并刷新 `generated/config.ts` |
+| `yzforge:config:check` | 检查配置 JSON 和配置生成入口是否最新，不写文件 |
 | `yzforge:validate` | 基础架构校验 |
 | `yzforge:validate:strict` | 严格架构校验，提交前默认使用 |
 | `typecheck` | 使用项目工具链解析 Cocos 和 TypeScript 类型 |
-| `yzforge:smoke` | 在临时项目里跑核心生成、校验和迁移烟测 |
-| `yzforge:validate:build-matrix` | 检查 Cocos 构建矩阵配置 |
+| `yzforge:smoke` | 在临时项目里跑核心生成、配置表、校验和迁移烟测 |
+| `yzforge:validate:build-matrix` | 检查 Cocos 构建矩阵证据 |
 | `yzforge:cocos:build:web` | 调用 Cocos 构建 Web Desktop |
 
-## 推荐 CI 顺序
+## CI 顺序
+
+推荐无 Cocos 构建环境的 CI：
 
 ```bash
 npm run yzforge:generate:check
+npm run yzforge:config:check
 npm run yzforge:validate:strict
 npm run typecheck
 npm run yzforge:smoke
 ```
 
-构建机有 Cocos 环境时再加：
+有 Cocos 构建环境时再加：
 
 ```bash
 npm run yzforge:validate:build-matrix
@@ -82,4 +97,4 @@ npm run yzforge:cocos:build:web
 - 准备合并到主分支。
 - 怀疑 TypeScript 能过但 Cocos assembly 解析会失败。
 
-普通业务小改可以先跑 generate、validate、typecheck。
+普通业务小改可以先跑 `generate/config-build/validate/typecheck`。
