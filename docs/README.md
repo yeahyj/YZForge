@@ -45,8 +45,9 @@ YZForge 的核心模型从旧的三层模型升级为四层：
 1. [dev/README.md](./dev/README.md)：开发帮助文档索引。
 2. [dev/12-framework-usage-manual.md](./dev/12-framework-usage-manual.md)：框架日常使用手册。
 3. [dev/13-config-table-manual.md](./dev/13-config-table-manual.md)：配置表使用手册。
-4. [dev/00-quick-start.md](./dev/00-quick-start.md)：第一次接手和常用命令。
-5. [dev/01-project-layout.md](./dev/01-project-layout.md)：真实开发目录放置规则。
+4. [dev/14-local-storage.md](./dev/14-local-storage.md)：本地存档、设置与缓存分区。
+5. [dev/00-quick-start.md](./dev/00-quick-start.md)：第一次接手和常用命令。
+6. [dev/01-project-layout.md](./dev/01-project-layout.md)：真实开发目录放置规则。
 
 如果你是要理解框架为什么这样设计，再按下面顺序读设计文档：
 

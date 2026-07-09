@@ -27,7 +27,7 @@ npm run yzforge:create -- model BattleModel --owner Battle
 npm run yzforge:create -- service BattleService --owner Battle
 npm run yzforge:create -- flow BattleFlow --owner Battle
 npm run yzforge:create -- event-file BattleStarted --owner Battle
-npm run yzforge:create -- extension-stub Storage
+npm run yzforge:create -- extension-stub Analytics
 ```
 
 生成和检查：

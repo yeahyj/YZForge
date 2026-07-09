@@ -23,6 +23,7 @@ export * from './refs';
 export * from './safe-area-root';
 export * from './screen-fitter';
 export * from './shared-registry';
+export * from './storage';
 export * from './system-ui';
 export * from './tokens';
 export * from './types';

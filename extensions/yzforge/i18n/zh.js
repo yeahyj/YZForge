@@ -19,7 +19,7 @@ module.exports = {
     "Editor.Message.request('yzforge', 'create-global-view', { name: 'notice', viewKind: 'Toast' })",
     "Editor.Message.request('yzforge', 'create-service', { owner: 'Battle', name: 'BattleService' })",
     "Editor.Message.request('yzforge', 'create-event-file', { owner: 'Battle', name: 'BattleStarted' })",
-    "Editor.Message.request('yzforge', 'create-extension-stub', { name: 'Storage' })",
+    "Editor.Message.request('yzforge', 'create-extension-stub', { name: 'Analytics' })",
   ].join('\n'),
   generate_all: '生成全部',
   generate_check: '检查生成物',

@@ -58,6 +58,7 @@ npm run yzforge:cocos:build:web
 12. [11-time-clock.md](./11-time-clock.md)：时间、跨天、跨周、跨月和倒计时。
 13. [12-framework-usage-manual.md](./12-framework-usage-manual.md)：框架日常使用手册。
 14. [13-config-table-manual.md](./13-config-table-manual.md)：配置表使用手册。
+15. [14-local-storage.md](./14-local-storage.md)：本地存档、设置与缓存分区。
 
 ## 一句话原则
 

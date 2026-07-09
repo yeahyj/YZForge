@@ -1048,6 +1048,9 @@ function validateAppStateMachine(projectRoot, issues) {
   requirePattern(/\bpublic\s+get\s+clock\s*\(\)\s*:\s*AppClock\b/, 'App must expose AppClock through a clock getter.', 'clock');
   requirePattern(/\breadonly\s+clock\s*:\s*AppClockSnapshot\b/, 'AppRuntimeSnapshot must expose AppClockSnapshot.', 'AppRuntimeSnapshot.clock');
   requirePattern(/\bclock\s*:\s*kernel\.clock\.snapshot\s*\(\s*\)/, 'App.snapshot must include AppClock snapshot.', 'snapshot.clock');
+  requirePattern(/\bpublic\s+get\s+storage\s*\(\)\s*:\s*AppStorage\b/, 'App must expose AppStorage through a storage getter.', 'storage');
+  requirePattern(/\breadonly\s+storage\s*:\s*AppStorageSnapshot\b/, 'AppRuntimeSnapshot must expose AppStorageSnapshot.', 'AppRuntimeSnapshot.storage');
+  requirePattern(/\bstorage\s*:\s*kernel\.storage\.snapshot\s*\(\s*\)/, 'App.snapshot must include AppStorage snapshot.', 'snapshot.storage');
   requirePattern(/['"]app\.invalid_state['"]/, 'App state guard must report app.invalid_state.', 'app.invalid_state');
   requirePattern(/\bArray\.from\s*\(\s*this\.moduleTasks\.values\s*\(\s*\)\s*\)/, 'App.dispose must wait for pending module load tasks before unloading modules.', 'moduleTasks');
 
@@ -1078,7 +1081,7 @@ function validateAppPublicStateGuards(rel, source, issues) {
     ['purgeResourceCache', ['AppState.Started', 'AppState.Disposing']],
     ['dispose', ['AppState.Created', 'AppState.Starting', 'AppState.Started', 'AppState.Failed']],
   ]);
-  const allowedUnguardedPublicMembers = new Set(['logger', 'lifecycle', 'viewport', 'state', 'boot', 'clock', 'snapshot']);
+  const allowedUnguardedPublicMembers = new Set(['logger', 'lifecycle', 'viewport', 'state', 'boot', 'clock', 'storage', 'snapshot']);
   const appClass = sourceFile.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === 'App');
   if (!appClass) {
     issues.push(`${rel} must declare class App.`, {

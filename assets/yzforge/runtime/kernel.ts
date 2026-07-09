@@ -11,6 +11,7 @@ import { OwnershipLedger, ReleaseScope } from './lifetime';
 import { Logger } from './logger';
 import { ModuleNavigator } from './navigator';
 import { SharedRegistry } from './shared-registry';
+import { AppStorage } from './storage';
 import { UIManager } from './ui';
 import { ViewportManager } from './viewport';
 import type { App, AppOptions } from './app';
@@ -20,6 +21,7 @@ export class AppKernel {
     public readonly logger: Logger;
     public readonly boot: AppBootProfile;
     public readonly clock: AppClock;
+    public readonly storage: AppStorage;
     public readonly entries: EntryRegistry;
     public readonly ownership: OwnershipLedger;
     public readonly releaseScope: ReleaseScope;
@@ -38,6 +40,7 @@ export class AppKernel {
     public constructor(app: App, options: AppOptions = {}) {
         this.boot = normalizeAppBootProfile(options.boot);
         this.clock = new AppClock();
+        this.storage = new AppStorage({ ...options.storage, boot: this.boot });
         this.logger = options.logger ?? new Logger();
         this.entries = options.entries ?? getDefaultEntryRegistry();
         this.ownership = new OwnershipLedger();

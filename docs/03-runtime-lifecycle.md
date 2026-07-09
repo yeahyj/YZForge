@@ -21,6 +21,7 @@ export class App {
     public readonly state: AppState;
     public readonly boot: AppBootProfile;
     public readonly clock: AppClock;
+    public readonly storage: AppStorage;
 
     public start(options?: AppStartOptions): Promise<void>;
     public preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope>;
@@ -95,6 +96,30 @@ app.clock.msUntilNextMonth();
 - `nowMs()` 是单调运行时长，只用于性能、冷却、动画或本地耗时统计，不用于跨天判断。
 - `AppClock` 不做节假日、活动日历、cron 表达式或平台时间校验；这些应由配置表、活动系统或平台扩展解释。
 
+## 本地存储分区
+
+`AppStorage` 是 App 级本地键值存储。它只解决“本机数据放在哪个分区、怎么编码、怎么隔离、怎么清理”，不直接设计账号存档结构。
+
+```ts
+app.storage.save.setJson('player', saveData);
+app.storage.settings.setBoolean('audio/enabled', false);
+app.storage.cache.setString('bundle/startEtag', etag);
+```
+
+固定分区：
+
+- `save`：本地存档和玩家进度。不能因为清缓存或重建 UI 被清掉。
+- `settings`：音量、画质、语言、震动开关等本机设置。
+- `cache`：可随时删除的临时数据，例如接口缓存、etag、下载索引、弱一致性缓存。
+
+规则：
+
+- 默认底层使用 Cocos `sys.localStorage`，测试或特殊平台可以注入 adapter。
+- 所有 key 都带 `yzforge:<appId>:<channel>:<profile>:<partition>` 前缀，避免渠道、Debug/Release 和分区互相污染。
+- 业务不要直接调用 `sys.localStorage` 或 `window.localStorage`。
+- 清缓存只调用 `app.storage.clearCache()` 或 `app.storage.cache.clear()`，不要清 `save` 和 `settings`。
+- `AppStorage` 不做加密、压缩、云存档、账号冲突合并或版本迁移；这些应由业务存档系统或 Storage Extension 处理。
+
 ## App 状态机
 
 `App` 有显式状态，所有 public 生命周期 API 都必须受状态约束：
@@ -144,14 +169,14 @@ Failed
 
 - 直接提供 `app.net`。
 - 直接提供 `app.audio`。
-- 直接提供 `app.storage`。
+- 直接实现云存档、存档加密、账号冲突合并。
 - 直接持有业务数据。
 - 直接打开某个业务模块内部 View。
 
 扩展能力通过 token 使用：
 
 ```ts
-const storage = app.use(StorageToken);
+const analytics = app.use(AnalyticsToken);
 ```
 
 ## Extension 生命周期
@@ -233,7 +258,7 @@ export interface Extension {
 App-level token：
 
 ```ts
-const storage = app.use(StorageToken);
+const analytics = app.use(AnalyticsToken);
 ```
 
 Module-level token：

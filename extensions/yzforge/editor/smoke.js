@@ -1160,10 +1160,22 @@ async function assertAppStateMachineBehavior() {
     }
   }
 
+  class SmokeStorage {
+    snapshot() {
+      return {
+        namespace: 'smoke',
+        save: { name: 'save', keyCount: 0, byteSize: 0 },
+        settings: { name: 'settings', keyCount: 0, byteSize: 0 },
+        cache: { name: 'cache', keyCount: 0, byteSize: 0 },
+      };
+    }
+  }
+
   class SmokeAppKernel {
     constructor(app, options = {}) {
       this.boot = options.boot ?? { channel: 'default', profile: 'debug', debug: true };
       this.clock = new SmokeClock();
+      this.storage = new SmokeStorage();
       this.logger = createLogger();
       this.entries = {
         waitForModule: async () => ({}),
@@ -1283,8 +1295,10 @@ async function assertAppStateMachineBehavior() {
   assert(app.state === AppState.Created, 'App must start in Created state.');
   assert(app.boot.channel === 'wechat', 'App.boot must expose the configured boot channel.');
   assert(app.clock.snapshot().serverSynced === false, 'App.clock must expose the AppClock facade.');
+  assert(app.storage.snapshot().cache.keyCount === 0, 'App.storage must expose the AppStorage facade.');
   assert(app.snapshot().boot.profile === 'release', 'App snapshot must expose the configured boot profile.');
   assert(app.snapshot().clock.dayOfWeek === 1, 'App snapshot must expose the AppClock snapshot.');
+  assert(app.snapshot().storage.save.name === 'save', 'App snapshot must expose the AppStorage snapshot.');
   assert(app.snapshot().state === AppState.Created, 'App snapshot must expose current state.');
   assert(app.snapshot().resourceDiagnostics?.healthy === true, 'App snapshot must expose healthy resource diagnostics when no leaks exist.');
 
@@ -1442,6 +1456,58 @@ async function assertAppClockBehavior() {
   assert(clock.snapshot().serverOffsetMs === 5000, 'AppClock snapshot must expose server offset.');
   clock.clearServerUnixMs();
   assert(clock.snapshot().serverSynced === false, 'AppClock.clearServerUnixMs must clear server sync state.');
+}
+
+async function assertAppStorageBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const storageRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/storage.ts', {
+    cc: { sys: { localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } } },
+    './errors': errors,
+  });
+  const { AppStorage, MemoryStorageAdapter } = storageRuntime;
+  const adapter = new MemoryStorageAdapter();
+  const storage = new AppStorage({
+    appId: 'DemoGame',
+    boot: { channel: 'wechat', profile: 'debug', debug: true },
+    adapter,
+  });
+
+  storage.save.setJson('player', { level: 3, exp: 20 });
+  storage.settings.setBoolean('audio/enabled', false);
+  storage.settings.setNumber('audio/bgmVolume', 0.6);
+  storage.cache.setString('bundle/startEtag', 'etag-001');
+
+  assert(storage.save.getJson('player').level === 3, 'AppStorage.save must store JSON payloads.');
+  assert(storage.settings.getBoolean('audio/enabled') === false, 'AppStorage.settings must store booleans.');
+  assert(storage.settings.getNumber('audio/bgmVolume') === 0.6, 'AppStorage.settings must store numbers.');
+  assert(storage.cache.getString('bundle/startEtag') === 'etag-001', 'AppStorage.cache must store strings.');
+  assert(storage.snapshot().save.keyCount === 1, 'AppStorage snapshot must count save keys.');
+  assert(storage.snapshot().settings.keyCount === 2, 'AppStorage snapshot must count settings keys.');
+  assert(storage.snapshot().cache.keyCount === 1, 'AppStorage snapshot must count cache keys.');
+
+  storage.save.child('slot/user001').setNumber('coins', 99);
+  assert(storage.save.getNumber('slot/user001/coins') === 99, 'AppStorage child scopes must map to slash-prefixed keys.');
+
+  const releaseStorage = new AppStorage({
+    appId: 'DemoGame',
+    boot: { channel: 'wechat', profile: 'release', debug: false },
+    adapter,
+  });
+  assert(releaseStorage.save.getJson('player') === undefined, 'AppStorage namespace must isolate different boot profiles.');
+
+  storage.clearCache();
+  assert(storage.cache.has('bundle/startEtag') === false, 'AppStorage.clearCache must only clear cache partition.');
+  assert(storage.save.getJson('player').level === 3, 'AppStorage.clearCache must not clear save data.');
+  assert(storage.settings.getBoolean('audio/enabled') === false, 'AppStorage.clearCache must not clear settings data.');
+
+  let invalidKey;
+  try {
+    storage.save.setString('../bad', 'bad');
+  } catch (error) {
+    invalidKey = error;
+  }
+  assert(invalidKey?.code === 'storage.key_invalid', 'AppStorage must reject unsafe keys.');
 }
 
 function writeBundleMeta(projectRoot, relativeDir, bundleName) {
@@ -1845,16 +1911,28 @@ function appStateMachineRuntimeSource() {
     '    }',
     '}',
     '',
+    'export interface AppStorageSnapshot {',
+    '    readonly namespace: string;',
+    '}',
+    '',
+    'export class AppStorage {',
+    '    public snapshot(): AppStorageSnapshot {',
+    '        return { namespace: "smoke" };',
+    '    }',
+    '}',
+    '',
     'export interface AppRuntimeSnapshot {',
     '    readonly state: AppState;',
     '    readonly boot: AppBootProfile;',
     '    readonly clock: AppClockSnapshot;',
+    '    readonly storage: AppStorageSnapshot;',
     '}',
     '',
     'export class App {',
     '    private appState = AppState.Created;',
     '    private readonly bootProfile: AppBootProfile = { channel: "default", profile: "debug", debug: true };',
     '    private readonly appClock = new AppClock();',
+    '    private readonly appStorage = new AppStorage();',
     '    private readonly preloadTasks = new Map<string, Promise<unknown>>();',
     '    private readonly moduleTasks = new Map<string, Promise<unknown>>();',
     '',
@@ -1868,6 +1946,10 @@ function appStateMachineRuntimeSource() {
     '',
     '    public get clock(): AppClock {',
     '        return this.appClock;',
+    '    }',
+    '',
+    '    public get storage(): AppStorage {',
+    '        return this.appStorage;',
     '    }',
     '',
     '    public async start(): Promise<void> {',
@@ -1923,8 +2005,8 @@ function appStateMachineRuntimeSource() {
     '    }',
     '',
     '    public snapshot(): AppRuntimeSnapshot {',
-    '        const kernel = { boot: this.bootProfile, clock: this.appClock };',
-    '        return { state: this.appState, boot: kernel.boot, clock: kernel.clock.snapshot() };',
+    '        const kernel = { boot: this.bootProfile, clock: this.appClock, storage: this.appStorage };',
+    '        return { state: this.appState, boot: kernel.boot, clock: kernel.clock.snapshot(), storage: kernel.storage.snapshot() };',
     '    }',
     '',
     '    private assertState(api: string, allowed: readonly AppState[]): void {',
@@ -2503,6 +2585,7 @@ function assertRuntimeLifecycleInvariants() {
   const extensionRegistrySource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/extension-registry.ts'), 'utf8');
   const contentPackSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/content-pack.ts'), 'utf8');
   const runtimeIndexSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/index.ts'), 'utf8');
+  const storageSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/storage.ts'), 'utf8');
   const uiSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/ui.ts'), 'utf8');
   const editorMainSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/main.js'), 'utf8');
   const preloadBody = appSource.slice(appSource.indexOf('public async preloadModule'), appSource.indexOf('public async loadModule'));
@@ -2516,6 +2599,11 @@ function assertRuntimeLifecycleInvariants() {
   assert(runtimeIndexSource.includes("export * from './clock'"), 'Runtime public barrel must expose AppClock.');
   assert(kernelSource.includes('this.clock = new AppClock()'), 'AppKernel must create AppClock.');
   assert(clockSource.includes('public dayOfWeek') && clockSource.includes('public hasCrossedMonth'), 'AppClock must expose calendar helpers.');
+  assert(appSource.includes('public get storage(): AppStorage'), 'App must expose an AppStorage getter.');
+  assert(appSource.includes('storage: kernel.storage.snapshot()'), 'App snapshot must expose storage snapshot.');
+  assert(runtimeIndexSource.includes("export * from './storage'"), 'Runtime public barrel must expose AppStorage.');
+  assert(kernelSource.includes('this.storage = new AppStorage'), 'AppKernel must create AppStorage.');
+  assert(storageSource.includes("export type AppStoragePartitionName = 'save' | 'settings' | 'cache'"), 'AppStorage must expose fixed save/settings/cache partitions.');
   assert(appSource.includes("this.assertState('preloadModule', [AppState.Started])"), 'preloadModule must require Started App state.');
   assert(appSource.includes("this.assertState('back', [AppState.Started])"), 'back must require Started App state.');
   assert(appSource.includes("this.assertState('loadModule', [AppState.Started])"), 'loadModule must require Started App state.');
@@ -2660,6 +2748,7 @@ async function smoke(options = {}) {
     assertRuntimeLifecycleInvariants();
     await assertAppStateMachineBehavior();
     await assertAppClockBehavior();
+    await assertAppStorageBehavior();
     await assertReleaseScopeBehavior();
     await assertAssetReleasePolicyBehavior();
     await assertBundleCachePolicyBehavior();

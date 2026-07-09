@@ -17,6 +17,7 @@ import type { LoadedModule, Module } from './module';
 import { ModuleState } from './module';
 import type { EnterModuleOptions, NavigatorSnapshot } from './navigator';
 import type { ModuleRef } from './refs';
+import type { AppStorage, AppStorageSnapshot, AppStorageUserOptions } from './storage';
 import type { ExtensionToken, ModuleExtensionToken } from './tokens';
 import type { UISnapshot } from './ui';
 import { createMainBinding, type MainBinding } from './main-binding';
@@ -27,6 +28,7 @@ export interface AppOptions {
     readonly logger?: Logger;
     readonly entries?: EntryRegistry;
     readonly boot?: AppBootProfileInput;
+    readonly storage?: AppStorageUserOptions;
 }
 
 export interface AppStartOptions {
@@ -92,6 +94,7 @@ export interface AppRuntimeSnapshot {
     readonly state: AppState;
     readonly boot: AppBootProfile;
     readonly clock: AppClockSnapshot;
+    readonly storage: AppStorageSnapshot;
     readonly lastFailure?: AppFailureSnapshot;
     readonly viewport: DeviceProfile;
     readonly releaseScope: ReleaseScopeSnapshot;
@@ -147,6 +150,10 @@ export class App {
 
     public get clock(): AppClock {
         return this.kernel.clock;
+    }
+
+    public get storage(): AppStorage {
+        return this.kernel.storage;
     }
 
     public async back(): Promise<boolean> {
@@ -518,6 +525,7 @@ export class App {
             state: this.appState,
             boot: kernel.boot,
             clock: kernel.clock.snapshot(),
+            storage: kernel.storage.snapshot(),
             lastFailure: this.lastFailure,
             viewport: kernel.viewport.profile,
             releaseScope: kernel.releaseScope.snapshot(),

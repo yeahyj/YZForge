@@ -9,13 +9,14 @@
 - `ViewportManager`：统一读取屏幕、设计分辨率、可视区域、安全区。
 - `AppBootSettings`：启动前渠道和运行 profile 设置。
 - `AppClock`：统一 App 时间源、服务端时间 offset、跨天 / 跨周 / 跨月判断。
+- `AppStorage`：统一本地存档、设置、缓存三分区和本机 key 隔离。
 - 标准 `MainRoot` / `UIRoot` / 全屏 UI Layer 结构。
 - 最小安全区与全屏适配组件。
 - 系统 UI preset：Loading、TouchMask、Toast、PopupMask。
 - App 前后台与 viewport changed 事件。
 - Validator 检查 Main 场景和业务绕过规则。
 
-其他能力，例如 Debug HUD、错误上报、音频、存档、网络、平台、多语言、新手引导、红点、热更新，都应该通过 Extension 进入。
+其他能力，例如 Debug HUD、错误上报、音频、云存档、存档加密、网络、平台、多语言、新手引导、红点、热更新，都应该通过 Extension 进入。
 
 ## 参考来源
 
@@ -55,11 +56,13 @@ Cocos 官方能力：
 | --- | --- | --- |
 | 安全区、刘海屏、长宽屏适配 | 核心 | UIRoot、PopupMask、Toast、Loading 都依赖同一份屏幕信息。 |
 | 时间源、跨天、跨周、跨月判断 | 核心 | 存档、活动、倒计时、网络校时都会用到，必须避免业务各自散落 `Date.now()`。 |
+| 本地存档、设置、缓存分区 | 核心 | 大多数项目都会用到，且必须统一 key 前缀和清理边界，避免业务直接操作 `localStorage`。 |
 | Main 场景 UI 层级 | 核心 | UIManager 需要稳定挂载点。 |
 | Loading / TouchMask / Toast / PopupMask | 核心模板 | 属于系统 UI 基础设施。 |
 | App 前后台、viewport changed | 核心 | 扩展和 Module 都需要统一事件源。 |
 | Debug HUD、性能面板 | Extension | 发布包通常禁用，不应污染核心。 |
-| 音频、存档、网络、平台、多语言 | Extension | 策略差异大，依赖项目和平台。 |
+| 音频、网络、平台、多语言 | Extension | 策略差异大，依赖项目和平台。 |
+| 云存档、存档加密、压缩、账号合并 | Extension / 业务 | 基础本地分区在核心里，但完整存档策略依赖项目和平台。 |
 | ECS、MVVM、战斗框架、行为树 | 业务 / Library / Extension | 会改变项目架构风格或强玩法相关。 |
 
 ## ViewportManager
@@ -232,7 +235,7 @@ app.lifecycle.on('memory-warning', callback);
 
 - UI 适配组件刷新布局。
 - Module 可选择刷新显示数据。
-- Audio、Platform、Storage、Net 等 Extension 订阅前后台事件。
+- Audio、Platform、CloudSave、Net 等 Extension 订阅前后台事件。
 - Runtime 订阅 `memory-warning`，在 Cocos 低内存事件到来时清理零引用热缓存 Bundle。
 
 这些事件只表达 App 状态，不等同于 Module Navigator 的 `pause` / `resume`。Module 被 Push 到后台仍由 Navigator 管理。
@@ -297,7 +300,7 @@ assets/app/main/presets/
 | --- | --- |
 | `yzforge-debug` | FPS、内存、Bundle、Asset、UI、Navigator 快照面板。 |
 | `yzforge-audio` | BGM、SFX、Voice、音量、前后台暂停恢复。 |
-| `yzforge-storage` | 本地存档、设置、加密 / 压缩 codec。 |
+| `yzforge-storage` | 云存档、存档加密、压缩 codec、账号存档合并。 |
 | `yzforge-platform` | 登录、渠道、支付、广告、分享、平台安全区补偿。 |
 | `yzforge-net` | HTTP、WebSocket、重连、心跳、请求取消。 |
 | `yzforge-i18n` | 文本表、多语言资源、字体 fallback、运行时语言切换。 |
@@ -337,4 +340,4 @@ App.start
   -> Validator 阻止业务绕过 app.viewport
 ```
 
-这个闭环完成后，再考虑音频、存档、平台、网络、多语言等 Extension。否则核心会过早变重，偏离 YZForge 的 Scope / Contract / Bundle / Handle 主线。
+这个闭环完成后，再考虑音频、云存档、平台、网络、多语言等 Extension。否则核心会过早变重，偏离 YZForge 的 Scope / Contract / Bundle / Handle 主线。

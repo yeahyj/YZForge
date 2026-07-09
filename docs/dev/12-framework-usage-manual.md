@@ -272,6 +272,24 @@ const leftMs = this.app.clock.msUntilNextDay();
 
 不要在业务逻辑里散落 `Date.now()`。
 
+## 本地存储用法
+
+本地存档、设置和缓存走 `app.storage`：
+
+```ts
+app.storage.save.setJson('player', saveData);
+app.storage.settings.setBoolean('audio/enabled', true);
+app.storage.cache.setString('bundle/startEtag', etag);
+```
+
+清缓存只清 `cache` 分区：
+
+```ts
+app.storage.clearCache();
+```
+
+不要直接调用 `sys.localStorage`，不要把玩家进度写进 `cache`。更完整规则看 [14-local-storage.md](./14-local-storage.md)。
+
 ## 启动设置
 
 启动渠道和 Debug/Release profile 在 `assets/app/main/AppBootSettings.ts` 的 Inspector 字段里改。
@@ -340,3 +358,4 @@ npm run yzforge:smoke
 - 不要把启动渠道、Debug/Release profile 写进配置表。
 - 不要把配置表生成 JSON 当手写 JSON 改。
 - 不要在业务逻辑里散落 `Date.now()`。
+- 不要直接操作 `sys.localStorage` 或 `window.localStorage`。
