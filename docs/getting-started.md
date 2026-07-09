@@ -39,7 +39,49 @@ assets/app/main/AppBootSettings.ts
 
 `AppBootSettings` 保存渠道和 Debug / Release profile。玩法数值、活动参数和远程开关不要写到这里，应该走配置表或服务端。
 
+## 插件入口
+
+打开 Cocos 后，顶部菜单会出现 `YZForge`。
+
+| 菜单 | 用途 |
+| --- | --- |
+| `YZForge -> 仪表盘` | 查看项目摘要，执行生成、校验、诊断和 smoke |
+| `YZForge -> 创建` | 可视化创建 Module、Library、ContentPack、View、Part、Model、Service、Flow |
+| `YZForge -> 配置表` | 扫描 Excel，维护配置表导出规则 |
+| `YZForge -> 创建帮助` | 查看可用创建消息和参数示例 |
+| `YZForge -> 生成全部` | 刷新生成文件 |
+| `YZForge -> Config -> 生成配置` | 生成配置表 JSON 和 TS 入口 |
+| `YZForge -> Config -> 检查配置` | 检查配置表生成物是否最新 |
+| `YZForge -> 安全清理` | 清理可安全重建的生成资源 |
+| `YZForge -> 校验架构` | 检查项目结构和框架边界 |
+| `YZForge -> 严格校验` | 严格校验项目结构和框架边界 |
+| `YZForge -> 冒烟测试` | 运行框架 smoke 测试 |
+
+日常可视化操作优先用插件；自动化、CI、AI 开发优先用 CLI。
+
 ## 创建第一个 Module
+
+插件方式：
+
+```text
+YZForge -> 创建
+  类型：Module
+  名称：Battle
+
+YZForge -> 创建
+  类型：Module View
+  归属：Battle
+  名称：PageBattle
+
+YZForge -> 创建
+  类型：Flow
+  归属：Battle
+  名称：BattleFlow
+
+YZForge -> 生成全部
+```
+
+CLI 方式：
 
 创建一个模块、一个页面 View 和一个 Flow：
 
@@ -118,7 +160,10 @@ config-source/excel
 然后使用 Cocos 菜单：
 
 ```text
-YZForge -> Config Tables
+YZForge -> 配置表
+  Scan Excel / 扫描 Excel
+  Save Table / 保存表规则
+  Build Config / 生成配置
 ```
 
 也可以用 CLI：
@@ -159,6 +204,8 @@ this.app.storage.save.setJson('player', playerSave);
 ```
 
 ## 日常命令
+
+这些命令都有对应的插件菜单或面板入口。提交前和 CI 推荐使用 CLI，因为输出更稳定。
 
 | 命令 | 用途 |
 | --- | --- |

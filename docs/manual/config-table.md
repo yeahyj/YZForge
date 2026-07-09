@@ -7,11 +7,18 @@
 ```text
 把 Excel 放到 config-source/excel
 按 4 行表头规则维护工作表
-在 YZForge -> Config Tables 面板保存导出规则，或用 CLI 保存规则
-npm run yzforge:config:build
+日常开发：在 YZForge -> 配置表 面板保存导出规则并生成配置
+自动化/CI/AI：用 CLI 保存导出规则并运行 npm run yzforge:config:build
 在业务里通过 generated/config.ts 读取
 npm run yzforge:config:check
 ```
+
+插件和 CLI 是同一套能力的两个入口：
+
+| 方式 | 适合场景 |
+| --- | --- |
+| Cocos 插件 | 日常点选 Excel、维护导出规则、手动生成配置 |
+| CLI | CI、脚本、AI 开发、提交前检查 |
 
 ## Excel 放哪里
 
@@ -128,24 +135,24 @@ sharp|metal
 打开 Cocos 菜单：
 
 ```text
-YZForge -> Config Tables
+YZForge -> 配置表
 ```
 
 常规步骤：
 
-1. 点击 `Scan Excel`，扫描 `config-source/excel/**/*.xlsx`。
+1. 点击 `Scan Excel / 扫描 Excel`，扫描 `config-source/excel/**/*.xlsx`。
 2. 在 `Saved Rule` 选择已有规则，或选择 `New Rule`。
 3. 选择 `Source` 和 `Sheet`。
 4. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
 5. 填写 `Rule Name / 规则名称`。
 6. 填写 `Table Key / 代码表名`。
 7. 按需要勾选 `Generate ID constants`。
-8. 点击 `Save Table` 写入 `config-source/export-plan.json`。
-9. 点击 `Build Config` 生成 JSON 和 `generated/config.ts`。
+8. 点击 `Save Table / 保存表规则` 写入 `config-source/export-plan.json`。
+9. 点击 `Build Config / 生成配置` 生成 JSON 和 `generated/config.ts`。
 
-`Delete Rule` 只删除导出规则，不删除 Excel。下一次 `Build Config` 会清理不再属于导出计划的旧生成 JSON。
+`Delete Rule / 删除规则` 只删除导出规则，不删除 Excel。下一次 `Build Config / 生成配置` 会清理不再属于导出计划的旧生成 JSON。
 
-`Config Check` 只检查生成物是否最新，不写文件，适合提交前和 CI。
+`Config Check / 检查配置` 只检查生成物是否最新，不写文件，适合提交前和 CI。
 
 ## 导出规则字段
 

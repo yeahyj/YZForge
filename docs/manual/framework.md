@@ -26,6 +26,31 @@ npm run typecheck
 npm run yzforge:smoke
 ```
 
+## 插件和 CLI 怎么选
+
+YZForge 同时提供 Cocos 插件入口和 CLI。
+
+| 方式 | 适合场景 |
+| --- | --- |
+| Cocos 插件 | 日常可视化创建、配置表维护、查看诊断结果 |
+| CLI | CI、脚本、AI 开发、提交前检查 |
+
+Cocos 顶部菜单：
+
+| 菜单 | 用途 |
+| --- | --- |
+| `YZForge -> 仪表盘` | 项目摘要、生成、校验、诊断、清理、smoke |
+| `YZForge -> 创建` | 创建 Module、Library、ContentPack、View、Part、Model、Service、Flow |
+| `YZForge -> 配置表` | 扫描 Excel、保存导出规则、生成配置 |
+| `YZForge -> 创建帮助` | 查看可用创建消息和参数示例 |
+| `YZForge -> 生成全部` | 刷新生成文件 |
+| `YZForge -> Config -> 生成配置` | 生成配置表 JSON 和 TS 入口 |
+| `YZForge -> Config -> 检查配置` | 检查配置表生成物是否最新 |
+| `YZForge -> 安全清理` | 清理可安全重建的生成资源 |
+| `YZForge -> 校验架构` | 检查项目结构和框架边界 |
+| `YZForge -> 严格校验` | 严格校验项目结构和框架边界 |
+| `YZForge -> 冒烟测试` | 运行 smoke 测试 |
+
 ## 先判断 Scope
 
 YZForge 的第一原则是所有权。不要先想“脚本放 scripts 还是 game”，先判断这段能力归谁。
@@ -47,7 +72,16 @@ YZForge 的第一原则是所有权。不要先想“脚本放 scripts 还是 ga
 
 ## 创建结构
 
-常用创建命令：
+插件方式：
+
+```text
+YZForge -> 创建
+  类型：Module / Library / ContentPack / Module View / Part / Model / Service / Flow
+  归属：按需要选择 owner
+  名称：PascalCase
+```
+
+CLI 方式：
 
 ```bash
 npm run yzforge:create -- module Battle

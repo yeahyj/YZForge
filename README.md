@@ -43,7 +43,47 @@ npm run typecheck
 assets/app/main/Main.scene
 ```
 
+## Cocos 插件入口
+
+打开 Cocos 后，可以从顶部菜单使用 YZForge 插件：
+
+| 菜单 | 用途 |
+| --- | --- |
+| `YZForge -> 仪表盘` | 查看模块、Library、ContentPack 摘要，执行生成、校验、诊断和 smoke |
+| `YZForge -> 创建` | 可视化创建 Module、Library、ContentPack、View、Part、Model、Service、Flow |
+| `YZForge -> 配置表` | 扫描 Excel、维护导出规则、生成配置表 |
+| `YZForge -> 创建帮助` | 查看可用创建消息和参数示例 |
+| `YZForge -> 生成全部` | 等同于刷新生成文件 |
+| `YZForge -> Config -> 生成配置` | 生成配置表 JSON 和 TS 入口 |
+| `YZForge -> Config -> 检查配置` | 检查配置表生成物是否最新 |
+| `YZForge -> 安全清理` | 清理可安全重建的生成资源 |
+| `YZForge -> 校验架构` | 检查项目结构和框架边界 |
+| `YZForge -> 严格校验` | 严格检查项目结构和框架边界 |
+| `YZForge -> 冒烟测试` | 运行框架 smoke 测试 |
+
+日常开发可以优先用插件面板；CI、脚本和 AI 开发更适合使用下面的 CLI 命令。
+
 ## 创建第一个模块
+
+插件方式：
+
+```text
+YZForge -> 创建
+  类型：Module
+  名称：Battle
+
+YZForge -> 创建
+  类型：Module View
+  归属：Battle
+  名称：PageBattle
+
+YZForge -> 创建
+  类型：Flow
+  归属：Battle
+  名称：BattleFlow
+```
+
+CLI 方式：
 
 ```bash
 npm run yzforge:create -- module Battle
