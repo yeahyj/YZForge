@@ -976,6 +976,14 @@ exports.methods = {
     return Editor.Panel.open('yzforge');
   },
 
+  openCreatePanel() {
+    return Editor.Panel.open('yzforge.create');
+  },
+
+  openConfigPanel() {
+    return Editor.Panel.open('yzforge.config');
+  },
+
   getProjectSummary() {
     return describeProject();
   },

@@ -2161,6 +2161,7 @@ function assertOkValidation(projectRoot) {
 function assertToolchainResolverInvariants() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
   const packageJson = readJson(projectRoot, 'package.json');
+  const extensionPackage = readJson(projectRoot, 'extensions/yzforge/package.json');
   const toolchainSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/toolchain.js'), 'utf8');
   const cliSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/cli.js'), 'utf8');
   const generateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/generate.js'), 'utf8');
@@ -2174,6 +2175,11 @@ function assertToolchainResolverInvariants() {
   assert(packageJson.scripts?.['yzforge:config:check'] === 'node extensions/yzforge/editor/cli.js config-build --check', 'Config check script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:validate:build-matrix'] === 'node extensions/yzforge/editor/cli.js validate-build-matrix', 'BuildMatrixValidator script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:cocos:build:web'] === 'node extensions/yzforge/editor/cli.js cocos-build --platform web-desktop --debug --output yzforge-build-matrix', 'Cocos web build script must route through YZForge CLI.');
+  assert(extensionPackage.panels?.default?.main === 'editor/panel/index.js', 'YZForge Dashboard panel must stay separate.');
+  assert(extensionPackage.panels?.create?.main === 'editor/panel/create.js', 'YZForge Create panel must stay separate.');
+  assert(extensionPackage.panels?.config?.main === 'editor/panel/config.js', 'YZForge Config panel must stay separate.');
+  assert(extensionPackage.contributions?.messages?.['open-create-panel']?.methods?.includes('openCreatePanel'), 'Create panel menu must open the Create panel.');
+  assert(extensionPackage.contributions?.messages?.['open-config-panel']?.methods?.includes('openConfigPanel'), 'Config panel menu must open the Config panel.');
   assert(toolchainSource.includes('resolveCocosEditorRoot'), 'ToolchainResolver must expose Cocos editor root resolution.');
   assert(toolchainSource.includes('resolveCocosExecutable'), 'ToolchainResolver must expose Cocos executable resolution.');
   assert(toolchainSource.includes('resolveCocosBuildOutputPath'), 'ToolchainResolver must expose Cocos build output path resolution.');

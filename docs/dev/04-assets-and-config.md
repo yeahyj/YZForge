@@ -70,7 +70,7 @@ ContentPack 的配置入口通过 `manifest.generated.json` 和 `LoadedContentPa
 
 ## 面板生成
 
-打开 Cocos 菜单 `YZForge -> Open Panel`，在 `Config Tables` 区域：
+打开 Cocos 菜单 `YZForge -> Config Tables`：
 
 1. 点击 `Scan Excel`，扫描 `config-source/excel/**/*.xlsx`。
 2. 在 `Saved Rule` 选择已有规则，或选择 `New Rule` 新建规则。

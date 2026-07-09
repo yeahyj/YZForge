@@ -8,14 +8,36 @@
   "editor": ">=3.8.0",
   "panels": {
     "default": {
-      "title": "i18n:yzforge.panel_title",
+      "title": "i18n:yzforge.dashboard_panel_title",
       "type": "dockable",
       "main": "editor/panel/index.js",
       "size": {
         "min-width": 420,
-        "min-height": 520,
+        "min-height": 460,
+        "width": 500,
+        "height": 620
+      }
+    },
+    "create": {
+      "title": "i18n:yzforge.create_panel_title",
+      "type": "dockable",
+      "main": "editor/panel/create.js",
+      "size": {
+        "min-width": 420,
+        "min-height": 460,
         "width": 520,
-        "height": 720
+        "height": 620
+      }
+    },
+    "config": {
+      "title": "i18n:yzforge.config_panel_title",
+      "type": "dockable",
+      "main": "editor/panel/config.js",
+      "size": {
+        "min-width": 460,
+        "min-height": 520,
+        "width": 620,
+        "height": 700
       }
     }
   },
@@ -23,8 +45,18 @@
     "menu": [
       {
         "path": "YZForge",
-        "label": "i18n:yzforge.open_panel",
+        "label": "i18n:yzforge.open_dashboard",
         "message": "open-panel"
+      },
+      {
+        "path": "YZForge",
+        "label": "i18n:yzforge.open_create_panel",
+        "message": "open-create-panel"
+      },
+      {
+        "path": "YZForge",
+        "label": "i18n:yzforge.open_config_panel",
+        "message": "open-config-panel"
       },
       {
         "path": "YZForge",
@@ -71,6 +103,16 @@
       "open-panel": {
         "methods": [
           "openPanel"
+        ]
+      },
+      "open-create-panel": {
+        "methods": [
+          "openCreatePanel"
+        ]
+      },
+      "open-config-panel": {
+        "methods": [
+          "openConfigPanel"
         ]
       },
       "get-project-summary": {

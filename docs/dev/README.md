@@ -19,7 +19,7 @@ npm run typecheck
 
 ```text
 维护 config-source/excel/**/*.xlsx
-在 YZForge 面板保存导出规则，或运行 yzforge:config:table
+在 YZForge -> Config Tables 面板保存导出规则，或运行 yzforge:config:table
 npm run yzforge:config:build
 npm run yzforge:validate:strict
 npm run typecheck
