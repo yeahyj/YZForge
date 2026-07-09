@@ -71,6 +71,8 @@ function yzforgePackageScripts() {
     'yzforge:config:table': 'node extensions/yzforge/editor/cli.js config-table',
     'yzforge:config:build': 'node extensions/yzforge/editor/cli.js config-build',
     'yzforge:config:check': 'node extensions/yzforge/editor/cli.js config-build --check',
+    'yzforge:ai:context': 'node extensions/yzforge/editor/cli.js ai-context',
+    'yzforge:ai:doctor': 'node extensions/yzforge/editor/cli.js ai-doctor',
     'yzforge:clean:generated': 'node extensions/yzforge/editor/cli.js clean-generated',
     'yzforge:clean:generated:check': 'node extensions/yzforge/editor/cli.js clean-generated --dry-run',
     'yzforge:validate': 'node extensions/yzforge/editor/cli.js validate',
@@ -671,6 +673,8 @@ function runTypecheck(projectRoot, options = {}) {
     status: result.status,
     signal: result.signal,
     error: result.error,
+    stdout: result.stdout && result.stdout.length > 0 ? String(result.stdout) : undefined,
+    stderr: result.stderr && result.stderr.length > 0 ? String(result.stderr) : undefined,
     command: `node ${toPosix(tscPath)} ${args.join(' ')}`,
     tsconfig: tsconfigPath ? toPosix(tsconfigPath) : undefined,
   };

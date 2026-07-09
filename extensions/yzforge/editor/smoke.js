@@ -2184,6 +2184,7 @@ function assertToolchainResolverInvariants() {
   const extensionPackage = readJson(projectRoot, 'extensions/yzforge/package.json');
   const toolchainSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/toolchain.js'), 'utf8');
   const cliSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/cli.js'), 'utf8');
+  const aiSupportSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/ai-support.js'), 'utf8');
   const generateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/generate.js'), 'utf8');
   const validateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/validate.js'), 'utf8');
   const configPanelSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/panel/config.js'), 'utf8');
@@ -2194,6 +2195,8 @@ function assertToolchainResolverInvariants() {
   assert(packageJson.scripts?.['yzforge:config:remove'] === 'node extensions/yzforge/editor/cli.js config-remove', 'Config remove script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:config:build'] === 'node extensions/yzforge/editor/cli.js config-build', 'Config build script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:config:check'] === 'node extensions/yzforge/editor/cli.js config-build --check', 'Config check script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:ai:context'] === 'node extensions/yzforge/editor/cli.js ai-context', 'AI context script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:ai:doctor'] === 'node extensions/yzforge/editor/cli.js ai-doctor', 'AI doctor script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:validate:build-matrix'] === 'node extensions/yzforge/editor/cli.js validate-build-matrix', 'BuildMatrixValidator script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:cocos:build:web'] === 'node extensions/yzforge/editor/cli.js cocos-build --platform web-desktop --debug --output yzforge-build-matrix', 'Cocos web build script must route through YZForge CLI.');
   assert(extensionPackage.panels?.default?.main === 'editor/panel/index.js', 'YZForge Dashboard panel must stay separate.');
@@ -2219,6 +2222,11 @@ function assertToolchainResolverInvariants() {
   assert(cliSource.includes('rejectOptions') && cliSource.includes("'--primary-key'"), 'CLI must reject manually edited config primary keys.');
   assert(cliSource.includes("command === 'config-remove'") && cliSource.includes('deleteConfigPlanTable'), 'CLI must route config table deletion through ConfigBuilder.');
   assert(cliSource.includes("command === 'config-build'") && cliSource.includes('buildConfig'), 'CLI must route config build through ConfigBuilder.');
+  assert(cliSource.includes("command === 'ai-context'") && cliSource.includes('writeAiContext'), 'CLI must route AI context generation.');
+  assert(cliSource.includes("command === 'ai-doctor'") && cliSource.includes('runAiDoctor'), 'CLI must route AI doctor.');
+  assert(aiSupportSource.includes('buildAiContext') && aiSupportSource.includes('.yzforge/ai-context.json'), 'AI support must generate machine-readable context.');
+  assert(fs.existsSync(path.join(projectRoot, 'AGENTS.md')), 'AGENTS.md must exist for AI development rules.');
+  assert(fs.existsSync(path.join(projectRoot, 'docs/ai/README.md')), 'docs/ai README must exist for AI task workflows.');
   assert(!generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must not write local Cocos engine paths into committed project config.');
   assert(validateSource.includes('loadToolchainTypeScript') && !validateSource.includes(forbiddenCocosInstallPath), 'Validator must load TypeScript through ToolchainResolver.');
   assert(smokeSource.includes('loadToolchainTypeScript') && !smokeSource.includes(forbiddenCocosInstallPath), 'Smoke must load TypeScript through ToolchainResolver.');

@@ -993,6 +993,8 @@ function toolchainGitignore() {
   return [
     '# Local machine-specific Cocos toolchain config.',
     '/toolchain.json',
+    '/ai-context.json',
+    '/ai-summary.md',
     '!/toolchain.schema.json',
     '!/toolchain.example.json',
     '!/.gitignore',

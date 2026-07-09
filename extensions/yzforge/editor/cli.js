@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const { runAiDoctor, writeAiContext } = require('./ai-support');
 const { validateBuildMatrix } = require('./build-matrix');
 const { cleanGenerated } = require('./cleanup');
 const { buildConfig, deleteConfigPlanTable, saveConfigPlanTable } = require('./config-builder');
@@ -115,6 +116,24 @@ async function main() {
       id: readOption(args, '--id', ''),
     });
     console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === 'ai-context') {
+    const result = writeAiContext(projectRoot);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === 'ai-doctor') {
+    const args = process.argv.slice(3);
+    const result = runAiDoctor(projectRoot, {
+      typecheck: !args.includes('--no-typecheck'),
+    });
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
