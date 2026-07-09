@@ -16,6 +16,8 @@ npm run yzforge:create -- part PartReward --owner Battle
 - Part prefab 放 `res/part`。
 - 业务加载 UI 使用生成的 `assets.views` 或 `assets.parts`。
 - 不手写 `resources.load`、`bundle.load` 或跨 Scope 路径。
+- 创建命令生成的是最小 prefab：根节点和对应脚本。不要假设里面已经有全屏背景或安全区节点。
+- 需要全屏背景和安全区内容时，在业务 prefab 内自行拆节点，例如 `Background` + `SafeContent(YZSafeAreaRoot)`。
 
 ## AutoRef
 

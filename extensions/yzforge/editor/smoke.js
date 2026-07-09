@@ -1616,19 +1616,18 @@ function serializedMainScene(mainScriptUuid) {
       _name: 'Main',
       _children: [{ __id__: 2 }],
     },
-    node('MainRoot', 1, [3, 5], [15]),
+    node('MainRoot', 1, [3, 5], [14]),
     node('WorldRoot', 2, [4]),
     node('SceneHost', 3, []),
-    node('Canvas', 2, [6], [16]),
-    node('UIRoot', 5, [7, 8, 14]),
-    node('FullscreenLayer', 6, [], [17]),
-    node('SafeAreaRoot', 6, [9, 10, 11, 12, 13], [18]),
-    node('PageLayer', 8, []),
-    node('PaperLayer', 8, []),
-    node('PopupLayer', 8, []),
-    node('ToastLayer', 8, []),
-    node('TopLayer', 8, []),
-    node('SystemLayer', 6, [], [19]),
+    node('Canvas', 2, [6], [15]),
+    node('UIRoot', 5, [7, 8, 9, 10, 11, 12, 13]),
+    node('UnderlayLayer', 6, [], [16]),
+    node('PageLayer', 6, [], [17]),
+    node('PaperLayer', 6, [], [18]),
+    node('PopupLayer', 6, [], [19]),
+    node('ToastLayer', 6, [], [20]),
+    node('TopLayer', 6, [], [21]),
+    node('SystemOverlayLayer', 6, [], [22]),
     {
       __type__: compressScriptUuid(mainScriptUuid),
       node: { __id__: 2 },
@@ -1644,13 +1643,33 @@ function serializedMainScene(mainScriptUuid) {
       _enabled: true,
     },
     {
-      __type__: compressScriptUuid(SAFE_AREA_ROOT_UUID),
+      __type__: compressScriptUuid(FULL_SCREEN_ROOT_UUID),
       node: { __id__: 8 },
       _enabled: true,
     },
     {
       __type__: compressScriptUuid(FULL_SCREEN_ROOT_UUID),
-      node: { __id__: 14 },
+      node: { __id__: 9 },
+      _enabled: true,
+    },
+    {
+      __type__: compressScriptUuid(FULL_SCREEN_ROOT_UUID),
+      node: { __id__: 10 },
+      _enabled: true,
+    },
+    {
+      __type__: compressScriptUuid(FULL_SCREEN_ROOT_UUID),
+      node: { __id__: 11 },
+      _enabled: true,
+    },
+    {
+      __type__: compressScriptUuid(FULL_SCREEN_ROOT_UUID),
+      node: { __id__: 12 },
+      _enabled: true,
+    },
+    {
+      __type__: compressScriptUuid(FULL_SCREEN_ROOT_UUID),
+      node: { __id__: 13 },
       _enabled: true,
     },
   ];
@@ -3079,13 +3098,13 @@ async function smoke(options = {}) {
     updateJson(projectRoot, 'assets/app/main/Main.scene', (records) => {
       const idsByName = new Map(records.map((record, index) => [record?._name, index]));
       const uiRootId = idsByName.get('UIRoot');
-      const safeAreaRootId = idsByName.get('SafeAreaRoot');
+      const canvasId = idsByName.get('Canvas');
       const pageLayerId = idsByName.get('PageLayer');
-      records[safeAreaRootId]._children = records[safeAreaRootId]._children.filter((ref) => ref.__id__ !== pageLayerId);
-      records[uiRootId]._children.push({ __id__: pageLayerId });
-      records[pageLayerId]._parent = { __id__: uiRootId };
+      records[uiRootId]._children = records[uiRootId]._children.filter((ref) => ref.__id__ !== pageLayerId);
+      records[canvasId]._children.push({ __id__: pageLayerId });
+      records[pageLayerId]._parent = { __id__: canvasId };
     });
-    const mainSceneViolation = expectValidationIssue(projectRoot, 'Main scene node PageLayer must be a direct child of SafeAreaRoot');
+    const mainSceneViolation = expectValidationIssue(projectRoot, 'Main scene node PageLayer must be a direct child of UIRoot');
     const mainSceneDetail = mainSceneViolation.issueDetails.find((issue) => issue.message.includes('PageLayer'));
     assert(mainSceneDetail.code === 'main.scene', 'Expected main scene hierarchy issue code.');
     writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
@@ -3093,12 +3112,12 @@ async function smoke(options = {}) {
 
     updateJson(projectRoot, 'assets/app/main/Main.scene', (records) => {
       const idsByName = new Map(records.map((record, index) => [record?._name, index]));
-      const safeAreaRootId = idsByName.get('SafeAreaRoot');
-      records[safeAreaRootId]._components = [];
+      const paperLayerId = idsByName.get('PaperLayer');
+      records[paperLayerId]._components = [];
     });
-    const safeAreaComponentViolation = expectValidationIssue(projectRoot, 'Main scene SafeAreaRoot must mount YZSafeAreaRoot component');
-    const safeAreaComponentDetail = safeAreaComponentViolation.issueDetails.find((issue) => issue.message.includes('YZSafeAreaRoot'));
-    assert(safeAreaComponentDetail.code === 'main.scene', 'Expected Main scene safe area component issue code.');
+    const fullScreenComponentViolation = expectValidationIssue(projectRoot, 'Main scene PaperLayer must mount YZFullScreenRoot component');
+    const fullScreenComponentDetail = fullScreenComponentViolation.issueDetails.find((issue) => issue.message.includes('YZFullScreenRoot'));
+    assert(fullScreenComponentDetail.code === 'main.scene', 'Expected Main scene full screen component issue code.');
     writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
     assertOkValidation(projectRoot);
 

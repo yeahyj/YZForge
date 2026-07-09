@@ -450,18 +450,20 @@ Main.scene
     Canvas
       UICamera
       UIRoot
+        UnderlayLayer
         PageLayer
         PaperLayer
         PopupLayer
         ToastLayer
         TopLayer
-        SystemLayer
+        SystemOverlayLayer
 ```
 
 规则：
 
 - `Main.scene` 永驻，不被玩法场景替换。
 - `WorldRoot/SceneHost` 预留给后续 Scene Module 或 3D/玩法内容扩展。
-- UI 层节点必须启动时校验。
+- UI 层节点必须启动时校验，所有标准 Layer 都直接挂在 `UIRoot` 下并覆盖真实屏幕。
+- Main 场景不放全局 `SafeAreaRoot`；需要安全区的 View 在自己的 prefab 内使用 `YZSafeAreaRoot`。
 - Loading、Toast、TouchMask 等系统 UI preset 放在 `assets/app/main/presets`。
 - 首包只放启动必要内容、contracts、registry、global 和 shared code，不把业务模块实现拉进来。

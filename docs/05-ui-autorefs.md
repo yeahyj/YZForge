@@ -32,7 +32,7 @@ UI 不只按层级分类，必须拆成三个维度：
 | 维度 | 作用 | 示例 |
 | --- | --- | --- |
 | `ViewKind` | 语义类型 | Page、Paper、Popup、Toast |
-| `ViewLayer` | 物理层级 | PageLayer、PopupLayer、SystemLayer |
+| `ViewLayer` | 物理层级 | PageLayer、PopupLayer、SystemOverlayLayer |
 | `ViewPolicy` | 行为策略 | 单例、入栈、遮罩、返回键关闭、模块退出关闭 |
 
 `ViewKind` 不等于 `ViewLayer`。例如系统级确认弹窗的 `kind` 可以是 `Popup`，但物理层级可以放在 `System`。
@@ -68,13 +68,16 @@ export enum ViewStackMode {
 
 ```text
 UIRoot
+  UnderlayLayer
   PageLayer
   PaperLayer
   PopupLayer
   ToastLayer
   TopLayer
-  SystemLayer
+  SystemOverlayLayer
 ```
+
+所有这些 Layer 都是全屏根。`ViewLayer.System` 的运行时物理节点名是 `SystemOverlayLayer`；`System` 保留为代码里的语义枚举，避免业务把它误解成普通页面层。
 
 ## ViewPolicy
 

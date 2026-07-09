@@ -7,8 +7,8 @@
 第一版核心只做：
 
 - `ViewportManager`：统一读取屏幕、设计分辨率、可视区域、安全区。
-- 标准 `MainRoot` / `UIRoot` / `SafeAreaRoot` / UI Layer 结构。
-- 最小安全区与全屏背景适配组件。
+- 标准 `MainRoot` / `UIRoot` / 全屏 UI Layer 结构。
+- 最小安全区与全屏适配组件。
 - 系统 UI preset：Loading、TouchMask、Toast、PopupMask。
 - App 前后台与 viewport changed 事件。
 - Validator 检查 Main 场景和业务绕过规则。
@@ -128,41 +128,41 @@ const profile = app.viewport.profile;
 
 ## Main 场景结构
 
-当前 UI 文档已有 `UIRoot -> PageLayer / PaperLayer / PopupLayer / ToastLayer / TopLayer / SystemLayer`。这里不另起一套结构，而是在现有结构上增加全屏区域和安全区根节点。
+当前 UI 文档已有 `UIRoot -> PageLayer / PaperLayer / PopupLayer / ToastLayer / TopLayer / SystemOverlayLayer`。最终结构不再设置全局 `SafeAreaRoot` 父节点，而是让所有标准层都占满真实可视区域；某个 View 内部是否使用安全区，由该 View prefab 自己决定。
 
 标准结构：
 
 ```text
 MainRoot
-  UIRoot
-    FullscreenLayer
-    SafeAreaRoot
+  Canvas
+    UIRoot
+      UnderlayLayer
       PageLayer
       PaperLayer
       PopupLayer
       ToastLayer
       TopLayer
-    SystemLayer
+      SystemOverlayLayer
 ```
 
 节点职责：
 
 | 节点 | 作用 |
 | --- | --- |
-| `FullscreenLayer` | 背景、场景遮罩、全屏特效，可延伸到刘海和边缘。 |
-| `SafeAreaRoot` | 主要交互 UI 的安全区域根节点。 |
-| `PageLayer` | Page。 |
-| `PaperLayer` | Paper。 |
+| `UnderlayLayer` | 全局底层背景、场景遮罩、全屏特效，可延伸到刘海和边缘。 |
+| `PageLayer` | Page。全屏背景和安全区内容都由 Page prefab 自己组织。 |
+| `PaperLayer` | Paper。允许一个 Paper 同时拥有全屏背景和安全区内容。 |
 | `PopupLayer` | Popup 和 PopupMask。 |
 | `ToastLayer` | Toast。 |
 | `TopLayer` | 常驻顶层 UI。 |
-| `SystemLayer` | Loading、TouchMask、系统确认框，优先级最高。 |
+| `SystemOverlayLayer` | Loading、TouchMask、系统确认框，优先级最高。 |
 
 默认规则：
 
-- Page、Paper、Popup、Toast、Top 挂在 `SafeAreaRoot` 内。
-- 全屏背景和全屏特效挂在 `FullscreenLayer`。
-- Loading、TouchMask 和系统弹窗挂在 `SystemLayer`。
+- 所有标准 Layer 都直接挂在 `UIRoot` 下，并挂载 `YZFullScreenRoot`。
+- `UIManager` 只负责把 View 挂到正确 Layer，不负责替 View 创建安全区结构。
+- 如果某个 View 需要“全屏背景 + 安全区内容”，在该 View prefab 内部自行拆节点。
+- Loading、TouchMask 和系统弹窗挂在 `SystemOverlayLayer`。
 - Popup 遮罩仍由 UIManager 创建，不放进业务 prefab。
 
 ## 适配组件
@@ -171,8 +171,8 @@ MainRoot
 
 | 组件 | 是否核心 | 用途 |
 | --- | --- | --- |
-| `YZSafeAreaRoot` | 是 | 将节点约束到 `app.viewport.profile.safeArea`。默认挂在 `SafeAreaRoot`。 |
-| `YZFullScreenRoot` | 是 | 将节点约束到真实可视区域。默认挂在 `FullscreenLayer` 和 `SystemLayer`。 |
+| `YZSafeAreaRoot` | 是 | 将节点约束到 `app.viewport.profile.safeArea`。由业务 View prefab 按需使用，不挂在 Main 场景全局根上。 |
+| `YZFullScreenRoot` | 是 | 将节点约束到真实可视区域。默认挂在所有标准 Layer。 |
 | `YZScreenFitter` | 是 | 对背景或容器执行 contain / cover 适配。 |
 | `YZEdgePin` | 否 | 作为模板工具组件，可后续提供。 |
 | `YZAspectFitter` | 否 | Cocos 和业务可自行处理，第一版不进核心。 |
@@ -180,8 +180,19 @@ MainRoot
 这样设计的原因：
 
 - Cocos 已有 `SafeArea`、`Widget`、Canvas 适配能力，YZForge 不应该重复造完整 UI 布局系统。
-- 核心只需要确保框架层 UIRoot、系统 UI、PopupMask、Toast 能拿到统一 viewport 信息。
+- 核心只需要确保框架 Layer、系统 UI、PopupMask、Toast 能拿到统一 viewport 信息。
 - 更细的 UI 布局应该留给业务 prefab、Cocos Widget 或后续工具组件。
+
+View prefab 内部推荐模式：
+
+```text
+PaperShop
+  FullscreenBackground
+  SafeContent
+    YZSafeAreaRoot
+```
+
+这里 `PaperShop` 挂到 `PaperLayer` 后仍然占据全屏 Layer。背景节点可以铺满屏幕，`SafeContent` 再通过 `YZSafeAreaRoot` 避开刘海和系统手势区域。框架生成 prefab 时不预设这个结构，开发者根据界面需要自行创建。
 
 ## 分辨率策略
 
@@ -239,7 +250,7 @@ assets/app/main/presets/
 - Module 只能通过 `module.ui`、Extension token 或框架提供的公开 facade 请求系统 UI，不能直接访问 `app.ui`。
 - Module 不能直接持有系统 UI 节点。
 - `UIPopupMask` 由 UIManager 自动挂到 `PopupLayer`，业务 Popup prefab 不自带遮罩。
-- `UITouchMask` 挂到 `SystemLayer`，用于阻断所有普通 UI 输入。
+- `UITouchMask` 挂到 `SystemOverlayLayer`，用于阻断所有普通 UI 输入。
 
 ## Editor
 
@@ -248,7 +259,7 @@ assets/app/main/presets/
 - 创建或修复 Main 场景 UIRoot 结构。
 - 创建系统 UI preset。
 - 创建 View prefab 时按 ViewKind 选择默认挂载层。
-- 创建 Page prefab 时默认给背景节点全屏适配，给交互根节点安全区适配。
+- 创建 View/Part prefab 时只生成最小根节点和对应脚本，不预设全屏背景、安全区内容或业务控件。
 - 面板提供 Main 场景检查入口。
 
 不做：
@@ -261,9 +272,9 @@ assets/app/main/presets/
 
 第一版必须检查：
 
-- Main 场景存在 `MainRoot`、`UIRoot`、`FullscreenLayer`、`SafeAreaRoot`、标准 UI Layer 和 `SystemLayer`。
-- `SafeAreaRoot` 挂载 `YZSafeAreaRoot` 或等价内置适配组件。
-- `FullscreenLayer` / `SystemLayer` 挂载 `YZFullScreenRoot` 或等价内置适配组件。
+- Main 场景存在 `MainRoot`、`Canvas`、`UIRoot`、`UnderlayLayer`、标准 UI Layer 和 `SystemOverlayLayer`。
+- Main 场景不允许全局 `SafeAreaRoot`。
+- 所有标准 Layer 挂载 `YZFullScreenRoot` 或等价内置适配组件。
 - UIManager 的层级映射指向标准 Layer。
 - 业务 Module 不直接调用 Cocos 分辨率 API。
 - 业务 Module 不直接读取 `sys.getSafeAreaRect`，必须通过 `app.viewport.profile`。
@@ -297,7 +308,7 @@ assets/app/main/presets/
 1. 新增 `ViewportManager`、`DeviceProfile`、`ViewportConfig`。
 2. `App.start` 接入 viewport 初始化。
 3. 新增 `YZSafeAreaRoot`、`YZFullScreenRoot`、`YZScreenFitter`。
-4. 统一 Main 场景标准结构，并让 UIManager 使用 `SafeAreaRoot` 和 `SystemLayer`。
+4. 统一 Main 场景标准结构，并让 UIManager 使用 `UIRoot` 下的标准全屏 Layer。
 5. Editor 增加 Main 场景创建 / 修复能力。
 6. Validator 增加 Main 场景和 viewport API 边界检查。
 7. 用 MCP 创建真实 Main 场景验收：普通屏、长屏、带安全区三种配置。
@@ -314,8 +325,8 @@ App.start
   -> 校验 MainRoot / UIRoot
   -> UIManager 绑定标准 Layer
   -> Page / Popup / Toast / System UI 打开到正确层
-  -> SafeAreaRoot 避开刘海和系统手势区域
-  -> FullscreenLayer 覆盖真实屏幕区域
+  -> 所有标准 Layer 覆盖真实屏幕区域
+  -> View prefab 按需使用 YZSafeAreaRoot 避开刘海和系统手势区域
   -> viewport changed 触发适配组件刷新
   -> Validator 阻止业务绕过 app.viewport
 ```

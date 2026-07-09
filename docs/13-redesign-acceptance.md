@@ -97,9 +97,9 @@ npm run yzforge:smoke
 必须满足：
 
 - `App.start` 需要明确执行 MainBinding 校验。
-- `MainRoot`、`UIRoot`、`FullscreenLayer`、`SafeAreaRoot`、标准 UI Layer、`SystemLayer` 缺失时 Validator 失败。
-- `SafeAreaRoot` 挂载安全区适配组件。
-- `FullscreenLayer` 和 `SystemLayer` 挂载全屏适配组件。
+- `MainRoot`、`Canvas`、`UIRoot`、`UnderlayLayer`、标准 UI Layer、`SystemOverlayLayer` 缺失时 Validator 失败。
+- Main 场景出现全局 `SafeAreaRoot` 时 Validator 失败。
+- 所有标准 UI Layer 挂载全屏适配组件。
 - Validator 必须用 TypeScript AST 检查 `App` public API：新增 public method 必须声明 `this.assertState(...)`，无守卫 public getter 必须显式白名单化，public field 不允许暴露。
 - Validator 必须用 TypeScript AST 检查 Main 生命周期：`App.start` 必须传入 `mainRoot: this.node`，`onDestroy` 的可达调用链必须执行 `App.dispose` 并清理 `clearYZForgeApp`。
 - `app.viewport.profile` 可读取。
@@ -234,7 +234,7 @@ Module onUnload 抛错
 出现以下任一情况，不能认为重构完成：
 
 - `validate:strict` 通过但扫描到 0 个 scope，而仓库里实际存在业务目录。
-- Main 场景没有 `SafeAreaRoot`，但第 10 章仍声称安全区闭环完成。
+- Main 场景仍有全局 `SafeAreaRoot`，或第 10 章仍声称业务 UI 必须挂在全局安全区根下。
 - `LibraryTokens` 能生成，但 `LoadedLibrary.use(token)` 无法拿到 provider。
 - `ContentPack manifest.generated.json` 只生成不使用。
 - Module 卸载时生命周期抛错会阻断资源释放。

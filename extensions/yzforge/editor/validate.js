@@ -1674,14 +1674,13 @@ function validateMainScene(projectRoot, issues) {
     'SceneHost',
     'Canvas',
     'UIRoot',
-    'FullscreenLayer',
-    'SafeAreaRoot',
+    'UnderlayLayer',
     'PageLayer',
     'PaperLayer',
     'PopupLayer',
     'ToastLayer',
     'TopLayer',
-    'SystemLayer',
+    'SystemOverlayLayer',
   ];
   for (const name of requiredNodes) {
     if (idsFor(name).length === 0) {
@@ -1709,14 +1708,13 @@ function validateMainScene(projectRoot, issues) {
     ['WorldRoot', 'SceneHost'],
     ['MainRoot', 'Canvas'],
     ['Canvas', 'UIRoot'],
-    ['UIRoot', 'FullscreenLayer'],
-    ['UIRoot', 'SafeAreaRoot'],
-    ['UIRoot', 'SystemLayer'],
-    ['SafeAreaRoot', 'PageLayer'],
-    ['SafeAreaRoot', 'PaperLayer'],
-    ['SafeAreaRoot', 'PopupLayer'],
-    ['SafeAreaRoot', 'ToastLayer'],
-    ['SafeAreaRoot', 'TopLayer'],
+    ['UIRoot', 'UnderlayLayer'],
+    ['UIRoot', 'PageLayer'],
+    ['UIRoot', 'PaperLayer'],
+    ['UIRoot', 'PopupLayer'],
+    ['UIRoot', 'ToastLayer'],
+    ['UIRoot', 'TopLayer'],
+    ['UIRoot', 'SystemOverlayLayer'],
   ];
   for (const [parentName, childName] of requiredEdges) {
     if (idsFor(parentName).length === 0 || idsFor(childName).length === 0) {
@@ -1772,8 +1770,7 @@ function validateMainScene(projectRoot, issues) {
   }
 
   const fullScreenScript = path.join(projectRoot, 'assets', 'yzforge', 'runtime', 'full-screen-root.ts');
-  const safeAreaScript = path.join(projectRoot, 'assets', 'yzforge', 'runtime', 'safe-area-root.ts');
-  for (const name of ['FullscreenLayer', 'SystemLayer']) {
+  for (const name of ['UnderlayLayer', 'PageLayer', 'PaperLayer', 'PopupLayer', 'ToastLayer', 'TopLayer', 'SystemOverlayLayer']) {
     if (idsFor(name).length > 0 && !nodeHasScript(name, fullScreenScript)) {
       issues.push(`Main scene ${name} must mount YZFullScreenRoot component.`, {
         path: sceneRel,
@@ -1782,8 +1779,21 @@ function validateMainScene(projectRoot, issues) {
       });
     }
   }
-  if (idsFor('SafeAreaRoot').length > 0 && !nodeHasScript('SafeAreaRoot', safeAreaScript)) {
-    issues.push('Main scene SafeAreaRoot must mount YZSafeAreaRoot component.', {
+
+  for (const [legacyName, replacement] of [
+    ['FullscreenLayer', 'UnderlayLayer'],
+    ['SystemLayer', 'SystemOverlayLayer'],
+  ]) {
+    if (idsFor(legacyName).length > 0) {
+      issues.push(`Main scene must not use legacy node ${legacyName}; use ${replacement}.`, {
+        path: sceneRel,
+        code: 'main.scene',
+      });
+    }
+  }
+
+  if (idsFor('SafeAreaRoot').length > 0) {
+    issues.push('Main scene must not use global SafeAreaRoot; put YZSafeAreaRoot inside View prefabs when a view needs safe-area content.', {
       path: sceneRel,
       code: 'main.scene',
       target: 'assets/yzforge/runtime/safe-area-root.ts',

@@ -19,6 +19,8 @@ Prefab 需要在 Cocos 中维护：
 assets/modules/Battle/res/view/PageBattle.prefab
 ```
 
+创建命令生成的是最小 prefab：根节点和对应脚本。它不会预设全屏背景、安全区节点或业务控件；需要全屏背景和安全区内容时，在业务 prefab 内自行拆成 `Background`、`SafeContent(YZSafeAreaRoot)` 等节点。
+
 基础流程：
 
 1. 在 Cocos 中创建 `PageBattle.prefab`。

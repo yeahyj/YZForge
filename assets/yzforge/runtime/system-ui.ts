@@ -85,7 +85,7 @@ export class SystemUI {
     }
 
     public showTouchMask(reason?: unknown): Node | undefined {
-        const root = this.layers.get(SystemLayerId);
+        const root = this.layers.get(SystemOverlayLayerId);
         if (!root) {
             return undefined;
         }
@@ -201,4 +201,4 @@ export class SystemUI {
     }
 }
 
-const SystemLayerId = 900;
+const SystemOverlayLayerId = 900;

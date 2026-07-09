@@ -118,14 +118,13 @@ MainRoot
     SceneHost
   Canvas
     UIRoot
-      FullscreenLayer
-      SafeAreaRoot
-        PageLayer
-        PaperLayer
-        PopupLayer
-        ToastLayer
-        TopLayer
-      SystemLayer
+      UnderlayLayer
+      PageLayer
+      PaperLayer
+      PopupLayer
+      ToastLayer
+      TopLayer
+      SystemOverlayLayer
 ```
 
 任务：
@@ -139,8 +138,9 @@ MainRoot
 
 验收：
 
-- 缺少 `SafeAreaRoot` 时 Validator 失败。
-- 缺少 `FullscreenLayer` 时 Validator 失败。
+- Main 场景出现全局 `SafeAreaRoot` 时 Validator 失败。
+- 缺少 `UnderlayLayer` 或 `SystemOverlayLayer` 时 Validator 失败。
+- 所有标准 Layer 缺少 `YZFullScreenRoot` 时 Validator 失败。
 - UIManager 不再通过递归名字查找 Layer。
 
 ## Phase 5：BundleHandle、ReleaseScope 与 OwnershipLedger
@@ -208,7 +208,7 @@ MainRoot
 
 - Page 打开到 PageLayer。
 - Popup 打开时 mask 在 PopupLayer 正确位于目标下方。
-- System TouchMask 在 SystemLayer 阻断输入。
+- System TouchMask 在 SystemOverlayLayer 阻断输入。
 - Module 卸载时 pending `openForResult` 不悬挂。
 
 ## Phase 8：Library Token Provider 闭环

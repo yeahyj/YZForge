@@ -25,7 +25,7 @@ Extension 只能通过上下文和 token 进入核心
 
 - 裸目录可以逃过 Scanner 和 Validator。没有 `module.json` 的 `assets/modules/*` 目录不会被视为错误。
 - App 启动没有显式 Main 场景绑定，UIManager 通过递归节点名寻找 Layer。
-- 第 10 章里的 `ViewportManager`、`SafeAreaRoot`、`FullscreenLayer`、`app.lifecycle` 还没有进入 runtime。
+- 第 10 章里的 `ViewportManager`、`YZSafeAreaRoot`、`YZFullScreenRoot`、`app.lifecycle` 还没有进入 runtime。
 - Module、Library、ContentPack、UI、Asset 都各自处理所有权，但没有统一的释放作用域和所有权账本。
 - 卸载流程缺少强制清理语义，生命周期抛错时可能阻断资源释放。
 - Library token contract 可以生成，但 runtime provider 绑定还没有形成闭环。
@@ -199,14 +199,13 @@ MainBinding
   worldRoot
   canvas
   uiRoot
-  fullscreenLayer
-  safeAreaRoot
+  underlayLayer
   pageLayer
   paperLayer
   popupLayer
   toastLayer
   topLayer
-  systemLayer
+  systemOverlayLayer
 ```
 
 规则：
@@ -241,7 +240,7 @@ interface DeviceProfile {
 - Module 不直接调用 `setDesignResolutionSize`。
 - Module 不直接调用 `sys.getSafeAreaRect`。
 - viewport changed 通过 `app.lifecycle` 或 `app.viewport.onChanged` 派发。
-- `SafeAreaRoot` 和 `FullscreenLayer` 的适配组件订阅同一份 DeviceProfile。
+- `YZSafeAreaRoot` 和 `YZFullScreenRoot` 的适配组件订阅同一份 DeviceProfile。
 
 ### 7. UIManager 拆成三个职责
 
@@ -262,9 +261,10 @@ SystemUI
 
 - PopupMask 和 TouchMask 属于 SystemUI，不是业务 prefab 的一部分。
 - 核心只规定 SystemUIHost、Loading、TouchMask、Toast facade 和 PopupMask；系统确认框由 AppScope preset 或 Extension 提供，不进入核心硬依赖。
-- Page、Paper、Popup、Toast、Top 默认挂在 SafeAreaRoot 下的标准 Layer。
-- FullscreenLayer 用于背景、全屏特效、场景遮罩。
-- SystemLayer 使用 FullScreenRoot 适配，不被 SafeArea 裁剪。
+- Page、Paper、Popup、Toast、Top 默认挂在 `UIRoot` 下的标准全屏 Layer。
+- `UnderlayLayer` 用于全局背景、全屏特效、场景遮罩。
+- `SystemOverlayLayer` 使用 FullScreenRoot 适配，不被 SafeArea 裁剪。
+- 业务 View 内部是否使用 `YZSafeAreaRoot` 由 prefab 自己决定，框架不生成全局安全区父节点。
 - `openForResult` 在 owner 卸载时必须 resolve cancel，不允许悬挂。
 
 ### 8. Library Provider 闭环

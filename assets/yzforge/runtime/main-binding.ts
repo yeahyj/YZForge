@@ -8,14 +8,13 @@ export interface MainBinding {
     readonly sceneHost: Node;
     readonly canvas: Node;
     readonly uiRoot: Node;
-    readonly fullscreenLayer: Node;
-    readonly safeAreaRoot: Node;
+    readonly underlayLayer: Node;
     readonly pageLayer: Node;
     readonly paperLayer: Node;
     readonly popupLayer: Node;
     readonly toastLayer: Node;
     readonly topLayer: Node;
-    readonly systemLayer: Node;
+    readonly systemOverlayLayer: Node;
     readonly layerRoots: Readonly<Record<ViewLayer, Node>>;
 }
 
@@ -34,35 +33,33 @@ export function createMainBinding(options: MainBindingOptions = {}): MainBinding
         throw new YZForgeError('Main Canvas node must have cc.Canvas.', 'main_binding.canvas_missing');
     }
     const uiRoot = requireChild(canvas, 'UIRoot');
-    const fullscreenLayer = requireChild(uiRoot, 'FullscreenLayer');
-    const safeAreaRoot = requireChild(uiRoot, 'SafeAreaRoot');
-    const pageLayer = requireChild(safeAreaRoot, 'PageLayer');
-    const paperLayer = requireChild(safeAreaRoot, 'PaperLayer');
-    const popupLayer = requireChild(safeAreaRoot, 'PopupLayer');
-    const toastLayer = requireChild(safeAreaRoot, 'ToastLayer');
-    const topLayer = requireChild(safeAreaRoot, 'TopLayer');
-    const systemLayer = requireChild(uiRoot, 'SystemLayer');
+    const underlayLayer = requireChild(uiRoot, 'UnderlayLayer');
+    const pageLayer = requireChild(uiRoot, 'PageLayer');
+    const paperLayer = requireChild(uiRoot, 'PaperLayer');
+    const popupLayer = requireChild(uiRoot, 'PopupLayer');
+    const toastLayer = requireChild(uiRoot, 'ToastLayer');
+    const topLayer = requireChild(uiRoot, 'TopLayer');
+    const systemOverlayLayer = requireChild(uiRoot, 'SystemOverlayLayer');
     return {
         mainRoot,
         worldRoot,
         sceneHost,
         canvas,
         uiRoot,
-        fullscreenLayer,
-        safeAreaRoot,
+        underlayLayer,
         pageLayer,
         paperLayer,
         popupLayer,
         toastLayer,
         topLayer,
-        systemLayer,
+        systemOverlayLayer,
         layerRoots: {
             [ViewLayer.Page]: pageLayer,
             [ViewLayer.Paper]: paperLayer,
             [ViewLayer.Popup]: popupLayer,
             [ViewLayer.Toast]: toastLayer,
             [ViewLayer.Top]: topLayer,
-            [ViewLayer.System]: systemLayer,
+            [ViewLayer.System]: systemOverlayLayer,
         },
     };
 }
