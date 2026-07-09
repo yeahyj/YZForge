@@ -7,6 +7,7 @@
 第一版核心只做：
 
 - `ViewportManager`：统一读取屏幕、设计分辨率、可视区域、安全区。
+- `AppBootSettings`：启动前渠道和运行 profile 设置。
 - 标准 `MainRoot` / `UIRoot` / 全屏 UI Layer 结构。
 - 最小安全区与全屏适配组件。
 - 系统 UI preset：Loading、TouchMask、Toast、PopupMask。
@@ -134,6 +135,7 @@ const profile = app.viewport.profile;
 
 ```text
 MainRoot
+  AppBootSettings
   Canvas
     UIRoot
       UnderlayLayer
@@ -273,6 +275,7 @@ assets/app/main/presets/
 第一版必须检查：
 
 - Main 场景存在 `MainRoot`、`Canvas`、`UIRoot`、`UnderlayLayer`、标准 UI Layer 和 `SystemOverlayLayer`。
+- `MainRoot` 挂载 `Main` 和 `AppBootSettings`。
 - Main 场景不允许全局 `SafeAreaRoot`。
 - 所有标准 Layer 挂载 `YZFullScreenRoot` 或等价内置适配组件。
 - UIManager 的层级映射指向标准 Layer。
@@ -320,6 +323,7 @@ assets/app/main/presets/
 
 ```text
 App.start
+  -> 读取 AppBootSettings
   -> 初始化 ViewportManager
   -> 生成 DeviceProfile
   -> 校验 MainRoot / UIRoot

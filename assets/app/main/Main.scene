@@ -76,6 +76,9 @@
     "_components": [
       {
         "__id__": 26
+      },
+      {
+        "__id__": 45
       }
     ],
     "_prefab": null,
@@ -1294,5 +1297,19 @@
     "_enabled": true,
     "__prefab": null,
     "_id": "yzforge-YZFullScreenRoot-TopLayer"
+  },
+  {
+    "__type__": "e15f3a1j0dFzqahbjQzN23L",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 2
+    },
+    "_enabled": true,
+    "__prefab": null,
+    "channel": 0,
+    "_id": "yzforge-AppBootSettings",
+    "profile": 0
   }
 ]

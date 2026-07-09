@@ -8,6 +8,7 @@ assets/
     main/
       Main.scene
       Main.ts
+      AppBootSettings.ts
       presets/
         UILoading.prefab
         UIShadow.prefab
@@ -153,6 +154,7 @@ examples/
 | --- | --- | --- |
 | `assets/app/main/Main.scene` | 唯一启动场景，承载 MainRoot、UIRoot、WorldRoot。 | 手工维护，Validator 校验 |
 | `assets/app/main/Main.ts` | 启动组件，创建并启动 `App`。 | 手写 |
+| `assets/app/main/AppBootSettings.ts` | 启动前项目设置，例如渠道和 Debug/Release profile。 | 手写，挂在 MainRoot |
 | `assets/app/main/presets/` | 系统 UI prefab，例如 Loading、Toast、TouchMask、遮罩。 | 手工维护 |
 | `assets/app/bootstrap/app.ts` | App 创建入口，负责组装核心系统。 | 手写 |
 | `assets/app/bootstrap/install.generated.ts` | 扩展安装和启动顺序入口。 | 生成，不手改 |
@@ -443,6 +445,7 @@ assets/app/main/Main.scene
 Main.scene
   MainRoot
     Main.ts
+    AppBootSettings.ts
 
     WorldRoot
       SceneHost
@@ -464,6 +467,7 @@ Main.scene
 - `Main.scene` 永驻，不被玩法场景替换。
 - `WorldRoot/SceneHost` 预留给后续 Scene Module 或 3D/玩法内容扩展。
 - UI 层节点必须启动时校验，所有标准 Layer 都直接挂在 `UIRoot` 下并覆盖真实屏幕。
+- `MainRoot` 必须挂 `AppBootSettings`，开发者可在 Inspector 修改渠道和运行 profile。
 - Main 场景不放全局 `SafeAreaRoot`；需要安全区的 View 在自己的 prefab 内使用 `YZSafeAreaRoot`。
 - Loading、Toast、TouchMask 等系统 UI preset 放在 `assets/app/main/presets`。
 - 首包只放启动必要内容、contracts、registry、global 和 shared code，不把业务模块实现拉进来。

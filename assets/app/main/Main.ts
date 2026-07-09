@@ -1,6 +1,7 @@
 import { _decorator, Component } from 'cc';
 import type { App } from 'yzforge';
 import { clearYZForgeApp, createYZForgeApp } from '../bootstrap/app';
+import { AppBootSettings } from './AppBootSettings';
 
 const { ccclass } = _decorator;
 
@@ -19,7 +20,8 @@ export class Main extends Component {
     }
 
     private async startApp(): Promise<void> {
-        const app = await createYZForgeApp();
+        const bootSettings = this.node.getComponent(AppBootSettings);
+        const app = await createYZForgeApp({ boot: bootSettings?.toProfile() });
         if (this.destroyed) {
             await this.disposeAppInstance(app, { type: 'main_destroy_before_start' });
             return;

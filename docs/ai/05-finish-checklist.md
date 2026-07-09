@@ -25,3 +25,4 @@ npm run yzforge:smoke
 - 没有手写动态资源路径。
 - 没有跨 Scope 私有 import。
 - 新增能力有文档或 AI 手册更新。
+- 涉及启动渠道或 Debug/Release 行为时，检查 `assets/app/main/AppBootSettings.ts` 和 `app.boot`，不要写进业务配置表。

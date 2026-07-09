@@ -19,6 +19,7 @@ export class App {
     public readonly lifecycle: AppLifecycle;
     public readonly viewport: ViewportManager;
     public readonly state: AppState;
+    public readonly boot: AppBootProfile;
 
     public start(options?: AppStartOptions): Promise<void>;
     public preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope>;
@@ -38,6 +39,18 @@ export class App {
 ```
 
 `App` 是 facade。`BundleManager`、`LibraryRegistry`、`ExtensionRegistry`、`UIManager`、`OwnershipLedger` 等系统属于内部 `AppKernel`，业务和生成代码不能直接访问。
+
+## 启动设置
+
+`assets/app/main/AppBootSettings.ts` 挂在 `MainRoot` 上，用来保存 App 启动前必须知道、但又不属于配置表的数据：
+
+- `channel`：渠道或包身份，例如 `default`、`android`、`wechat`。
+- `profile`：运行画像，例如 `debug`、`release`。
+- `debug`：由 profile 推导，用于日志、调试面板、开发检查等运行时策略。
+
+`AppBootSettings` 是项目脚本，开发者可以直接修改其中的渠道枚举。`Main.ts` 读取它并通过 `createYZForgeApp({ boot })` 传给 runtime；运行时通过 `app.boot` 和 `app.snapshot().boot` 暴露只读结果。
+
+它不是配置表，也不承载玩法数值、活动参数或远程开关。
 
 ## App 状态机
 

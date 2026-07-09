@@ -21,6 +21,7 @@ const { validate } = require('./validate');
 const UUID_BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const UUID_HEX_CHARS = '0123456789abcdef';
 const MAIN_SCRIPT_UUID = '10000000-0000-4000-8000-000000000010';
+const APP_BOOT_SETTINGS_UUID = '10000000-0000-4000-8000-000000000014';
 const SCREEN_FITTER_UUID = '10000000-0000-4000-8000-000000000011';
 const FULL_SCREEN_ROOT_UUID = '10000000-0000-4000-8000-000000000012';
 const SAFE_AREA_ROOT_UUID = '10000000-0000-4000-8000-000000000013';
@@ -1140,7 +1141,8 @@ async function assertAppStateMachineBehavior() {
   }
 
   class SmokeAppKernel {
-    constructor(app) {
+    constructor(app, options = {}) {
+      this.boot = options.boot ?? { channel: 'default', profile: 'debug', debug: true };
       this.logger = createLogger();
       this.entries = {
         waitForModule: async () => ({}),
@@ -1256,8 +1258,10 @@ async function assertAppStateMachineBehavior() {
   assert(AppState.Created === 'created', 'AppState must expose created state.');
 
   const ref = { name: 'Battle', bundle: 'yzforge-module-battle', libraries: [] };
-  const app = new App();
+  const app = new App({ boot: { channel: 'wechat', profile: 'release', debug: false } });
   assert(app.state === AppState.Created, 'App must start in Created state.');
+  assert(app.boot.channel === 'wechat', 'App.boot must expose the configured boot channel.');
+  assert(app.snapshot().boot.profile === 'release', 'App snapshot must expose the configured boot profile.');
   assert(app.snapshot().state === AppState.Created, 'App snapshot must expose current state.');
   assert(app.snapshot().resourceDiagnostics?.healthy === true, 'App snapshot must expose healthy resource diagnostics when no leaks exist.');
 
@@ -1616,22 +1620,29 @@ function serializedMainScene(mainScriptUuid) {
       _name: 'Main',
       _children: [{ __id__: 2 }],
     },
-    node('MainRoot', 1, [3, 5], [14]),
+    node('MainRoot', 1, [3, 5], [14, 15]),
     node('WorldRoot', 2, [4]),
     node('SceneHost', 3, []),
-    node('Canvas', 2, [6], [15]),
+    node('Canvas', 2, [6], [16]),
     node('UIRoot', 5, [7, 8, 9, 10, 11, 12, 13]),
-    node('UnderlayLayer', 6, [], [16]),
-    node('PageLayer', 6, [], [17]),
-    node('PaperLayer', 6, [], [18]),
-    node('PopupLayer', 6, [], [19]),
-    node('ToastLayer', 6, [], [20]),
-    node('TopLayer', 6, [], [21]),
-    node('SystemOverlayLayer', 6, [], [22]),
+    node('UnderlayLayer', 6, [], [17]),
+    node('PageLayer', 6, [], [18]),
+    node('PaperLayer', 6, [], [19]),
+    node('PopupLayer', 6, [], [20]),
+    node('ToastLayer', 6, [], [21]),
+    node('TopLayer', 6, [], [22]),
+    node('SystemOverlayLayer', 6, [], [23]),
     {
       __type__: compressScriptUuid(mainScriptUuid),
       node: { __id__: 2 },
       _enabled: true,
+    },
+    {
+      __type__: compressScriptUuid(APP_BOOT_SETTINGS_UUID),
+      node: { __id__: 2 },
+      _enabled: true,
+      channel: 0,
+      profile: 0,
     },
     {
       __type__: 'cc.Canvas',
@@ -1682,6 +1693,7 @@ function mainComponentSource() {
     "import { _decorator, Component } from 'cc';",
     "import type { App } from 'yzforge';",
     "import { clearYZForgeApp, createYZForgeApp } from '../bootstrap/app';",
+    "import { AppBootSettings } from './AppBootSettings';",
     '',
     'const { ccclass } = _decorator;',
     '',
@@ -1694,7 +1706,8 @@ function mainComponentSource() {
     '    }',
     '',
     '    private async startApp(): Promise<void> {',
-    '        this.app = await createYZForgeApp();',
+    '        const bootSettings = this.node.getComponent(AppBootSettings);',
+    '        this.app = await createYZForgeApp({ boot: bootSettings?.toProfile() });',
     '        await this.app.start({ mainRoot: this.node });',
     '    }',
     '',
@@ -1702,6 +1715,51 @@ function mainComponentSource() {
     "        void this.app?.dispose({ type: 'main_destroy' });",
     '        clearYZForgeApp(this.app);',
     '        this.app = undefined;',
+    '    }',
+    '}',
+    '',
+    'function enumKeyToKebab(enumType: Record<string, string | number>, value: number, fallback: string): string {',
+    '    for (const key in enumType) {',
+    '        const enumValue = enumType[key];',
+    "        if (typeof enumValue === 'number' && enumValue === value) {",
+    "            return key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();",
+    '        }',
+    '    }',
+    '    return fallback;',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function appBootSettingsSource() {
+  return [
+    "import { _decorator, Component, Enum } from 'cc';",
+    "import { AppProfile as YZAppProfile, type AppBootProfile } from 'yzforge';",
+    '',
+    'const { ccclass, property } = _decorator;',
+    '',
+    'export enum AppChannel {',
+    '    Default = 0,',
+    '}',
+    'Enum(AppChannel);',
+    '',
+    'export enum AppProfileOption {',
+    '    Debug = 0,',
+    '    Release = 1,',
+    '}',
+    'Enum(AppProfileOption);',
+    '',
+    "@ccclass('AppBootSettings')",
+    'export class AppBootSettings extends Component {',
+    '    @property({ type: Enum(AppChannel) })',
+    '    public channel: AppChannel = AppChannel.Default;',
+    '',
+    '    @property({ type: Enum(AppProfileOption) })',
+    '    public profile: AppProfileOption = AppProfileOption.Debug;',
+    '',
+    '    public toProfile(): AppBootProfile {',
+    '        const profile = this.profile === AppProfileOption.Release ? YZAppProfile.Release : YZAppProfile.Debug;',
+    '        return { channel: "default", profile, debug: profile === YZAppProfile.Debug };',
     '    }',
     '}',
     '',
@@ -1719,17 +1777,29 @@ function appStateMachineRuntimeSource() {
     "    Failed = 'failed',",
     '}',
     '',
+    'export interface AppBootProfile {',
+    '    readonly channel: string;',
+    '    readonly profile: string;',
+    '    readonly debug: boolean;',
+    '}',
+    '',
     'export interface AppRuntimeSnapshot {',
     '    readonly state: AppState;',
+    '    readonly boot: AppBootProfile;',
     '}',
     '',
     'export class App {',
     '    private appState = AppState.Created;',
+    '    private readonly bootProfile: AppBootProfile = { channel: "default", profile: "debug", debug: true };',
     '    private readonly preloadTasks = new Map<string, Promise<unknown>>();',
     '    private readonly moduleTasks = new Map<string, Promise<unknown>>();',
     '',
     '    public get state(): AppState {',
     '        return this.appState;',
+    '    }',
+    '',
+    '    public get boot(): AppBootProfile {',
+    '        return this.bootProfile;',
     '    }',
     '',
     '    public async start(): Promise<void> {',
@@ -1785,7 +1855,8 @@ function appStateMachineRuntimeSource() {
     '    }',
     '',
     '    public snapshot(): AppRuntimeSnapshot {',
-    '        return { state: this.appState };',
+    '        const kernel = { boot: this.bootProfile };',
+    '        return { state: this.appState, boot: kernel.boot };',
     '    }',
     '',
     '    private assertState(api: string, allowed: readonly AppState[]): void {',
@@ -1868,6 +1939,8 @@ function setupBaseline(projectRoot) {
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/safe-area-root.ts', SAFE_AREA_ROOT_UUID);
   writeText(projectRoot, 'assets/app/main/Main.ts', mainComponentSource());
   writeScriptMeta(projectRoot, 'assets/app/main/Main.ts', MAIN_SCRIPT_UUID);
+  writeText(projectRoot, 'assets/app/main/AppBootSettings.ts', appBootSettingsSource());
+  writeScriptMeta(projectRoot, 'assets/app/main/AppBootSettings.ts', APP_BOOT_SETTINGS_UUID);
   writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
 }
 
@@ -2366,7 +2439,9 @@ function assertRuntimeLifecycleInvariants() {
   const preloadBody = appSource.slice(appSource.indexOf('public async preloadModule'), appSource.indexOf('public async loadModule'));
   const enterBody = appSource.slice(appSource.indexOf('public async enterModule'), appSource.indexOf('public async unloadModule'));
   assert(appSource.includes('export enum AppState'), 'App must expose a public AppState enum.');
+  assert(appSource.includes('readonly boot?: AppBootProfileInput'), 'AppOptions must accept AppBootProfileInput.');
   assert(appSource.includes('private appState = AppState.Created'), 'App must store explicit AppState.');
+  assert(appSource.includes('public get boot(): AppBootProfile'), 'App must expose a boot profile getter.');
   assert(appSource.includes("this.assertState('preloadModule', [AppState.Started])"), 'preloadModule must require Started App state.');
   assert(appSource.includes("this.assertState('back', [AppState.Started])"), 'back must require Started App state.');
   assert(appSource.includes("this.assertState('loadModule', [AppState.Started])"), 'loadModule must require Started App state.');
@@ -2382,6 +2457,7 @@ function assertRuntimeLifecycleInvariants() {
   assert(appSource.includes("this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed])"), 'dispose must accept Created/Starting/Started/Failed states.');
   assert(appSource.includes("'app.invalid_state'"), 'App state guard must report typed invalid-state errors.');
   assert(appSource.includes('state: this.appState'), 'App snapshot must expose current App state.');
+  assert(appSource.includes('boot: kernel.boot'), 'App snapshot must expose boot profile.');
   assert(appSource.includes('export interface AppFailureSnapshot'), 'App snapshot must expose structured failure diagnostics.');
   assert(appSource.includes('readonly lastFailure?: AppFailureSnapshot'), 'AppRuntimeSnapshot must include last failure diagnostics.');
   assert(appSource.includes('export interface ResourceDiagnosticsSnapshot'), 'App snapshot must expose structured resource diagnostics.');
@@ -3119,6 +3195,26 @@ async function smoke(options = {}) {
     const fullScreenComponentDetail = fullScreenComponentViolation.issueDetails.find((issue) => issue.message.includes('YZFullScreenRoot'));
     assert(fullScreenComponentDetail.code === 'main.scene', 'Expected Main scene full screen component issue code.');
     writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/app/main/Main.scene', (records) => {
+      const idsByName = new Map(records.map((record, index) => [record?._name, index]));
+      const mainRootId = idsByName.get('MainRoot');
+      records[mainRootId]._components = records[mainRootId]._components.filter((ref) => records[ref.__id__]?.__type__ !== compressScriptUuid(APP_BOOT_SETTINGS_UUID));
+    });
+    const bootSettingsSceneViolation = expectValidationIssue(projectRoot, 'Main scene MainRoot must mount AppBootSettings script');
+    const bootSettingsSceneDetail = bootSettingsSceneViolation.issueDetails.find((issue) => issue.message.includes('AppBootSettings'));
+    assert(bootSettingsSceneDetail.code === 'main.scene', 'Expected Main scene boot settings issue code.');
+    writeText(projectRoot, 'assets/app/main/Main.scene', serializedMainScene(MAIN_SCRIPT_UUID));
+    assertOkValidation(projectRoot);
+
+    updateText(projectRoot, 'assets/app/main/Main.ts', (content) => {
+      return content.replace('        this.app = await createYZForgeApp({ boot: bootSettings?.toProfile() });', '        this.app = await createYZForgeApp();');
+    });
+    const bootSettingsMainViolation = expectValidationIssue(projectRoot, 'Main component must pass AppBootSettings profile to createYZForgeApp');
+    const bootSettingsMainDetail = bootSettingsMainViolation.issueDetails.find((issue) => issue.message.includes('AppBootSettings profile'));
+    assert(bootSettingsMainDetail.code === 'main.lifecycle', 'Expected Main boot settings lifecycle issue code.');
+    writeText(projectRoot, 'assets/app/main/Main.ts', mainComponentSource());
     assertOkValidation(projectRoot);
 
     updateText(projectRoot, 'assets/app/main/Main.ts', (content) => {

@@ -1,4 +1,5 @@
 import type { Node } from 'cc';
+import type { AppBootProfile, AppBootProfileInput } from './boot';
 import type { BundleRecordSnapshot } from './bundle-manager';
 import { ModuleAssets } from './assets';
 import type { AssetScopeSnapshot } from './assets';
@@ -24,6 +25,7 @@ import { YZForgeError } from './errors';
 export interface AppOptions {
     readonly logger?: Logger;
     readonly entries?: EntryRegistry;
+    readonly boot?: AppBootProfileInput;
 }
 
 export interface AppStartOptions {
@@ -87,6 +89,7 @@ export interface ResourceDiagnosticsSnapshot {
 
 export interface AppRuntimeSnapshot {
     readonly state: AppState;
+    readonly boot: AppBootProfile;
     readonly lastFailure?: AppFailureSnapshot;
     readonly viewport: DeviceProfile;
     readonly releaseScope: ReleaseScopeSnapshot;
@@ -134,6 +137,10 @@ export class App {
 
     public get state(): AppState {
         return this.appState;
+    }
+
+    public get boot(): AppBootProfile {
+        return this.kernel.boot;
     }
 
     public async back(): Promise<boolean> {
@@ -503,6 +510,7 @@ export class App {
         const bundles = kernel.bundles.snapshots();
         return {
             state: this.appState,
+            boot: kernel.boot,
             lastFailure: this.lastFailure,
             viewport: kernel.viewport.profile,
             releaseScope: kernel.releaseScope.snapshot(),

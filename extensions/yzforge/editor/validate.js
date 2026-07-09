@@ -1042,6 +1042,9 @@ function validateAppStateMachine(projectRoot, issues) {
   requirePattern(/\bpublic\s+get\s+state\s*\(\)\s*:\s*AppState\b/, 'App must expose current AppState through a state getter.', 'state');
   requirePattern(/\breadonly\s+state\s*:\s*AppState\b/, 'AppRuntimeSnapshot must expose current AppState.', 'AppRuntimeSnapshot.state');
   requirePattern(/\bstate\s*:\s*this\.appState\b/, 'App.snapshot must include current AppState.', 'snapshot.state');
+  requirePattern(/\bpublic\s+get\s+boot\s*\(\)\s*:\s*AppBootProfile\b/, 'App must expose boot profile through a boot getter.', 'boot');
+  requirePattern(/\breadonly\s+boot\s*:\s*AppBootProfile\b/, 'AppRuntimeSnapshot must expose AppBootProfile.', 'AppRuntimeSnapshot.boot');
+  requirePattern(/\bboot\s*:\s*kernel\.boot\b/, 'App.snapshot must include AppBootProfile.', 'snapshot.boot');
   requirePattern(/['"]app\.invalid_state['"]/, 'App state guard must report app.invalid_state.', 'app.invalid_state');
   requirePattern(/\bArray\.from\s*\(\s*this\.moduleTasks\.values\s*\(\s*\)\s*\)/, 'App.dispose must wait for pending module load tasks before unloading modules.', 'moduleTasks');
 
@@ -1072,7 +1075,7 @@ function validateAppPublicStateGuards(rel, source, issues) {
     ['purgeResourceCache', ['AppState.Started', 'AppState.Disposing']],
     ['dispose', ['AppState.Created', 'AppState.Starting', 'AppState.Started', 'AppState.Failed']],
   ]);
-  const allowedUnguardedPublicMembers = new Set(['logger', 'lifecycle', 'viewport', 'state', 'snapshot']);
+  const allowedUnguardedPublicMembers = new Set(['logger', 'lifecycle', 'viewport', 'state', 'boot', 'snapshot']);
   const appClass = sourceFile.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === 'App');
   if (!appClass) {
     issues.push(`${rel} must declare class App.`, {
@@ -1600,6 +1603,7 @@ function validateMainComponentLifecycle(projectRoot, rel, content, issues) {
 function validateMainScene(projectRoot, issues) {
   const scenePath = path.join(projectRoot, 'assets', 'app', 'main', 'Main.scene');
   const scriptPath = path.join(projectRoot, 'assets', 'app', 'main', 'Main.ts');
+  const bootSettingsPath = path.join(projectRoot, 'assets', 'app', 'main', 'AppBootSettings.ts');
   const sceneRel = 'assets/app/main/Main.scene';
   if (!fs.existsSync(scenePath)) {
     issues.push('Main scene is missing: assets/app/main/Main.scene.', {
@@ -1615,8 +1619,15 @@ function validateMainScene(projectRoot, issues) {
     });
   } else {
     const rawScriptSource = fs.readFileSync(scriptPath, 'utf8');
+    const scriptSource = stripCodeComments(rawScriptSource);
+    if (!/\bcreateYZForgeApp\s*\(\s*{[\s\S]*\bboot\s*:/.test(scriptSource)) {
+      issues.push('Main component must pass AppBootSettings profile to createYZForgeApp.', {
+        path: 'assets/app/main/Main.ts',
+        code: 'main.lifecycle',
+        target: 'assets/app/main/AppBootSettings.ts',
+      });
+    }
     if (!validateMainComponentLifecycle(projectRoot, 'assets/app/main/Main.ts', rawScriptSource, issues)) {
-      const scriptSource = stripCodeComments(rawScriptSource);
       if (!/\.start\s*\(\s*{[^}]*\bmainRoot\s*:\s*this\.node\b/.test(scriptSource)) {
         issues.push('Main component must start App with mainRoot: this.node.', {
           path: 'assets/app/main/Main.ts',
@@ -1636,6 +1647,12 @@ function validateMainScene(projectRoot, issues) {
         });
       }
     }
+  }
+  if (!fs.existsSync(bootSettingsPath)) {
+    issues.push('Main boot settings component is missing: assets/app/main/AppBootSettings.ts.', {
+      path: 'assets/app/main/AppBootSettings.ts',
+      code: 'main.scene',
+    });
   }
 
   let records;
@@ -1767,6 +1784,14 @@ function validateMainScene(projectRoot, issues) {
         target: 'assets/app/main/Main.ts',
       });
     }
+  }
+
+  if (fs.existsSync(bootSettingsPath) && idsFor('MainRoot').length > 0 && !nodeHasScript('MainRoot', bootSettingsPath)) {
+    issues.push('Main scene MainRoot must mount AppBootSettings script: assets/app/main/AppBootSettings.ts.', {
+      path: sceneRel,
+      code: 'main.scene',
+      target: 'assets/app/main/AppBootSettings.ts',
+    });
   }
 
   const fullScreenScript = path.join(projectRoot, 'assets', 'yzforge', 'runtime', 'full-screen-root.ts');

@@ -13,6 +13,8 @@ npm run typecheck
 
 如果你本机需要跑 Cocos 构建，还要确认 `.yzforge/toolchain.json` 已配置本机 Cocos 路径。这个文件是本机配置，不提交。
 
+启动渠道和 Debug/Release profile 在 `assets/app/main/AppBootSettings.ts` 的 Inspector 字段里改。这里是启动设置，不是配置表；玩法数值和活动参数仍走配置表。
+
 ## 常用命令
 
 ```bash
