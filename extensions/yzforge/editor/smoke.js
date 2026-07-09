@@ -1952,9 +1952,7 @@ function createSmokeProject(projectRoot) {
     source: 'config-source/excel/BattleItems.xlsx',
     sheet: 'Items',
     table: 'item',
-    row: 'ItemRow',
     scope: { kind: 'module', name: 'Battle' },
-    primaryKey: 'id',
     format: 'json',
     generateKeys: true,
   });
@@ -1963,9 +1961,7 @@ function createSmokeProject(projectRoot) {
     source: 'config-source/excel/Level001Enemies.xlsx',
     sheet: 'EnemyWaves',
     table: 'enemyWave',
-    row: 'EnemyWaveRow',
     scope: { kind: 'content-pack', owner: 'Battle', name: 'Level001' },
-    primaryKey: 'id',
     format: 'json',
     generateKeys: true,
   });
@@ -2043,6 +2039,7 @@ function assertConfigBuildFromExcel(projectRoot) {
   assert(dashboard.plan.tables.length === 2, 'Config plan must contain module and content-pack tables.');
   assert(dashboard.plan.tables.every((table) => /^cfg_[A-Za-z0-9_-]+$/.test(table.id)), 'Config plan tables must have stable ids.');
   assert(dashboard.plan.tables.some((table) => table.label === 'Battle Items'), 'Config plan tables must keep readable labels.');
+  assert(dashboard.plan.tables.every((table) => table.row === undefined && table.primaryKey === undefined), 'Config plan must derive row type and primary key instead of storing editable fields.');
   const payload = readJson(projectRoot, 'assets/modules/Battle/res/content/config/Item.json');
   assert(payload._yzforgeConfig?.source === 'config-source/excel/BattleItems.xlsx', 'Generated config metadata must keep source.');
   assert(payload._yzforgeConfig?.fields.every((field) => field.name !== 'serverOnly'), 'Ignored config fields must not be exported.');
@@ -2089,9 +2086,7 @@ function assertConfigBuildFromExcel(projectRoot) {
     source: 'config-source/excel/TempItems.xlsx',
     sheet: 'TempItems',
     table: 'tempItem',
-    row: 'TempItemRow',
     scope: { kind: 'module', name: 'Battle' },
-    primaryKey: 'id',
     format: 'json',
     generateKeys: true,
   });
@@ -2105,9 +2100,7 @@ function assertConfigBuildFromExcel(projectRoot) {
     source: '../Bad.xlsx',
     sheet: 'Bad',
     table: 'bad',
-    row: 'BadRow',
     scope: { kind: 'module', name: 'Battle' },
-    primaryKey: 'id',
     format: 'json',
     generateKeys: true,
   }), 'under config-source/excel');
@@ -2123,9 +2116,7 @@ function assertConfigBuildFromExcel(projectRoot) {
     source: 'config-source/excel/BadRules.xlsx',
     sheet: 'BadRules',
     table: 'badRule',
-    row: 'BadRuleRow',
     scope: { kind: 'module', name: 'Battle' },
-    primaryKey: 'id',
     format: 'json',
     generateKeys: true,
   });
@@ -2133,6 +2124,27 @@ function assertConfigBuildFromExcel(projectRoot) {
     expectThrows(() => buildConfig(projectRoot), 'unsupported rule: server');
   } finally {
     deleteConfigPlanTable(projectRoot, { id: badRule.table.id });
+  }
+
+  writeXlsx(projectRoot, 'config-source/excel/BadIdRule.xlsx', 'BadIdRule', [
+    ['id', 'label'],
+    ['string', 'string'],
+    ['client', 'client'],
+    ['id', 'label'],
+    ['bad', 'Bad'],
+  ]);
+  const badIdRule = saveConfigPlanTable(projectRoot, {
+    source: 'config-source/excel/BadIdRule.xlsx',
+    sheet: 'BadIdRule',
+    table: 'badIdRule',
+    scope: { kind: 'module', name: 'Battle' },
+    format: 'json',
+    generateKeys: true,
+  });
+  try {
+    expectThrows(() => buildConfig(projectRoot), 'field id must be marked pk');
+  } finally {
+    deleteConfigPlanTable(projectRoot, { id: badIdRule.table.id });
   }
 
   writeJson(projectRoot, 'assets/modules/Battle/res/content/config/Obsolete.json', {
@@ -2174,6 +2186,7 @@ function assertToolchainResolverInvariants() {
   const cliSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/cli.js'), 'utf8');
   const generateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/generate.js'), 'utf8');
   const validateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/validate.js'), 'utf8');
+  const configPanelSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/panel/config.js'), 'utf8');
   const smokeSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/smoke.js'), 'utf8');
   const forbiddenCocosInstallPath = ['D:', '/Applications/Cocos'].join('');
   assert(packageJson.scripts?.typecheck === 'node extensions/yzforge/editor/cli.js typecheck', 'typecheck script must route through YZForge CLI.');
@@ -2188,6 +2201,7 @@ function assertToolchainResolverInvariants() {
   assert(extensionPackage.panels?.config?.main === 'editor/panel/config.js', 'YZForge Config panel must stay separate.');
   assert(extensionPackage.contributions?.messages?.['open-create-panel']?.methods?.includes('openCreatePanel'), 'Create panel menu must open the Create panel.');
   assert(extensionPackage.contributions?.messages?.['open-config-panel']?.methods?.includes('openConfigPanel'), 'Config panel menu must open the Config panel.');
+  assert(!configPanelSource.includes('config-format'), 'Config panel must not expose format selection before non-json export is implemented.');
   assert(toolchainSource.includes('resolveCocosEditorRoot'), 'ToolchainResolver must expose Cocos editor root resolution.');
   assert(toolchainSource.includes('resolveCocosExecutable'), 'ToolchainResolver must expose Cocos executable resolution.');
   assert(toolchainSource.includes('resolveCocosBuildOutputPath'), 'ToolchainResolver must expose Cocos build output path resolution.');
@@ -2202,6 +2216,7 @@ function assertToolchainResolverInvariants() {
   assert(cliSource.includes("command === 'typecheck'") && cliSource.includes('runTypecheck'), 'CLI must route typecheck through ToolchainResolver.');
   assert(cliSource.includes("command === 'config-table'") && cliSource.includes('saveConfigPlanTable'), 'CLI must route config table registration through ConfigBuilder.');
   assert(cliSource.includes("'--label'"), 'CLI must support config table readable labels.');
+  assert(cliSource.includes('rejectOptions') && cliSource.includes("'--primary-key'"), 'CLI must reject manually edited config primary keys.');
   assert(cliSource.includes("command === 'config-remove'") && cliSource.includes('deleteConfigPlanTable'), 'CLI must route config table deletion through ConfigBuilder.');
   assert(cliSource.includes("command === 'config-build'") && cliSource.includes('buildConfig'), 'CLI must route config build through ConfigBuilder.');
   assert(!generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must not write local Cocos engine paths into committed project config.');

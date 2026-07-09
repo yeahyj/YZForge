@@ -4,7 +4,7 @@
     "source": "config-source/excel/StartItems.xlsx",
     "sheet": "StartItems",
     "table": "startItems",
-    "row": "StartItemRow",
+    "row": "StartItemsRow",
     "scope": {
       "kind": "module",
       "name": "Start"

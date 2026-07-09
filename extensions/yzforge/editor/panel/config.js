@@ -55,22 +55,8 @@ const template = `
     <div class="section-title" data-i18n="config_output">Output</div>
     <div class="form-grid">
       <label>
-        <span data-i18n="config_table">Table</span>
-        <input id="config-table" placeholder="item" />
-      </label>
-      <label>
-        <span data-i18n="config_row">Row Type</span>
-        <input id="config-row" placeholder="ItemRow" />
-      </label>
-      <label>
-        <span data-i18n="config_primary_key">Primary Key</span>
-        <input id="config-primary-key" value="id" />
-      </label>
-      <label>
-        <span data-i18n="config_format">Format</span>
-        <select id="config-format">
-          <option value="json">json</option>
-        </select>
+        <span data-i18n="config_table">Table Key</span>
+        <input id="config-table" placeholder="startItems" />
       </label>
     </div>
     <div class="config-footer">
@@ -134,6 +120,18 @@ function configScopeTargetValue(scope = {}) {
   return scope.name || '';
 }
 
+function configDefaultTableKey(value) {
+  const words = String(value || '')
+    .trim()
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+  if (words.length === 0) {
+    return '';
+  }
+  const [first, ...rest] = words;
+  return `${first.charAt(0).toLowerCase()}${first.slice(1)}${rest.map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join('')}`;
+}
+
 function configPlanLabel(table) {
   if (table.label) {
     return table.label;
@@ -162,9 +160,6 @@ module.exports = Editor.Panel.define({
     configScopeKind: '#config-scope-kind',
     configScopeTarget: '#config-scope-target',
     configTable: '#config-table',
-    configRow: '#config-row',
-    configPrimaryKey: '#config-primary-key',
-    configFormat: '#config-format',
     configGenerateKeys: '#config-generate-keys',
     configScan: '#config-scan',
     configSaveTable: '#config-save-table',
@@ -275,22 +270,13 @@ module.exports = Editor.Panel.define({
       this.updateConfigScopeTargets();
       this.$.configScopeTarget.value = configScopeTargetValue(table.scope);
       this.$.configTable.value = table.table || '';
-      this.$.configRow.value = table.row || '';
-      this.$.configPrimaryKey.value = table.primaryKey || 'id';
-      this.$.configFormat.value = table.format || 'json';
       this.$.configGenerateKeys.checked = table.generateKeys !== false;
     },
 
     applyConfigDefaults() {
       const sheet = this.$.configSheet.value;
       if (!this.$.configTable.value && sheet) {
-        this.$.configTable.value = sheet.charAt(0).toLowerCase() + sheet.slice(1);
-      }
-      if (!this.$.configRow.value && sheet) {
-        this.$.configRow.value = `${sheet.charAt(0).toUpperCase()}${sheet.slice(1)}Row`;
-      }
-      if (!this.$.configPrimaryKey.value) {
-        this.$.configPrimaryKey.value = 'id';
+        this.$.configTable.value = configDefaultTableKey(sheet);
       }
     },
 
@@ -340,9 +326,6 @@ module.exports = Editor.Panel.define({
         source: this.$.configSource.value,
         sheet: this.$.configSheet.value,
         table: this.$.configTable.value,
-        row: this.$.configRow.value,
-        primaryKey: this.$.configPrimaryKey.value || 'id',
-        format: this.$.configFormat.value || 'json',
         generateKeys: this.$.configGenerateKeys.checked === true,
         scope,
       };

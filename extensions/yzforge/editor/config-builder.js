@@ -168,6 +168,12 @@ function parseHeader(planTable, rows) {
     if (unknownRules.length > 0) {
       throw new Error(`${planTable.source}#${planTable.sheet} field ${name} has unsupported rule: ${unknownRules.join(', ')}`);
     }
+    if (fieldRules.includes('ignore') && fieldRules.length > 1) {
+      throw new Error(`${planTable.source}#${planTable.sheet} field ${name} cannot combine ignore with other rules.`);
+    }
+    if (name === 'id' && !fieldRules.includes('pk')) {
+      throw new Error(`${planTable.source}#${planTable.sheet} field id must be marked pk.`);
+    }
     if (fieldRules.includes('ignore')) {
       continue;
     }
@@ -188,28 +194,13 @@ function parseHeader(planTable, rows) {
       column: index,
     });
   }
-  const requestedPrimaryKey = String(planTable.primaryKey || '').trim();
-  const requestedField = requestedPrimaryKey
-    ? fields.find((field) => field.name === requestedPrimaryKey)
-    : undefined;
   const markedFields = fields.filter((field) => field.rules.includes('pk'));
-  if (markedFields.length > 1) {
+  if (markedFields.length !== 1) {
     throw new Error(`${planTable.source}#${planTable.sheet} must have exactly one pk field.`);
-  }
-  if (requestedField && markedFields.length === 1 && markedFields[0].name !== requestedField.name) {
-    throw new Error(`${planTable.source}#${planTable.sheet} primaryKey conflicts with pk field: ${requestedPrimaryKey} vs ${markedFields[0].name}.`);
-  }
-  const primaryKey = requestedField
-    ? requestedField.name
-    : markedFields.length === 1
-      ? markedFields[0].name
-      : requestedPrimaryKey;
-  if (!primaryKey || !fields.some((field) => field.name === primaryKey)) {
-    throw new Error(`${planTable.source}#${planTable.sheet} primary key field does not exist: ${primaryKey || '<empty>'}.`);
   }
   return {
     fields,
-    primaryKey,
+    primaryKey: markedFields[0].name,
   };
 }
 
@@ -327,13 +318,11 @@ function normalizePlanTable(projectRoot, table) {
     source,
     sheet: String(table.sheet || '').trim(),
     table: lowerCamelCase(table.table || table.sheet),
-    row: table.row ? pascalCase(table.row) : `${pascalCase(table.table || table.sheet)}Row`,
     scope: {
       kind: scope.kind,
       name: scope.name,
       owner: scope.owner,
     },
-    primaryKey: lowerCamelCase(table.primaryKey || 'id'),
     format: table.format || 'json',
     generateKeys: table.generateKeys !== false,
   };
@@ -342,9 +331,6 @@ function normalizePlanTable(projectRoot, table) {
   }
   if (!normalized.table || !/^[a-z][A-Za-z0-9]*$/.test(normalized.table)) {
     throw new Error(`Config table name must be lower camel case: ${normalized.table}`);
-  }
-  if (!/^[A-Z][A-Za-z0-9]*$/.test(normalized.row)) {
-    throw new Error(`Config row name must be PascalCase: ${normalized.row}`);
   }
   if (normalized.format !== 'json') {
     throw new Error(`Config format is not implemented yet: ${normalized.format}`);
@@ -388,6 +374,10 @@ function outputConfigDir(scope) {
 
 function outputConfigPath(table) {
   return `${outputConfigDir(table.scope)}/${pascalCase(table.table)}.json`;
+}
+
+function configRowTypeName(table) {
+  return `${pascalCase(table.table)}Row`;
 }
 
 function configPayloadRoots(projectRoot) {
@@ -447,6 +437,7 @@ function buildTable(projectRoot, table) {
     throw new Error(`${table.source}#${table.sheet} must contain 4 header rows.`);
   }
   const header = parseHeader(table, rows.slice(0, 4));
+  const rowType = configRowTypeName(table);
   const dataRows = [];
   const keyNames = new Set();
 
@@ -491,7 +482,7 @@ function buildTable(projectRoot, table) {
         source: table.source,
         sheet: table.sheet,
         table: table.table,
-        row: table.row,
+        row: rowType,
         scope: table.scope,
         primaryKey: header.primaryKey,
         format: table.format,

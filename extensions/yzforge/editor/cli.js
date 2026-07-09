@@ -18,6 +18,14 @@ function readOption(args, name, fallback) {
   return args[index + 1] ?? fallback;
 }
 
+function rejectOptions(args, names, message) {
+  for (const name of names) {
+    if (args.includes(name)) {
+      throw new Error(`${name} is not supported. ${message}`);
+    }
+  }
+}
+
 function parseConfigScope(value) {
   const text = String(value || '').trim();
   if (text === 'global') {
@@ -86,6 +94,7 @@ async function main() {
 
   if (command === 'config-table') {
     const args = process.argv.slice(3);
+    rejectOptions(args, ['--row', '--primary-key'], 'Row type is derived from --table, and primary key is derived from the Excel pk rule.');
     const result = saveConfigPlanTable(projectRoot, {
       id: readOption(args, '--id', undefined),
       label: readOption(args, '--label', undefined),
@@ -93,8 +102,6 @@ async function main() {
       sheet: readOption(args, '--sheet', ''),
       scope: parseConfigScope(readOption(args, '--scope', '')),
       table: readOption(args, '--table', undefined),
-      row: readOption(args, '--row', undefined),
-      primaryKey: readOption(args, '--primary-key', 'id'),
       format: readOption(args, '--format', 'json'),
       generateKeys: !args.includes('--no-keys'),
     });

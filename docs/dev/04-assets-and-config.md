@@ -78,7 +78,7 @@ ContentPack 的配置入口通过 `manifest.generated.json` 和 `LoadedContentPa
 2. 在 `Saved Rule` 选择已有规则，或选择 `New Rule` 新建规则。
 3. 选择 `Source` 和 `Sheet`。
 4. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
-5. 填 `Rule Name`、`Table`、`Row Type`、`Primary Key`。
+5. 填 `Rule Name` 和 `Table Key / 代码表名`。
 6. 勾选 `Generate ID constants`，生成主键常量，业务代码不用手写字符串。
 7. 点击 `Save Table` 写入 `config-source/export-plan.json`。
 8. 点击 `Build Config` 生成 JSON 和 `generated/config.ts`。
@@ -92,26 +92,28 @@ ContentPack 的配置入口通过 `manifest.generated.json` 和 `LoadedContentPa
 | 字段 | 作用 | 是否可以改 |
 | --- | --- | --- |
 | `Rule Name` | 规则显示名，只影响面板下拉列表和 `export-plan.json` 可读性 | 可以随时改 |
-| `Table` | 运行时表 key，也是输出 JSON 的文件名来源，例如 `startItems` -> `StartItems.json` | 可以改，但业务读取代码要一起改 |
-| `Row Type` | 生成的 TS 行类型名，例如 `StartItemRow` | 可以改，但 import 和类型引用要一起改 |
-| `Primary Key` | 用哪个字段当主键索引，影响 `require(id)`、ID 常量和重复检查 | 可以改，但 Excel 字段和业务 ID 使用要一起改 |
+| `Table Key / 代码表名` | 运行时表入口名，也是输出 JSON 的文件名来源，例如 `startItems` -> `StartItems.json` | 可以改，但业务读取代码要一起改 |
 
-`Rule Name` 不是运行时契约；`Table`、`Row Type`、`Primary Key` 是生成代码契约。也就是说，规则名称是给人看的，后三个是给代码用的。
+`Rule Name` 不是运行时契约；`Table Key` 是生成代码契约。也就是说，规则名称是给人看的，代码表名是给业务代码用的。
 
-`Primary Key` 必须能在 Excel 第一行字段名里找到。如果表头第三行写了 `pk`，它必须和 `Primary Key` 指向同一个字段。
+`Row Type` 不再由面板填写，固定由 `Table Key` 推导：`item -> ItemRow`、`enemyWave -> EnemyWaveRow`。
+
+`Primary Key` 不再由面板填写，固定由 Excel 表头第三行的 `pk` 规则推导。
+
+导出格式当前固定为 `json`，面板不显示格式选择；等二进制导出真正落地后再打开格式选项。
 
 ## CLI
 
 登记一张表：
 
 ```bash
-npm run yzforge:config:table -- --label "Battle Items" --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
+npm run yzforge:config:table -- --label "Battle Items" --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item
 ```
 
 更新已有规则时传 `--id`：
 
 ```bash
-npm run yzforge:config:table -- --id cfg_xxx --label "Battle Items" --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
+npm run yzforge:config:table -- --id cfg_xxx --label "Battle Items" --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item
 ```
 
 删除规则：
@@ -183,8 +185,9 @@ json
 
 主键规则：
 
-- `Primary Key` 和表头 `pk` 必须指向同一个字段。
-- 如果导出计划没有命中字段，但表头只有一个 `pk`，以表头 `pk` 为准。
+- 整张表必须且只能有一个 `pk` 字段。
+- 如果字段名叫 `id`，第三行规则必须写 `pk`。
+- 主键只从 Excel 表头规则推导，不从面板或 CLI 填。
 - 主键不能为空，不能重复。
 
 数组字段可以写成 JSON 数组，也可以用 `,`、`;` 或 `|` 分隔：

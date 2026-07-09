@@ -4,7 +4,7 @@
     "source": "config-source/excel/TestWaves.xlsx",
     "sheet": "TestWaves",
     "table": "testWaves",
-    "row": "TestWaveRow",
+    "row": "TestWavesRow",
     "scope": {
       "kind": "content-pack",
       "name": "Test2",

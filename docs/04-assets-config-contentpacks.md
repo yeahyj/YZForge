@@ -194,7 +194,7 @@ code/generated/config.ts
 
 ## Config Export Plan
 
-`config-source/export-plan.json` 描述每张 Excel 表导出到哪个 Scope、生成什么表名、行类型、主键和格式。
+`config-source/export-plan.json` 描述每张 Excel 表导出到哪个 Scope、生成什么代码表名和格式。行类型由代码表名推导，主键由 Excel 表头第三行的 `pk` 规则推导。
 
 示例：
 
@@ -203,15 +203,14 @@ code/generated/config.ts
   "schemaVersion": 1,
   "tables": [
     {
+      "label": "Battle Items",
       "source": "config-source/excel/Battle.xlsx",
       "sheet": "Items",
       "table": "item",
-      "row": "ItemRow",
       "scope": {
         "kind": "module",
         "name": "Battle"
       },
-      "primaryKey": "id",
       "format": "json",
       "generateKeys": true
     }
