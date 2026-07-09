@@ -88,6 +88,7 @@ async function main() {
     const args = process.argv.slice(3);
     const result = saveConfigPlanTable(projectRoot, {
       id: readOption(args, '--id', undefined),
+      label: readOption(args, '--label', undefined),
       source: readOption(args, '--source', ''),
       sheet: readOption(args, '--sheet', ''),
       scope: parseConfigScope(readOption(args, '--scope', '')),

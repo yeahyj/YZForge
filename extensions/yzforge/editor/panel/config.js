@@ -18,6 +18,10 @@ const template = `
       <select id="config-plan-table"></select>
       <button id="config-delete-table" data-i18n="config_delete_table">Delete Rule</button>
     </div>
+    <label class="rule-name-row">
+      <span data-i18n="config_rule_name">Rule Name</span>
+      <input id="config-rule-label" placeholder="Start Items" />
+    </label>
   </section>
 
   <section class="section">
@@ -98,6 +102,10 @@ ${shared.baseStyle}
   gap: 8px;
 }
 
+.rule-name-row {
+  margin-top: 8px;
+}
+
 .config-footer {
   display: grid;
   gap: 8px;
@@ -127,6 +135,9 @@ function configScopeTargetValue(scope = {}) {
 }
 
 function configPlanLabel(table) {
+  if (table.label) {
+    return table.label;
+  }
   const scope = table.scope || {};
   const target = configScopeTargetValue(scope);
   return [
@@ -145,6 +156,7 @@ module.exports = Editor.Panel.define({
     shell: '.shell',
     status: '#status',
     configPlanTable: '#config-plan-table',
+    configRuleLabel: '#config-rule-label',
     configSource: '#config-source',
     configSheet: '#config-sheet',
     configScopeKind: '#config-scope-kind',
@@ -180,6 +192,7 @@ module.exports = Editor.Panel.define({
         button.disabled = busy;
       }
       this.$.configPlanTable.disabled = busy;
+      this.$.configRuleLabel.disabled = busy;
       this.$.configGenerateKeys.disabled = busy;
       if (!busy) {
         this.$.configDeleteTable.disabled = !this.$.configPlanTable.value;
@@ -254,6 +267,7 @@ module.exports = Editor.Panel.define({
       if (!table) {
         return;
       }
+      this.$.configRuleLabel.value = table.label || '';
       this.$.configSource.value = table.source || '';
       this.updateConfigSourceSheets();
       this.$.configSheet.value = table.sheet || '';
@@ -322,6 +336,7 @@ module.exports = Editor.Panel.define({
         scope.name = target;
       }
       const payload = {
+        label: this.$.configRuleLabel.value,
         source: this.$.configSource.value,
         sheet: this.$.configSheet.value,
         table: this.$.configTable.value,

@@ -1948,6 +1948,7 @@ function createSmokeProject(projectRoot) {
     ['wave1', 'slime', 3],
   ]);
   saveConfigPlanTable(projectRoot, {
+    label: 'Battle Items',
     source: 'config-source/excel/BattleItems.xlsx',
     sheet: 'Items',
     table: 'item',
@@ -1958,6 +1959,7 @@ function createSmokeProject(projectRoot) {
     generateKeys: true,
   });
   saveConfigPlanTable(projectRoot, {
+    label: 'Level001 Enemy Waves',
     source: 'config-source/excel/Level001Enemies.xlsx',
     sheet: 'EnemyWaves',
     table: 'enemyWave',
@@ -2040,6 +2042,7 @@ function assertConfigBuildFromExcel(projectRoot) {
   assert(dashboard.sources.some((source) => source.source === 'config-source/excel/Level001Enemies.xlsx' && source.sheets.includes('EnemyWaves')), 'Config dashboard must scan content pack xlsx sheets.');
   assert(dashboard.plan.tables.length === 2, 'Config plan must contain module and content-pack tables.');
   assert(dashboard.plan.tables.every((table) => /^cfg_[A-Za-z0-9_-]+$/.test(table.id)), 'Config plan tables must have stable ids.');
+  assert(dashboard.plan.tables.some((table) => table.label === 'Battle Items'), 'Config plan tables must keep readable labels.');
   const payload = readJson(projectRoot, 'assets/modules/Battle/res/content/config/Item.json');
   assert(payload._yzforgeConfig?.source === 'config-source/excel/BattleItems.xlsx', 'Generated config metadata must keep source.');
   assert(payload._yzforgeConfig?.fields.every((field) => field.name !== 'serverOnly'), 'Ignored config fields must not be exported.');
@@ -2062,12 +2065,15 @@ function assertConfigBuildFromExcel(projectRoot) {
   assert(moduleRule?.id, 'Expected module config rule id.');
   const updatedRule = saveConfigPlanTable(projectRoot, {
     ...moduleRule,
+    label: 'Battle Items Updated',
     generateKeys: false,
   });
   assert(updatedRule.table.id === moduleRule.id, 'Config rule update must preserve stable id.');
+  assert(updatedRule.table.label === 'Battle Items Updated', 'Config rule update must persist readable label.');
   assert(configDashboard(projectRoot).plan.tables.length === 2, 'Config rule update by id must not duplicate plan tables.');
   saveConfigPlanTable(projectRoot, {
     ...moduleRule,
+    label: 'Battle Items',
     generateKeys: true,
   });
 
@@ -2079,6 +2085,7 @@ function assertConfigBuildFromExcel(projectRoot) {
     ['temp', 'Temp'],
   ]);
   const tempRule = saveConfigPlanTable(projectRoot, {
+    label: 'Temp Items',
     source: 'config-source/excel/TempItems.xlsx',
     sheet: 'TempItems',
     table: 'tempItem',
@@ -2089,6 +2096,7 @@ function assertConfigBuildFromExcel(projectRoot) {
     generateKeys: true,
   });
   assert(tempRule.table.id, 'New config rules must receive stable ids.');
+  assert(tempRule.table.label === 'Temp Items', 'New config rules must keep readable labels.');
   const deletedRule = deleteConfigPlanTable(projectRoot, { id: tempRule.table.id });
   assert(deletedRule.deleted?.id === tempRule.table.id, 'Config rule delete must report the deleted rule.');
   assert(configDashboard(projectRoot).plan.tables.length === 2, 'Config rule delete must remove exactly one plan table.');
@@ -2193,6 +2201,7 @@ function assertToolchainResolverInvariants() {
   assert(toolchainSource.includes('runTypecheck'), 'ToolchainResolver must own typecheck execution.');
   assert(cliSource.includes("command === 'typecheck'") && cliSource.includes('runTypecheck'), 'CLI must route typecheck through ToolchainResolver.');
   assert(cliSource.includes("command === 'config-table'") && cliSource.includes('saveConfigPlanTable'), 'CLI must route config table registration through ConfigBuilder.');
+  assert(cliSource.includes("'--label'"), 'CLI must support config table readable labels.');
   assert(cliSource.includes("command === 'config-remove'") && cliSource.includes('deleteConfigPlanTable'), 'CLI must route config table deletion through ConfigBuilder.');
   assert(cliSource.includes("command === 'config-build'") && cliSource.includes('buildConfig'), 'CLI must route config build through ConfigBuilder.');
   assert(!generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must not write local Cocos engine paths into committed project config.');

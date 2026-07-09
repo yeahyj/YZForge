@@ -2,7 +2,23 @@
   "schemaVersion": 1,
   "tables": [
     {
+      "id": "cfg_b5302d75-9d73-42a1-bb1c-bbb46104df78",
+      "label": "Start Items",
+      "source": "config-source/excel/StartItems.xlsx",
+      "sheet": "StartItems",
+      "table": "startItems",
+      "row": "StartItemRow",
+      "scope": {
+        "kind": "module",
+        "name": "Start"
+      },
+      "primaryKey": "id",
+      "format": "json",
+      "generateKeys": true
+    },
+    {
       "id": "cfg_b8aaa419-be05-49ef-a24d-48f4fd40f345",
+      "label": "Start Test2 Waves",
       "source": "config-source/excel/TestWaves.xlsx",
       "sheet": "TestWaves",
       "table": "testWaves",
@@ -11,20 +27,6 @@
         "kind": "content-pack",
         "name": "Test2",
         "owner": "Start"
-      },
-      "primaryKey": "id",
-      "format": "json",
-      "generateKeys": true
-    },
-    {
-      "id": "cfg_b5302d75-9d73-42a1-bb1c-bbb46104df78",
-      "source": "config-source/excel/StartItems.xlsx",
-      "sheet": "StartItems",
-      "table": "startItems",
-      "row": "StartItemRow",
-      "scope": {
-        "kind": "module",
-        "name": "Start"
       },
       "primaryKey": "id",
       "format": "json",

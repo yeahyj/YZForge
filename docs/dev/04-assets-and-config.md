@@ -49,6 +49,8 @@ config-source/export-plan.json
 
 每条导出规则都有稳定 `id`。后续编辑、删除都按 `id` 命中，不靠表名、Excel 名或 Scope 猜测。
 
+规则可以设置 `Rule Name / 规则名称`。它只是面板和导出计划里的显示名，方便你把规则命名成“开局道具”“关卡 001 敌人波次”这类业务名字；改它不会改变生成 JSON、TS 类型或运行时读取接口。
+
 生成后的运行时 JSON 会进入对应 Scope：
 
 ```text
@@ -76,7 +78,7 @@ ContentPack 的配置入口通过 `manifest.generated.json` 和 `LoadedContentPa
 2. 在 `Saved Rule` 选择已有规则，或选择 `New Rule` 新建规则。
 3. 选择 `Source` 和 `Sheet`。
 4. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
-5. 填 `Table`、`Row Type`、`Primary Key`。
+5. 填 `Rule Name`、`Table`、`Row Type`、`Primary Key`。
 6. 勾选 `Generate ID constants`，生成主键常量，业务代码不用手写字符串。
 7. 点击 `Save Table` 写入 `config-source/export-plan.json`。
 8. 点击 `Build Config` 生成 JSON 和 `generated/config.ts`。
@@ -85,18 +87,31 @@ ContentPack 的配置入口通过 `manifest.generated.json` 和 `LoadedContentPa
 
 `Config Check` 只检查生成物是否最新，不写文件，适合提交前和 CI。
 
+## 导出规则字段
+
+| 字段 | 作用 | 是否可以改 |
+| --- | --- | --- |
+| `Rule Name` | 规则显示名，只影响面板下拉列表和 `export-plan.json` 可读性 | 可以随时改 |
+| `Table` | 运行时表 key，也是输出 JSON 的文件名来源，例如 `startItems` -> `StartItems.json` | 可以改，但业务读取代码要一起改 |
+| `Row Type` | 生成的 TS 行类型名，例如 `StartItemRow` | 可以改，但 import 和类型引用要一起改 |
+| `Primary Key` | 用哪个字段当主键索引，影响 `require(id)`、ID 常量和重复检查 | 可以改，但 Excel 字段和业务 ID 使用要一起改 |
+
+`Rule Name` 不是运行时契约；`Table`、`Row Type`、`Primary Key` 是生成代码契约。也就是说，规则名称是给人看的，后三个是给代码用的。
+
+`Primary Key` 必须能在 Excel 第一行字段名里找到。如果表头第三行写了 `pk`，它必须和 `Primary Key` 指向同一个字段。
+
 ## CLI
 
 登记一张表：
 
 ```bash
-npm run yzforge:config:table -- --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
+npm run yzforge:config:table -- --label "Battle Items" --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
 ```
 
 更新已有规则时传 `--id`：
 
 ```bash
-npm run yzforge:config:table -- --id cfg_xxx --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
+npm run yzforge:config:table -- --id cfg_xxx --label "Battle Items" --source config-source/excel/Battle.xlsx --sheet Items --scope module:Battle --table item --row ItemRow --primary-key id
 ```
 
 删除规则：

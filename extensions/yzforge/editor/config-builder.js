@@ -253,7 +253,7 @@ function legacyTablePlanId(table) {
 }
 
 function tablePlanSortKey(table) {
-  return legacyTablePlanId(table) || table.id || '';
+  return table.label || legacyTablePlanId(table) || table.id || '';
 }
 
 function normalizePlanId(value) {
@@ -265,6 +265,17 @@ function normalizePlanId(value) {
     throw new Error(`Config table rule id is invalid: ${id}`);
   }
   return id;
+}
+
+function normalizePlanLabel(value) {
+  const label = String(value || '').trim();
+  if (!label) {
+    return undefined;
+  }
+  if (label.length > 80) {
+    throw new Error(`Config table rule label is too long: ${label}`);
+  }
+  return label;
 }
 
 function saveConfigPlanTable(projectRoot, table) {
@@ -312,6 +323,7 @@ function normalizePlanTable(projectRoot, table) {
   const scope = table.scope || {};
   const normalized = {
     id: normalizePlanId(table.id),
+    label: normalizePlanLabel(table.label),
     source,
     sheet: String(table.sheet || '').trim(),
     table: lowerCamelCase(table.table || table.sheet),

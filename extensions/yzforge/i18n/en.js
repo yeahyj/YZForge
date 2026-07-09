@@ -30,6 +30,7 @@ module.exports = {
   config_delete_confirm: 'Delete selected config rule?',
   config_saved_table: 'Saved Rule',
   config_new_table: 'New Rule',
+  config_rule_name: 'Rule Name',
   config_build: 'Build Config',
   config_check: 'Config Check',
   config_source: 'Source',

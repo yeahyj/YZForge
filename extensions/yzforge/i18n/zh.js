@@ -30,6 +30,7 @@ module.exports = {
   config_delete_confirm: '删除当前选中的配置表规则？',
   config_saved_table: '已保存规则',
   config_new_table: '新建规则',
+  config_rule_name: '规则名称',
   config_build: '生成配置',
   config_check: '检查配置',
   config_source: '源文件',
