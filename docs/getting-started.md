@@ -10,6 +10,29 @@
 
 YZForge 本身是一个 Cocos 项目。安装依赖后，用 Cocos Creator 打开项目根目录。
 
+## 创建项目
+
+发布到 npm 后，推荐用创建器创建新项目：
+
+```bash
+npx create-yzforge@latest MyGame
+cd MyGame
+npm run yzforge:ai:doctor
+```
+
+然后用 Cocos Creator 3.8.8 打开 `MyGame` 目录。
+
+开发期还没有正式发布 npm 包时，可以先从源码仓库创建：
+
+```bash
+git clone https://github.com/yeahyj/YZForge.git
+cd YZForge
+node packages/create-yzforge/bin/create-yzforge.js ../MyGame --template . --skip-install
+cd ../MyGame
+npm install
+npm run yzforge:ai:doctor
+```
+
 ## 第一次运行
 
 ```bash

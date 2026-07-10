@@ -14,6 +14,12 @@ npm run typecheck
 npm run yzforge:smoke
 ```
 
+如果改了 `create-yzforge` 创建器，再用本地模板创建一次测试项目：
+
+```bash
+node packages/create-yzforge/bin/create-yzforge.js ../YZForgeCreateSmoke --template . --skip-install
+```
+
 如果改了 Cocos 构建相关内容，再跑：
 
 ```bash

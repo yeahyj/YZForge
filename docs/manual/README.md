@@ -6,13 +6,14 @@
 
 ## 推荐阅读顺序
 
-1. [框架使用手册](./framework.md)
-2. [框架升级](./framework-upgrade.md)
-3. [配置表使用手册](./config-table.md)
-4. [UI 与 Prefab 流程](./ui.md)
-5. [本地存储](./storage.md)
-6. [时间与刷新周期](./clock.md)
-7. [AI 开发手册](./ai-development.md)
+1. [创建项目](./create-project.md)
+2. [框架使用手册](./framework.md)
+3. [框架升级](./framework-upgrade.md)
+4. [配置表使用手册](./config-table.md)
+5. [UI 与 Prefab 流程](./ui.md)
+6. [本地存储](./storage.md)
+7. [时间与刷新周期](./clock.md)
+8. [AI 开发手册](./ai-development.md)
 
 ## 一句话规则
 
