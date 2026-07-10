@@ -21,7 +21,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [创建项目](./manual/create-project.md) | `create-yzforge` 创建器、npm/npx 入口和开发期本地创建方式 |
+| [创建项目](./manual/create-project.md) | `create-yzforge` 创建器、npm/npx 入口和源码模板创建方式 |
 | [框架使用手册](./manual/framework.md) | 项目结构、Module、Library、ContentPack、资源、本地存储和校验 |
 | [框架升级](./manual/framework-upgrade.md) | 版本锁、迁移脚本、插件升级和 CLI 升级流程 |
 | [配置表使用手册](./manual/config-table.md) | Excel 表头、面板流程、CLI、生成 JSON 和 TS 读取方式 |

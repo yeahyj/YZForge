@@ -1,9 +1,15 @@
 # create-yzforge
 
-`create-yzforge` 是 YZForge 的项目创建器。发布到 npm 后，可以用它创建新的 Cocos Creator 项目：
+`create-yzforge` 是 YZForge 的项目创建器，可以用它创建新的 Cocos Creator 项目：
 
 ```bash
 npx create-yzforge@latest MyGame
+```
+
+也可以使用等价的 npm create 写法：
+
+```bash
+npm create yzforge@latest MyGame
 ```
 
 创建完成后：

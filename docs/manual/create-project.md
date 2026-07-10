@@ -10,7 +10,7 @@ YZForge 有两类命令，名字相近但职责不同：
 
 ## 推荐方式
 
-发布到 npm 后，新项目可以这样创建：
+新项目推荐直接使用已经发布到 npm 的创建器：
 
 ```bash
 npx create-yzforge@latest MyGame
@@ -18,11 +18,17 @@ cd MyGame
 npm run yzforge:ai:doctor
 ```
 
+也可以使用等价的 npm create 写法：
+
+```bash
+npm create yzforge@latest MyGame
+```
+
 然后用 Cocos Creator 3.8.8 打开 `MyGame` 目录。
 
-## 开发期方式
+## 源码方式
 
-在 YZForge 还处于开发期、npm 包还没有正式发布前，可以从仓库源码创建：
+如果要测试 GitHub 上的最新源码，或者验证本地未发布改动，可以从仓库源码创建：
 
 ```bash
 git clone https://github.com/yeahyj/YZForge.git
