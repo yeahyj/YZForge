@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yzforge.dev/schema/scope-manifest.v2.json",
+  "title": "YZForge Scope Manifest V2",
+  "oneOf": [
+    { "$ref": "#/$defs/module" },
+    { "$ref": "#/$defs/library" },
+    { "$ref": "#/$defs/contentPack" }
+  ],
+  "$defs": {
+    "pascalName": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
+    "libraries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pascalName" },
+      "uniqueItems": true
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$schema", "schemaVersion", "kind", "name", "bundle", "entry", "public", "enterParams", "libraries"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "schemaVersion": { "const": 2 },
+        "kind": { "const": "module" },
+        "name": { "$ref": "#/$defs/pascalName" },
+        "bundle": { "type": "string", "pattern": "^yzforge-module-[a-z0-9-]+$" },
+        "entry": { "const": "code/generated/entry.ts" },
+        "public": { "const": "code/public.ts" },
+        "enterParams": { "$ref": "#/$defs/pascalName" },
+        "libraries": { "$ref": "#/$defs/libraries" }
+      }
+    },
+    "library": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$schema", "schemaVersion", "kind", "name", "bundle", "entry", "public", "libraries"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "schemaVersion": { "const": 2 },
+        "kind": { "const": "library" },
+        "name": { "$ref": "#/$defs/pascalName" },
+        "bundle": { "type": "string", "pattern": "^yzforge-lib-[a-z0-9-]+$" },
+        "entry": { "const": "code/generated/entry.ts" },
+        "public": { "const": "code/public.ts" },
+        "libraries": { "$ref": "#/$defs/libraries" }
+      }
+    },
+    "contentPack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$schema", "schemaVersion", "kind", "id", "owner", "name", "bundle", "libraries"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "schemaVersion": { "const": 2 },
+        "kind": { "const": "content-pack" },
+        "id": { "type": "string", "pattern": "^[a-z0-9-]+\\.[a-z0-9-]+$" },
+        "owner": { "$ref": "#/$defs/pascalName" },
+        "name": { "$ref": "#/$defs/pascalName" },
+        "bundle": { "type": "string", "pattern": "^yzforge-content-pack-[a-z0-9-]+$" },
+        "libraries": { "$ref": "#/$defs/libraries" }
+      }
+    }
+  }
+}

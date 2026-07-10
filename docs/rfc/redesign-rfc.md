@@ -1,4 +1,6 @@
-# 11. YZForge 重构 RFC
+# 11. YZForge 重构 RFC（历史）
+
+> 本文记录 V1 重构过程，不是当前 API 合同。Owner/Lease、公开 API、ContentPack 与生成器设计以 [V2 终局架构契约](./v2-terminal-architecture.md) 为准。
 
 ## 结论
 

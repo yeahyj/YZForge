@@ -1,6 +1,6 @@
 import { Asset, assetManager, AssetManager } from 'cc';
 import { YZForgeError } from './errors';
-import { ownerKeyOf, type OwnerRef, type OwnershipLedger, type ReleaseScope } from './lifetime';
+import { ownerIdentityOf, type OwnerIdentity, type OwnershipLedger, type ReleaseScope } from './lifetime';
 import type { Logger } from './logger';
 
 export enum BundleState {
@@ -17,8 +17,7 @@ export type BundleCachePolicy = 'purge-immediate' | 'keep-hot';
 
 interface BundleRecord {
     state: BundleState;
-    readonly owners: Map<string, number>;
-    readonly handle: ManagedBundleHandle;
+    readonly leases: Map<string, OwnerIdentity>;
     bundle?: AssetManager.Bundle;
     task?: Promise<AssetManager.Bundle>;
 }
@@ -27,40 +26,26 @@ export interface BundleRecordSnapshot {
     readonly name: string;
     readonly state: BundleState;
     readonly cacheState: BundleCacheState;
-    readonly refCount: number;
-    readonly owners: readonly { readonly ownerKey: string; readonly count: number }[];
+    readonly leaseCount: number;
+    readonly owners: readonly { readonly ownerId: string; readonly ownerPath: string; readonly leaseCount: number }[];
     readonly loaded: boolean;
     readonly loading: boolean;
 }
 
-export interface BundleHandle {
+export interface BundleLease {
+    readonly leaseId: string;
+    readonly owner: OwnerIdentity;
     readonly name: string;
     readonly state: BundleState;
-    readonly refCount: number;
+    readonly released: boolean;
     snapshot(): BundleRecordSnapshot;
-}
-
-export interface BundleAssetAccess extends BundleHandle {
     loadAsset<TAsset extends Asset>(path: string, type: unknown): Promise<TAsset>;
     releaseAsset(path: string, type?: unknown, asset?: Asset): void;
-    releaseAllAssets(): void;
+    release(reason?: unknown): Promise<void>;
 }
 
 export interface BundleManagerOptions {
-    readonly unload?: 'immediate' | 'manual';
     readonly cachePolicy?: BundleCachePolicy;
-}
-
-export interface LoadBundleOptions {
-    readonly acquire?: boolean;
-    readonly owner?: OwnerRef;
-}
-
-export interface ReleaseBundleOptions {
-    readonly owner?: OwnerRef;
-    readonly unload?: boolean;
-    readonly force?: boolean;
-    readonly count?: number;
 }
 
 export interface BundlePurgeResult {
@@ -69,11 +54,14 @@ export interface BundlePurgeResult {
     readonly state: BundleState;
 }
 
-const MANUAL_OWNER = 'manual:bundle';
+class ManagedBundleLease implements BundleLease {
+    private leaseReleased = false;
+    private detachOwnerRelease?: () => void;
 
-class ManagedBundleHandle implements BundleAssetAccess {
     public constructor(
         private readonly manager: BundleManager,
+        public readonly leaseId: string,
+        public readonly owner: OwnerIdentity,
         public readonly name: string,
     ) {}
 
@@ -81,8 +69,8 @@ class ManagedBundleHandle implements BundleAssetAccess {
         return this.manager.getState(this.name);
     }
 
-    public get refCount(): number {
-        return this.manager.getRefCount(this.name);
+    public get released(): boolean {
+        return this.leaseReleased;
     }
 
     public snapshot(): BundleRecordSnapshot {
@@ -90,20 +78,43 @@ class ManagedBundleHandle implements BundleAssetAccess {
     }
 
     public async loadAsset<TAsset extends Asset>(path: string, type: unknown): Promise<TAsset> {
-        return this.manager.loadAssetFromBundle<TAsset>(this.name, path, type);
+        this.assertActive();
+        return await this.manager.loadAssetFromBundle<TAsset>(this.name, path, type);
     }
 
     public releaseAsset(path: string, type?: unknown, asset?: Asset): void {
         this.manager.releaseAssetFromBundle(this.name, path, type, asset);
     }
 
-    public releaseAllAssets(): void {
-        this.manager.releaseAllAssetsFromBundle(this.name);
+    public async release(reason: unknown = { type: 'bundle_lease_release' }): Promise<void> {
+        if (this.leaseReleased) {
+            return;
+        }
+        this.leaseReleased = true;
+        this.detachOwnerRelease?.();
+        this.detachOwnerRelease = undefined;
+        await this.manager.releaseLease(this, reason);
+    }
+
+    public attachOwnerRelease(detach: () => void): void {
+        this.detachOwnerRelease = detach;
+    }
+
+    private assertActive(): void {
+        if (!this.leaseReleased) {
+            return;
+        }
+        throw new YZForgeError(`Bundle lease is released: ${this.name}/${this.leaseId}`, 'bundle.lease_released', {
+            bundleName: this.name,
+            leaseId: this.leaseId,
+            ownerId: this.owner.id,
+        });
     }
 }
 
 export class BundleManager {
     private readonly records = new Map<string, BundleRecord>();
+    private nextLeaseId = 0;
 
     public constructor(
         private readonly logger?: Logger,
@@ -115,11 +126,6 @@ export class BundleManager {
         return this.records.get(bundleName)?.state ?? BundleState.Empty;
     }
 
-    public getRefCount(bundleName: string): number {
-        const record = this.records.get(bundleName);
-        return record ? this.refCount(record) : 0;
-    }
-
     public snapshot(bundleName: string): BundleRecordSnapshot {
         const record = this.records.get(bundleName);
         if (!record) {
@@ -127,7 +133,7 @@ export class BundleManager {
                 name: bundleName,
                 state: BundleState.Empty,
                 cacheState: 'empty',
-                refCount: 0,
+                leaseCount: 0,
                 owners: [],
                 loaded: Boolean(assetManager.getBundle(bundleName)),
                 loading: false,
@@ -140,120 +146,93 @@ export class BundleManager {
         return Array.from(this.records.entries()).map(([name, record]) => this.snapshotRecord(name, record));
     }
 
-    public async preloadBundle(
-        bundleName: string,
-        options: LoadBundleOptions = {},
-    ): Promise<BundleHandle> {
-        return this.loadBundle(bundleName, {
-            ...options,
-            acquire: options.acquire ?? Boolean(options.owner),
-        });
+    public async preloadBundle(bundleName: string, owner: ReleaseScope): Promise<BundleLease> {
+        return await this.loadBundle(bundleName, owner);
     }
 
-    public async loadBundle(
-        bundleName: string,
-        options: LoadBundleOptions = {},
-    ): Promise<BundleAssetAccess> {
-        const acquire = options.acquire !== false;
-        const ownerKey = options.owner ? ownerKeyOf(options.owner) : MANUAL_OWNER;
-        let record = this.records.get(bundleName);
-        const loaded = assetManager.getBundle(bundleName);
-        if (loaded) {
-            if (!record) {
-                record = this.createRecord(bundleName);
-                this.records.set(bundleName, record);
-            }
-            record.state = BundleState.Loaded;
-            record.bundle = loaded;
-            if (acquire) {
-                this.acquireOwner(bundleName, record, ownerKey);
-                this.bindScopeRelease(bundleName, options.owner);
-            }
-            return record.handle;
+    public async loadBundle(bundleName: string, owner: ReleaseScope): Promise<BundleLease> {
+        if (!owner.active) {
+            throw this.acquireCancelled(bundleName, owner);
         }
 
-        if (record?.task) {
-            await record.task;
-            if (acquire) {
-                this.acquireOwner(bundleName, record, ownerKey);
-                this.bindScopeRelease(bundleName, options.owner);
-            }
-            return record.handle;
-        }
-
-        record = record ?? this.createRecord(bundleName);
-        record.state = BundleState.Loading;
-        record.task = new Promise<AssetManager.Bundle>((resolve, reject) => {
-            assetManager.loadBundle(bundleName, (error, bundle) => {
-                if (error || !bundle) {
-                    reject(error ?? new Error(`Bundle not returned: ${bundleName}`));
+        let lease: ManagedBundleLease | undefined;
+        let cancelled = false;
+        const recordTask = this.requireRecord(bundleName);
+        let detachScopeRelease: () => void;
+        try {
+            detachScopeRelease = owner.defer(`bundle-lease:${bundleName}`, async (reason) => {
+                cancelled = true;
+                try {
+                    await recordTask;
+                } catch (_error) {
                     return;
                 }
-                resolve(bundle);
+                await lease?.release(reason);
             });
-        });
-        this.records.set(bundleName, record);
+        } catch (error) {
+            try {
+                const record = await recordTask;
+                await this.purgeRecordIfUnused(bundleName, record, { type: 'bundle_lease_attach_failed' });
+            } catch (rollbackError) {
+                throw new YZForgeError(`Bundle lease attach and rollback failed: ${bundleName}`, 'compensation.failed', {
+                    operation: `bundle.lease.attach:${bundleName}`,
+                    primary: error,
+                    rollbackFailures: [{ step: 'purge unused bundle record', error: rollbackError }],
+                });
+            }
+            throw error;
+        }
 
         try {
-            const bundle = await record.task;
-            record.bundle = bundle;
-            record.state = BundleState.Loaded;
-            record.task = undefined;
-            if (acquire) {
-                this.acquireOwner(bundleName, record, ownerKey);
-                this.bindScopeRelease(bundleName, options.owner);
+            const record = await recordTask;
+            if (cancelled || !owner.active) {
+                detachScopeRelease();
+                await this.purgeRecordIfUnused(bundleName, record, { type: 'bundle_acquire_cancelled' });
+                throw this.acquireCancelled(bundleName, owner);
             }
-            this.logger?.debug(`Bundle loaded: ${bundleName}`, { refCount: this.refCount(record) });
-            return record.handle;
+            const identity = ownerIdentityOf(owner);
+            const leaseId = `bundle-lease-${++this.nextLeaseId}`;
+            lease = new ManagedBundleLease(this, leaseId, identity, bundleName);
+            lease.attachOwnerRelease(detachScopeRelease);
+            record.leases.set(leaseId, identity);
+            this.ledger?.acquire(identity, 'bundle', bundleName, { bundleName, leaseId });
+            this.logger?.debug(`Bundle lease acquired: ${bundleName}`, {
+                leaseId,
+                ownerId: identity.id,
+                leaseCount: record.leases.size,
+            });
+            return lease;
         } catch (error) {
-            record.state = BundleState.Failed;
-            record.task = undefined;
-            throw new YZForgeError(`Failed to load bundle: ${bundleName}`, 'bundle.load_failed', error);
+            if (!cancelled) {
+                detachScopeRelease();
+            }
+            throw error;
         }
     }
 
-    public async releaseBundle(bundleName: string, options: ReleaseBundleOptions = {}): Promise<void> {
-        const record = this.records.get(bundleName);
-        if (!record) {
-            this.logger?.warn(`Bundle release ignored because it was not managed: ${bundleName}`);
+    public async releaseLease(lease: BundleLease, reason: unknown): Promise<void> {
+        const record = this.records.get(lease.name);
+        if (!record || !record.leases.delete(lease.leaseId)) {
             return;
         }
-        if (options.force) {
-            this.releaseAllOwners(bundleName, record);
-        } else {
-            this.releaseOwner(bundleName, record, options.owner ? ownerKeyOf(options.owner) : MANUAL_OWNER, options.count);
-        }
-        if (this.refCount(record) > 0 || !record.bundle) {
-            return;
-        }
-        const unload = options.unload ?? this.shouldPurgeOnZero();
-        if (!unload && !options.force) {
-            return;
-        }
-        await this.releasePhysicalBundle(bundleName, record, { type: 'bundle_ref_zero' });
-    }
-
-    public async unloadBundle(bundleName: string): Promise<void> {
-        await this.releaseBundle(bundleName, { force: true });
+        this.ledger?.release(lease.owner, 'bundle', lease.name);
+        this.logger?.debug(`Bundle lease released: ${lease.name}`, {
+            leaseId: lease.leaseId,
+            ownerId: lease.owner.id,
+            leaseCount: record.leases.size,
+        });
+        await this.purgeRecordIfUnused(lease.name, record, reason);
     }
 
     public async purgeUnusedBundles(reason: unknown = { type: 'cache_purge' }): Promise<BundlePurgeResult[]> {
         const results: BundlePurgeResult[] = [];
         for (const [bundleName, record] of Array.from(this.records.entries())) {
-            if (!record.bundle || this.refCount(record) > 0) {
-                results.push({
-                    name: bundleName,
-                    purged: false,
-                    state: record.state,
-                });
+            if (!record.bundle || record.leases.size > 0) {
+                results.push({ name: bundleName, purged: false, state: record.state });
                 continue;
             }
             await this.releasePhysicalBundle(bundleName, record, reason);
-            results.push({
-                name: bundleName,
-                purged: true,
-                state: BundleState.Empty,
-            });
+            results.push({ name: bundleName, purged: true, state: BundleState.Empty });
         }
         return results;
     }
@@ -264,7 +243,7 @@ export class BundleManager {
         type: unknown,
     ): Promise<TAsset> {
         const bundle = await this.requireBundle(bundleName);
-        return new Promise<TAsset>((resolve, reject) => {
+        return await new Promise<TAsset>((resolve, reject) => {
             bundle.load(path, type as never, (error: Error | null, value: TAsset) => {
                 if (error || !value) {
                     reject(error ?? new Error(`Asset not returned: ${path}`));
@@ -287,16 +266,48 @@ export class BundleManager {
         }
     }
 
-    public releaseAllAssetsFromBundle(bundleName: string): void {
-        this.records.get(bundleName)?.bundle?.releaseAll();
+    private async requireRecord(bundleName: string): Promise<BundleRecord> {
+        let record = this.records.get(bundleName);
+        const loaded = assetManager.getBundle(bundleName);
+        if (loaded) {
+            record = record ?? this.createRecord();
+            record.bundle = loaded;
+            record.state = BundleState.Loaded;
+            this.records.set(bundleName, record);
+            return record;
+        }
+        if (record?.task) {
+            await record.task;
+            return record;
+        }
+
+        record = record ?? this.createRecord();
+        record.state = BundleState.Loading;
+        record.task = new Promise<AssetManager.Bundle>((resolve, reject) => {
+            assetManager.loadBundle(bundleName, (error, bundle) => {
+                if (error || !bundle) {
+                    reject(error ?? new Error(`Bundle not returned: ${bundleName}`));
+                    return;
+                }
+                resolve(bundle);
+            });
+        });
+        this.records.set(bundleName, record);
+        try {
+            record.bundle = await record.task;
+            record.task = undefined;
+            record.state = BundleState.Loaded;
+            this.logger?.debug(`Bundle loaded: ${bundleName}`);
+            return record;
+        } catch (error) {
+            record.task = undefined;
+            record.state = BundleState.Failed;
+            throw new YZForgeError(`Failed to load bundle: ${bundleName}`, 'bundle.load_failed', error);
+        }
     }
 
-    private createRecord(bundleName: string): BundleRecord {
-        return {
-            state: BundleState.Empty,
-            owners: new Map(),
-            handle: new ManagedBundleHandle(this, bundleName),
-        };
+    private createRecord(): BundleRecord {
+        return { state: BundleState.Empty, leases: new Map() };
     }
 
     private async requireBundle(bundleName: string): Promise<AssetManager.Bundle> {
@@ -308,67 +319,30 @@ export class BundleManager {
             return record.bundle;
         }
         if (record.task) {
-            return record.task;
+            return await record.task;
         }
         throw new YZForgeError(`Bundle is not loaded: ${bundleName}`, 'bundle.not_loaded');
     }
 
-    private acquireOwner(bundleName: string, record: BundleRecord, ownerKey: string): void {
-        record.owners.set(ownerKey, (record.owners.get(ownerKey) ?? 0) + 1);
-        this.ledger?.acquire(ownerKey, 'bundle', bundleName, { bundleName });
-    }
-
-    private bindScopeRelease(bundleName: string, owner?: OwnerRef): void {
-        if (!owner || typeof owner === 'string') {
+    private async purgeRecordIfUnused(bundleName: string, record: BundleRecord, reason: unknown): Promise<void> {
+        if (record.leases.size > 0 || !record.bundle || this.cachePolicy() === 'keep-hot') {
             return;
         }
-        const scope = owner as ReleaseScope;
-        scope.defer(`bundle:${bundleName}`, () => this.releaseBundle(bundleName, { owner: scope }));
-    }
-
-    private releaseOwner(bundleName: string, record: BundleRecord, ownerKey: string, count = 1): void {
-        const releaseCount = Math.max(1, count);
-        const current = record.owners.get(ownerKey) ?? 0;
-        if (current === 0) {
-            this.logger?.warn(`Bundle release ignored because owner does not hold it: ${bundleName}`, { ownerKey });
-            return;
-        }
-        if (releaseCount > current) {
-            this.logger?.warn(`Bundle release exceeded owner refCount: ${bundleName}`, {
-                ownerKey,
-                refCount: current,
-                releaseCount,
-            });
-        }
-        const next = Math.max(0, current - releaseCount);
-        if (next === 0) {
-            record.owners.delete(ownerKey);
-        } else {
-            record.owners.set(ownerKey, next);
-        }
-        this.ledger?.release(ownerKey, 'bundle', bundleName, releaseCount);
-    }
-
-    private releaseAllOwners(bundleName: string, record: BundleRecord): void {
-        for (const [ownerKey, count] of Array.from(record.owners.entries())) {
-            this.ledger?.release(ownerKey, 'bundle', bundleName, count);
-        }
-        record.owners.clear();
+        await this.releasePhysicalBundle(bundleName, record, reason);
     }
 
     private async releasePhysicalBundle(bundleName: string, record: BundleRecord, reason: unknown): Promise<void> {
-        if (!record.bundle) {
+        if (!record.bundle || record.leases.size > 0) {
             return;
         }
         record.state = BundleState.Releasing;
         try {
-            record.bundle.releaseAll();
             assetManager.removeBundle(record.bundle);
             this.records.delete(bundleName);
-            this.logger?.debug(`Bundle purged: ${bundleName}`, { reason });
+            this.logger?.debug(`Bundle resource container purged: ${bundleName}`, { reason });
         } catch (error) {
             record.state = BundleState.FailedRelease;
-            throw new YZForgeError(`Failed to purge bundle: ${bundleName}`, 'bundle.purge_failed', {
+            throw new YZForgeError(`Failed to purge bundle resource container: ${bundleName}`, 'bundle.purge_failed', {
                 bundleName,
                 reason,
                 error,
@@ -376,28 +350,24 @@ export class BundleManager {
         }
     }
 
-    private shouldPurgeOnZero(): boolean {
-        const policy = this.options.cachePolicy ?? (this.options.unload === 'manual' ? 'keep-hot' : 'purge-immediate');
-        return policy === 'purge-immediate';
-    }
-
-    private refCount(record: BundleRecord): number {
-        let count = 0;
-        for (const value of record.owners.values()) {
-            count += value;
-        }
-        return count;
+    private cachePolicy(): BundleCachePolicy {
+        return this.options.cachePolicy ?? 'purge-immediate';
     }
 
     private snapshotRecord(name: string, record: BundleRecord): BundleRecordSnapshot {
+        const owners = new Map<string, { owner: OwnerIdentity; count: number }>();
+        for (const owner of record.leases.values()) {
+            const current = owners.get(owner.id);
+            owners.set(owner.id, { owner, count: (current?.count ?? 0) + 1 });
+        }
         return {
             name,
             state: record.state,
             cacheState: this.cacheState(record),
-            refCount: this.refCount(record),
-            owners: Array.from(record.owners.entries())
-                .map(([ownerKey, count]) => ({ ownerKey, count }))
-                .sort((a, b) => a.ownerKey.localeCompare(b.ownerKey)),
+            leaseCount: record.leases.size,
+            owners: Array.from(owners.values())
+                .map(({ owner, count }) => ({ ownerId: owner.id, ownerPath: owner.path, leaseCount: count }))
+                .sort((left, right) => left.ownerId.localeCompare(right.ownerId)),
             loaded: Boolean(record.bundle),
             loading: Boolean(record.task),
         };
@@ -413,6 +383,14 @@ export class BundleManager {
         if (!record.bundle) {
             return 'empty';
         }
-        return this.refCount(record) > 0 ? 'owned' : 'hot';
+        return record.leases.size > 0 ? 'owned' : 'hot';
+    }
+
+    private acquireCancelled(bundleName: string, owner: ReleaseScope): YZForgeError {
+        return new YZForgeError(`Bundle acquire was cancelled because owner scope is closing: ${bundleName}`, 'bundle.acquire_cancelled', {
+            bundleName,
+            ownerId: owner.ownerId,
+            ownerPath: owner.ownerPath,
+        });
     }
 }

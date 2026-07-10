@@ -300,21 +300,39 @@ registry/contract -> target bundle runtime value
 dynamic bundle -> another dynamic bundle internal script
 ```
 
-## CI 建议
+## V2 生成事务
 
-第一版就应该提供命令行校验：
+生成器只拥有派生文件和自己命名空间内的宿主配置。一次生成分为：
 
-```text
-yzforge generate --check
-yzforge validate
-yzforge validate --strict
+1. 扫描并验证 descriptor、Excel、prefab marker 等输入；
+2. 在内存中建立完整 write/delete plan；
+3. 校验目标不得逃逸项目、delete 只能落在 runtime copy、JSON 必须可解析；
+4. 把所有新内容写入同卷 staging 目录；
+5. 原文件移动到 transaction backup，再提交 staging；
+6. 任一 commit 操作失败时逆序恢复 backup，并清理 transaction artifact。
+
+故障注入测试会在提交第一个文件后主动失败，并验证所有文件仍保持提交前内容。
+
+## Validator 结构
+
+Validator 通过具名 rule runner 调度领域规则。descriptor/schema 与 path-map/host ownership 已拆入 `editor/validators/`，新的规则应继续按领域增加文件，不再把所有逻辑堆回单一入口。
+
+## CI 与测试层
+
+```bash
+npm run yzforge:generate:check
+npm run yzforge:config:check
+npm run yzforge:validate:strict
+npm run typecheck
+npm run yzforge:test:runtime
+npm run yzforge:test:fixtures
+npm run yzforge:test:failure
 ```
 
-规则：
-
-- `generate --check` 只检查 generated 文件是否最新，不写文件。
-- `validate` 阻断明显架构错误。
-- `validate --strict` 打开实验性规则和更强检查。
-- CI 必须运行 `generate --check` 和 `validate`。
+- `generate --check` 和 `config --check` 只读。
+- runtime 层验证 owner、lease、释放、App 状态与 UI result。
+- fixtures 层创建完整临时项目并逐条篡改验证规则。
+- failure 层专门执行 compensation 和 generator rollback 注入。
+- `.github/workflows/quality.yml` 在带 Cocos Creator 3.8.8 的 self-hosted Windows runner 上执行上述质量门。
 
 Validator 返回值同时保留面向脚本的 `issues: string[]` 和面向编辑器面板的 `issueDetails`。`issueDetails` 至少包含 `message`、`code`、`severity`，能解析到资源时还包含 `path`、`url`，AST import 检查可额外提供 `line`、`column`、`specifier` 和 `target`。

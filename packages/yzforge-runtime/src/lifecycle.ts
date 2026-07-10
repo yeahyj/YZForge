@@ -8,7 +8,14 @@ export interface AppLifecycleEvents {
     readonly 'memory-warning': void;
 }
 
-export class AppLifecycle {
+export interface AppLifecycleReader {
+    on<TKey extends keyof AppLifecycleEvents>(
+        event: TKey,
+        handler: (payload: AppLifecycleEvents[TKey]) => void,
+    ): () => void;
+}
+
+export class AppLifecycle implements AppLifecycleReader {
     private readonly event = new EventBus<AppLifecycleEvents>();
     private installed = false;
 

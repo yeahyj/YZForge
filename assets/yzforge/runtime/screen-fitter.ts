@@ -1,4 +1,5 @@
-import { _decorator, Component, screen, sys, UITransform, view, Widget } from 'cc';
+import { _decorator, Component, UITransform, Widget } from 'cc';
+import { onViewportProfile, type DeviceProfile } from './viewport';
 
 const { ccclass } = _decorator;
 
@@ -17,15 +18,15 @@ export interface ScreenFitSnapshot {
 @ccclass('YZScreenFitter')
 export class YZScreenFitter extends Component {
     protected fitMode: FitMode = 'fullscreen';
-    private installed = false;
-
-    private readonly refreshHandler = (): void => {
-        this.refresh();
-    };
+    private disposeProfile?: () => void;
+    private profile?: DeviceProfile;
 
     protected onEnable(): void {
-        this.install();
-        this.refresh();
+        this.disposeProfile?.();
+        this.disposeProfile = onViewportProfile((profile) => {
+            this.profile = profile;
+            this.refresh();
+        });
     }
 
     protected onDisable(): void {
@@ -37,40 +38,23 @@ export class YZScreenFitter extends Component {
     }
 
     public refresh(): ScreenFitSnapshot {
-        return this.fitMode === 'safe-area'
-            ? this.applySafeArea()
-            : this.applyFullscreen();
-    }
-
-    protected install(): void {
-        if (this.installed) {
-            return;
+        const profile = this.profile;
+        if (!profile) {
+            return this.snapshot(this.fitMode, 0, 0, 0, 0);
         }
-        view.on('canvas-resize', this.refreshHandler);
-        this.installed = true;
-    }
-
-    protected uninstall(): void {
-        if (!this.installed) {
-            return;
-        }
-        view.off('canvas-resize', this.refreshHandler);
-        this.installed = false;
-    }
-
-    protected applyFullscreen(): ScreenFitSnapshot {
-        const widget = this.ensureWidget();
-        this.stretchWidget(widget, 0, 0, 0, 0);
-        this.ensureTransformSize();
-        return this.snapshot('fullscreen', 0, 0, 0, 0);
-    }
-
-    protected applySafeArea(): ScreenFitSnapshot {
-        const insets = safeAreaInsetsInDesign();
+        const insets = this.fitMode === 'safe-area'
+            ? profile.safeInsets
+            : { left: 0, right: 0, top: 0, bottom: 0 };
         const widget = this.ensureWidget();
         this.stretchWidget(widget, insets.left, insets.right, insets.top, insets.bottom);
-        this.ensureTransformSize();
-        return this.snapshot('safe-area', insets.left, insets.right, insets.top, insets.bottom);
+        const transform = this.node.getComponent(UITransform) ?? this.node.addComponent(UITransform);
+        transform.setContentSize(profile.visibleWidth, profile.visibleHeight);
+        return this.snapshot(this.fitMode, insets.left, insets.right, insets.top, insets.bottom);
+    }
+
+    private uninstall(): void {
+        this.disposeProfile?.();
+        this.disposeProfile = undefined;
     }
 
     private ensureWidget(): Widget {
@@ -89,40 +73,16 @@ export class YZScreenFitter extends Component {
         widget.updateAlignment();
     }
 
-    private ensureTransformSize(): void {
-        const transform = this.node.getComponent(UITransform) ?? this.node.addComponent(UITransform);
-        const design = view.getDesignResolutionSize();
-        transform.setContentSize(design.width, design.height);
-    }
-
     private snapshot(mode: FitMode, left: number, right: number, top: number, bottom: number): ScreenFitSnapshot {
-        const transform = this.node.getComponent(UITransform);
-        const size = transform?.contentSize ?? view.getDesignResolutionSize();
+        const size = this.node.getComponent(UITransform)?.contentSize;
         return {
             mode,
-            width: size.width,
-            height: size.height,
+            width: size?.width ?? this.profile?.visibleWidth ?? 0,
+            height: size?.height ?? this.profile?.visibleHeight ?? 0,
             left,
             right,
             top,
             bottom,
         };
     }
-}
-
-function safeAreaInsetsInDesign(): { left: number; right: number; top: number; bottom: number } {
-    const frame = screen.windowSize;
-    const design = view.getDesignResolutionSize();
-    const reader = sys as unknown as { getSafeAreaRect?: () => { x: number; y: number; width: number; height: number } };
-    const safe = typeof reader.getSafeAreaRect === 'function'
-        ? reader.getSafeAreaRect()
-        : { x: 0, y: 0, width: frame.width, height: frame.height };
-    const xScale = frame.width === 0 ? 1 : design.width / frame.width;
-    const yScale = frame.height === 0 ? 1 : design.height / frame.height;
-    return {
-        left: safe.x * xScale,
-        right: Math.max(0, frame.width - safe.x - safe.width) * xScale,
-        top: Math.max(0, frame.height - safe.y - safe.height) * yScale,
-        bottom: safe.y * yScale,
-    };
 }

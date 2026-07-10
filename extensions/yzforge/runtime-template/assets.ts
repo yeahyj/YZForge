@@ -1,9 +1,11 @@
 import { Asset, instantiate, isValid, Node, Prefab } from 'cc';
-import type { BundleAssetAccess } from './bundle-manager';
+import type { BundleLease } from './bundle-manager';
 import type { OwnerRef, OwnershipLedger, ReleaseScope } from './lifetime';
-import type { LoadableAssetRef } from './refs';
+import type { LoadableAssetRef, PartRef } from './refs';
 import type { Logger } from './logger';
 import { YZForgeError } from './errors';
+import { disposePartRuntime, initializePartRuntime, type Part } from './ui';
+import { CompensationStack, runCleanupSteps } from './compensation';
 
 interface LoadedAssetRecord {
     readonly ref: LoadableAssetRef;
@@ -40,6 +42,13 @@ export interface LoadAssetOptions {
     readonly acquire?: boolean;
 }
 
+export interface PartLease<TPart extends Part = Part> {
+    readonly leaseId: string;
+    readonly instance: TPart;
+    readonly released: boolean;
+    release(reason?: unknown): Promise<void>;
+}
+
 export class AssetScope {
     private readonly loaded = new Map<string, LoadedAssetRecord>();
     private readonly nodes = new Set<Node>();
@@ -49,13 +58,13 @@ export class AssetScope {
 
     public constructor(
         public readonly ownerName: string,
-        protected readonly bundle: BundleAssetAccess,
-        protected readonly logger?: Logger,
-        releaseScope?: ReleaseScope,
+        protected readonly bundle: BundleLease,
+        protected readonly logger: Logger | undefined,
+        protected readonly releaseScope: ReleaseScope,
         private readonly ledger?: OwnershipLedger,
     ) {
-        this.owner = releaseScope ?? `asset-scope:${ownerName}`;
-        releaseScope?.defer(`assets:${ownerName}`, () => this.releaseAll());
+        this.owner = releaseScope;
+        releaseScope.defer(`assets:${ownerName}`, () => this.releaseAll());
     }
 
     public getLoadedCount(): number {
@@ -137,16 +146,27 @@ export class AssetScope {
     }
 
     public async instantiate(ref: LoadableAssetRef<Prefab>, options: InstantiateOptions = {}): Promise<Node> {
-        const prefab = await this.load(ref, { acquire: options.acquireAsset });
-        const node = instantiate(prefab);
-        if (options.active !== undefined) {
-            node.active = options.active;
+        const transaction = new CompensationStack(`asset.instantiate:${this.ownerName}/${ref.path}`);
+        try {
+            const acquireAsset = options.acquireAsset !== false;
+            const prefab = await this.load(ref, { acquire: acquireAsset });
+            if (acquireAsset) {
+                transaction.defer('release partial instance prefab', () => this.release(ref));
+            }
+            const node = instantiate(prefab);
+            transaction.defer('destroy partial instance node', () => this.destroyNode(node));
+            if (options.active !== undefined) {
+                node.active = options.active;
+            }
+            if (options.parent) {
+                options.parent.addChild(node);
+            }
+            this.trackNode(node);
+            transaction.commit();
+            return node;
+        } catch (error) {
+            return await transaction.fail(error, { type: 'asset_instantiate_failed', path: ref.path });
         }
-        if (options.parent) {
-            options.parent.addChild(node);
-        }
-        this.trackNode(node);
-        return node;
     }
 
     public trackNode(node: Node): void {
@@ -291,7 +311,59 @@ function describeError(error: unknown): unknown {
     return error;
 }
 
-export class ModuleAssets extends AssetScope {}
+export class ModuleAssets extends AssetScope {
+    private nextPartLeaseId = 0;
+
+    public async createPart<TData, TPart extends Part<TData>>(
+        ref: PartRef<TPart, TData>,
+        data: TData,
+        options: Omit<InstantiateOptions, 'acquireAsset'> = {},
+    ): Promise<PartLease<TPart>> {
+        const transaction = new CompensationStack(`part.create:${this.ownerName}/${ref.path}`);
+        try {
+            const node = await this.instantiate(ref, { ...options, acquireAsset: true });
+            transaction.defer('release partial part node and asset', (reason) => runCleanupSteps('part.partial.release', [
+                { step: 'destroy part node', task: () => this.destroyNode(node) },
+                { step: 'release part prefab', task: () => this.release(ref) },
+            ]));
+            const instance = node.getComponent(ref.component);
+            if (!instance) {
+                throw new YZForgeError(`Part component not found after instantiate: ${ref.path}`, 'part.component_missing');
+            }
+            transaction.defer('dispose partial part lifecycle', (reason) => disposePartRuntime(instance, reason));
+            await initializePartRuntime(instance, data);
+
+            const leaseId = `part-lease-${++this.nextPartLeaseId}`;
+            const state = { released: false };
+            let detachOwnerRelease: (() => void) | undefined;
+            const lease: PartLease<TPart> = {
+                leaseId,
+                instance,
+                get released(): boolean {
+                    return state.released;
+                },
+                release: async (reason: unknown = { type: 'part_lease_release' }) => {
+                    if (state.released) {
+                        return;
+                    }
+                    state.released = true;
+                    detachOwnerRelease?.();
+                    detachOwnerRelease = undefined;
+                    await runCleanupSteps(`part.release:${this.ownerName}/${ref.path}`, [
+                        { step: 'dispose part lifecycle', task: () => disposePartRuntime(instance, reason) },
+                        { step: 'destroy part node', task: () => this.destroyNode(node) },
+                        { step: 'release part prefab', task: () => this.release(ref) },
+                    ]);
+                },
+            };
+            detachOwnerRelease = this.releaseScope.defer(`part-lease:${ref.path}:${leaseId}`, (reason) => lease.release(reason));
+            transaction.commit();
+            return lease;
+        } catch (error) {
+            return await transaction.fail(error, { type: 'part_create_failed', path: ref.path });
+        }
+    }
+}
 export class LibraryAssets extends AssetScope {}
 export class ContentPackAssetScope extends AssetScope {}
 export class GlobalAssets extends AssetScope {}

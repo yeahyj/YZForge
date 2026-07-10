@@ -14,3 +14,7 @@
 2. [重构迁移计划](./redesign-migration-plan.md)
 3. [重构验收标准](./redesign-acceptance.md)
 4. [重构后框架审计](./post-refactor-framework-audit.md)
+5. [YZForge V2 终局架构契约](./v2-terminal-architecture.md)
+6. [YZForge V2 验收标准](./v2-acceptance.md)
+
+V2 文档取代旧 RFC 中与 Owner/Lease、公开 API、ContentPack manifest 和生成器宿主配置所有权冲突的部分。

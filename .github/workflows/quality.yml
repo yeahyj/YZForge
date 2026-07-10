@@ -1,0 +1,41 @@
+name: YZForge Quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  framework:
+    # Typecheck and smoke resolve Cocos Creator 3.8.8 declarations through ToolchainResolver.
+    runs-on: [self-hosted, Windows, X64, cocos-3.8.8]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generated output is current
+        shell: pwsh
+        run: npm run yzforge:generate:check
+
+      - name: Config output is current
+        shell: pwsh
+        run: npm run yzforge:config:check
+
+      - name: Strict architecture validation
+        shell: pwsh
+        run: npm run yzforge:validate:strict
+
+      - name: TypeScript
+        shell: pwsh
+        run: npm run typecheck
+
+      - name: Runtime tests
+        shell: pwsh
+        run: npm run yzforge:test:runtime
+
+      - name: Fixture validation tests
+        shell: pwsh
+        run: npm run yzforge:test:fixtures
+
+      - name: Failure injection tests
+        shell: pwsh
+        run: npm run yzforge:test:failure

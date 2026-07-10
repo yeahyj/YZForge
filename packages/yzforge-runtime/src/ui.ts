@@ -14,7 +14,8 @@ import type { Module } from './module';
 import type { ViewPolicyLike, ViewRef } from './refs';
 import { SystemUI, type PopupMaskRequest, type SystemUISnapshot } from './system-ui';
 import type { MaybePromise } from './types';
-import { ViewRuntime } from './view-runtime';
+import { ViewRuntime, viewRuntimeOperation, type ViewRuntimeOperation } from './view-runtime';
+import { CompensationStack } from './compensation';
 
 export enum ViewKind {
     Page = 'page',
@@ -88,10 +89,7 @@ export interface ViewHandle<TResult = unknown> {
     readonly ref: ViewRef<unknown, TResult>;
     readonly layer: ViewLayer;
     readonly policy: ResolvedViewPolicy;
-    readonly node: Node;
-    readonly view: View<unknown, TResult>;
-    readonly owner: Module;
-    state: ViewState;
+    readonly state: ViewState;
     close(result?: TResult): Promise<void>;
     cancel(reason?: unknown): Promise<void>;
     focus(): void;
@@ -129,7 +127,12 @@ export function isUiCancelResult(value: unknown): value is UiCancelResult {
 export type ComponentType<TComponent extends Component> = new (...args: any[]) => TComponent;
 
 let nextViewId = 0;
-type AnyViewHandle = ViewHandle<any>;
+type AnyViewHandle = Omit<ViewHandle<any>, 'state'> & {
+    state: ViewState;
+    readonly node: Node;
+    readonly view: View<unknown, any>;
+    readonly owner: Module;
+};
 
 interface UiFailure {
     readonly step: string;
@@ -281,7 +284,7 @@ export class UIManager {
         this.refreshSystemUi();
     }
 
-    public forModule(module: Module, owner: OwnerRef = `module:${module.name}`): ModuleUI {
+    public forModule(module: Module, owner: OwnerRef): ModuleUI {
         let ui = this.moduleUis.get(module.name);
         if (!ui) {
             ui = new ModuleUI(module, owner, this.layers, this.runtime, () => this.refreshSystemUi(), this.ownership);
@@ -290,7 +293,7 @@ export class UIManager {
         return ui;
     }
 
-    public createForModule(moduleName: string, module: Module, owner: OwnerRef = `module:${moduleName}`): ModuleUI {
+    public createForModule(moduleName: string, module: Module, owner: OwnerRef): ModuleUI {
         let ui = this.moduleUis.get(moduleName);
         if (!ui) {
             ui = new ModuleUI(module, owner, this.layers, this.runtime, () => this.refreshSystemUi(), this.ownership);
@@ -447,10 +450,11 @@ export class ModuleUI {
         options: OpenViewOptions,
         policy: ResolvedViewPolicy,
         token: OpenToken,
-    ): Promise<ViewHandle<TResult>> {
+    ): Promise<AnyViewHandle> {
+        const transaction = new CompensationStack(`view.open:${ref.path}`);
         let node: Node | undefined;
         let nodeFromCache = false;
-        let handle: ViewHandle<TResult> | undefined;
+        let handle: AnyViewHandle | undefined;
         let viewTracked = false;
         try {
             this.ensureOpenAllowed(token);
@@ -464,27 +468,31 @@ export class ModuleUI {
                     acquireAsset: policy.cache !== 'asset',
                 });
             }
+            transaction.defer('release partial view node and asset', () => {
+                if (node && isValid(node)) {
+                    this.module.assets.destroyNode(node);
+                }
+                if (policy.cache !== 'asset' && (!nodeFromCache || policy.cache === 'node')) {
+                    this.module.assets.release(ref);
+                }
+            });
             this.ensureOpenAllowed(token);
             const component = node.getComponent(ref.component);
             if (!component) {
-                this.module.assets.destroyNode(node);
-                if (policy.cache === 'none') {
-                    this.module.assets.release(ref);
-                }
                 throw new YZForgeError(`View prefab does not contain component: ${ref.path}`, 'ui.view_component_missing');
             }
 
             const view = component as View<TData, TResult>;
             const id = `view-${++nextViewId}`;
-            let createdHandle!: ViewHandle<TResult>;
+            let createdHandle!: AnyViewHandle;
             createdHandle = {
                 id,
                 key: token.key,
-                ref: ref as unknown as ViewRef<unknown, TResult>,
+                ref: ref as unknown as ViewRef<unknown, unknown>,
                 layer: policy.layer,
                 policy,
                 node,
-                view: view as unknown as View<unknown, TResult>,
+                view: view as unknown as View<unknown, unknown>,
                 owner: this.module,
                 state: ViewState.Loading,
                 close: async (result?: TResult) => this.close(createdHandle, result),
@@ -493,7 +501,11 @@ export class ModuleUI {
             };
             handle = createdHandle;
 
-            view.__yzforgeBind(this.module, handle);
+            await this.runtime.bind(view, this.module, handle as ViewHandle<TResult>);
+            transaction.defer('close partial view lifecycle', () => this.runtime.close(view, {
+                cancelled: true,
+                reason: 'view_open_failed',
+            }));
             handle.state = ViewState.Opening;
             await this.runtime.beforeOpen(view, data);
             this.ensureOpenAllowed(token);
@@ -507,28 +519,28 @@ export class ModuleUI {
             this.handles.add(handle as AnyViewHandle);
             this.trackView(handle as AnyViewHandle);
             viewTracked = true;
+            transaction.defer('remove partial view tracking', () => {
+                this.handles.delete(handle as AnyViewHandle);
+                if (viewTracked) {
+                    this.untrackView(handle as AnyViewHandle);
+                    viewTracked = false;
+                }
+            });
             this.focus(handle);
             await this.runtime.open(view, data);
             this.ensureOpenAllowed(token);
             this.notifySystemUi();
+            transaction.commit();
             return handle;
         } catch (error) {
             if (error instanceof YZForgeError && error.code === 'ui.view_open_cancelled') {
                 this.module.logger.debug(`View open cancelled: ${token.path}`, error.details);
             }
-            if (handle) {
-                this.handles.delete(handle as AnyViewHandle);
-                if (viewTracked) {
-                    this.untrackView(handle as AnyViewHandle);
-                }
-            }
-            if (node && isValid(node)) {
-                this.module.assets.destroyNode(node);
-            }
-            if (policy.cache !== 'asset' && (!nodeFromCache || policy.cache === 'node')) {
-                this.module.assets.release(ref);
-            }
-            throw error;
+            return await transaction.fail(error, {
+                type: 'view_open_failed',
+                owner: this.module.name,
+                path: ref.path,
+            });
         }
     }
 
@@ -555,7 +567,7 @@ export class ModuleUI {
                     this.ensureOpenAllowed(token);
                     const handle = await this.openImmediate(ref, data, options, policy, token);
                     resolveOpened(handle);
-                    await handle.view.__yzforgeWaitResult();
+                    await this.runtime.waitResult(handle.view);
                 } catch (error) {
                     rejectOpened(error);
                 }
@@ -579,7 +591,10 @@ export class ModuleUI {
     ): Promise<TResult | UiCancelResult> {
         try {
             const handle = await this.open(ref, data, options);
-            return await handle.view.__yzforgeWaitResult();
+            const internal = this.resolveHandle(handle);
+            return internal
+                ? await this.runtime.waitResult<TResult | UiCancelResult>(internal.view)
+                : { cancelled: true, reason: 'view_not_tracked' };
         } catch (error) {
             if (isOpenCancelledError(error)) {
                 return { cancelled: true, reason: (error as YZForgeError).code };
@@ -796,9 +811,9 @@ export class ModuleUI {
             this.pendingOpens.delete(key);
             return await this.open(ref, data, { ...options, duplicate: 'reject' });
         }
-        const handle = await pending as ViewHandle<TResult>;
+        const handle = await pending;
         this.focus(handle);
-        return handle;
+        return handle as ViewHandle<TResult>;
     }
 
     private resolvePolicy(ref: ViewRef, options: OpenViewOptions): ResolvedViewPolicy {
@@ -978,9 +993,9 @@ export class ModuleUI {
         return this.layers.get(layer);
     }
 
-    private resolveHandle(target: AnyViewHandle | ViewRef): AnyViewHandle | undefined {
+    private resolveHandle(target: ViewHandle | ViewRef): AnyViewHandle | undefined {
         if ('id' in target) {
-            return target;
+            return this.sortedHandles().reverse().find((handle) => handle.id === target.id);
         }
         return this.sortedHandles().reverse().find((handle) => handle.ref === target);
     }
@@ -1076,38 +1091,48 @@ export abstract class View<TData = unknown, TResult = unknown> extends Component
         return this.viewHandle;
     }
 
-    public __yzforgeBind(module: Module, handle: ViewHandle<TResult>): void {
-        this.ownerModule = module;
-        this.viewHandle = handle;
-        this.resultResolved = false;
-        this.resultPromise = new Promise<TResult | UiCancelResult>((resolve) => {
-            this.resultResolver = resolve;
-        });
-    }
+    public async [viewRuntimeOperation](
+        operation: ViewRuntimeOperation,
+        value?: unknown,
+        secondary?: unknown,
+    ): Promise<unknown> {
+        if (operation === 'bind') {
+            this.ownerModule = value as Module;
+            this.viewHandle = secondary as ViewHandle<TResult>;
+            this.resultResolved = false;
+            this.resultPromise = new Promise<TResult | UiCancelResult>((resolve) => {
+                this.resultResolver = resolve;
+            });
+            return;
+        }
+        if (operation === 'before-open') {
+            this.bindRefs();
+            await this.beforeOpen(value as TData);
+            return;
+        }
+        if (operation === 'open') {
+            await this.onOpen(value as TData);
+            return;
+        }
+        if (operation === 'before-close') {
+            return await this.beforeClose(value);
+        }
+        if (operation === 'wait-result') {
+            if (!this.resultPromise) {
+                return { cancelled: true, reason: 'view_not_bound' } satisfies UiCancelResult;
+            }
+            return await this.resultPromise;
+        }
 
-    public async __yzforgeBeforeOpen(data: TData | undefined): Promise<void> {
-        this.__yzforgeBindRefs();
-        await this.beforeOpen(data as TData);
-    }
-
-    public async __yzforgeOpen(data: TData | undefined): Promise<void> {
-        await this.onOpen(data as TData);
-    }
-
-    public async __yzforgeBeforeClose(reason: unknown): Promise<boolean | void> {
-        return await this.beforeClose(reason);
-    }
-
-    public async __yzforgeClose(result: unknown): Promise<void> {
         const failures: UiFailure[] = [];
         try {
-            await this.onClose(result as TResult);
+            await this.onClose(value as TResult);
         } catch (error) {
             failures.push({ step: 'view.onClose', error });
         }
         if (!this.resultResolved) {
             this.resultResolved = true;
-            this.resultResolver?.(isUiCancelResult(result) ? result : result as TResult);
+            this.resultResolver?.(isUiCancelResult(value) ? value : value as TResult);
         }
         this.resultResolver = undefined;
         for (const disposer of this.disposers.splice(0).reverse()) {
@@ -1118,7 +1143,7 @@ export abstract class View<TData = unknown, TResult = unknown> extends Component
             }
         }
         try {
-            this.onDispose();
+            await this.onDispose();
         } catch (error) {
             failures.push({ step: 'view.onDispose', error });
         }
@@ -1128,13 +1153,6 @@ export abstract class View<TData = unknown, TResult = unknown> extends Component
                 failures: describeUiFailures(failures),
             });
         }
-    }
-
-    public async __yzforgeWaitResult(): Promise<TResult | UiCancelResult> {
-        if (!this.resultPromise) {
-            return { cancelled: true, reason: 'view_not_bound' };
-        }
-        return await this.resultPromise;
     }
 
     protected close(result?: TResult): Promise<void> {
@@ -1167,10 +1185,10 @@ export abstract class View<TData = unknown, TResult = unknown> extends Component
     protected onOpen(_data: TData): MaybePromise<void> {}
     protected beforeClose(_reason: unknown): MaybePromise<boolean | void> {}
     protected onClose(_result: TResult | undefined): MaybePromise<void> {}
-    protected onDispose(): void {}
+    protected onDispose(): MaybePromise<void> {}
     protected onBindRefs(): void {}
 
-    private __yzforgeBindRefs(): void {
+    private bindRefs(): void {
         if (this.refsBound) {
             return;
         }
@@ -1179,19 +1197,34 @@ export abstract class View<TData = unknown, TResult = unknown> extends Component
     }
 }
 
+type PartRuntimeOperation = 'initialize' | 'dispose';
+const partRuntimeOperation = Symbol('yzforge.part.runtime-operation');
+
+export async function initializePartRuntime<TData>(part: Part<TData>, data: TData): Promise<void> {
+    await part[partRuntimeOperation]('initialize', data);
+}
+
+export async function disposePartRuntime(part: Part, reason?: unknown): Promise<void> {
+    await part[partRuntimeOperation]('dispose', reason);
+}
+
 export abstract class Part<TData = unknown> extends Component {
     private refsBound = false;
 
-    public async __yzforgeInit(data: TData): Promise<void> {
-        this.__yzforgeBindRefs();
-        await this.init(data);
+    public async [partRuntimeOperation](operation: PartRuntimeOperation, value?: unknown): Promise<void> {
+        if (operation === 'initialize') {
+            this.bindRefs();
+            await this.onInit(value as TData);
+            return;
+        }
+        await this.onDispose(value);
     }
 
-    public async init(_data: TData): Promise<void> {}
-    public dispose(): void {}
+    protected onInit(_data: TData): MaybePromise<void> {}
+    protected onDispose(_reason?: unknown): MaybePromise<void> {}
     protected onBindRefs(): void {}
 
-    private __yzforgeBindRefs(): void {
+    private bindRefs(): void {
         if (this.refsBound) {
             return;
         }

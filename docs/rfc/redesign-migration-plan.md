@@ -1,4 +1,6 @@
-# 12. YZForge 重构迁移计划
+# 12. YZForge 重构迁移计划（历史）
+
+> 本文已完成归档，不用于 V2 实施或兼容迁移。当前设计见 [V2 终局架构契约](./v2-terminal-architecture.md)。
 
 ## 目标
 

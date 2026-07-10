@@ -1,5 +1,6 @@
 {
-  "schemaVersion": 1,
+  "$schema": "../../../schemas/yzforge.scope.schema.json",
+  "schemaVersion": 2,
   "kind": "library",
   "name": "Test",
   "bundle": "yzforge-lib-test",

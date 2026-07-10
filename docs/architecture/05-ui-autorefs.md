@@ -348,13 +348,12 @@ Part 是无栈 UI 片段。
 
 ```ts
 export abstract class Part<TData = unknown> extends Component {
-    public readonly owner: UiOwner;
-    public init(data: TData): void | Promise<void>;
-    public dispose(): void;
+    protected onInit(data: TData): void | Promise<void>;
+    protected onDispose(reason?: unknown): void | Promise<void>;
 }
 ```
 
-Part 不进入 UI 栈，不拥有 Page、Paper、Popup 生命周期。Module 卸载时，未被 View 自动销毁的 Part 必须由 PartManager 统一 dispose。
+Part 不进入 UI 栈，不拥有 Page、Paper、Popup 生命周期。业务通过 `module.assets.createPart()` 获得独立 `PartLease`；手工 release 或 Module owner scope 关闭都会执行 dispose、销毁 Node 并释放 prefab asset。初始化控制方法不出现在业务 API。
 
 ## UI 联动
 

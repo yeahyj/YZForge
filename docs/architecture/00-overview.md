@@ -1,138 +1,52 @@
-﻿# 00. 总览
+# 00. V2 概览
 
-## 目标
+YZForge 是一套面向 Cocos Creator 的强约束模块化框架。它解决的核心问题不是“如何封装更多 Manager”，而是动态加载之后谁持有、谁释放、失败如何回滚，以及业务能够看到哪些能力。
 
-YZForge 解决的是 Cocos Creator 项目的长期治理问题：
+## 四个基本概念
 
-- 目录结构随项目增长逐渐失控。
-- 资源路径手写，重命名后容易崩。
-- Prefab 节点引用大量手拖，缺少类型安全。
-- 模块之间互相 import，后期无法拆分、预加载和卸载。
-- UI 打开、关闭、返回、遮罩和结果回调没有统一生命周期。
-- Model、Service、Flow、View 边界模糊。
-- 扩展能力越来越多，核心越来越重。
+| 概念 | 职责 | 例子 |
+| --- | --- | --- |
+| Scope | 代码、资源、配置和依赖的归属边界 | Module、Library、ContentPack、Global |
+| Contract | 首包可见的身份与类型投影 | `ModuleRef`、`LibraryRef`、`ContentPackRef` |
+| Bundle | Cocos 的物理加载与缓存容器 | `yzforge-module-battle` |
+| Lease | 某个调用方的一次独立持有 | `ModuleLease`、`LibraryLease`、`ContentPackLease` |
 
-YZForge 的价值不是提供一堆工具函数，而是让项目天然形成稳定结构：
+共享对象与释放权必须分离。例如两个调用方可以共享同一个 Library record，但会拿到两个不同的 `LibraryLease`。释放其中一个不能影响另一个。
+
+## 运行时边界
 
 ```text
-Scope 边界
-首包 Contract
-Bundle 隔离
-Handle 访问
-资源清单生成
-节点引用生成
-配置契约生成
-编辑器创建结构
-Validator 防退化
+业务代码
+  -> App / Module / View / Part / Ref / Lease
+  -> readonly lifecycle / viewport / clock / storage
+
+框架内部
+  -> AppKernel
+  -> BundleManager / UIManager / ModuleNavigator
+  -> EntryRegistry / LibraryRegistry / OwnershipLedger
 ```
 
-## 非目标
+业务入口 `yzforge` 不导出 Kernel、Manager、Registry 和 `ReleaseScope`。生成代码使用 `yzforge/authoring`，Validator 禁止业务代码导入该入口。
 
-第一版不追求：
+## 生命周期原则
 
-- 默认 ECS。
-- 默认 MVVM。
-- 默认 FairyGUI。
-- 默认热更新。
-- 默认完整网络协议层。
-- 默认平台 SDK。
-- 默认行为树。
-- 默认新手引导系统。
-- 默认红点系统。
-- 默认大而全 `app.lib`。
+- 每个 Scope 有唯一 `OwnerIdentity`；同一路径再次创建时 generation 递增。
+- 每次 acquire 返回独立且幂等的 Lease。
+- Module、View、Library、ContentPack 的部分失败使用逆序补偿事务。
+- 一个清理步骤失败时，其他清理仍继续，并最终返回聚合错误。
+- App 的导航、返回和卸载通过同一串行队列协调。
 
-这些能力都可以做，但必须以 `Extension` 形式进入，不污染核心。
+## 资源原则
 
-## 终局模型
+- Asset/Node 持有由 owner scope 和 asset lease 决定。
+- Bundle record 只管理物理 bundle 与共享加载任务。
+- 零 lease 后是否保留 bundle 由 cache policy 决定。
+- 不使用 `bundle.releaseAll()` 代替所有权释放。
+- 已执行脚本视为当前 JS VM resident；resource bundle 是否 resident 是另一项状态。
 
-YZForge 使用四层模型：
+## 构建期原则
 
-| 层 | 含义 | 例子 |
-| --- | --- | --- |
-| `Scope` | 代码所有权和依赖方向边界 | `AppScope`、`SharedScope`、`ModuleScope`、`LibraryScope`、`ExtensionScope` |
-| `Contract` | 首包可见的公开契约 | `ModuleRef`、`LibraryRef`、公开参数类型、公开 token |
-| `Bundle` | Cocos 物理构建和加载边界 | `yzforge-module-home`、`yzforge-content-pack-battle-level001` |
-| `Handle` | Bundle 加载后的运行时访问句柄 | `LoadedModule`、`LoadedLibrary`、`LoadedContentPack` |
-
-旧设计曾把业务单元、Bundle 和 Handle 混成三层模型，容易把“业务语义边界”和“首包公开契约”放在一起。终局设计把 `Contract` 独立出来，所有跨 Scope 访问都先经过首包契约。
-
-## 命名约定
-
-框架文档和代码生成器必须使用同一套官方命名，旧称只允许出现在命名约定、迁移说明或兼容说明里。
-
-| 推荐命名 | 不推荐命名 | 原因 |
-| --- | --- | --- |
-| `EntryRegistry` | `PackageRegistry` | 注册的是 Bundle 加载后的 Entry，不是 npm package 或 Cocos package。 |
-| `ContentPack` | `Content Pack` / `Pack` | 代码类型是 `ContentPackRef`、`LoadedContentPack`，术语保持一体。 |
-| `ContentPackManager` | `PackManager` | 管理的是 ContentPack 生命周期，避免和压缩包、资源包泛称混淆。 |
-| `Paper` | `Panel` | 表示可入栈、可返回的二级界面，不一定是小面板。 |
-| `Top` | `Overlay` | 表示最高常驻层，避免和遮罩、弹窗覆盖层混淆。 |
-| `Pause` / `Paused` | `Suspend` / `Suspended` | 表示模块被导航栈临时压到后台，不是 Cocos 或战斗逻辑暂停。 |
-| `Scope 描述文件` | `Package 描述文件` | `module.json`、`library.json`、`content-pack.json` 描述的是架构 Scope，不是包管理概念。 |
-
-## 基本原则
-
-- `Scope` 决定代码属于谁。
-- `Contract` 决定别人能知道什么。
-- `Bundle` 决定什么时候加载。
-- `Handle` 决定加载后怎么用。
-- 业务代码不直接调用 `assetManager.loadBundle`。
-- 业务代码不直接写资源路径。
-- 业务代码不跨模块 import 内部实现。
-- 动态 Bundle 之间不静态 import 彼此脚本。
-- 生成器负责给出类型安全入口，Validator 负责防止绕过入口。
-
-## Scope 划分
-
-| Scope | 说明 | 是否按需 Bundle | 是否可被业务静态 import |
-| --- | --- | --- | --- |
-| `AppScope` | 启动、Main 场景、registry、contracts、global | 否 | 不直接暴露内部 |
-| `SharedScope` | 无状态共享代码和基础资源 | 代码否，资源可选 | 是 |
-| `ModuleScope` | 可进入、可打开、可卸载的业务功能 | 是 | 否 |
-| `LibraryScope` | 多个 Module 复用的业务领域能力 | 是 | 否 |
-| `ContentPackScope` | owner Module 解释的内容资源包 | 是 | 否 |
-| `ExtensionScope` | 框架能力扩展，例如音频、存档、网络 | 可选 | 通过 token 使用 |
-
-`global` 不再作为普通按需 Scope。它属于 `AppScope`，随首包启动，负责账号、会话、全局 UI、全局状态和全局策略。
-
-## 参考框架取舍
-
-YZForge 参考了 XForge2、当前项目内 XForge、Oops Framework、Bit Framework、MKFramework 和 Cocos 官方 Asset Bundle 机制。
-
-值得吸收：
-
-- XForge2 的轻核心、扩展包生态、UI 管理、自动化插件、工程分区和模块自治。
-- 当前 XForge 的资源路径导出和节点绑定插件方向。
-- Oops 的常用游戏技术集合、框架工具、启动流程、UI 层级、Loading、Toast、安全区域等成熟经验。
-- Bit 的 monorepo 模块化、类型安全模块、事件、资源、网络、小游戏平台、热更等按需能力拆分。
-- MKFramework 的资源管理、UI 管理、音频、本地化、网络、模块生命周期、UI 栈和示例驱动文档。
-- Cocos Asset Bundle 的物理加载边界、脚本分包、资源释放和 Import Maps 能力。
-
-参考链接：
-
-- XForge2：https://gitee.com/cocos2d-zp/xforge2
-- Oops Framework：https://gitee.com/dgflash/oops-framework
-- Bit Framework：https://github.com/gongxh0901/bit-framework
-- MKFramework：https://gitee.com/muzzik/MKFramework
-- Cocos Creator Asset Bundle：https://docs.cocos.com/creator/3.8/manual/en/asset/bundle.html
-- Cocos Creator Import Maps：https://docs.cocos.com/creator/3.8/manual/en/scripting/modules/import-map.html
-
-不直接照搬：
-
-- 不采用大单例作为默认使用方式。
-- 不把 ECS、MVVM、音频、存档、网络、平台全部塞进核心。
-- 不把 FairyGUI 作为默认 UI。
-- 不要求每个模块拆成 `code bundle + resource bundle` 两个物理 Bundle。
-- 不让业务模块通过静态 import 共享运行时实现。
-
-## 最终路线
-
-```text
-以 Scope 划清代码所有权，
-以 Contract 固化首包公开契约，
-以 Cocos Asset Bundle 作为物理加载边界，
-以 Handle 作为运行时唯一访问入口，
-以生成器输出稳定入口和清单，
-以 Validator 阻断架构退化，
-以 Extension 承载可选能力。
-```
+- descriptor、Excel 和 prefab marker 是手工事实源。
+- `*.generated.ts`、配置 JSON、ContentPack manifest 和 runtime copy 是派生物。
+- 生成器先完成计划并验证，再以可回滚事务提交。
+- `tsconfig.json` 属于用户；`tsconfig.yzforge.json` 属于生成器。

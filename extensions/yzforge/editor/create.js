@@ -95,7 +95,8 @@ function createModule(projectRoot, name) {
   };
 
   writeJson(`${root}/module.json`, {
-    schemaVersion: 1,
+    $schema: '../../../schemas/yzforge.scope.schema.json',
+    schemaVersion: 2,
     kind: 'module',
     name,
     bundle: `yzforge-module-${kebabCase(name)}`,
@@ -144,7 +145,8 @@ function createLibrary(projectRoot, name) {
   };
 
   writeJson(`${root}/library.json`, {
-    schemaVersion: 1,
+    $schema: '../../../schemas/yzforge.scope.schema.json',
+    schemaVersion: 2,
     kind: 'library',
     name,
     bundle: `yzforge-lib-${kebabCase(name)}`,
@@ -187,7 +189,8 @@ function createContentPack(projectRoot, owner, name) {
   };
 
   writeJson(`${root}/content-pack.json`, {
-    schemaVersion: 1,
+    $schema: '../../../../schemas/yzforge.scope.schema.json',
+    schemaVersion: 2,
     kind: 'content-pack',
     id: `${kebabCase(owner)}.${kebabCase(name)}`,
     owner,

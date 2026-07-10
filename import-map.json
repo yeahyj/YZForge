@@ -1,6 +1,7 @@
 {
   "imports": {
     "yzforge": "./assets/yzforge/runtime/index.ts",
+    "yzforge/authoring": "./assets/yzforge/runtime/authoring.ts",
     "yzforge/modules/": "./assets/app/registry/modules/",
     "yzforge/libraries/": "./assets/app/registry/libraries/",
     "yzforge/content-packs/": "./assets/app/registry/content-packs/",

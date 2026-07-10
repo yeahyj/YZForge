@@ -172,7 +172,11 @@ async function main() {
   }
 
   if (command === 'smoke') {
-    const result = await smoke({ keep: process.argv.includes('--keep') });
+    const layerIndex = process.argv.indexOf('--layer');
+    const result = await smoke({
+      keep: process.argv.includes('--keep'),
+      layer: layerIndex >= 0 ? process.argv[layerIndex + 1] : 'all',
+    });
     console.log(JSON.stringify(result, null, 2));
     return;
   }

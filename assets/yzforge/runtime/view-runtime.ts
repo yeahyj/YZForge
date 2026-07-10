@@ -1,38 +1,35 @@
 import type { MaybePromise } from './types';
 
-export interface ViewRuntimeView<TData = unknown, TResult = unknown> {
-    __yzforgeBeforeOpen(data: TData | undefined): MaybePromise<void>;
-    __yzforgeOpen(data: TData | undefined): MaybePromise<void>;
-    __yzforgeBeforeClose(reason: unknown): MaybePromise<boolean | void>;
-    __yzforgeClose(result: unknown): MaybePromise<void>;
+export type ViewRuntimeOperation = 'bind' | 'before-open' | 'open' | 'before-close' | 'close' | 'wait-result';
+
+export const viewRuntimeOperation = Symbol('yzforge.view.runtime-operation');
+
+export interface ViewRuntimeView {
+    [viewRuntimeOperation](operation: ViewRuntimeOperation, value?: unknown, secondary?: unknown): MaybePromise<unknown>;
 }
 
 export class ViewRuntime {
-    public async beforeOpen<TData, TResult>(
-        view: ViewRuntimeView<TData, TResult>,
-        data: TData | undefined,
-    ): Promise<void> {
-        await view.__yzforgeBeforeOpen(data);
+    public async bind(view: ViewRuntimeView, module: unknown, handle: unknown): Promise<void> {
+        await view[viewRuntimeOperation]('bind', module, handle);
     }
 
-    public async open<TData, TResult>(
-        view: ViewRuntimeView<TData, TResult>,
-        data: TData | undefined,
-    ): Promise<void> {
-        await view.__yzforgeOpen(data);
+    public async beforeOpen<TData>(view: ViewRuntimeView, data: TData | undefined): Promise<void> {
+        await view[viewRuntimeOperation]('before-open', data);
     }
 
-    public async beforeClose<TResult>(
-        view: ViewRuntimeView<unknown, TResult>,
-        reason: unknown,
-    ): Promise<boolean | void> {
-        return await view.__yzforgeBeforeClose(reason);
+    public async open<TData>(view: ViewRuntimeView, data: TData | undefined): Promise<void> {
+        await view[viewRuntimeOperation]('open', data);
     }
 
-    public async close<TResult>(
-        view: ViewRuntimeView<unknown, TResult>,
-        result: unknown,
-    ): Promise<void> {
-        await view.__yzforgeClose(result);
+    public async beforeClose(view: ViewRuntimeView, reason: unknown): Promise<boolean | void> {
+        return await view[viewRuntimeOperation]('before-close', reason) as boolean | void;
+    }
+
+    public async close(view: ViewRuntimeView, result: unknown): Promise<void> {
+        await view[viewRuntimeOperation]('close', result);
+    }
+
+    public async waitResult<TResult>(view: ViewRuntimeView): Promise<TResult> {
+        return await view[viewRuntimeOperation]('wait-result') as TResult;
     }
 }

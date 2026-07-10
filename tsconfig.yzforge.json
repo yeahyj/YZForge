@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2015",
+    "module": "ES2015",
+    "strict": true,
+    "skipLibCheck": true,
+    "experimentalDecorators": true,
+    "isolatedModules": true,
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "db://assets/*": [
+        "./assets/*"
+      ],
+      "yzforge": [
+        "./packages/yzforge-runtime/src/index.ts"
+      ],
+      "yzforge/authoring": [
+        "./packages/yzforge-runtime/src/authoring.ts"
+      ],
+      "yzforge/modules/*": [
+        "./assets/app/registry/modules/*.ref.generated.ts"
+      ],
+      "yzforge/libraries/*": [
+        "./assets/app/registry/libraries/*.ref.generated.ts"
+      ],
+      "yzforge/content-packs/*": [
+        "./assets/app/registry/content-packs/*.generated.ts"
+      ],
+      "yzforge/contracts/modules/*": [
+        "./assets/app/contracts/modules/*.contract.generated.ts"
+      ],
+      "yzforge/contracts/libraries/*": [
+        "./assets/app/contracts/libraries/*.contract.generated.ts"
+      ],
+      "yzforge/contracts/content-packs/*": [
+        "./assets/app/contracts/content-packs/*.contract.generated.ts"
+      ],
+      "yzforge/contracts/extensions/*": [
+        "./assets/app/contracts/extensions/*.contract.generated.ts"
+      ],
+      "yzforge/shared/*": [
+        "./assets/shared/code/*"
+      ]
+    }
+  }
+}

@@ -7,7 +7,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const DEFAULT_REPO = process.env.YZFORGE_TEMPLATE_REPO || 'https://github.com/yeahyj/YZForge.git';
-const DEFAULT_REF = process.env.YZFORGE_TEMPLATE_REF || 'main';
+const ENV_TEMPLATE_REF = process.env.YZFORGE_TEMPLATE_REF || '';
+let defaultTemplateRef = ENV_TEMPLATE_REF;
 
 const EXCLUDED_DIR_NAMES = new Set([
   '.git',
@@ -44,7 +45,9 @@ const EXCLUDED_FILES = new Set([
 ]);
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const creatorPackage = await readJson(path.resolve(__dirname, '../package.json'));
+  defaultTemplateRef = ENV_TEMPLATE_REF || `v${creatorPackage.version}`;
+  const options = parseArgs(process.argv.slice(2), defaultTemplateRef);
 
   if (options.help) {
     printHelp();
@@ -52,8 +55,7 @@ async function main() {
   }
 
   if (options.version) {
-    const pkg = await readJson(path.resolve(__dirname, '../package.json'));
-    console.log(pkg.version);
+    console.log(creatorPackage.version);
     return;
   }
 
@@ -115,11 +117,11 @@ async function main() {
   }
 }
 
-function parseArgs(args) {
+function parseArgs(args, pinnedRef) {
   const options = {
     projectName: '',
     repo: DEFAULT_REPO,
-    ref: DEFAULT_REF,
+    ref: pinnedRef,
     template: '',
     packageManager: 'npm',
     skipInstall: false,
@@ -379,7 +381,7 @@ Usage:
 
 Options:
   --repo <git-url>              Git repository used as the project template.
-  --ref <git-ref>               Git branch or tag to clone. Default: ${DEFAULT_REF}
+  --ref <git-ref>               Git branch or tag to clone. Default: ${defaultTemplateRef}
   --template <path>             Use a local YZForge template directory.
   --package-manager <pm>        npm, pnpm, or yarn. Default: npm
   --skip-install                Create files without running package install.
@@ -389,7 +391,7 @@ Options:
 
 Examples:
   npx create-yzforge@latest MyGame
-  create-yzforge MyGame --ref main
+  create-yzforge MyGame --ref ${defaultTemplateRef}
   create-yzforge ../MyGame --template . --skip-install
 `);
 }

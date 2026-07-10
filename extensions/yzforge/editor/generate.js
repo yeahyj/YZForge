@@ -2,12 +2,172 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { generatedJson, generatedText, isTextChanged, kebabCase, readJsonc, toPosix, walk, writeTextIfChanged } = require('./fs-utils');
 const { scanProject } = require('./scanner');
 const { yzforgePackageScripts } = require('./toolchain');
 const { FRAMEWORK_VERSION } = require('./version');
+const { validateDescriptor } = require('./validators/descriptors');
 
 const CONFIG_META_KEY = '_yzforgeConfig';
+
+class GenerationTransaction {
+  constructor(projectRoot, options = {}) {
+    this.projectRoot = path.resolve(projectRoot);
+    this.options = options;
+    this.operations = new Map();
+  }
+
+  stageWrite(relativePath, content) {
+    const normalized = this.normalize(relativePath);
+    const targetPath = path.join(this.projectRoot, normalized);
+    if (!isTextChanged(targetPath, content)) {
+      this.operations.delete(normalized);
+      return false;
+    }
+    this.operations.set(normalized, { kind: 'write', content });
+    return true;
+  }
+
+  stageDelete(relativePath) {
+    const normalized = this.normalize(relativePath);
+    const targetPath = path.join(this.projectRoot, normalized);
+    if (!fs.existsSync(targetPath)) {
+      this.operations.delete(normalized);
+      return false;
+    }
+    this.operations.set(normalized, { kind: 'delete' });
+    return true;
+  }
+
+  validate() {
+    const deletableRoots = [
+      'assets/yzforge/runtime/',
+      'extensions/yzforge/runtime-template/',
+    ];
+    for (const [relativePath, operation] of this.operations) {
+      this.normalize(relativePath);
+      if (operation.kind === 'delete') {
+        if (!deletableRoots.some((root) => relativePath.startsWith(root))) {
+          throw new Error(`Generator plan cannot delete non-runtime target: ${relativePath}.`);
+        }
+        continue;
+      }
+      if (operation.kind !== 'write' || typeof operation.content !== 'string' || operation.content.includes('\0')) {
+        throw new Error(`Generator plan contains invalid output for ${relativePath}.`);
+      }
+      if (relativePath.endsWith('.json') || relativePath.endsWith('.meta')) {
+        try {
+          JSON.parse(operation.content);
+        } catch (error) {
+          throw new Error(`Generator planned invalid JSON for ${relativePath}: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  commit() {
+    if (this.operations.size === 0) {
+      return;
+    }
+    this.validate();
+
+    const transactionRoot = path.join(
+      this.projectRoot,
+      'temp',
+      'yzforge',
+      `generate-transaction-${process.pid}-${crypto.randomBytes(6).toString('hex')}`,
+    );
+    this.assertInsideProject(transactionRoot);
+    const stagedRoot = path.join(transactionRoot, 'staged');
+    const backupRoot = path.join(transactionRoot, 'backup');
+    const operations = [...this.operations.entries()].sort(([left], [right]) => left.localeCompare(right));
+    const applied = [];
+
+    try {
+      for (const [relativePath, operation] of operations) {
+        if (operation.kind !== 'write') {
+          continue;
+        }
+        const stagedPath = path.join(stagedRoot, relativePath);
+        fs.mkdirSync(path.dirname(stagedPath), { recursive: true });
+        fs.writeFileSync(stagedPath, operation.content, 'utf8');
+      }
+
+      for (const [relativePath, operation] of operations) {
+        const targetPath = path.join(this.projectRoot, relativePath);
+        const backupPath = path.join(backupRoot, relativePath);
+        const record = {
+          operation,
+          targetPath,
+          backupPath,
+          hadOriginal: fs.existsSync(targetPath),
+          backupCreated: false,
+          replacementInstalled: false,
+        };
+        applied.push(record);
+
+        if (record.hadOriginal) {
+          fs.mkdirSync(path.dirname(backupPath), { recursive: true });
+          fs.renameSync(targetPath, backupPath);
+          record.backupCreated = true;
+        }
+        if (operation.kind === 'write') {
+          const stagedPath = path.join(stagedRoot, relativePath);
+          fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+          fs.renameSync(stagedPath, targetPath);
+          record.replacementInstalled = true;
+        }
+
+        if (Number.isInteger(this.options.failCommitAfter)
+          && applied.length >= this.options.failCommitAfter) {
+          throw new Error(`Injected generator commit failure after ${applied.length} operations.`);
+        }
+      }
+    } catch (error) {
+      const rollbackErrors = [];
+      for (const record of applied.reverse()) {
+        try {
+          if (record.replacementInstalled && fs.existsSync(record.targetPath)) {
+            fs.rmSync(record.targetPath, { force: true });
+          }
+          if (record.backupCreated && fs.existsSync(record.backupPath)) {
+            fs.mkdirSync(path.dirname(record.targetPath), { recursive: true });
+            fs.renameSync(record.backupPath, record.targetPath);
+          }
+        } catch (rollbackError) {
+          rollbackErrors.push({ targetPath: record.targetPath, error: rollbackError });
+        }
+      }
+      if (rollbackErrors.length > 0) {
+        const failure = new Error(`Generator commit and rollback both failed for ${rollbackErrors.length} target(s).`, { cause: error });
+        failure.rollbackErrors = rollbackErrors;
+        throw failure;
+      }
+      throw error;
+    } finally {
+      this.assertInsideProject(transactionRoot);
+      fs.rmSync(transactionRoot, { recursive: true, force: true });
+    }
+  }
+
+  normalize(relativePath) {
+    const normalized = toPosix(relativePath).replace(/^\.\//, '');
+    const targetPath = path.resolve(this.projectRoot, normalized);
+    this.assertInsideProject(targetPath);
+    if (!normalized || normalized === '.' || path.isAbsolute(relativePath)) {
+      throw new Error(`Generator target must be a project-relative file path: ${relativePath}.`);
+    }
+    return normalized;
+  }
+
+  assertInsideProject(targetPath) {
+    const relative = path.relative(this.projectRoot, path.resolve(targetPath));
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error(`Generator target escapes the project root: ${targetPath}.`);
+    }
+  }
+}
 
 function moduleBundleName(name) {
   return `yzforge-module-${kebabCase(name)}`;
@@ -73,7 +233,8 @@ function renderModuleRef(module, libraries) {
     .map((name) => `import { ${name}Ref } from '../libraries/${name}.ref.generated';`)
     .join('\n');
   const imports = [
-    "import { defineModuleRef } from 'yzforge';",
+    "import { YZFORGE_RUNTIME_ABI } from 'yzforge';",
+    "import { defineModuleRef } from 'yzforge/authoring';",
     module.enterParams ? `import type { ${module.enterParams} } from '../../contracts/modules/${module.name}.contract.generated';` : '',
     libraryImports,
   ].filter(Boolean).join('\n');
@@ -83,6 +244,7 @@ function renderModuleRef(module, libraries) {
     imports,
     '',
     `export const ${module.name}Ref = defineModuleRef<${params}>({`,
+    '    abi: YZFORGE_RUNTIME_ABI,',
     `    name: '${module.name}',`,
     `    bundle: '${module.bundle}',`,
     `    libraries: [${librariesExpr}],`,
@@ -96,10 +258,12 @@ function renderLibraryRef(library) {
     .join('\n');
   const librariesExpr = library.libraries.map((name) => `${name}Ref`).join(', ');
   return [
-    "import { defineLibraryRef } from 'yzforge';",
+    "import { YZFORGE_RUNTIME_ABI } from 'yzforge';",
+    "import { defineLibraryRef } from 'yzforge/authoring';",
     libraryImports,
     '',
     `export const ${library.name}Ref = defineLibraryRef({`,
+    '    abi: YZFORGE_RUNTIME_ABI,',
     `    name: '${library.name}',`,
     `    bundle: '${library.bundle}',`,
     `    libraries: [${librariesExpr}],`,
@@ -113,13 +277,15 @@ function renderModuleEntry(module) {
     .join('\n');
   const librariesExpr = module.libraries.map((name) => `${name}Ref`).join(', ');
   return [
-    "import { defineModuleEntry, registerModuleEntry } from 'yzforge';",
+    "import { YZFORGE_RUNTIME_ABI } from 'yzforge';",
+    "import { defineModuleEntry, registerModuleEntry } from 'yzforge/authoring';",
     `import { ${module.name}Module } from '../${module.name}Module';`,
     "import { assets } from './assets';",
     "import { config } from './config';",
     libraryImports,
     '',
     'registerModuleEntry(defineModuleEntry({',
+    '    abi: YZFORGE_RUNTIME_ABI,',
     `    name: '${module.name}',`,
     `    bundle: '${module.bundle}',`,
     `    type: ${module.name}Module,`,
@@ -136,13 +302,15 @@ function renderLibraryEntry(library) {
     .join('\n');
   const librariesExpr = library.libraries.map((name) => `${name}Ref`).join(', ');
   return [
-    "import { defineLibraryEntry, registerLibraryEntry } from 'yzforge';",
+    "import { YZFORGE_RUNTIME_ABI } from 'yzforge';",
+    "import { defineLibraryEntry, registerLibraryEntry } from 'yzforge/authoring';",
     "import { assets } from './assets';",
     "import { config } from './config';",
     "import { providers } from '../providers';",
     libraryImports,
     '',
     'registerLibraryEntry(defineLibraryEntry({',
+    '    abi: YZFORGE_RUNTIME_ABI,',
     `    name: '${library.name}',`,
     `    bundle: '${library.bundle}',`,
     '    assets,',
@@ -298,7 +466,7 @@ function renderAutoRefsBase(baseType, className, refs) {
   if (ccImports.size > 0) {
     imports.push(`import { ${Array.from(ccImports).sort().join(', ')} } from 'cc';`);
   }
-  imports.push(`import { ${runtimeImports.join(', ')} } from 'yzforge';`);
+  imports.push(`import { ${runtimeImports.join(', ')} } from 'yzforge/authoring';`);
 
   const typeParams = baseType === 'View'
     ? '<TData = unknown, TResult = unknown>'
@@ -369,7 +537,7 @@ function renderAssets(descriptor) {
   if (runtimeTypes.length) {
     imports.push(`import { ${runtimeTypes.join(', ')} } from 'cc';`);
   }
-  imports.push(`import { ${yzforgeImports.join(', ')} } from 'yzforge';`);
+  imports.push(`import { ${yzforgeImports.join(', ')} } from 'yzforge/authoring';`);
 
   for (const filePath of viewFiles) {
     const className = path.basename(filePath, '.prefab');
@@ -587,7 +755,7 @@ function renderConfig(descriptor) {
     yzforgeImports.push('type ConfigTable');
   }
   return [
-    `import { ${yzforgeImports.join(', ')} } from 'yzforge';`,
+    `import { ${yzforgeImports.join(', ')} } from 'yzforge/authoring';`,
     '',
     ...declarations,
     ...configInterfaceLines,
@@ -603,7 +771,9 @@ function writeText(projectRoot, relativePath, content, options, changed) {
   const filePath = path.join(projectRoot, relativePath);
   const didChange = options.check
     ? isTextChanged(filePath, content)
-    : writeTextIfChanged(filePath, content);
+    : options.transaction
+      ? options.transaction.stageWrite(relativePath, content)
+      : writeTextIfChanged(filePath, content);
   if (didChange) {
     changed.push(relativePath);
   }
@@ -657,9 +827,29 @@ function syncTextTree(projectRoot, sourceRoot, targetRel, options, changed) {
     const changedPath = toPosix(path.posix.join(targetRel, rel));
     if (options.check) {
       changed.push(changedPath);
+    } else if (options.transaction) {
+      if (options.transaction.stageDelete(changedPath)) {
+        changed.push(changedPath);
+      }
     } else {
       fs.rmSync(targetPath, { force: true });
       changed.push(changedPath);
+    }
+    if (targetRel === 'assets/yzforge/runtime') {
+      const staleMetaPath = `${changedPath}.meta`;
+      const absoluteMetaPath = path.join(projectRoot, staleMetaPath);
+      if (fs.existsSync(absoluteMetaPath)) {
+        if (options.check) {
+          changed.push(staleMetaPath);
+        } else if (options.transaction) {
+          if (options.transaction.stageDelete(staleMetaPath)) {
+            changed.push(staleMetaPath);
+          }
+        } else {
+          fs.rmSync(absoluteMetaPath, { force: true });
+          changed.push(staleMetaPath);
+        }
+      }
     }
   }
 }
@@ -669,6 +859,26 @@ function syncRuntimePackage(projectRoot, options, changed) {
   for (const targetRel of runtimeCopyRoots()) {
     syncTextTree(projectRoot, sourceRoot, targetRel, options, changed);
   }
+  for (const rel of relativeFiles(sourceRoot, (filePath) => filePath.endsWith('.ts'))) {
+    const metaRel = toPosix(path.posix.join('assets/yzforge/runtime', `${rel}.meta`));
+    const metaPath = path.join(projectRoot, metaRel);
+    if (!fs.existsSync(metaPath)) {
+      writeJson(projectRoot, metaRel, {
+        ver: '4.0.24',
+        importer: 'typescript',
+        imported: true,
+        uuid: deterministicRuntimeMetaUuid(rel),
+        files: [],
+        subMetas: {},
+        userData: {},
+      }, options, changed);
+    }
+  }
+}
+
+function deterministicRuntimeMetaUuid(relativePath) {
+  const hex = crypto.createHash('sha256').update(`yzforge-runtime-v2:${toPosix(relativePath)}`).digest('hex').slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 function runtimePackageJson() {
@@ -679,6 +889,7 @@ function runtimePackageJson() {
     license: 'MIT',
     exports: {
       '.': './src/index.ts',
+      './authoring': './src/authoring.ts',
     },
   };
 }
@@ -703,10 +914,36 @@ function updatePackageJson(projectRoot, options, changed) {
   packageJson.name = rootProjectPackageName(projectRoot, packageJson.name);
   packageJson.private = true;
   packageJson.scripts = scripts;
-  if (packageJson.exports) {
-    delete packageJson.exports;
+  if (packageJson.exports !== undefined) {
+    const preservedExports = stripRuntimePackageExports(packageJson.exports);
+    if (preservedExports === undefined
+      || (typeof preservedExports === 'object' && !Array.isArray(preservedExports) && Object.keys(preservedExports).length === 0)) {
+      delete packageJson.exports;
+    } else {
+      packageJson.exports = preservedExports;
+    }
   }
   writeText(projectRoot, 'package.json', `${JSON.stringify(packageJson, null, 2)}\n`, options, changed);
+}
+
+function stripRuntimePackageExports(value) {
+  if (typeof value === 'string') {
+    const normalized = toPosix(value);
+    return normalized.includes('assets/yzforge/runtime') || normalized.includes('packages/yzforge-runtime')
+      ? undefined
+      : value;
+  }
+  if (Array.isArray(value)) {
+    const items = value.map(stripRuntimePackageExports).filter((item) => item !== undefined);
+    return items.length > 0 ? items : undefined;
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const entries = Object.entries(value)
+    .map(([key, child]) => [key, stripRuntimePackageExports(child)])
+    .filter(([, child]) => child !== undefined);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function scanExtensionFiles(projectRoot) {
@@ -760,10 +997,10 @@ function renderModuleContentPacks(module, packs) {
   const contentPackTypes = Array.from(new Set(assetRefs.map((ref) => ref.type))).sort();
   const yzforgeImports = ['defineContentPack'];
   if (contentPackTypes.length > 0) {
-    yzforgeImports.push('contentPackAssetRef');
+    yzforgeImports.push('contentPackAssetContract');
   }
   if (configRefs.length > 0) {
-    yzforgeImports.push('contentPackConfigRef', 'type ConfigTable');
+    yzforgeImports.push('contentPackConfigContract', 'type ConfigTable');
   }
   const imports = owned
     .flatMap((pack) => pack.libraries || [])
@@ -772,7 +1009,7 @@ function renderModuleContentPacks(module, packs) {
   const entries = owned.map((pack) => {
     const libraries = (pack.libraries || []).map((name) => `${name}Ref`).join(', ');
     const exportName = `${pack.owner}${pack.name}ContentPack`;
-    const refsName = `${exportName}Refs`;
+    const refsName = `${exportName}Contract`;
     const configInterfaceName = `${exportName}ConfigTables`;
     const refs = packRefs.get(pack.id) || [];
     const packConfigRefs = refs.filter((ref) => ref.kind === 'config');
@@ -782,9 +1019,9 @@ function renderModuleContentPacks(module, packs) {
         `const ${refsName} = {`,
         ...refs.map((ref) => {
           if (ref.kind === 'config') {
-            return `    ${ref.key}: contentPackConfigRef<${ref.meta.row}>('${ref.table}', { primaryKey: '${ref.primaryKey}' }),`;
+            return `    ${ref.key}: contentPackConfigContract<${ref.meta.row}>({ primaryKey: '${ref.primaryKey}' }),`;
           }
-          return `    ${ref.key}: contentPackAssetRef(${ref.type}, '${ref.path}'),`;
+          return `    ${ref.key}: contentPackAssetContract(${ref.type}),`;
         }),
         '};',
       ];
@@ -804,18 +1041,20 @@ function renderModuleContentPacks(module, packs) {
       ...configLines,
       '',
       `export const ${exportName} = defineContentPack${generic}({`,
+      '    abi: YZFORGE_RUNTIME_ABI,',
       `    id: '${pack.id}',`,
       `    owner: '${pack.owner}',`,
       `    name: '${pack.name}',`,
       `    bundle: '${pack.bundle}',`,
       `    libraries: [${libraries}],`,
-      `    refs: ${refsName},`,
+      `    contract: ${refsName},`,
       '});',
     ].join('\n');
   });
   return [
     contentPackTypes.length > 0 ? `import { ${contentPackTypes.join(', ')} } from 'cc';` : '',
-    `import { ${yzforgeImports.join(', ')} } from 'yzforge';`,
+    "import { YZFORGE_RUNTIME_ABI } from 'yzforge';",
+    `import { ${yzforgeImports.join(', ')} } from 'yzforge/authoring';`,
     ...imports,
     '',
     ...configDeclarations,
@@ -901,13 +1140,31 @@ function renderContentPackManifest(pack) {
       };
     }
   }
+  const dependencies = [...(pack.libraries || [])].sort();
   return {
     schemaVersion: 1,
     id: pack.id,
     owner: pack.owner,
+    name: pack.name,
     bundle: pack.bundle,
+    dependencies,
+    contentHash: contentPackContentHash(dependencies, refs),
     refs,
   };
+}
+
+function contentPackContentHash(dependencies, refs) {
+  const normalizedRefs = {};
+  for (const key of Object.keys(refs).sort()) {
+    normalizedRefs[key] = refs[key];
+  }
+  const value = JSON.stringify({ dependencies: [...dependencies].sort(), refs: normalizedRefs });
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 function toolchainSchema() {
@@ -1011,34 +1268,38 @@ function updateToolchainTemplate(projectRoot, options, changed) {
 }
 
 function updateTsconfig(projectRoot, options, changed) {
-  const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
-  const tsconfig = readJsonc(tsconfigPath);
-  delete tsconfig.extends;
-  tsconfig.compilerOptions = tsconfig.compilerOptions || {};
-  tsconfig.compilerOptions.target = 'ES2015';
-  tsconfig.compilerOptions.module = 'ES2015';
-  tsconfig.compilerOptions.strict = true;
-  tsconfig.compilerOptions.skipLibCheck = true;
-  tsconfig.compilerOptions.experimentalDecorators = true;
-  tsconfig.compilerOptions.isolatedModules = true;
-  tsconfig.compilerOptions.moduleResolution = 'bundler';
-  tsconfig.compilerOptions.noEmit = true;
-  tsconfig.compilerOptions.forceConsistentCasingInFileNames = true;
-  delete tsconfig.compilerOptions.baseUrl;
-  delete tsconfig.compilerOptions.types;
-  tsconfig.compilerOptions.paths = {
-    'db://assets/*': ['./assets/*'],
-    yzforge: ['./packages/yzforge-runtime/src/index.ts'],
-    'yzforge/modules/*': ['./assets/app/registry/modules/*.ref.generated.ts'],
-    'yzforge/libraries/*': ['./assets/app/registry/libraries/*.ref.generated.ts'],
-    'yzforge/content-packs/*': ['./assets/app/registry/content-packs/*.generated.ts'],
-    'yzforge/contracts/modules/*': ['./assets/app/contracts/modules/*.contract.generated.ts'],
-    'yzforge/contracts/libraries/*': ['./assets/app/contracts/libraries/*.contract.generated.ts'],
-    'yzforge/contracts/content-packs/*': ['./assets/app/contracts/content-packs/*.contract.generated.ts'],
-    'yzforge/contracts/extensions/*': ['./assets/app/contracts/extensions/*.contract.generated.ts'],
-    'yzforge/shared/*': ['./assets/shared/code/*'],
+  const generated = {
+    $schema: 'https://json.schemastore.org/tsconfig',
+    compilerOptions: {
+      target: 'ES2015',
+      module: 'ES2015',
+      strict: true,
+      skipLibCheck: true,
+      experimentalDecorators: true,
+      isolatedModules: true,
+      moduleResolution: 'bundler',
+      noEmit: true,
+      forceConsistentCasingInFileNames: true,
+      paths: {
+        'db://assets/*': ['./assets/*'],
+        yzforge: ['./packages/yzforge-runtime/src/index.ts'],
+        'yzforge/authoring': ['./packages/yzforge-runtime/src/authoring.ts'],
+        'yzforge/modules/*': ['./assets/app/registry/modules/*.ref.generated.ts'],
+        'yzforge/libraries/*': ['./assets/app/registry/libraries/*.ref.generated.ts'],
+        'yzforge/content-packs/*': ['./assets/app/registry/content-packs/*.generated.ts'],
+        'yzforge/contracts/modules/*': ['./assets/app/contracts/modules/*.contract.generated.ts'],
+        'yzforge/contracts/libraries/*': ['./assets/app/contracts/libraries/*.contract.generated.ts'],
+        'yzforge/contracts/content-packs/*': ['./assets/app/contracts/content-packs/*.contract.generated.ts'],
+        'yzforge/contracts/extensions/*': ['./assets/app/contracts/extensions/*.contract.generated.ts'],
+        'yzforge/shared/*': ['./assets/shared/code/*'],
+      },
+    },
   };
-  writeText(projectRoot, 'tsconfig.json', `${JSON.stringify(tsconfig, null, 2)}\n`, options, changed);
+  writeText(projectRoot, 'tsconfig.yzforge.json', `${JSON.stringify(generated, null, 2)}\n`, options, changed);
+  const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
+  if (!fs.existsSync(tsconfigPath)) {
+    writeText(projectRoot, 'tsconfig.json', `${JSON.stringify({ extends: './tsconfig.yzforge.json' }, null, 2)}\n`, options, changed);
+  }
 }
 
 function updateCocosProjectSettings(projectRoot, options, changed) {
@@ -1054,7 +1315,10 @@ function updateCocosProjectSettings(projectRoot, options, changed) {
 }
 
 function generate(projectRoot, options = {}) {
+  const transaction = options.check ? undefined : new GenerationTransaction(projectRoot, options);
+  options = transaction ? { ...options, transaction } : options;
   const project = scanProject(projectRoot);
+  validateGenerationInputs(project);
   const changed = [];
   const writeGenerated = (relativePath, source, body) => {
     writeText(projectRoot, relativePath, generatedText(source, body), options, changed);
@@ -1102,16 +1366,23 @@ function generate(projectRoot, options = {}) {
     .join('\n') || 'export {};';
   writeGenerated('assets/app/registry/entries.generated.ts', 'assets/app/registry', entryExports);
 
-  writeJson(projectRoot, 'import-map.json', {
-    imports: {
-      yzforge: './assets/yzforge/runtime/index.ts',
-      'yzforge/modules/': './assets/app/registry/modules/',
-      'yzforge/libraries/': './assets/app/registry/libraries/',
-      'yzforge/content-packs/': './assets/app/registry/content-packs/',
-      'yzforge/contracts/': './assets/app/contracts/',
-      'yzforge/shared/': './assets/shared/code/',
-    },
-  }, options, changed);
+  const importMapPath = path.join(projectRoot, 'import-map.json');
+  const importMap = fs.existsSync(importMapPath) ? readJsonc(importMapPath) : {};
+  const preservedImports = { ...(importMap.imports || {}) };
+  delete preservedImports['yzforge/'];
+  delete preservedImports['yzforge-contracts/'];
+  delete preservedImports['yzforge-shared/'];
+  importMap.imports = {
+    ...preservedImports,
+    yzforge: './assets/yzforge/runtime/index.ts',
+    'yzforge/authoring': './assets/yzforge/runtime/authoring.ts',
+    'yzforge/modules/': './assets/app/registry/modules/',
+    'yzforge/libraries/': './assets/app/registry/libraries/',
+    'yzforge/content-packs/': './assets/app/registry/content-packs/',
+    'yzforge/contracts/': './assets/app/contracts/',
+    'yzforge/shared/': './assets/shared/code/',
+  };
+  writeJson(projectRoot, 'import-map.json', importMap, options, changed);
   updatePackageJson(projectRoot, options, changed);
   updateCocosProjectSettings(projectRoot, options, changed);
   updateToolchainTemplate(projectRoot, options, changed);
@@ -1128,6 +1399,8 @@ function generate(projectRoot, options = {}) {
     );
   }
 
+  transaction?.commit();
+
   return {
     global: Boolean(project.global),
     modules: project.modules.length,
@@ -1135,6 +1408,32 @@ function generate(projectRoot, options = {}) {
     contentPacks: project.contentPacks.length,
     changed,
   };
+}
+
+function validateGenerationInputs(project) {
+  const issues = [];
+  const known = {
+    modules: new Set(project.modules.map((item) => item.name)),
+    libraries: new Set(project.libraries.map((item) => item.name)),
+  };
+  for (const orphan of project.orphanScopes || []) {
+    issues.push(`${orphan.projectPath} is missing ${orphan.expectedDescriptor}.`);
+  }
+  for (const descriptor of project.modules) {
+    validateDescriptor('module', descriptor, known, issues);
+  }
+  for (const descriptor of project.libraries) {
+    validateDescriptor('library', descriptor, known, issues);
+  }
+  for (const descriptor of project.contentPacks) {
+    validateDescriptor('content-pack', descriptor, known, issues);
+    if (!known.modules.has(descriptor.owner)) {
+      issues.push(`content-pack:${descriptor.id} owner module '${descriptor.owner}' does not exist.`);
+    }
+  }
+  if (issues.length > 0) {
+    throw new Error(`Generation input validation failed:\n${issues.map((issue) => `- ${issue}`).join('\n')}`);
+  }
 }
 
 module.exports = {

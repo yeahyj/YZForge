@@ -19,6 +19,9 @@
     "yzforge:validate": "node extensions/yzforge/editor/cli.js validate",
     "yzforge:validate:strict": "node extensions/yzforge/editor/cli.js validate --strict",
     "yzforge:smoke": "node extensions/yzforge/editor/cli.js smoke",
+    "yzforge:test:runtime": "node extensions/yzforge/editor/cli.js smoke --layer runtime",
+    "yzforge:test:fixtures": "node extensions/yzforge/editor/cli.js smoke --layer fixtures",
+    "yzforge:test:failure": "node extensions/yzforge/editor/cli.js smoke --layer failure",
     "typecheck": "node extensions/yzforge/editor/cli.js typecheck",
     "yzforge:validate:build-matrix": "node extensions/yzforge/editor/cli.js validate-build-matrix",
     "yzforge:cocos:build:web": "node extensions/yzforge/editor/cli.js cocos-build --platform web-desktop --debug --output yzforge-build-matrix"

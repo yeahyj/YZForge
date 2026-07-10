@@ -1,5 +1,6 @@
 {
-  "schemaVersion": 1,
+  "$schema": "../../../../schemas/yzforge.scope.schema.json",
+  "schemaVersion": 2,
   "kind": "content-pack",
   "id": "start.test2",
   "owner": "Start",

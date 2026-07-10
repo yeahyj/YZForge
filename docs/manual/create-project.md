@@ -66,7 +66,7 @@ npm run yzforge:ai:doctor
 ```bash
 npx create-yzforge@latest MyGame --skip-install
 npx create-yzforge@latest MyGame --package-manager pnpm
-npx create-yzforge@latest MyGame --ref main
+npx create-yzforge@latest MyGame
 npx create-yzforge@latest MyGame --git
 ```
 

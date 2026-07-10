@@ -1,699 +1,95 @@
-﻿# 03. 运行时与生命周期
+# 03. 运行时与生命周期
 
-## App
+## App 是公开 facade
 
-`App` 是运行时总入口，但不能变成万能大单例。
-
-```ts
-export enum AppState {
-    Created = 'created',
-    Starting = 'starting',
-    Started = 'started',
-    Disposing = 'disposing',
-    Disposed = 'disposed',
-    Failed = 'failed',
-}
-
-export class App {
-    public readonly logger: Logger;
-    public readonly lifecycle: AppLifecycle;
-    public readonly viewport: ViewportManager;
-    public readonly state: AppState;
-    public readonly boot: AppBootProfile;
-    public readonly clock: AppClock;
-    public readonly storage: AppStorage;
-
-    public start(options?: AppStartOptions): Promise<void>;
-    public preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope>;
-    public loadModule<T extends Module, TParams = unknown>(ref: ModuleRef<TParams>): Promise<LoadedModule<T>>;
-    public enterModule<T extends Module, TParams = unknown>(
-        ref: ModuleRef<TParams>,
-        params?: TParams,
-        options?: EnterModuleOptions,
-    ): Promise<LoadedModule<T>>;
-    public unloadModule(ref: ModuleRef): Promise<void>;
-    public installExtension(extension: Extension): Promise<void>;
-    public use<T>(token: ExtensionToken<T>): T;
-    public purgeResourceCache(reason?: unknown): Promise<void>;
-    public dispose(reason?: unknown): Promise<void>;
-    public snapshot(): AppRuntimeSnapshot;
-}
-```
-
-`App` 是 facade。`BundleManager`、`LibraryRegistry`、`ExtensionRegistry`、`UIManager`、`OwnershipLedger` 等系统属于内部 `AppKernel`，业务和生成代码不能直接访问。
-
-## 启动设置
-
-`assets/app/main/AppBootSettings.ts` 挂在 `MainRoot` 上，用来保存 App 启动前必须知道、但又不属于配置表的数据：
-
-- `channel`：渠道或包身份，例如 `default`、`android`、`wechat`。
-- `profile`：运行画像，例如 `debug`、`release`。
-- `debug`：由 profile 推导，用于日志、调试面板、开发检查等运行时策略。
-
-`AppBootSettings` 是项目脚本，开发者可以直接修改其中的渠道枚举。`Main.ts` 读取它并通过 `createYZForgeApp({ boot })` 传给 runtime；运行时通过 `app.boot` 和 `app.snapshot().boot` 暴露只读结果。
-
-它不是配置表，也不承载玩法数值、活动参数或远程开关。
-
-## 时间与刷新周期
-
-`AppClock` 是 App 级时间源。业务代码需要判断每日刷新、每周刷新、跨月、倒计时或服务端时间校准时，统一走 `app.clock`，不要在业务逻辑里散落 `Date.now()`。
+业务主要使用这些入口：
 
 ```ts
-const now = app.clock.serverUnixMs();
-const today = app.clock.startOfDayMs();
-const left = app.clock.msUntilNextDay();
+await app.start({ mainRoot, viewport });
+
+const preload = await app.preloadModule(BattleRef);
+const lease = await app.loadModule(BattleRef);
+await app.enterModule(BattleRef, { levelId: 'level-1' });
+
+await lease.release();       // 释放这一次持有
+await app.unloadModule(BattleRef); // 强制卸载当前 record
+await app.dispose();
 ```
 
-公开能力：
+`app.lifecycle` 和 `app.viewport` 是只读 reader，只提供订阅与读取；初始化、刷新、emit 和 dispose 留在 AppKernel 内部。
 
-```ts
-app.clock.nowMs();
-app.clock.unixMs();
-app.clock.serverUnixMs();
-app.clock.setServerUnixMs(serverMs);
-app.clock.clearServerUnixMs();
-app.clock.dayOfWeek();
-app.clock.startOfDayMs();
-app.clock.startOfWeekMs();
-app.clock.startOfMonthMs();
-app.clock.isSameDay(a, b);
-app.clock.isSameWeek(a, b);
-app.clock.isSameMonth(a, b);
-app.clock.hasCrossedDay(lastMs);
-app.clock.hasCrossedWeek(lastMs);
-app.clock.hasCrossedMonth(lastMs);
-app.clock.msUntilNextDay();
-app.clock.msUntilNextWeek();
-app.clock.msUntilNextMonth();
-```
-
-规则：
-
-- 所有时间戳都是 Unix milliseconds。
-- `dayOfWeek` 使用 ISO 规则：周一是 `1`，周日是 `7`。
-- 周期边界默认按本地时区计算，一周从周一开始。
-- 未同步服务端时间时，`serverUnixMs()` 等于本机时间；调用 `setServerUnixMs` 后记录 offset，并用运行时单调时钟推进服务端时间，减少系统时间被改动导致的跳变。
-- `nowMs()` 是单调运行时长，只用于性能、冷却、动画或本地耗时统计，不用于跨天判断。
-- `AppClock` 不做节假日、活动日历、cron 表达式或平台时间校验；这些应由配置表、活动系统或平台扩展解释。
-
-## 本地存储分区
-
-`AppStorage` 是 App 级本地键值存储。它只解决“本机数据放在哪个分区、怎么编码、怎么隔离、怎么清理”，不直接设计账号存档结构。
-
-```ts
-app.storage.save.setJson('player', saveData);
-app.storage.settings.setBoolean('audio/enabled', false);
-app.storage.cache.setString('bundle/startEtag', etag);
-```
-
-固定分区：
-
-- `save`：本地存档和玩家进度。不能因为清缓存或重建 UI 被清掉。
-- `settings`：音量、画质、语言、震动开关等本机设置。
-- `cache`：可随时删除的临时数据，例如接口缓存、etag、下载索引、弱一致性缓存。
-
-规则：
-
-- 默认底层使用 Cocos `sys.localStorage`，测试或特殊平台可以注入 adapter。
-- 所有 key 都带 `yzforge:<appId>:<channel>:<profile>:<partition>` 前缀，避免渠道、Debug/Release 和分区互相污染。
-- 业务不要直接调用 `sys.localStorage` 或 `window.localStorage`。
-- 清缓存只调用 `app.storage.clearCache()` 或 `app.storage.cache.clear()`，不要清 `save` 和 `settings`。
-- `AppStorage` 不做加密、压缩、云存档、账号冲突合并或版本迁移；这些应由业务存档系统或 Storage Extension 处理。
-
-## App 状态机
-
-`App` 有显式状态，所有 public 生命周期 API 都必须受状态约束：
+## Module record 与 Module lease
 
 ```text
-Created
-  -> Starting
-  -> Started
-  -> Disposing
-  -> Disposed
+ModuleRecord
+  instance / assets / config / libraries / content packs / scope
+  leases: Set<ModuleLease>
 
-Starting
-  -> Disposing
-  -> Failed
-
-Failed
-  -> Disposing
-  -> Disposed
+ModuleLease
+  leaseId / released
+  readonly instance / assets / config / contentPacks
+  release()
 ```
 
-规则：
+同一 Module 的并发 load 共享创建任务，但每个调用方在任务完成后获得独立 Lease。旧 generation 的已释放 Lease 再次调用 `release()`，不能卸载后来重新加载的 Module。
 
-- `start` 只能从 `Created` 进入。
-- `preloadModule`、`loadModule`、`enterModule` 只能在 `Started` 调用。
-- `unloadModule` 可以在 `Started` 或 `Disposing` 调用，保证 App dispose 可以复用同一条卸载路径。
-- `purgeResourceCache` 可以在 `Started` 或 `Disposing` 调用，用于触发零引用热缓存 Bundle 的物理清理。
-- `AppLifecycle` 接入 Cocos `Game.EVENT_LOW_MEMORY`；App 启动后收到 `memory-warning` 会自动触发 `{ type: 'memory_pressure' }` 的零引用热缓存清理。
-- `dispose` 可以从 `Created`、`Starting`、`Started`、`Failed` 调用，且对 `Disposed` 幂等。
-- `dispose` 必须等待正在进行的 `start` 和 module load task 收口，再卸载已注册模块。
-- 非法状态调用抛出 `app.invalid_state`，错误详情包含 API、当前状态和允许状态。
-- `snapshot().resourceDiagnostics` 汇总资源持有、泄漏、释放失败和热缓存状态；Editor 面板 Runtime Snapshot 会把诊断 details 直接列出来。
+## Module 生命周期
 
-`Main.ts` 不承担状态机职责。它只把 Cocos 节点生命周期转成 `app.start` 和 `app.dispose`。
-
-`App` 负责：
-
-- 启动框架。
-- 校验 Main 场景。
-- 初始化核心系统。
-- 安装 Extension。
-- 初始化 `SharedScope`。
-- 初始化 `AppScope/global`。
-- 解析首包 `Contract` 和 `Registry`。
-- 管理模块加载、进入、退出、卸载。
-
-`App` 不负责：
-
-- 直接提供 `app.net`。
-- 直接提供 `app.audio`。
-- 直接实现云存档、存档加密、账号冲突合并。
-- 直接持有业务数据。
-- 直接打开某个业务模块内部 View。
-
-扩展能力通过 token 使用：
-
-```ts
-const analytics = app.use(AnalyticsToken);
-```
-
-## Extension 生命周期
-
-Extension 是框架能力包，不是业务 Module。它可以提供 App-level 能力，也可以给 Module 增加局部能力。
-
-安装入口由生成器写入：
+正常顺序：
 
 ```text
-assets/app/bootstrap/install.generated.ts
+construct
+  -> onCreate
+  -> onLoad
+  -> onEnter
+  -> onPause / onResume
+  -> onExit
+  -> onUnload
+  -> unit onDispose
 ```
 
-安装流程：
+生命周期调度通过框架内部 symbol 协议执行。业务子类只能覆写 protected hook，不能调用 load/enter/unload 控制方法。
+
+Model、Service、Flow 由所属 Module 延迟创建。销毁时每个 unit 都会获得清理机会；一个清理失败不会跳过后续 unit。
+
+## 补偿事务
+
+Module 创建的每一步成立后立即登记逆操作：
 
 ```text
-read extension refs from app/registry/extensions
-sort by dependency order
-load extension runtime if needed
-run installBeforeStart / installAfterMainBinding / installBeforeFirstModule
-register app-level tokens through ExtensionContext.provide
-register module-level token factories through ExtensionContext.provideModule
+create module scope
+acquire libraries
+acquire bundle
+resolve and validate entry
+create assets/config/UI/content-pack access
+construct and bind module
+run onCreate/onLoad
+commit record
 ```
 
-Extension 接口：
+任一步失败时，逆序执行所有已登记动作。原始错误是 primary cause，rollback 错误按 step 聚合在同一结构化错误中。
 
-```ts
-export type ExtensionInstallPhase =
-    | 'before-start'
-    | 'after-main-binding'
-    | 'before-first-module';
+View open、Library record、ContentPack record、导航切换和生成器提交使用同一种补偿思想。
 
-export type ExtensionPhase = ExtensionInstallPhase | 'dispose';
+## 导航串行化
 
-export interface ExtensionPhaseRollbackReason {
-    readonly type: 'extension_phase_rollback';
-    readonly phase: ExtensionInstallPhase;
-    readonly failedExtension: string;
-    readonly cause: unknown;
-}
+`enter`、`back` 和 Module detach 进入同一 transition queue，不能并行改写当前模块和返回栈。
 
-export interface ExtensionContext {
-    readonly app: App;
-    readonly viewport: ViewportManager;
-    readonly logger: Logger;
-    readonly phase: ExtensionPhase;
-    provide<T>(token: ExtensionToken<T>, value: T): void;
-    provideModule<T>(
-        token: ModuleExtensionToken<T>,
-        factory: (module: Module) => T,
-    ): void;
-    onLifecycle<TEvent extends keyof AppLifecycleEvents>(
-        event: TEvent,
-        handler: (payload: AppLifecycleEvents[TEvent]) => void,
-    ): () => void;
-    registerConfigCodec(codec: ConfigCodec): () => void;
-    registerAppService<T>(
-        token: ExtensionToken<T>,
-        value: T,
-        options?: { dispose?(value: T): void },
-    ): () => void;
-    registerSystemUIProvider(provider: SystemUIProvider): () => void;
-}
+`Push` 会保留前一个 Module lease；`Replace` 按策略退出或卸载前一个 Module。失败时 Navigator 逆序恢复生命周期/UI，并在 snapshot 中记录 `lastFailure`，不会静默停在半切换状态。
 
-export interface Extension {
-    readonly name: string;
-    readonly dependencies?: readonly string[];
-    install?(context: ExtensionContext): void | Promise<void>;
-    installBeforeStart?(context: ExtensionContext): void | Promise<void>;
-    installAfterMainBinding?(context: ExtensionContext): void | Promise<void>;
-    installBeforeFirstModule?(context: ExtensionContext): void | Promise<void>;
-    rollbackBeforeStart?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
-    rollbackAfterMainBinding?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
-    rollbackBeforeFirstModule?(context: ExtensionContext, reason: ExtensionPhaseRollbackReason): void | Promise<void>;
-    dispose?(context: ExtensionContext, reason?: unknown): void | Promise<void>;
-    uninstall?(context: ExtensionContext): void | Promise<void>;
-}
-```
+## 释放顺序
 
-App-level token：
+强制卸载 Module 时，所有步骤都会尝试执行：
 
-```ts
-const analytics = app.use(AnalyticsToken);
-```
+1. 从 Navigator 脱离；
+2. 关闭该 Module 的 UI；
+3. 释放 ContentPack leases；
+4. 执行 Module 与 unit dispose；
+5. 释放 Module scope 中的 Part、asset、Library 和 Bundle leases；
+6. 释放遗留 preload leases。
 
-Module-level token：
+最终若有失败，返回 `module.unload_failed` 及逐步错误，而不是在第一处清理错误时中止。
 
-```ts
-const analytics = this.use(ModuleAnalyticsToken);
-```
+## 诊断
 
-规则：
-
-- Extension 不能直接 import Module 内部代码。
-- Extension 可以依赖 `shared`、`global public API` 和其他 Extension token。
-- App-level token 随 App 存活。
-- Module-level token 随 Module 创建和卸载。
-- Extension install 失败时，App 启动失败，并报告 extension name 和 dependency chain。
-- Extension 能力必须通过 token 暴露，不往 `app` 上直接挂 `app.audio`、`app.net` 这类字段。
-- Extension phase 使用事务。某个 phase 失败时，本 phase 中已提供的 app token / module token / config codec / managed app service / SystemUI provider 会回滚，本 phase 已完成 hook 的 Extension 会按反向顺序优先执行 phase-specific rollback hook；没有 hook 的旧扩展才使用 `dispose/uninstall` 兜底。
-- Extension lifecycle listener 必须通过 `ExtensionContext.onLifecycle` 注册，不能直接持有裸 `AppLifecycle`；phase 失败和 Extension dispose 时由框架解绑。
-- Extension config codec 必须通过 `ExtensionContext.registerConfigCodec` 注册，名称必须全局唯一；phase 失败和 Extension dispose 时由框架 unregister。
-- Extension managed app service 必须通过 `ExtensionContext.registerAppService` 注册，需要清理外部资源时传入 `dispose`；phase 失败和 Extension dispose 时由框架删除 token 并调用 disposer。
-- Extension SystemUI provider 必须通过 `ExtensionContext.registerSystemUIProvider` 注册；phase 失败和 Extension dispose 时由框架 unregister。
-- 新增 `ExtensionContext` callable 能力时，必须同步扩展 transaction 数据结构、rollback 逻辑、Validator AST 分类和 smoke 反例；不能直接在 facade 上暴露绕过 rollback 的副作用。
-
-## 启动流程
-
-```text
-load Main.scene
-Main.ts creates App
-validate Main scene nodes
-install generated extensions
-initialize logger/event/bundle/package registries
-load import registry generated in first package
-initialize shared code registry
-initialize global root
-open system UI presets if needed
-enter configured first module
-```
-
-`registry` 和 `contracts` 必须在首包内完成加载，不允许依赖任何按需业务 Bundle。
-
-## BundleManager
-
-`BundleManager` 是唯一能直接调用 `assetManager.loadBundle` 的系统。
-
-职责：
-
-- 加载 Bundle。
-- 预加载 Bundle。
-- 复用 in-flight Promise。
-- 记录引用计数。
-- 记录 Bundle 依赖关系。
-- 按 Scope 释放资源。
-- 移除 Bundle。
-- 统一失败回滚。
-
-规则：
-
-- 同一个 bundleName 同一时刻只能有一个加载任务。
-- `loadBundle`、`preloadBundle`、`releaseBundle` 按 bundleName 加锁。
-- `preloadBundle` 只下载和准备 Bundle，不创建 Module 实例。
-- `loadBundle` 成功后引用计数加一。
-- `releaseBundle` 只在引用计数归零后释放资源并 remove bundle。
-- 移除 Bundle 前必须先释放该 Bundle 已加载资源。
-- 业务代码不保存 `AssetManager.Bundle`。
-
-状态：
-
-```ts
-export enum BundleState {
-    Empty,
-    Loading,
-    Loaded,
-    Releasing,
-    Failed,
-}
-```
-
-失败处理：
-
-```text
-load failed:
-  mark state Failed
-  clear in-flight task
-  rollback dependencies loaded only by this task
-  keep existing loaded handle untouched
-  throw typed error
-
-release failed:
-  keep bundle state Loaded or FailedRelease
-  report resource paths
-  never silently drop registry record
-```
-
-## EntryRegistry
-
-`EntryRegistry` 是运行时注册表：
-
-- 首包加载时读取 `assets/app/registry` 里的轻量 refs。
-- Module 或 Library Bundle 加载后，把真实 `ModuleEntry`、`LibraryEntry` 注册进来。
-- `App` 通过它把轻量 ref 解析成真实 entry。
-- Entry 注册必须校验 ref 和 entry 的 name、bundle、libraries 是否一致。
-
-动态 Bundle 的 `code/generated/entry.ts` 负责顶层注册：
-
-```ts
-registerModuleEntry(defineModuleEntry(...));
-registerLibraryEntry(defineLibraryEntry(...));
-```
-
-运行时要求：
-
-- `generated/entry.ts` 必须位于对应 Bundle 目录内，并参与 Cocos Bundle 构建。
-- `generated/entry.ts` 只能 import 当前 Scope 内部实现、`yzforge` runtime、首包 contract/registry 和 `shared`。
-- `generated/entry.ts` 不允许 import 其他动态 Bundle 内部脚本。
-- `BundleManager.loadBundle(ref.bundle)` 返回后，`EntryRegistry` 必须能在同一 tick 或一个明确超时时间内解析到对应 Entry。
-- 如果 Bundle 加载成功但 Entry 未注册，视为 `EntryMissingError`，加载流程失败并回滚本次 acquire。
-
-## Module
-
-```ts
-export abstract class Module<TEnter = unknown> {
-    public readonly app: App;
-    public readonly name: string;
-    public readonly state: ModuleState;
-    public readonly assets: ModuleAssets;
-    public readonly config: ModuleConfig;
-    public readonly libraries: ModuleLibraryManager;
-    public readonly contentPacks: ContentPackManager;
-    public readonly ui: ModuleUI;
-    public readonly event: EventBus;
-
-    public useModel<T extends Model>(type: ModelType<T>): T;
-    public useService<T extends Service>(type: ServiceType<T>): T;
-    public useFlow<T extends Flow>(type: FlowType<T>): T;
-    public use<T>(token: ModuleExtensionToken<T>): T;
-
-    protected onCreate(): void | Promise<void>;
-    protected onLoad(): void | Promise<void>;
-    protected onEnter(params?: TEnter): void | Promise<void>;
-    protected onPause(): void | Promise<void>;
-    protected onResume(): void | Promise<void>;
-    protected onExit(): void | Promise<void>;
-    protected onUnload(): void | Promise<void>;
-}
-```
-
-`preloadModule` 不属于模块生命周期，它只加载 Bundle 和可选资源，不创建模块实例。
-
-## LoadedModule
-
-```ts
-export interface LoadedModule<T extends Module = Module> {
-    readonly ref: ModuleRef;
-    readonly bundleName: string;
-    readonly instance: T;
-    readonly assets: ModuleAssets;
-    readonly config: ModuleConfig;
-    readonly contentPacks: ContentPackManager;
-    unload(): Promise<void>;
-}
-```
-
-## Module 状态
-
-```ts
-export enum ModuleState {
-    Empty,
-    Preloading,
-    BundleReady,
-    Creating,
-    Loading,
-    Ready,
-    Entering,
-    Active,
-    Paused,
-    Exiting,
-    Unloading,
-    Unloaded,
-    Failed,
-}
-```
-
-## 加载流程
-
-```text
-read ModuleRef.libraries
-load declared Library bundles recursively
-load module bundle
-wait ModuleEntry registration
-validate ModuleEntry == ModuleRef
-create Module instance
-bind assets/config/libraries/contentPacks/ui/event
-onCreate
-onLoad
-state = Ready
-return LoadedModule
-```
-
-加载失败：
-
-```text
-if failure before Module instance:
-  rollback bundle refs acquired by this operation
-  state = Failed
-
-if failure after Module instance created:
-  call safe dispose for partial model/service/flow
-  close opened UI owned by this module
-  release acquired pack/library refs
-  state = Failed
-```
-
-## 预加载流程
-
-```text
-read ModuleRef.libraries
-preload/load declared Library bundles recursively
-preload module bundle
-optional preload selected asset refs
-optional preload selected pack bundles
-state = BundleReady
-```
-
-预加载不创建 `Module`，不调用 `onCreate`，不打开 UI。
-
-## 进入流程
-
-`ModuleNavigator` 管理模块导航。第一版支持两种模式：
-
-```ts
-export enum EnterMode {
-    Replace = 'replace',
-    Push = 'push',
-}
-```
-
-进入选项：
-
-```ts
-export interface EnterModuleOptions {
-    mode?: EnterMode;
-    unloadPrevious?: boolean;
-    closePreviousUi?: boolean;
-    restorePreviousUiOnBack?: boolean;
-    cancelPendingEnter?: boolean;
-}
-```
-
-默认值：
-
-```text
-mode = Replace
-unloadPrevious = false
-cancelPendingEnter = true
-
-Replace:
-  closePreviousUi = true
-  restorePreviousUiOnBack = false
-
-Push:
-  closePreviousUi = false
-  restorePreviousUiOnBack = true
-```
-
-`Replace`：
-
-```text
-load target if needed
-if current module exists:
-  current.onExit
-  if closePreviousUi:
-    close current module UI
-  else:
-    pause current module UI
-target.onEnter(params)
-target becomes Active
-if target enter succeeds:
-  previous module remains Ready or unloads according to options
-```
-
-`Push`：
-
-```text
-load target if needed
-if current module exists:
-  current.onPause
-  if closePreviousUi:
-    close current module UI
-  else:
-    pause current module Page/Paper/Top UI
-    close current module Popup/Toast UI
-  current becomes Paused
-target.onEnter(params)
-target becomes Active
-push previous module into module stack
-```
-
-返回：
-
-```text
-current.onExit
-close current module UI
-if previous module exists:
-  if restorePreviousUiOnBack:
-    resume previous module UI
-  previous.onResume
-  previous becomes Active
-else:
-  enter fallback module or show global shell
-```
-
-规则：
-
-- 同一时间只能有一个前台 Active Module。
-- `global` UI 不属于模块栈。
-- Module 卸载时必须关闭本模块拥有的 UI。
-- UIManager 负责 Module UI 的关闭、暂停和恢复，ModuleNavigator 不直接操作 UI 节点。
-- `Push` 默认暂停上一个模块的 Page/Paper/Top，关闭上一个模块的 Popup/Toast；需要跨模块保持的提示应做成 Global UI。
-- `enterModule` 对同一目标的并发调用串行处理。
-- `cancelPendingEnter = true` 时，新进入请求会取消尚未执行 `onEnter` 的旧请求。
-- `onEnter` 失败时，导航状态回到进入前。
-
-## 卸载流程
-
-```text
-if Active:
-  onExit
-if Paused:
-  remove from navigator stack
-close module UI
-dispose module Part
-dispose Flow
-dispose Service
-dispose Model
-unload ContentPack handles
-release module-owned loaded assets
-onUnload
-release module bundle ref
-release declared library refs if no other owner
-state = Unloaded
-```
-
-卸载规则：
-
-- 正在 `Entering` 的模块不能直接卸载，必须等待进入任务结束或被取消。
-- 卸载是幂等操作，重复调用返回同一个任务。
-- `onUnload` 不负责释放资源，资源释放由框架统一做。
-- 如果 `onExit` 抛错，仍然继续关闭 UI 和释放资源，但错误要被记录。
-
-## Library 生命周期
-
-```text
-read LibraryRef.libraries
-load dependency libraries recursively
-load library bundle
-wait LibraryEntry registration
-validate LibraryEntry == LibraryRef
-create LoadedLibrary handle
-bind tokens/assets/config
-acquire library for owner Scope
-```
-
-Library 没有 `onEnter`，不拥有 UI 栈。Library 可有资源、配置和公开 token。
-
-引用计数规则：
-
-- Library refCount 按 owner Scope 计数，不按每次方法调用计数。
-- Module 加载时，会 acquire `ModuleRef.libraries` 中声明的 Library，并保存到 `ModuleLibraryManager`。
-- 同一个 Module 多次 `this.libraries.load(BattleCoreRef)` 返回同一个 `LoadedLibrary`，不重复增加 refCount。
-- 如果支持懒加载可选 Library，也必须先在 `module.json` 声明；第一次 `load` 时 acquire，后续调用复用。
-- Module 卸载时释放自己 acquire 的 Library。
-- 只有 refCount 归零后，Library 才允许释放 token 实例、资源和 Bundle。
-- Library 依赖其他 Library 时，也按 owner Library acquire 和 release。
-
-推荐 API：
-
-```ts
-const battleCore = await this.libraries.load(BattleCoreRef);
-const damage = battleCore.use(BattleCoreTokens.damageSystem);
-```
-
-Library 卸载：
-
-```text
-if ref count > 0:
-  refuse direct unload or defer
-dispose token instances if disposable
-release library loaded assets
-release library bundle ref
-release dependency libraries
-```
-
-## ContentPack 生命周期
-
-```text
-validate owner module is loaded
-load declared libraries
-load pack bundle
-read manifest.generated.json
-create LoadedContentPack handle
-```
-
-卸载：
-
-```text
-destroy instantiated nodes owned by pack if registered
-release pack loaded assets
-remove pack bundle
-release pack library refs
-```
-
-ContentPack 不调用业务生命周期，必须由 owner Module 的 Flow 或 Service 解释。
-
-## Model / Service / Flow
-
-`Model`：
-
-- 保存纯数据。
-- 提供状态修改方法。
-- 不持有 `Node` 或 `Component`。
-- 不调用 UI、Audio、资源加载。
-
-`Service`：
-
-- 执行纯业务逻辑。
-- 调用 Model、Config、Asset、Event、Extension。
-- 不直接打开 UI。
-- 不长期持有 View 节点。
-
-`Flow`：
-
-- 编排多个 Service。
-- 打开和关闭 UI。
-- 加载 ContentPack。
-- 处理进入参数。
-- 处理模块内长流程。
-
-小模块可以直接让 `Module` 承担 Flow 职责；复杂模块应创建独立 Flow。
+`app.snapshot()` 提供只读运行时证据：Module lease count、ownership generations、leaks、bundle cache、entry script/resource residency、Navigator、UI、viewport 和最近失败。

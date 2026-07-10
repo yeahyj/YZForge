@@ -6,27 +6,27 @@ import { ModuleAssets } from './assets';
 import type { AssetScopeSnapshot } from './assets';
 import type { ConfigScope } from './config';
 import { ContentPackManager, type ContentPackRecordSnapshot } from './content-pack';
-import type { EntryRegistry } from './entry-registry';
 import type { Extension } from './extension-registry';
 import { AppKernel } from './kernel';
 import { type LibraryRecordSnapshot, ModuleLibraryManager } from './library';
-import { type OwnershipLedgerSnapshot, type OwnershipRecordSnapshot, type OwnershipScopeSnapshot, type ReleaseScope, type ReleaseScopeSnapshot } from './lifetime';
-import type { AppLifecycle } from './lifecycle';
+import { type OwnerIdentity, type OwnershipLedgerSnapshot, type OwnershipRecordSnapshot, type OwnershipScopeSnapshot, type ReleaseScope, type ReleaseScopeSnapshot } from './lifetime';
+import type { AppLifecycleReader } from './lifecycle';
 import type { Logger } from './logger';
-import type { LoadedModule, Module } from './module';
-import { ModuleState } from './module';
+import type { Module, ModuleLease } from './module';
+import { bindModuleRuntime, createModuleRuntime, disposeModuleRuntime, loadModuleRuntime } from './module';
 import type { EnterModuleOptions, NavigatorSnapshot } from './navigator';
 import type { ModuleRef } from './refs';
 import type { AppStorage, AppStorageSnapshot, AppStorageUserOptions } from './storage';
 import type { ExtensionToken, ModuleExtensionToken } from './tokens';
 import type { UISnapshot } from './ui';
 import { createMainBinding, type MainBinding } from './main-binding';
-import { ViewportManager, type DeviceProfile, type ViewportConfig } from './viewport';
+import { installViewportBridge, ViewportController, type DeviceProfile, type ViewportConfig, type ViewportReader } from './viewport';
 import { YZForgeError } from './errors';
+import type { EntryResidencySnapshot } from './entry-registry';
+import { CompensationStack, runCleanupSteps } from './compensation';
 
 export interface AppOptions {
     readonly logger?: Logger;
-    readonly entries?: EntryRegistry;
     readonly boot?: AppBootProfileInput;
     readonly storage?: AppStorageUserOptions;
 }
@@ -63,8 +63,16 @@ export interface ModuleRuntimeSnapshot {
     readonly name: string;
     readonly bundleName: string;
     readonly state: string;
+    readonly leaseCount: number;
     readonly assets: AssetScopeSnapshot;
     readonly contentPacks: readonly ContentPackRecordSnapshot[];
+}
+
+export interface ModulePreloadLease {
+    readonly leaseId: string;
+    readonly ref: ModuleRef;
+    readonly released: boolean;
+    release(reason?: unknown): Promise<void>;
 }
 
 export type ResourceDiagnosticSeverity = 'info' | 'warning' | 'error';
@@ -73,7 +81,8 @@ export interface ResourceDiagnosticDetail {
     readonly code: string;
     readonly severity: ResourceDiagnosticSeverity;
     readonly message: string;
-    readonly ownerKey?: string;
+    readonly ownerId?: string;
+    readonly ownerPath?: string;
     readonly kind?: string;
     readonly key?: string;
     readonly count?: number;
@@ -100,6 +109,7 @@ export interface AppRuntimeSnapshot {
     readonly releaseScope: ReleaseScopeSnapshot;
     readonly ownership: OwnershipLedgerSnapshot;
     readonly bundles: readonly BundleRecordSnapshot[];
+    readonly entries: readonly EntryResidencySnapshot[];
     readonly resourceDiagnostics: ResourceDiagnosticsSnapshot;
     readonly libraries: readonly LibraryRecordSnapshot[];
     readonly modules: readonly ModuleRuntimeSnapshot[];
@@ -107,16 +117,30 @@ export interface AppRuntimeSnapshot {
     readonly ui: UISnapshot;
 }
 
+interface ModuleRecord<TParams = unknown, TConfig extends object = object> {
+    readonly ref: ModuleRef<TParams, TConfig>;
+    readonly bundleName: string;
+    readonly instance: Module<TParams, TConfig>;
+    readonly assets: ModuleAssets;
+    readonly config: ConfigScope<TConfig>;
+    readonly contentPacks: ContentPackManager;
+    readonly scope: ReleaseScope;
+    readonly leases: Set<ModuleLease>;
+}
+
 export class App {
     private readonly kernel: AppKernel;
-    private readonly modules = new Map<string, LoadedModule>();
-    private readonly moduleTasks = new Map<string, Promise<LoadedModule>>();
+    private readonly modules = new Map<string, ModuleRecord>();
+    private readonly moduleReleaseStates = new WeakMap<ModuleLease, { released: boolean }>();
+    private readonly moduleTasks = new Map<string, Promise<ModuleRecord>>();
     private readonly moduleUnloadTasks = new Map<string, Promise<void>>();
-    private readonly preloadTasks = new Map<string, Promise<ReleaseScope>>();
-    private readonly preloadScopes = new Map<string, ReleaseScope>();
+    private readonly preloadLeases = new Map<string, Set<ModulePreloadLeaseImpl>>();
+    private nextPreloadLeaseId = 0;
+    private nextModuleLeaseId = 0;
     private readonly stateTransitions: AppStateTransitionSnapshot[] = [];
     private beforeFirstModuleExtensionsTask?: Promise<void>;
     private disposeViewportChanged?: () => void;
+    private disposeViewportBridge?: () => void;
     private disposeMemoryWarning?: () => void;
     private memoryPressurePurgeTask?: Promise<void>;
     private appState = AppState.Created;
@@ -132,11 +156,11 @@ export class App {
         return this.kernel.logger;
     }
 
-    public get lifecycle(): AppLifecycle {
+    public get lifecycle(): AppLifecycleReader {
         return this.kernel.lifecycle;
     }
 
-    public get viewport(): ViewportManager {
+    public get viewport(): ViewportReader {
         return this.kernel.viewport;
     }
 
@@ -217,7 +241,9 @@ export class App {
         this.installMemoryPressurePolicy(kernel);
         this.disposeViewportChanged?.();
         kernel.viewport.dispose();
-        kernel.viewport = new ViewportManager(options.viewport);
+        kernel.viewport = new ViewportController(options.viewport);
+        this.disposeViewportBridge?.();
+        this.disposeViewportBridge = installViewportBridge(kernel.viewport);
         this.disposeViewportChanged = kernel.viewport.onChanged(() => kernel.lifecycle.emitViewportChanged());
         kernel.viewport.initialize();
         await kernel.extensions.installAfterMainBinding();
@@ -226,52 +252,43 @@ export class App {
         kernel.logger.info('App started.');
     }
 
-    public async preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope> {
+    public async preloadModule<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ModulePreloadLease> {
         const transitionStart = this.stateTransitions.length;
-        this.assertState('preloadModule', [AppState.Started]);
-        const running = this.preloadTasks.get(ref.name);
-        if (running) {
-            try {
-                return await running;
-            } catch (error) {
-                this.recordFailure('preloadModule', error, transitionStart);
-                throw error;
-            }
-        }
-        const existing = this.preloadScopes.get(ref.name);
-        if (existing && !existing.released) {
-            return existing;
-        }
-        const task = this.preloadModuleNow(ref);
-        this.preloadTasks.set(ref.name, task);
         try {
-            return await task;
+            this.assertState('preloadModule', [AppState.Started]);
+            return await this.preloadModuleNow(ref);
         } catch (error) {
             this.recordFailure('preloadModule', error, transitionStart);
             throw error;
-        } finally {
-            if (this.preloadTasks.get(ref.name) === task) {
-                this.preloadTasks.delete(ref.name);
-            }
         }
     }
 
-    private async preloadModuleNow<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ReleaseScope> {
+    private async preloadModuleNow<TParams = unknown>(ref: ModuleRef<TParams>): Promise<ModulePreloadLease> {
         const kernel = this.kernel;
-        const scope = kernel.releaseScope.child('preload', ref.name);
-        this.preloadScopes.set(ref.name, scope);
-        scope.defer(`preload-index:${ref.name}`, () => {
-            this.preloadScopes.delete(ref.name);
-        });
+        const transaction = new CompensationStack(`module.preload:${ref.name}`);
+        const scope = kernel.releaseScope.child('module-preload', ref.name);
+        transaction.defer('release preload scope', (reason) => scope.release(reason));
         try {
             for (const library of ref.libraries) {
                 await kernel.libraries.acquire(library, scope);
             }
-            await kernel.bundles.preloadBundle(ref.bundle, { owner: scope });
-            return scope;
+            await kernel.bundles.preloadBundle(ref.bundle, scope);
+            const lease = new ModulePreloadLeaseImpl(
+                `module-preload-lease-${++this.nextPreloadLeaseId}`,
+                ref,
+                scope,
+                () => this.removePreloadLease(ref.name, lease),
+            );
+            let leases = this.preloadLeases.get(ref.name);
+            if (!leases) {
+                leases = new Set();
+                this.preloadLeases.set(ref.name, leases);
+            }
+            leases.add(lease);
+            transaction.commit();
+            return lease;
         } catch (error) {
-            await scope.release({ type: 'preload_failed', module: ref.name });
-            throw error;
+            return await transaction.fail(error, { type: 'preload_failed', module: ref.name });
         }
     }
 
@@ -281,7 +298,7 @@ export class App {
         TModule extends Module<TParams, TConfig> = Module<TParams, TConfig>,
     >(
         ref: ModuleRef<TParams, TConfig>,
-    ): Promise<LoadedModule<TModule, TConfig>> {
+    ): Promise<ModuleLease<TModule, TConfig>> {
         const transitionStart = this.stateTransitions.length;
         try {
             this.assertState('loadModule', [AppState.Started]);
@@ -291,18 +308,18 @@ export class App {
             }
             const existing = this.modules.get(ref.name);
             if (existing) {
-                return existing as LoadedModule<TModule, TConfig>;
+                return this.createModuleLease(existing) as ModuleLease<TModule, TConfig>;
             }
             const running = this.moduleTasks.get(ref.name);
             if (running) {
-                return await running as LoadedModule<TModule, TConfig>;
+                return this.createModuleLease(await running) as ModuleLease<TModule, TConfig>;
             }
 
             await this.ensureBeforeFirstModuleExtensions();
             const task = this.createModule(ref);
             this.moduleTasks.set(ref.name, task);
             try {
-                return await task as LoadedModule<TModule, TConfig>;
+                return this.createModuleLease(await task) as ModuleLease<TModule, TConfig>;
             } finally {
                 this.moduleTasks.delete(ref.name);
             }
@@ -320,7 +337,7 @@ export class App {
         ref: ModuleRef<TParams, TConfig>,
         params?: TParams,
         options?: EnterModuleOptions,
-    ): Promise<LoadedModule<TModule, TConfig>> {
+    ): Promise<ModuleLease<TModule, TConfig>> {
         const transitionStart = this.stateTransitions.length;
         try {
             this.assertState('enterModule', [AppState.Started]);
@@ -364,17 +381,17 @@ export class App {
                 return;
             }
         }
-        const handle = this.modules.get(ref.name);
-        if (!handle) {
+        const record = this.modules.get(ref.name);
+        if (!record) {
             return;
         }
-        if (handle.instance.state === ModuleState.Entering) {
-            throw new YZForgeError(`Module cannot be unloaded while entering: ${ref.name}`, 'module.unload_during_enter', {
-                module: ref.name,
-                state: handle.instance.state,
-            });
+        for (const lease of record.leases) {
+            const releaseState = this.moduleReleaseStates.get(lease);
+            if (releaseState) {
+                releaseState.released = true;
+            }
         }
-
+        record.leases.clear();
         const failures: Array<{ readonly step: string; readonly error: unknown }> = [];
         const run = async (step: string, task: () => Promise<void>): Promise<void> => {
             try {
@@ -384,13 +401,15 @@ export class App {
             }
         };
 
-        await run('navigator.detach', () => kernel.navigator.detach(handle));
+        await run('navigator.detach', () => kernel.navigator.detachModule(record.instance));
         await run('ui.disposeModule', () => kernel.ui.disposeModule(ref.name, 'module_unload'));
-        await run('contentPacks.unloadAll', async () => handle.contentPacks.unloadAll?.());
-        await run('module.__yzforgeUnload', () => handle.instance.__yzforgeUnload());
-        await run('releaseScope.release', () => handle.releaseScope.release({ type: 'module_unload', module: ref.name }));
-        await run('preloadScope.release', async () => this.preloadScopes.get(ref.name)?.release({ type: 'module_unload', module: ref.name }));
-        this.modules.delete(ref.name);
+        await run('contentPacks.releaseAll', () => record.contentPacks.releaseAll({ type: 'module_unload', module: ref.name }));
+        await run('module.dispose', () => disposeModuleRuntime(record.instance));
+        await run('releaseScope.release', () => record.scope.release({ type: 'module_unload', module: ref.name }));
+        await run('preloadLeases.release', () => this.releasePreloads(ref.name, { type: 'module_unload', module: ref.name }));
+        if (this.modules.get(ref.name) === record) {
+            this.modules.delete(ref.name);
+        }
         if (failures.length > 0) {
             throw new YZForgeError(`Module unload completed with errors: ${ref.name}`, 'module.unload_failed', {
                 module: ref.name,
@@ -485,11 +504,6 @@ export class App {
                 failure = failure ?? error;
             }
         };
-        for (const preloading of Array.from(this.preloadTasks.values())) {
-            await run(async () => {
-                await preloading;
-            });
-        }
         for (const loading of Array.from(this.moduleTasks.values())) {
             await run(async () => {
                 await loading;
@@ -504,14 +518,21 @@ export class App {
         for (const handle of Array.from(this.modules.values()).reverse()) {
             await run(() => this.unloadModule(handle.ref));
         }
+        await run(() => this.releaseAllPreloads(reason));
         await run(() => kernel.releaseScope.release(reason));
         await run(() => kernel.extensions.dispose(reason));
         await run(() => kernel.global.dispose());
-        kernel.ui.dispose();
-        this.disposeViewportChanged?.();
-        this.disposeViewportChanged = undefined;
-        kernel.viewport.dispose();
-        kernel.lifecycle.dispose();
+        await run(() => kernel.ui.dispose());
+        await run(() => {
+            this.disposeViewportChanged?.();
+            this.disposeViewportChanged = undefined;
+        });
+        await run(() => {
+            this.disposeViewportBridge?.();
+            this.disposeViewportBridge = undefined;
+        });
+        await run(() => kernel.viewport.dispose());
+        await run(() => kernel.lifecycle.dispose());
         if (failure) {
             throw failure;
         }
@@ -531,24 +552,27 @@ export class App {
             releaseScope: kernel.releaseScope.snapshot(),
             ownership,
             bundles,
+            entries: kernel.entries.snapshot(new Set(bundles.filter((bundle) => bundle.loaded).map((bundle) => bundle.name))),
             resourceDiagnostics: this.snapshotResourceDiagnostics(ownership, bundles),
             libraries: kernel.libraries.snapshots(),
-            modules: Array.from(this.modules.values()).map((handle) => this.snapshotModule(handle)),
+            modules: Array.from(this.modules.values()).map((record) => this.snapshotModule(record)),
             navigator: kernel.navigator.snapshot(),
             ui: kernel.ui.snapshot(),
         };
     }
 
-    private async createModule<TParams, TConfig extends object = object>(ref: ModuleRef<TParams, TConfig>): Promise<LoadedModule<Module<TParams, TConfig>, TConfig>> {
+    private async createModule<TParams, TConfig extends object = object>(ref: ModuleRef<TParams, TConfig>): Promise<ModuleRecord<TParams, TConfig>> {
         const kernel = this.kernel;
+        const transaction = new CompensationStack(`module.load:${ref.name}`);
         let instance: Module<TParams, TConfig> | undefined;
         const moduleScope = kernel.releaseScope.child('module', ref.name);
+        transaction.defer('release module scope', (reason) => moduleScope.release(reason));
         try {
             for (const library of ref.libraries) {
                 await kernel.libraries.acquire(library, moduleScope);
             }
 
-            const bundle = await kernel.bundles.loadBundle(ref.bundle, { owner: moduleScope });
+            const bundle = await kernel.bundles.loadBundle(ref.bundle, moduleScope);
             const entry = await kernel.entries.waitForModule(ref);
             kernel.entries.validateModule(ref, entry);
 
@@ -566,7 +590,7 @@ export class App {
             const ui = kernel.ui.createForModule(ref.name, instance, moduleScope);
             const config = await kernel.configs.loadScope<TConfig>(entry.config as never, assets) as ConfigScope<TConfig>;
 
-            instance.__yzforgeBind({
+            bindModuleRuntime(instance, {
                 app: this,
                 ref,
                 assets,
@@ -577,26 +601,31 @@ export class App {
                 logger: kernel.logger.child(`module:${ref.name}`),
             });
 
-            await instance.__yzforgeCreate();
-            await instance.__yzforgeLoad();
+            transaction.defer('dispose partial module lifecycle', () => disposeModuleRuntime(instance as Module));
+            await createModuleRuntime(instance);
+            await loadModuleRuntime(instance);
 
-            const handle: LoadedModule<Module<TParams, TConfig>, TConfig> = {
+            const record: ModuleRecord<TParams, TConfig> = {
                 ref,
                 bundleName: ref.bundle,
                 instance,
                 assets,
                 config,
                 contentPacks,
-                releaseScope: moduleScope,
-                unload: async () => this.unloadModule(ref),
+                scope: moduleScope,
+                leases: new Set(),
             };
-            this.modules.set(ref.name, handle);
-            return handle;
+            this.modules.set(ref.name, record);
+            transaction.commit();
+            try {
+                await this.releasePreloads(ref.name, { type: 'module_load_completed', module: ref.name });
+            } catch (error) {
+                kernel.logger.warn(`Module loaded but preload lease cleanup reported errors: ${ref.name}`, describeError(error));
+            }
+            return record;
         } catch (error) {
-            await kernel.ui.disposeModule(ref.name, 'module_load_failed');
-            await instance?.contentPacks.unloadAll?.();
-            await moduleScope.release({ type: 'module_load_failed', module: ref.name });
-            throw error;
+            transaction.defer('dispose module ui', () => kernel.ui.disposeModule(ref.name, 'module_load_failed'));
+            return await transaction.fail(error, { type: 'module_load_failed', module: ref.name });
         }
     }
 
@@ -607,13 +636,77 @@ export class App {
         await this.beforeFirstModuleExtensionsTask;
     }
 
-    private snapshotModule(handle: LoadedModule): ModuleRuntimeSnapshot {
+    private removePreloadLease(moduleName: string, lease: ModulePreloadLeaseImpl): void {
+        const leases = this.preloadLeases.get(moduleName);
+        leases?.delete(lease);
+        if (leases?.size === 0) {
+            this.preloadLeases.delete(moduleName);
+        }
+    }
+
+    private async releasePreloads(moduleName: string, reason: unknown): Promise<void> {
+        const leases = Array.from(this.preloadLeases.get(moduleName) ?? []).reverse();
+        this.preloadLeases.delete(moduleName);
+        await runCleanupSteps(`module.preload.release:${moduleName}`, leases.map((lease) => ({
+            step: `release preload lease:${lease.leaseId}`,
+            task: () => lease.release(reason),
+        })));
+    }
+
+    private async releaseAllPreloads(reason: unknown): Promise<void> {
+        const names = Array.from(this.preloadLeases.keys()).reverse();
+        await runCleanupSteps('module.preload.releaseAll', names.map((name) => ({
+            step: `release module preloads:${name}`,
+            task: () => this.releasePreloads(name, reason),
+        })));
+    }
+
+    private createModuleLease<TParams, TConfig extends object>(
+        record: ModuleRecord<TParams, TConfig>,
+    ): ModuleLease<Module<TParams, TConfig>, TConfig> {
+        if (this.appState !== AppState.Started || this.modules.get(record.ref.name) !== record) {
+            throw new YZForgeError(`Module lease acquire was cancelled: ${record.ref.name}`, 'module.acquire_cancelled', {
+                module: record.ref.name,
+                appState: this.appState,
+            });
+        }
+        const releaseState = { released: false };
+        let lease!: ModuleLease<Module<TParams, TConfig>, TConfig>;
+        lease = {
+            leaseId: `module-lease-${++this.nextModuleLeaseId}`,
+            get released(): boolean {
+                return releaseState.released;
+            },
+            ref: record.ref,
+            bundleName: record.bundleName,
+            instance: record.instance,
+            assets: record.assets,
+            config: record.config,
+            contentPacks: record.contentPacks,
+            release: async () => {
+                if (releaseState.released) {
+                    return;
+                }
+                releaseState.released = true;
+                record.leases.delete(lease);
+                if (record.leases.size === 0 && this.modules.get(record.ref.name) === record) {
+                    await this.unloadModule(record.ref);
+                }
+            },
+        };
+        record.leases.add(lease);
+        this.moduleReleaseStates.set(lease, releaseState);
+        return lease;
+    }
+
+    private snapshotModule(record: ModuleRecord): ModuleRuntimeSnapshot {
         return {
-            name: handle.ref.name,
-            bundleName: handle.bundleName,
-            state: handle.instance.state,
-            assets: handle.assets.snapshot(),
-            contentPacks: handle.contentPacks.snapshots?.() ?? [],
+            name: record.ref.name,
+            bundleName: record.bundleName,
+            state: record.instance.state,
+            leaseCount: record.leases.size,
+            assets: record.assets.snapshot(),
+            contentPacks: record.contentPacks.snapshots(),
         };
     }
 
@@ -634,7 +727,8 @@ export class App {
                 code: scope.lastFailure.code,
                 severity: 'error',
                 message: scope.lastFailure.message,
-                ownerKey: scope.ownerKey,
+                ownerId: scope.id,
+                ownerPath: scope.path,
                 kind: scope.kind,
                 key: scope.key,
                 detail: {
@@ -671,12 +765,13 @@ export class App {
         record: OwnershipRecordSnapshot,
         scopes: readonly OwnershipScopeSnapshot[],
     ): ResourceDiagnosticDetail {
-        const scope = scopes.find((item) => item.ownerKey === record.ownerKey);
+        const scope = scopes.find((item) => item.id === record.ownerId);
         return {
             code: 'ownership.leak',
             severity: 'error',
-            message: `Released scope still holds ${record.kind}: ${record.ownerKey} -> ${record.key}`,
-            ownerKey: record.ownerKey,
+            message: `Released scope still holds ${record.kind}: ${record.ownerPath} (${record.ownerId}) -> ${record.key}`,
+            ownerId: record.ownerId,
+            ownerPath: record.ownerPath,
             kind: record.kind,
             key: record.key,
             count: record.count,
@@ -756,6 +851,41 @@ export class App {
 
     private isCurrentState(state: AppState): boolean {
         return this.appState === state;
+    }
+}
+
+class ModulePreloadLeaseImpl implements ModulePreloadLease {
+    private leaseReleased = false;
+
+    public constructor(
+        public readonly leaseId: string,
+        public readonly ref: ModuleRef,
+        private readonly scope: ReleaseScope,
+        private readonly onReleased: () => void,
+    ) {}
+
+    public get owner(): OwnerIdentity {
+        return {
+            id: this.scope.ownerId,
+            path: this.scope.ownerPath,
+            generation: this.scope.generation,
+        };
+    }
+
+    public get released(): boolean {
+        return this.leaseReleased;
+    }
+
+    public async release(reason: unknown = { type: 'module_preload_lease_release' }): Promise<void> {
+        if (this.leaseReleased) {
+            return;
+        }
+        this.leaseReleased = true;
+        try {
+            await this.scope.release(reason);
+        } finally {
+            this.onReleased();
+        }
     }
 }
 

@@ -345,7 +345,8 @@ Editor 插件应自动配置或校验 Cocos Bundle 设置：
 
 ```json
 {
-  "schemaVersion": 1,
+  "$schema": "../../../schemas/yzforge.scope.schema.json",
+  "schemaVersion": 2,
   "kind": "module",
   "name": "Battle",
   "bundle": "yzforge-module-battle",
@@ -360,7 +361,8 @@ Editor 插件应自动配置或校验 Cocos Bundle 设置：
 
 ```json
 {
-  "schemaVersion": 1,
+  "$schema": "../../../../schemas/yzforge.scope.schema.json",
+  "schemaVersion": 2,
   "kind": "content-pack",
   "id": "battle.level001",
   "owner": "Battle",

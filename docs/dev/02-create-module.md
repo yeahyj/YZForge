@@ -33,7 +33,8 @@ npm run yzforge:generate
 
 ```json
 {
-  "schemaVersion": 1,
+  "$schema": "../../../schemas/yzforge.scope.schema.json",
+  "schemaVersion": 2,
   "kind": "module",
   "name": "Battle",
   "bundle": "yzforge-module-battle",

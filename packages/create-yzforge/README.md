@@ -35,7 +35,7 @@ node packages/create-yzforge/bin/create-yzforge.js ../MyGame --template . --skip
 | --- | --- |
 | `--template <path>` | 从本地模板创建项目，适合框架开发期验证 |
 | `--repo <git-url>` | 指定模板 Git 仓库 |
-| `--ref <git-ref>` | 指定模板分支或 tag，默认 `main` |
+| `--ref <git-ref>` | 显式覆盖模板 tag；默认固定为与 create-yzforge 包版本一致的 `v<version>` |
 | `--skip-install` | 只复制项目，不执行依赖安装 |
 | `--package-manager <pm>` | 使用 `npm`、`pnpm` 或 `yarn` |
 | `--git` | 创建后执行 `git init` |

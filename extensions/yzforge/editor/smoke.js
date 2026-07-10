@@ -303,8 +303,8 @@ async function assertReleaseScopeBehavior() {
   const beforeRelease = ledger.snapshot();
   assert(beforeRelease.scopes.length === 2, 'OwnershipLedger must snapshot registered scopes.');
   assert(beforeRelease.holdings.length === 2, 'OwnershipLedger must snapshot active holdings.');
-  assert(beforeRelease.holdings.some((item) => item.ownerKey === 'app:root' && item.kind === 'bundle' && item.count === 2), 'OwnershipLedger must track root holdings.');
-  assert(beforeRelease.holdings.some((item) => item.ownerKey === 'app:root/module:Battle' && item.kind === 'asset' && item.count === 1), 'OwnershipLedger must track child holdings.');
+  assert(beforeRelease.holdings.some((item) => item.ownerId === root.ownerId && item.kind === 'bundle' && item.count === 2), 'OwnershipLedger must track root holdings by unique owner id.');
+  assert(beforeRelease.holdings.some((item) => item.ownerId === child.ownerId && item.kind === 'asset' && item.count === 1), 'OwnershipLedger must track child holdings by unique owner id.');
 
   await root.release({ type: 'test_release' });
   assert(events.join('|') === 'child:test_release|root:test_release', 'ReleaseScope must release children before parent actions.');
@@ -322,7 +322,7 @@ async function assertReleaseScopeBehavior() {
   assert(afterScopeRelease.leaks.length === 2, 'OwnershipLedger must expose holdings owned by released scopes as leaks.');
 
   ledger.release(root, 'bundle', 'main');
-  assert(ledger.snapshot().holdings.some((item) => item.ownerKey === 'app:root' && item.kind === 'bundle' && item.count === 1), 'OwnershipLedger partial release must decrement count.');
+  assert(ledger.snapshot().holdings.some((item) => item.ownerId === root.ownerId && item.kind === 'bundle' && item.count === 1), 'OwnershipLedger partial release must decrement count.');
   ledger.release(root, 'bundle', 'main');
   ledger.release(child, 'asset', 'page');
   assert(ledger.snapshot().holdings.length === 0, 'OwnershipLedger release should only update ledger records.');
@@ -332,12 +332,30 @@ async function assertReleaseScopeBehavior() {
   assert(rootSnapshot.releasing === false, 'ReleaseScope snapshot must clear releasing state.');
   assert(rootSnapshot.actionCount === 0, 'ReleaseScope snapshot must clear released actions.');
   assert(rootSnapshot.children.length === 0, 'ReleaseScope release must clear child scopes.');
+
+  const generationRoot = new ReleaseScope('app', 'generation-test', ledger);
+  const firstGeneration = generationRoot.child('module', 'Battle');
+  ledger.acquire(firstGeneration, 'custom', 'old-generation-leak');
+  await firstGeneration.release({ type: 'generation_one_release' });
+  assert(generationRoot.snapshot().children.length === 0, 'Independently released child must detach from its active parent children.');
+  const secondGeneration = generationRoot.child('module', 'Battle');
+  assert(firstGeneration.ownerId !== secondGeneration.ownerId, 'Repeated scope paths must receive unique owner ids.');
+  assert(secondGeneration.generation === firstGeneration.generation + 1, 'Repeated scope paths must increment generation.');
+  assert(
+    ledger.snapshot().leaks.some((item) => item.ownerId === firstGeneration.ownerId && item.key === 'old-generation-leak'),
+    'A new scope generation must not overwrite an old generation leak.',
+  );
+  await secondGeneration.release({ type: 'generation_two_release' });
+  await generationRoot.release({ type: 'generation_root_release' });
 }
 
 async function assertAssetReleasePolicyBehavior() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
   const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
   const lifetime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts', {
+    './errors': errors,
+  });
+  const compensation = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/compensation.ts', {
     './errors': errors,
   });
   class Asset {}
@@ -367,6 +385,8 @@ async function assertAssetReleasePolicyBehavior() {
     './bundle-manager': {},
     './errors': errors,
     './lifetime': lifetime,
+    './ui': { disposePartRuntime: async () => {}, initializePartRuntime: async () => {} },
+    './compensation': compensation,
   });
   const { AssetScope } = assetsRuntime;
   const { OwnershipLedger, ReleaseScope } = lifetime;
@@ -396,7 +416,7 @@ async function assertAssetReleasePolicyBehavior() {
     releaseError = error;
   }
   assert(releaseError?.code === 'release.scope_failed', 'ReleaseScope must aggregate AssetScope release failures.');
-  const failedScopeSnapshot = ledger.snapshot().scopes.find((scopeItem) => scopeItem.ownerKey === 'module:Battle');
+  const failedScopeSnapshot = ledger.snapshot().scopes.find((scopeItem) => scopeItem.id === scope.ownerId);
   assert(failedScopeSnapshot?.lastFailure?.code === 'release.scope_failed', 'OwnershipLedger must snapshot ReleaseScope failure reason.');
   assert(
     failedScopeSnapshot?.lastFailure?.errors?.some((error) => error?.code === 'asset.release_failed'),
@@ -404,7 +424,7 @@ async function assertAssetReleasePolicyBehavior() {
   );
   assert(releaseEvents.join('|') === 'good|bad', 'AssetScope releaseAll must continue after a failed asset release.');
   assert(assetScope.snapshot().assets.some((item) => item.path === 'bad'), 'Failed asset release must remain visible in AssetScope snapshot.');
-  assert(ledger.snapshot().leaks.some((item) => item.ownerKey === 'module:Battle' && item.kind === 'asset' && item.key.startsWith('bad::')), 'OwnershipLedger must expose failed asset release as leak evidence.');
+  assert(ledger.snapshot().leaks.some((item) => item.ownerId === scope.ownerId && item.kind === 'asset' && item.key.startsWith('bad::')), 'OwnershipLedger must expose failed asset release as leak evidence.');
 }
 
 async function assertBundleCachePolicyBehavior() {
@@ -457,16 +477,17 @@ async function assertBundleCachePolicyBehavior() {
   const ledger = new OwnershipLedger();
   const scope = new ReleaseScope('module', 'Battle', ledger);
   const manager = new BundleManager({ debug() {}, warn() {} }, { cachePolicy: 'keep-hot' }, ledger);
-  await manager.loadBundle('battle', { owner: scope });
+  const bundleLease = await manager.loadBundle('battle', scope);
   assert(manager.snapshot('battle').cacheState === 'owned', 'Bundle snapshot must mark owner-held bundles as owned.');
+  assert(bundleLease.owner.id === scope.ownerId, 'BundleLease must bind the acquiring owner identity.');
   await scope.release({ type: 'module_unload' });
   const hotSnapshot = manager.snapshot('battle');
-  assert(hotSnapshot.cacheState === 'hot' && hotSnapshot.refCount === 0, 'Bundle release should leave zero-ref bundle as hot cache when policy keeps cache.');
+  assert(hotSnapshot.cacheState === 'hot' && hotSnapshot.leaseCount === 0, 'Bundle release should leave a zero-lease bundle as hot cache when policy keeps cache.');
   assert(bundles.has('battle'), 'Hot bundle cache must keep the Cocos bundle loaded.');
   const purge = await manager.purgeUnusedBundles({ type: 'memory_pressure' });
   assert(purge.some((item) => item.name === 'battle' && item.purged), 'Bundle purge must report purged hot bundles.');
   assert(!bundles.has('battle'), 'Bundle purge must remove hot bundle from Cocos assetManager.');
-  assert(events.join('|') === 'releaseAll:battle|remove:battle', 'Bundle purge must release assets before removing the bundle.');
+  assert(events.join('|') === 'remove:battle', 'Bundle purge must remove the resource container without using bundle.releaseAll as an ownership model.');
 }
 
 async function assertLibraryOwnerAcquireBehavior() {
@@ -475,24 +496,24 @@ async function assertLibraryOwnerAcquireBehavior() {
   const lifetime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts', {
     './errors': errors,
   });
+  const compensation = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/compensation.ts', {
+    './errors': errors,
+  });
   const libraryRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/library.ts', {
     './assets': { LibraryAssets: class LibraryAssets {} },
     './errors': errors,
     './lifetime': lifetime,
+    './compensation': compensation,
   });
   const { LibraryRegistry } = libraryRuntime;
   assert(typeof LibraryRegistry === 'function', 'Expected LibraryRegistry runtime export.');
 
-  const ownershipEvents = [];
+  const { OwnershipLedger, ReleaseScope } = lifetime;
+  const ownership = new OwnershipLedger();
+  const appScope = new ReleaseScope('app', 'root', ownership);
   const kernel = {
-    ownership: {
-      acquire(owner, kind, key, detail) {
-        ownershipEvents.push(['acquire', lifetime.ownerKeyOf(owner), kind, key, detail]);
-      },
-      release(owner, kind, key, count = 1) {
-        ownershipEvents.push(['release', lifetime.ownerKeyOf(owner), kind, key, count]);
-      },
-    },
+    ownership,
+    releaseScope: appScope,
     logger: {
       child() {
         return {
@@ -503,43 +524,36 @@ async function assertLibraryOwnerAcquireBehavior() {
     },
   };
   const registry = new LibraryRegistry(kernel);
-  const deferred = [];
-  const owner = {
-    ownerKey: 'module:Battle',
-    defer(label, task) {
-      deferred.push({ label, task });
-      return () => {};
-    },
-  };
+  const ownerA = appScope.child('module', 'Battle');
+  const ownerB = appScope.child('module', 'Home');
+  const recordScope = appScope.child('library-record', 'BattleCore');
   const ref = { name: 'BattleCore', bundle: 'yzforge-lib-battle-core', libraries: [] };
   const record = {
     ref,
     entry: { tokens: {} },
     bundle: {},
-    scope: { release: async () => {} },
+    scope: recordScope,
     assets: { snapshot: () => ({ ownerName: ref.name, loadedCount: 0, trackedNodeCount: 0, assets: [] }) },
-    handle: { ref, bundleName: ref.bundle, use() {}, unload: async () => {} },
-    owners: new Set(),
+    config: { tables: {} },
+    leases: new Map(),
     tokenInstances: new Map(),
   };
   registry.records.set(ref.name, record);
 
-  await registry.acquire(ref, owner);
-  await registry.acquire(ref, owner);
+  const leaseA = await registry.acquire(ref, ownerA);
+  const leaseB = await registry.acquire(ref, ownerB);
+  assert(leaseA !== leaseB && leaseA.leaseId !== leaseB.leaseId, 'Different owners must receive independent LibraryLease objects.');
+  assert(leaseA.owner.id === ownerA.ownerId && leaseB.owner.id === ownerB.ownerId, 'Each LibraryLease must bind its own owner identity.');
+  assert(record.leases.size === 2, 'Shared LibraryRecord must track two independent leases.');
 
-  assert(record.owners.size === 1, 'Library owner set must stay unique after repeated owner acquire.');
-  assert(
-    ownershipEvents.filter((event) => event[0] === 'acquire').length === 1,
-    'Library owner acquire must only update OwnershipLedger once per owner.',
-  );
-  assert(deferred.length === 1, 'Library scope release must only be bound once per owner.');
+  await leaseB.release({ type: 'release_owner_b' });
+  assert(record.leases.size === 1 && record.leases.has(leaseA.leaseId), 'Releasing owner B must not release owner A lease.');
+  assert(registry.records.has(ref.name), 'LibraryRecord must remain while another lease exists.');
+  assert(ownership.snapshot().holdings.some((item) => item.ownerId === ownerA.ownerId && item.kind === 'library'), 'Owner A ledger holding must remain after owner B release.');
 
-  await registry.releaseOwner(owner);
-  assert(
-    ownershipEvents.filter((event) => event[0] === 'release').length === 1,
-    'Library owner release must balance the single ledger acquire.',
-  );
-  assert(!registry.records.has(ref.name), 'Library must unload after its only owner is released.');
+  await leaseA.release({ type: 'release_owner_a' });
+  assert(!registry.records.has(ref.name), 'LibraryRecord must release after its last lease is released.');
+  assert(recordScope.released, 'Library record scope must release after the last lease.');
 }
 
 async function assertExtensionRegistryBehavior() {
@@ -971,6 +985,10 @@ async function assertExtensionRegistryBehavior() {
 async function assertViewResultCloseBehavior() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
   const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const compensation = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/compensation.ts', {
+    './errors': errors,
+  });
+  const viewRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/view-runtime.ts');
   const uiRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/ui.ts', {
     cc: {
       Component: class Component {},
@@ -984,6 +1002,7 @@ async function assertViewResultCloseBehavior() {
       Node: class Node {},
     },
     './errors': errors,
+    './compensation': compensation,
     './layer-registry': {
       LayerRegistry: class LayerRegistry {
         constructor(roots = {}) {
@@ -1009,16 +1028,10 @@ async function assertViewResultCloseBehavior() {
         }
       },
     },
-    './view-runtime': {
-      ViewRuntime: class ViewRuntime {
-        beforeOpen(view, data) { return view.__yzforgeBeforeOpen(data); }
-        open(view, data) { return view.__yzforgeOpen(data); }
-        beforeClose(view, reason) { return view.__yzforgeBeforeClose(reason); }
-        close(view, result) { return view.__yzforgeClose(result); }
-      },
-    },
+    './view-runtime': viewRuntime,
   });
   const { View } = uiRuntime;
+  const runtime = new viewRuntime.ViewRuntime();
   assert(typeof View === 'function', 'Expected View runtime export.');
 
   class ResultView extends View {
@@ -1029,9 +1042,9 @@ async function assertViewResultCloseBehavior() {
 
   const cancelResult = { cancelled: true, reason: 'module_unload' };
   const resultView = new ResultView();
-  resultView.__yzforgeBind({}, { ref: { path: 'res/view/ResultView' } });
-  const waitCancel = resultView.__yzforgeWaitResult();
-  await resultView.__yzforgeClose(cancelResult);
+  await runtime.bind(resultView, {}, { ref: { path: 'res/view/ResultView' } });
+  const waitCancel = runtime.waitResult(resultView);
+  await runtime.close(resultView, cancelResult);
   assert(await waitCancel === cancelResult, 'View close must resolve pending result with cancel payload.');
   assert(resultView.closedWith === cancelResult, 'View onClose must receive the close result.');
 
@@ -1043,16 +1056,55 @@ async function assertViewResultCloseBehavior() {
 
   const failingView = new FailingCloseView();
   const closeResult = { ok: true };
-  failingView.__yzforgeBind({}, { ref: { path: 'res/view/FailingCloseView' } });
-  const waitClose = failingView.__yzforgeWaitResult();
+  await runtime.bind(failingView, {}, { ref: { path: 'res/view/FailingCloseView' } });
+  const waitClose = runtime.waitResult(failingView);
   let closeError;
   try {
-    await failingView.__yzforgeClose(closeResult);
+    await runtime.close(failingView, closeResult);
   } catch (error) {
     closeError = error;
   }
   assert(await waitClose === closeResult, 'View close must resolve result before reporting lifecycle failures.');
   assert(closeError?.code === 'ui.view_lifecycle_close_failed', 'View close lifecycle failures must be reported after result resolution.');
+}
+
+function assertViewportProfileBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const eventBus = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/event-bus.ts');
+  const resizeHandlers = new Set();
+  const frame = { width: 1000, height: 500 };
+  const visible = { width: 1200, height: 600 };
+  const design = { width: 800, height: 600 };
+  let appliedPolicy;
+  const viewportRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/viewport.ts', {
+    cc: {
+      ResolutionPolicy: { FIXED_WIDTH: 'fixed-width', FIXED_HEIGHT: 'fixed-height' },
+      screen: { windowSize: frame },
+      sys: { getSafeAreaRect: () => ({ x: 100, y: 25, width: 800, height: 450 }) },
+      view: {
+        getVisibleSize: () => visible,
+        getDesignResolutionSize: () => design,
+        setDesignResolutionSize: (_width, _height, policy) => { appliedPolicy = policy; },
+        on: (_event, handler) => resizeHandlers.add(handler),
+        off: (_event, handler) => resizeHandlers.delete(handler),
+      },
+    },
+    './event-bus': eventBus,
+  });
+  const controller = new viewportRuntime.ViewportController({ designWidth: 800, designHeight: 600, fit: 'auto' });
+  controller.initialize();
+  assert(appliedPolicy === 'fixed-height', 'Viewport auto fit must use Cocos FIXED_HEIGHT for a wider frame.');
+  assert(controller.profile.safeArea.x === 120 && controller.profile.safeArea.y === 30, 'Safe area must convert from frame pixels into visible design coordinates.');
+  assert(controller.profile.safeInsets.left === 120 && controller.profile.safeInsets.right === 120, 'Safe area horizontal insets must use visible design width.');
+  assert(controller.profile.safeInsets.top === 30 && controller.profile.safeInsets.bottom === 30, 'Safe area vertical insets must use visible design height.');
+
+  let changedProfile;
+  controller.onChanged((profile) => { changedProfile = profile; });
+  visible.width = 1000;
+  for (const handler of resizeHandlers) handler();
+  assert(changedProfile?.visibleWidth === 1000, 'Viewport resize must publish one refreshed shared profile.');
+  controller.dispose();
+  assert(resizeHandlers.size === 0, 'Viewport dispose must remove the shared resize listener.');
 }
 
 async function assertAppStateMachineBehavior() {
@@ -1081,32 +1133,50 @@ async function assertAppStateMachineBehavior() {
     constructor(kind = 'app', key = 'root', parent) {
       this.kind = kind;
       this.key = key;
-      this.ownerKey = parent ? `${parent.ownerKey}/${kind}:${key}` : `${kind}:${key}`;
+      this.ownerPath = parent ? `${parent.ownerPath}/${kind}:${key}` : `${kind}:${key}`;
+      this.ownerId = `smoke-owner:${this.ownerPath}:${events.length}`;
+      this.generation = 1;
       this.released = false;
+      this.releasing = false;
+      this.actions = [];
+      this.children = [];
     }
+
+    get active() { return !this.released && !this.releasing; }
 
     child(kind, key) {
-      return new SmokeReleaseScope(kind, key, this);
+      const child = new SmokeReleaseScope(kind, key, this);
+      this.children.push(child);
+      return child;
     }
 
-    defer() {
-      return () => {};
+    defer(_label, task) {
+      const action = { task, active: true };
+      this.actions.push(action);
+      return () => { action.active = false; };
     }
 
     async release(reason) {
+      if (this.released) return;
+      this.releasing = true;
+      for (const child of [...this.children].reverse()) await child.release(reason);
+      for (const action of [...this.actions].reverse()) if (action.active) await action.task(reason);
+      this.releasing = false;
       this.released = true;
-      events.push(`release:${this.ownerKey}:${reason?.type ?? 'unknown'}`);
+      events.push(`release:${this.ownerId}:${reason?.type ?? 'unknown'}`);
     }
 
     snapshot() {
       return {
-        ownerKey: this.ownerKey,
+        id: this.ownerId,
+        path: this.ownerPath,
+        generation: this.generation,
         kind: this.kind,
         key: this.key,
         released: this.released,
         releasing: false,
         actionCount: 0,
-        children: [],
+        children: this.children.filter((child) => !child.released).map((child) => child.snapshot()),
       };
     }
   }
@@ -1122,6 +1192,7 @@ async function assertAppStateMachineBehavior() {
         designHeight: 720,
         aspectRatio: 1280 / 720,
         orientation: 'landscape',
+        frameSafeArea: { x: 0, y: 0, width: 1280, height: 720 },
         safeArea: { x: 0, y: 0, width: 1280, height: 720 },
         safeInsets: { left: 0, right: 0, top: 0, bottom: 0 },
       };
@@ -1179,8 +1250,9 @@ async function assertAppStateMachineBehavior() {
       this.storage = new SmokeStorage();
       this.logger = createLogger();
       this.entries = {
-        waitForModule: async () => ({}),
+        waitForModule: async () => controls.moduleEntry ?? ({}),
         validateModule() {},
+        snapshot: () => [],
       };
       this.ownership = {
         snapshot: () => ({ scopes: [], holdings: [], leaks: [] }),
@@ -1272,6 +1344,7 @@ async function assertAppStateMachineBehavior() {
       this.navigator = {
         enter: async () => ({ ref: { name: 'Entered' } }),
         detach: async () => events.push('navigator.detach'),
+        detachModule: async () => events.push('navigator.detachModule'),
         snapshot: () => ({ stack: [] }),
       };
       this.app = app;
@@ -1279,13 +1352,35 @@ async function assertAppStateMachineBehavior() {
   }
 
   const appRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/app.ts', {
-    './assets': { ModuleAssets: class ModuleAssets {} },
-    './content-pack': { ContentPackManager: class ContentPackManager {} },
+    './assets': { ModuleAssets: class ModuleAssets { snapshot() { return { assets: [], nodes: [] }; } } },
+    './content-pack': { ContentPackManager: class ContentPackManager { snapshots() { return []; } async releaseAll() {} } },
     './kernel': { AppKernel: SmokeAppKernel },
     './library': { ModuleLibraryManager: class ModuleLibraryManager {} },
     './main-binding': { createMainBinding: () => ({ layerRoots: {} }) },
-    './module': { ModuleState: { Entering: 'entering' } },
-    './viewport': { ViewportManager: SmokeViewportManager },
+    './module': {
+      bindModuleRuntime() {},
+      createModuleRuntime: async () => {},
+      disposeModuleRuntime: async () => {},
+      loadModuleRuntime: async () => {},
+    },
+    './viewport': {
+      ViewportController: SmokeViewportManager,
+      installViewportBridge: () => () => {},
+    },
+    './compensation': {
+      CompensationStack: class CompensationStack {
+        constructor() { this.actions = []; this.finished = false; }
+        defer(_step, task) { this.actions.push(task); }
+        commit() { this.finished = true; this.actions = []; }
+        async fail(error, reason) {
+          if (!this.finished) for (const action of [...this.actions].reverse()) await action(reason);
+          throw error;
+        }
+      },
+      runCleanupSteps: async (_operation, steps) => {
+        for (const step of steps) await step.task();
+      },
+    },
     './errors': errors,
   });
   const { App, AppState } = appRuntime;
@@ -1336,18 +1431,43 @@ async function assertAppStateMachineBehavior() {
   assert(moduleLoadFailureSnapshot?.api === 'loadModule', 'App failure snapshot must update after module load failure.');
   assert(moduleLoadFailureSnapshot?.state === AppState.Started, 'Module load failure snapshot must keep the current App state.');
 
-  let releaseConcurrentPreload;
-  controls.preloadBundle = () => new Promise((resolve) => {
-    releaseConcurrentPreload = resolve;
-  });
+  controls.moduleEntry = {
+    name: ref.name,
+    bundle: ref.bundle,
+    libraries: [],
+    config: {},
+    type: class SmokeModule { constructor() { this.state = 'ready'; } },
+  };
+  const moduleLeaseA = await app.loadModule(ref);
+  const moduleLeaseB = await app.loadModule(ref);
+  assert(moduleLeaseA !== moduleLeaseB, 'Every App.loadModule acquire must return an independent ModuleLease.');
+  assert(moduleLeaseA.leaseId !== moduleLeaseB.leaseId, 'Module leases must have unique lease ids.');
+  assert(moduleLeaseA.instance === moduleLeaseB.instance, 'Module leases must share one loaded module record.');
+  await moduleLeaseA.release();
+  assert(app.snapshot().modules[0]?.leaseCount === 1, 'Releasing one ModuleLease must preserve other callers.');
+  await moduleLeaseB.release();
+  assert(app.snapshot().modules.length === 0, 'Last ModuleLease release must unload the shared module record.');
+  const moduleLeaseC = await app.loadModule(ref);
+  await moduleLeaseA.release();
+  assert(app.snapshot().modules[0]?.leaseCount === 1, 'A stale released ModuleLease must not unload a newer module generation.');
+  await moduleLeaseC.release();
+  const generationLeaseIds = new Set();
+  for (let generation = 0; generation < 100; generation += 1) {
+    const generationLease = await app.loadModule(ref);
+    generationLeaseIds.add(generationLease.leaseId);
+    await generationLease.release();
+  }
+  assert(generationLeaseIds.size === 100, 'One hundred Module load/unload generations must use unique lease ids.');
+  assert(app.snapshot().modules.length === 0, 'One hundred Module load/unload generations must leave no runtime record.');
+
   const concurrentRef = { name: 'PreloadOnly', bundle: 'yzforge-module-preload-only', libraries: [] };
   const concurrentPreloadA = app.preloadModule(concurrentRef);
   const concurrentPreloadB = app.preloadModule(concurrentRef);
-  assert(events.filter((event) => event === 'bundle.preload:yzforge-module-preload-only').length === 1, 'Concurrent App.preloadModule calls must share one preload task.');
-  releaseConcurrentPreload();
-  const [concurrentScopeA, concurrentScopeB] = await Promise.all([concurrentPreloadA, concurrentPreloadB]);
-  assert(concurrentScopeA === concurrentScopeB, 'Concurrent App.preloadModule calls must resolve the same preload scope.');
-  controls.preloadBundle = undefined;
+  const [concurrentLeaseA, concurrentLeaseB] = await Promise.all([concurrentPreloadA, concurrentPreloadB]);
+  assert(concurrentLeaseA !== concurrentLeaseB, 'Every App.preloadModule call must return an independent lease.');
+  assert(concurrentLeaseA.owner.id !== concurrentLeaseB.owner.id, 'Concurrent preload leases must have unique owner identities.');
+  await concurrentLeaseA.release();
+  await concurrentLeaseB.release();
 
   let duplicateStart;
   try {
@@ -1359,19 +1479,9 @@ async function assertAppStateMachineBehavior() {
   assert(duplicateStart?.details?.state === AppState.Started, 'Duplicate start must report Started state.');
   assert(app.snapshot().lastFailure?.api === 'start', 'App failure snapshot must update after duplicate start failure.');
 
-  let releaseDisposePreload;
-  controls.preloadBundle = () => new Promise((resolve) => {
-    releaseDisposePreload = resolve;
-  });
-  const disposePreload = app.preloadModule({ name: 'DisposePreload', bundle: 'yzforge-module-dispose-preload', libraries: [] });
   const disposeDuringPreload = app.dispose({ type: 'test_dispose' });
   await Promise.resolve();
-  assert(app.state === AppState.Disposing, 'App.dispose during preload must enter Disposing.');
-  assert(!events.includes('extension.dispose:test_dispose'), 'App.dispose must wait for pending preload tasks before runtime disposal.');
-  releaseDisposePreload();
-  await disposePreload;
   await disposeDuringPreload;
-  controls.preloadBundle = undefined;
   assert(app.state === AppState.Disposed, 'App.dispose must transition to Disposed.');
   assert(events.includes('lifecycle.off:memory-warning'), 'App.dispose must unbind the memory pressure cache policy.');
   const memoryPressurePurgeCount = events.filter((event) => event === 'bundle.purge:memory_pressure').length;
@@ -2058,7 +2168,17 @@ function toolchainResolverSmokeSource() {
 }
 
 function setupBaseline(projectRoot) {
-  writeJson(projectRoot, 'tsconfig.json', { compilerOptions: {} });
+  writeJson(projectRoot, 'package.json', {
+    name: 'smoke-project',
+    private: true,
+    scripts: { lint: 'custom-lint' },
+    dependencies: { 'user-package': '1.0.0' },
+  });
+  writeJson(projectRoot, 'tsconfig.json', {
+    extends: './tsconfig.yzforge.json',
+    compilerOptions: { noImplicitReturns: false },
+  });
+  writeJson(projectRoot, 'import-map.json', { imports: { 'user-lib': './user-lib.js' } });
   writeText(projectRoot, 'extensions/yzforge/editor/toolchain.js', toolchainResolverSmokeSource());
   writeText(projectRoot, 'extensions/yzforge/editor/cli.js', [
     "'use strict';",
@@ -2254,25 +2374,100 @@ function assertGeneratedOutput(projectRoot) {
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', 'export const BattleItemIds = {');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/config.ts', "item: tableRef<ItemRow, 'id'>({ name: 'res/content/config/Item', primaryKey: 'id' })");
   requireText(projectRoot, 'assets/app/registry/modules/Battle.ref.generated.ts', 'defineModuleRef<BattleEnterParams>');
+  requireText(projectRoot, 'assets/app/registry/modules/Battle.ref.generated.ts', 'abi: YZFORGE_RUNTIME_ABI');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export const BattleLevel001ContentPack = defineContentPack');
-  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "levelRoot: contentPackAssetRef(Prefab, 'res/prefab/LevelRoot')");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'levelRoot: contentPackAssetContract(Prefab)');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export interface EnemyWaveRow {');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export const BattleLevel001EnemyWaveIds = {');
-  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "enemyWave: contentPackConfigRef<EnemyWaveRow>('res/content/config/EnemyWave', { primaryKey: 'id' })");
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "enemyWave: contentPackConfigContract<EnemyWaveRow>({ primaryKey: 'id' })");
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export interface BattleLevel001ContentPackConfigTables');
-  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'defineContentPack<typeof BattleLevel001ContentPackRefs, BattleLevel001ContentPackConfigTables>');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'defineContentPack<typeof BattleLevel001ContentPackContract, BattleLevel001ContentPackConfigTables>');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'contract: BattleLevel001ContentPackContract');
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'AnalyticsExtension');
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'app.installExtension(AnalyticsExtension)');
   requireText(projectRoot, 'assets/app/extensions/Analytics.ts', 'AnalyticsModuleToken');
 
+  const packageJson = readJson(projectRoot, 'package.json');
+  assert(packageJson.scripts?.lint === 'custom-lint', 'Generator must preserve user package scripts.');
+  assert(packageJson.dependencies?.['user-package'] === '1.0.0', 'Generator must preserve user package dependencies.');
+  assert(readJson(projectRoot, 'import-map.json').imports?.['user-lib'] === './user-lib.js', 'Generator must preserve non-YZForge import-map entries.');
+
   const manifest = readJson(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json');
   assert(manifest.id === 'battle.level001', 'ContentPack manifest id mismatch.');
+  assert(Array.isArray(manifest.dependencies), 'ContentPack manifest dependencies must be materialized.');
+  assert(typeof manifest.contentHash === 'string' && manifest.contentHash.length > 0, 'ContentPack manifest content hash missing.');
   assert(manifest.refs.levelRoot?.type === 'Prefab', 'ContentPack prefab ref missing from manifest.');
   assert(manifest.refs.levelData?.type === 'JsonAsset', 'ContentPack runtime json ref missing from manifest.');
   assert(manifest.refs.levelScene?.type === 'SceneAsset', 'ContentPack scene ref missing from manifest.');
   assert(manifest.refs.enemyWave?.kind === 'config', 'ContentPack config ref missing from manifest.');
   assert(manifest._generated?.hash, 'ContentPack manifest generated metadata missing hash.');
   assert(manifest._generated?.source === 'assets/content-packs/Battle/Level001/content-pack.json', 'ContentPack manifest generated source mismatch.');
+}
+
+function assertAtomicGeneratorCommit(projectRoot) {
+  const targets = [
+    'assets/app/bootstrap/install.generated.ts',
+    'assets/app/registry/entries.generated.ts',
+  ];
+  const staleTargets = [
+    'assets/yzforge/runtime/obsolete.ts',
+    'assets/yzforge/runtime/obsolete.ts.meta',
+    'extensions/yzforge/runtime-template/obsolete.ts',
+  ];
+  writeText(projectRoot, staleTargets[0], 'export const obsolete = true;');
+  writeJson(projectRoot, staleTargets[1], { uuid: 'obsolete-runtime-meta' });
+  writeText(projectRoot, staleTargets[2], 'export const obsolete = true;');
+  const drifted = new Map();
+  for (const relativePath of targets) {
+    const current = fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
+    writeText(projectRoot, relativePath, `${current}\n// injected transaction drift`);
+    drifted.set(relativePath, fs.readFileSync(path.join(projectRoot, relativePath), 'utf8'));
+  }
+
+  expectThrows(
+    () => generate(projectRoot, { failCommitAfter: 3 }),
+    'Injected generator commit failure after 3 operations.',
+  );
+  for (const [relativePath, expected] of drifted) {
+    const actual = fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
+    assert(actual === expected, `Generator rollback did not restore ${relativePath}.`);
+  }
+  for (const relativePath of staleTargets) {
+    assert(fs.existsSync(path.join(projectRoot, relativePath)), `Generator rollback did not restore deleted target ${relativePath}.`);
+  }
+
+  const transactionParent = path.join(projectRoot, 'temp', 'yzforge');
+  const transactionArtifacts = fs.existsSync(transactionParent)
+    ? fs.readdirSync(transactionParent).filter((name) => name.startsWith('generate-transaction-'))
+    : [];
+  assert(transactionArtifacts.length === 0, 'Generator transaction artifacts must be cleaned after rollback.');
+
+  const repaired = generate(projectRoot);
+  for (const relativePath of targets) {
+    assert(repaired.changed.includes(relativePath), `Generator did not repair ${relativePath} after rollback test.`);
+  }
+  for (const relativePath of staleTargets) {
+    assert(repaired.changed.includes(relativePath), `Generator must plan stale runtime cleanup for ${relativePath}.`);
+    assert(!fs.existsSync(path.join(projectRoot, relativePath)), `Generator must remove stale runtime output ${relativePath}.`);
+  }
+
+  const validationTarget = targets[0];
+  const current = fs.readFileSync(path.join(projectRoot, validationTarget), 'utf8');
+  writeText(projectRoot, validationTarget, `${current}\n// input-validation drift`);
+  const beforeRejectedGenerate = fs.readFileSync(path.join(projectRoot, validationTarget), 'utf8');
+  updateJson(projectRoot, 'assets/modules/Battle/module.json', (descriptor) => {
+    descriptor.invalidGenerationInput = true;
+  });
+  expectThrows(() => generate(projectRoot), 'Generation input validation failed');
+  assert(
+    fs.readFileSync(path.join(projectRoot, validationTarget), 'utf8') === beforeRejectedGenerate,
+    'Generator input validation failure must not mutate planned outputs.',
+  );
+  updateJson(projectRoot, 'assets/modules/Battle/module.json', (descriptor) => {
+    delete descriptor.invalidGenerationInput;
+  });
+  assert(generate(projectRoot).changed.includes(validationTarget), 'Generator must repair drift after valid inputs are restored.');
+
 }
 
 function assertConfigBuildFromExcel(projectRoot) {
@@ -2594,11 +2789,16 @@ function assertDashboardProfileResolver() {
 
 function assertTypecheckConfigPortability(projectRoot) {
   const rootTsconfig = readJson(projectRoot, 'tsconfig.json');
-  assert(rootTsconfig.extends === undefined, 'Root tsconfig must not extend Cocos temp config.');
-  assert(rootTsconfig.compilerOptions?.baseUrl === undefined, 'Root tsconfig must not set deprecated baseUrl.');
-  assert(rootTsconfig.compilerOptions?.moduleResolution === 'bundler', 'Root tsconfig must use bundler moduleResolution.');
-  assert(rootTsconfig.compilerOptions?.paths?.['db://assets/*']?.[0] === './assets/*', 'Root tsconfig db://assets path must be explicit relative.');
-  assert(rootTsconfig.compilerOptions?.paths?.['db://internal/*'] === undefined, 'Root tsconfig must not commit Cocos internal path.');
+  assert(rootTsconfig.extends === './tsconfig.yzforge.json', 'Root tsconfig must extend the generated YZForge config.');
+  assert(rootTsconfig.compilerOptions && typeof rootTsconfig.compilerOptions === 'object', 'Root tsconfig must remain a user-owned override layer.');
+  assert(rootTsconfig.compilerOptions.noImplicitReturns === false, 'Generator must preserve user tsconfig overrides.');
+
+  const frameworkTsconfig = readJson(projectRoot, 'tsconfig.yzforge.json');
+  assert(frameworkTsconfig.compilerOptions?.baseUrl === undefined, 'YZForge tsconfig must not set deprecated baseUrl.');
+  assert(frameworkTsconfig.compilerOptions?.moduleResolution === 'bundler', 'YZForge tsconfig must use bundler moduleResolution.');
+  assert(frameworkTsconfig.compilerOptions?.paths?.['db://assets/*']?.[0] === './assets/*', 'YZForge tsconfig db://assets path must be explicit relative.');
+  assert(frameworkTsconfig.compilerOptions?.paths?.['yzforge/authoring']?.[0] === './packages/yzforge-runtime/src/authoring.ts', 'YZForge tsconfig must expose the generated-code authoring surface.');
+  assert(frameworkTsconfig.compilerOptions?.paths?.['db://internal/*'] === undefined, 'YZForge tsconfig must not commit Cocos internal path.');
 
   const generatedTsconfigPath = prepareTypecheckTsconfig(projectRoot);
   const generatedRel = toPosix(path.relative(projectRoot, generatedTsconfigPath));
@@ -2637,150 +2837,75 @@ function assertRuntimeLifecycleInvariants() {
   const appSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/app.ts'), 'utf8');
   const assetsSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/assets.ts'), 'utf8');
   const bundleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/bundle-manager.ts'), 'utf8');
-  const clockSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/clock.ts'), 'utf8');
-  const kernelSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/kernel.ts'), 'utf8');
-  const lifecycleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/lifecycle.ts'), 'utf8');
   const lifetimeSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts'), 'utf8');
   const moduleSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/module.ts'), 'utf8');
   const navigatorSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/navigator.ts'), 'utf8');
   const librarySource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/library.ts'), 'utf8');
-  const extensionRegistrySource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/extension-registry.ts'), 'utf8');
   const contentPackSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/content-pack.ts'), 'utf8');
   const runtimeIndexSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/index.ts'), 'utf8');
-  const storageSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/storage.ts'), 'utf8');
+  const authoringSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/authoring.ts'), 'utf8');
+  const viewportSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/viewport.ts'), 'utf8');
+  const screenFitterSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/screen-fitter.ts'), 'utf8');
   const uiSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/ui.ts'), 'utf8');
-  const editorMainSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/main.js'), 'utf8');
+  const viewRuntimeSource = fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/view-runtime.ts'), 'utf8');
   const preloadBody = appSource.slice(appSource.indexOf('public async preloadModule'), appSource.indexOf('public async loadModule'));
   const enterBody = appSource.slice(appSource.indexOf('public async enterModule'), appSource.indexOf('public async unloadModule'));
+
   assert(appSource.includes('export enum AppState'), 'App must expose a public AppState enum.');
-  assert(appSource.includes('readonly boot?: AppBootProfileInput'), 'AppOptions must accept AppBootProfileInput.');
   assert(appSource.includes('private appState = AppState.Created'), 'App must store explicit AppState.');
-  assert(appSource.includes('public get boot(): AppBootProfile'), 'App must expose a boot profile getter.');
-  assert(appSource.includes('public get clock(): AppClock'), 'App must expose an AppClock getter.');
-  assert(appSource.includes('clock: kernel.clock.snapshot()'), 'App snapshot must expose clock snapshot.');
-  assert(runtimeIndexSource.includes("export * from './clock'"), 'Runtime public barrel must expose AppClock.');
-  assert(kernelSource.includes('this.clock = new AppClock()'), 'AppKernel must create AppClock.');
-  assert(clockSource.includes('public dayOfWeek') && clockSource.includes('public hasCrossedMonth'), 'AppClock must expose calendar helpers.');
-  assert(appSource.includes('public get storage(): AppStorage'), 'App must expose an AppStorage getter.');
-  assert(appSource.includes('storage: kernel.storage.snapshot()'), 'App snapshot must expose storage snapshot.');
-  assert(runtimeIndexSource.includes("export * from './storage'"), 'Runtime public barrel must expose AppStorage.');
-  assert(kernelSource.includes('this.storage = new AppStorage'), 'AppKernel must create AppStorage.');
-  assert(storageSource.includes("export type AppStoragePartitionName = 'save' | 'settings' | 'cache'"), 'AppStorage must expose fixed save/settings/cache partitions.');
   assert(appSource.includes("this.assertState('preloadModule', [AppState.Started])"), 'preloadModule must require Started App state.');
   assert(appSource.includes("this.assertState('back', [AppState.Started])"), 'back must require Started App state.');
   assert(appSource.includes("this.assertState('loadModule', [AppState.Started])"), 'loadModule must require Started App state.');
   assert(appSource.includes("this.assertState('enterModule', [AppState.Started])"), 'enterModule must require Started App state.');
-  assert(appSource.includes("this.assertState('purgeResourceCache', [AppState.Started, AppState.Disposing])"), 'purgeResourceCache must require Started/Disposing App state.');
-  assert(appSource.includes('purgeUnusedBundles'), 'App.purgeResourceCache must delegate to BundleManager.');
-  assert(lifecycleSource.includes('Game.EVENT_SHOW') && lifecycleSource.includes('Game.EVENT_HIDE'), 'AppLifecycle must listen to Cocos Game foreground/background events.');
-  assert(lifecycleSource.includes('Game.EVENT_LOW_MEMORY'), 'AppLifecycle must listen to Cocos low-memory events.');
-  assert(appSource.includes("kernel.lifecycle.on('memory-warning'"), 'App must install a memory-warning cache purge policy.');
-  assert(appSource.includes("type: 'memory_pressure'"), 'Memory-warning cache purge must use a structured memory_pressure reason.');
-  assert(appSource.includes('memoryPressurePurgeTask'), 'Memory-warning cache purge must coalesce concurrent purge tasks.');
-  assert(appSource.includes('Memory pressure cache purge failed.'), 'Memory-warning cache purge failures must be logged without breaking App state.');
   assert(appSource.includes("this.assertState('dispose', [AppState.Created, AppState.Starting, AppState.Started, AppState.Failed])"), 'dispose must accept Created/Starting/Started/Failed states.');
   assert(appSource.includes("'app.invalid_state'"), 'App state guard must report typed invalid-state errors.');
-  assert(appSource.includes('state: this.appState'), 'App snapshot must expose current App state.');
-  assert(appSource.includes('boot: kernel.boot'), 'App snapshot must expose boot profile.');
-  assert(appSource.includes('export interface AppFailureSnapshot'), 'App snapshot must expose structured failure diagnostics.');
-  assert(appSource.includes('readonly lastFailure?: AppFailureSnapshot'), 'AppRuntimeSnapshot must include last failure diagnostics.');
-  assert(appSource.includes('export interface ResourceDiagnosticsSnapshot'), 'App snapshot must expose structured resource diagnostics.');
-  assert(appSource.includes('resourceDiagnostics: this.snapshotResourceDiagnostics'), 'App snapshot must include resource diagnostics.');
-  assert(appSource.includes("'ownership.leak'"), 'Resource diagnostics must expose ownership leak details.');
-  assert(appSource.includes("'bundle.cache_failed'"), 'Resource diagnostics must expose failed bundle cache details.');
-  assert(lifetimeSource.includes('lastFailure?: ReleaseScopeFailureSnapshot'), 'ReleaseScope snapshots must expose release failure diagnostics.');
-  assert(lifetimeSource.includes('scope.lastFailure'), 'OwnershipLedger must capture ReleaseScope failure diagnostics.');
-  assert(editorMainSource.includes('withRuntimeResourceDetails'), 'Editor Runtime Snapshot must surface resource diagnostics as result details.');
-  assert(appSource.includes('private readonly stateTransitions'), 'App must keep state transition evidence for failure diagnostics.');
-  assert(appSource.includes('private setState('), 'App state transitions must go through a centralized recorder.');
-  assert(appSource.includes('private recordFailure('), 'App must centralize failure snapshot recording.');
-  assert(appSource.includes('transitions: this.stateTransitions.slice(transitionStart)'), 'App failure diagnostics must include state transition evidence.');
-  for (const api of ['back', 'preloadModule', 'loadModule', 'enterModule', 'unloadModule', 'use', 'installExtension', 'useModuleToken', 'purgeResourceCache']) {
-    assert(appSource.includes(`this.recordFailure('${api}'`), `App.${api} failures must update App failure diagnostics.`);
-  }
-  assert(appSource.includes('private readonly preloadTasks = new Map<string, Promise<ReleaseScope>>()'), 'App must track pending preload tasks explicitly.');
-  assert(appSource.includes('const running = this.preloadTasks.get(ref.name)'), 'App.preloadModule must reuse pending preload tasks.');
-  assert(appSource.indexOf('const running = this.preloadTasks.get(ref.name)') < appSource.indexOf('const existing = this.preloadScopes.get(ref.name)'), 'App.preloadModule must prefer pending preload tasks over optimistic preload scopes.');
-  assert(appSource.includes('this.preloadTasks.set(ref.name, task)'), 'App.preloadModule must register pending preload tasks.');
-  assert(appSource.includes('this.preloadTasks.delete(ref.name)'), 'App.preloadModule must clear completed preload tasks.');
-  assert(appSource.includes('Array.from(this.preloadTasks.values())'), 'App.dispose must await pending preload tasks before runtime disposal.');
+  assert(appSource.includes('ModulePreloadLease'), 'Module preload must return an owner-specific lease.');
+  assert(!appSource.includes('preloadTasks = new Map<string, Promise<ReleaseScope>>'), 'Preload callers must not share one releasable scope handle.');
   assert(appSource.includes('Array.from(this.moduleTasks.values())'), 'App.dispose must await pending module load tasks before unloading modules.');
   assert(appSource.includes('moduleUnloadTasks'), 'App must keep module unload tasks idempotent.');
-  assert(appSource.includes('module.unload_during_enter'), 'App must reject unloading a module while it is entering.');
   assert(appSource.includes('module.unload_failed'), 'App must aggregate module unload failures.');
-  assert(appSource.includes('private readonly kernel: AppKernel'), 'App must keep runtime systems behind AppKernel.');
-  assert(!appSource.includes('public readonly bundles') && !appSource.includes('public readonly extensions'), 'App must not expose runtime system registries as public fields.');
-  assert(kernelSource.includes('export class AppKernel'), 'Runtime must define an AppKernel.');
-  assert(!runtimeIndexSource.includes("export * from './kernel'"), 'Runtime public barrel must not expose AppKernel.');
-  assert(lifetimeSource.includes('readonly leaks'), 'OwnershipLedger snapshot must expose leak evidence.');
+  assert(appSource.includes('private readonly modules = new Map<string, ModuleRecord>()'), 'Module runtime records must be separate from caller leases.');
+  assert(appSource.includes('return this.createModuleLease(existing)'), 'Every module load acquire must return a distinct ModuleLease.');
+  assert(moduleSource.includes('readonly leaseId: string') && moduleSource.includes('readonly released: boolean'), 'ModuleLease must have an idempotent lease identity.');
+  assert(!moduleSource.includes('readonly releaseScope: ReleaseScope'), 'ModuleLease must not expose its internal ReleaseScope.');
+  assert(lifetimeSource.includes('generation: number'), 'OwnerIdentity must carry a generation.');
+  assert(lifetimeSource.includes('private readonly activeChildren = new Map'), 'ReleaseScope must track only active children.');
+  assert(lifetimeSource.includes('this.parent?.detachChild(this)'), 'Released child scopes must detach from their parent.');
+  assert(lifetimeSource.includes('ownerId') && !lifetimeSource.includes('ownerKeyOf'), 'Ownership must use unique owner ids, not reusable path keys.');
   assert(lifetimeSource.includes('release.scope_failed'), 'ReleaseScope must aggregate release failures.');
   assert(assetsSource.includes('asset.release_failed'), 'AssetScope releaseAll must aggregate asset release failures.');
-  assert(!assetsSource.includes('this.loaded.clear()'), 'AssetScope.releaseAll must not hide failed asset releases by clearing all loaded records.');
-  assert(bundleSource.includes('BundleCachePolicy'), 'BundleManager must expose a bundle cache policy.');
+  assert(bundleSource.includes('export interface BundleLease'), 'Bundle acquire must return an owner-specific BundleLease.');
+  assert(bundleSource.includes('private nextLeaseId'), 'Bundle leases must have unique identities.');
+  assert(!bundleSource.includes('MANUAL_OWNER'), 'Bundle ownership must not fall back to a shared manual owner string.');
   assert(bundleSource.includes('purgeUnusedBundles'), 'BundleManager must support explicit hot cache purge.');
-  assert(bundleSource.includes('cacheState'), 'Bundle snapshots must expose cache state.');
+  assert(bundleSource.includes('attachOwnerRelease'), 'Manual BundleLease release must detach its owner cleanup action.');
   assert(preloadBody.includes('kernel.bundles.preloadBundle'), 'preloadModule must preload the module bundle through AppKernel.');
-  assert(!preloadBody.includes('new entry.type') && !preloadBody.includes('__yzforgeCreate') && !preloadBody.includes('__yzforgeLoad'), 'preloadModule must not create or load Module instances.');
+  assert(!preloadBody.includes('new entry.type'), 'preloadModule must not create Module instances.');
   assert(appSource.includes('instance = new ModuleType()'), 'loadModule/createModule must create Module instances.');
-  assert(appSource.indexOf('await instance.__yzforgeCreate()') < appSource.indexOf('await instance.__yzforgeLoad()'), 'Module load must call onCreate before onLoad.');
-  assert(enterBody.includes('this.kernel.navigator.enter') && !enterBody.includes('__yzforgeEnter'), 'App.enterModule must delegate enter lifecycle to ModuleNavigator through AppKernel.');
-  assert(appSource.includes('public async back(): Promise<boolean>'), 'App must expose a narrow back navigation facade.');
-  assert(appSource.includes('kernel.ui.installBackKeyHandler(async () => this.back())'), 'Hardware back handling must go through App.back.');
-  assert(navigatorSource.includes('await target.instance.__yzforgeEnter(params)'), 'ModuleNavigator must call module onEnter.');
-  assert(navigatorSource.includes('target.instance.state = ModuleState.Ready'), 'ModuleNavigator must roll back entering module state on enter failure.');
-  assert(moduleSource.includes('module.lifecycle_unload_failed'), 'Module unload lifecycle must aggregate hook failures.');
-  assert(moduleSource.includes('flow.onDispose'), 'Module unload must dispose flows.');
-  assert(moduleSource.includes('service.onDispose'), 'Module unload must dispose services.');
-  assert(moduleSource.includes('model.onDispose'), 'Module unload must dispose models.');
-  assert(moduleSource.includes('module.onUnload'), 'Module unload must call onUnload after unit disposal.');
-  assert(librarySource.includes('private acquireOwner'), 'LibraryRegistry must centralize owner acquisition.');
-  assert(librarySource.includes('record.owners.has(ownerKey)'), 'Library owner acquisition must be idempotent per owner.');
-  assert(appSource.includes('installExtension(extension: Extension)'), 'App must expose a narrow extension installation facade.');
-  assert(appSource.includes('useModuleToken<TValue>'), 'App must expose a narrow module extension token facade.');
-  assert(moduleSource.includes('this.app.useModuleToken(this, token)'), 'Module.use must not reach through App internals.');
-  assert(!moduleSource.includes('this.app.extensions'), 'Module must not access App extension registry directly.');
-  assert(extensionRegistrySource.includes('extension.phase_failed'), 'Extension phase failure must be wrapped with diagnostic context.');
-  assert(extensionRegistrySource.includes('extension.dependency_missing'), 'Extension dependencies must fail when missing.');
-  assert(extensionRegistrySource.includes('extension.dependency_cycle'), 'Extension dependency cycles must fail.');
-  assert(extensionRegistrySource.includes('ExtensionTransaction'), 'ExtensionRegistry must use a transaction for phase side effects.');
-  assert(extensionRegistrySource.includes('rollbackTransaction'), 'ExtensionRegistry must rollback phase token side effects.');
-  assert(extensionRegistrySource.includes('disposeCompletedPhaseExtensions'), 'ExtensionRegistry must dispose completed phase extensions on rollback.');
-  assert(extensionRegistrySource.includes('onLifecycleInTransaction'), 'ExtensionContext.onLifecycle must register lifecycle listeners through the transaction.');
-  assert(extensionRegistrySource.includes('readonly lifecycleDisposers'), 'ExtensionTransaction must track lifecycle listener disposers.');
-  assert(extensionRegistrySource.includes('registerConfigCodecInTransaction'), 'ExtensionContext.registerConfigCodec must register config codecs through the transaction.');
-  assert(extensionRegistrySource.includes('readonly configCodecDisposers'), 'ExtensionTransaction must track config codec disposers.');
-  assert(extensionRegistrySource.includes('disposeExtensionConfigCodecs'), 'ExtensionRegistry must remove config codecs during extension disposal.');
-  assert(extensionRegistrySource.includes('registerAppServiceInTransaction'), 'ExtensionContext.registerAppService must register managed app services through the transaction.');
-  assert(extensionRegistrySource.includes('readonly appServiceDisposers'), 'ExtensionTransaction must track app service disposers.');
-  assert(extensionRegistrySource.includes('disposeExtensionAppServices'), 'ExtensionRegistry must remove app services during extension disposal.');
-  assert(extensionRegistrySource.includes('registerSystemUIProviderInTransaction'), 'ExtensionContext.registerSystemUIProvider must register SystemUI providers through the transaction.');
-  assert(extensionRegistrySource.includes('readonly systemUiProviderDisposers'), 'ExtensionTransaction must track SystemUI provider disposers.');
-  assert(extensionRegistrySource.includes('disposeExtensionSystemUIProviders'), 'ExtensionRegistry must remove SystemUI providers during extension disposal.');
-  assert(!extensionRegistrySource.includes('readonly lifecycle: App'), 'ExtensionContext must not expose raw AppLifecycle; use onLifecycle instead.');
-  assert(extensionRegistrySource.includes('export interface ExtensionPhaseRollbackReason'), 'ExtensionRegistry must expose phase-specific rollback reason context.');
-  assert(extensionRegistrySource.includes('rollbackBeforeStart'), 'Extension must expose a before-start phase rollback hook.');
-  assert(extensionRegistrySource.includes('phaseRollbackHook'), 'ExtensionRegistry must select phase-specific rollback hooks.');
-  assert(extensionRegistrySource.includes('rollbackHook.call(extension, this.createContext(phase, undefined, extension.name), rollbackReason)'), 'ExtensionRegistry must run phase-specific rollback hooks during phase rollback.');
-  assert(extensionRegistrySource.includes('provideModule'), 'ExtensionContext must expose module-scoped token registration.');
-  assert(extensionRegistrySource.includes('dependencyChain'), 'Extension failures must expose a dependency chain.');
+  assert(appSource.indexOf('await createModuleRuntime(instance)') < appSource.indexOf('await loadModuleRuntime(instance)'), 'Module load must call onCreate before onLoad.');
+  assert(enterBody.includes('this.kernel.navigator.enter'), 'App.enterModule must delegate lifecycle to the serialized navigator.');
+  assert(navigatorSource.includes('private transitionTail: Promise<void>'), 'Navigator enter/back/detach must share one serialized queue.');
+  assert(navigatorSource.includes('new CompensationStack'), 'Navigator enter must use compensation rollback.');
+  assert(moduleSource.includes("const moduleRuntimeOperation = Symbol"), 'Module lifecycle control must use a non-exported runtime symbol.');
+  assert(!moduleSource.includes('__yzforge'), 'Module business API must not expose legacy __yzforge lifecycle methods.');
+  assert(librarySource.includes('class LibraryLeaseImpl'), 'LibraryRegistry must create owner-specific LibraryLease instances.');
+  assert(librarySource.includes('record.leases.set(leaseId, lease)'), 'Library records must track leases, not owner strings.');
   assert(contentPackSource.includes('manifest.generated'), 'ContentPack manifest.generated.json must be loaded at runtime.');
-  assert(contentPackSource.includes('content_pack.manifest_mismatch'), 'ContentPack runtime must validate generated manifest identity.');
-  assert(moduleSource.includes('readonly ui: ModuleUIAccess'), 'Module context must expose ModuleUI through the framework facade.');
-  assert(assetsSource.includes("this.ledger?.acquire(this.owner, 'node'"), 'AssetScope must register tracked nodes in OwnershipLedger.');
-  assert(assetsSource.includes("this.ledger?.release(this.owner, 'node'"), 'AssetScope must release tracked nodes from OwnershipLedger.');
-  assert(fs.readFileSync(path.join(projectRoot, 'packages/yzforge-runtime/src/refs.ts'), 'utf8').includes('readonly owner: string;'), 'ViewRef must carry an owning scope.');
-  assert(uiSource.includes('ui.view_owner_mismatch'), 'ModuleUI must reject opening foreign View refs.');
-  assert(uiSource.includes("this.ownership?.acquire(this.owner, 'view'"), 'ModuleUI must register opened Views in OwnershipLedger.');
-  assert(uiSource.includes("this.ownership?.release(this.owner, 'view'"), 'ModuleUI must release closed Views from OwnershipLedger.');
-  assert(uiSource.includes('ui.view_lifecycle_close_failed'), 'View close lifecycle failures must be reported after result resolution.');
-  assert(uiSource.includes('ui.view_close_failed'), 'ModuleUI.close must report close failures after cleanup.');
-  assert(uiSource.includes('ui.close_owned_failed'), 'ModuleUI.closeOwned must aggregate failures and continue closing views.');
-  assert(uiSource.includes('finally') && uiSource.includes('this.moduleUis.delete(moduleName)'), 'UIManager.disposeModule must remove ModuleUI even when dispose reports failures.');
-  assert(uiSource.includes('this.resultResolver?.('), 'View close must resolve pending results.');
-  assert(uiSource.indexOf('this.resultResolver?.(') < uiSource.indexOf("throw new YZForgeError('View close lifecycle completed with errors."), 'View close must resolve result before throwing lifecycle failures.');
-  assert(!runtimeIndexSource.includes("export * from './bundle-manager'"), 'Runtime public barrel must not export every BundleManager symbol.');
-  assert(!runtimeIndexSource.includes('BundleAssetAccess'), 'Runtime public barrel must not expose internal BundleAssetAccess.');
-  assert(runtimeIndexSource.includes('BundleHandle'), 'Runtime public barrel must expose BundleHandle.');
+  assert(contentPackSource.includes('materializeContentPackRefs(ref.contract, manifest)'), 'Loaded ContentPack refs must be materialized from runtime manifest values.');
+  assert(contentPackSource.includes('content_pack.manifest_hash_mismatch'), 'ContentPack runtime must validate manifest content hash.');
+  assert(appSource.includes('kernel.entries.snapshot'), 'Runtime diagnostics must distinguish script and resource residency.');
+  assert(uiSource.includes('new CompensationStack(`view.open:'), 'View open must use compensation rollback.');
+  assert(uiSource.includes("reason: 'view_open_failed'"), 'Partial View open must close lifecycle with a cancellation result.');
+  assert(!uiSource.includes('__yzforge'), 'View and Part business APIs must not expose legacy __yzforge lifecycle methods.');
+  assert(viewRuntimeSource.includes("Symbol('yzforge.view.runtime-operation')"), 'View lifecycle control must use an internal symbol protocol.');
+  assert(assetsSource.includes('createPart') && assetsSource.includes('PartLease'), 'ModuleAssets must provide owner-tracked Part creation.');
+  assert(viewportSource.includes('export interface ViewportReader'), 'App must expose a readonly ViewportReader capability.');
+  assert(screenFitterSource.includes('onViewportProfile') && !screenFitterSource.includes("from 'cc';\nimport { screen"), 'ScreenFitter must consume the shared viewport profile.');
+  for (const internalName of ['UIManager', 'ModuleNavigator', 'LibraryRegistry', 'EntryRegistry', 'OwnershipLedger', 'ReleaseScope', 'ConfigManager']) {
+    assert(!runtimeIndexSource.includes(internalName), `Runtime public barrel must not expose ${internalName}.`);
+  }
+  assert(authoringSource.includes('registerModuleEntry'), 'Generated entry registration must live in yzforge/authoring.');
+  assert(runtimeIndexSource.includes('YZFORGE_RUNTIME_ABI'), 'Runtime public API must expose an explicit ABI level.');
 }
 
 function expectValidationIssue(projectRoot, expected) {
@@ -2804,20 +2929,30 @@ function removeTempProject(projectRoot) {
 
 async function smoke(options = {}) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yzforge-smoke-'));
+  const layer = options.layer || 'all';
+  assert(['all', 'runtime', 'fixtures', 'failure'].includes(layer), `Unknown smoke layer: ${layer}.`);
   let completed = false;
   try {
-    assertToolchainResolverInvariants();
-    assertRuntimeLifecycleInvariants();
-    await assertAppStateMachineBehavior();
-    await assertAppClockBehavior();
-    await assertAppStorageBehavior();
-    await assertReleaseScopeBehavior();
-    await assertAssetReleasePolicyBehavior();
-    await assertBundleCachePolicyBehavior();
-    await assertLibraryOwnerAcquireBehavior();
-    await assertExtensionRegistryBehavior();
-    await assertViewResultCloseBehavior();
-    assertDashboardProfileResolver();
+    if (layer === 'all' || layer === 'runtime') {
+      assertToolchainResolverInvariants();
+      assertRuntimeLifecycleInvariants();
+      await assertAppStateMachineBehavior();
+      await assertAppClockBehavior();
+      await assertAppStorageBehavior();
+      await assertReleaseScopeBehavior();
+      await assertAssetReleasePolicyBehavior();
+      await assertBundleCachePolicyBehavior();
+      await assertLibraryOwnerAcquireBehavior();
+      await assertExtensionRegistryBehavior();
+      await assertViewResultCloseBehavior();
+      assertViewportProfileBehavior();
+      assertDashboardProfileResolver();
+    }
+    if (layer === 'runtime') {
+      completed = true;
+      return { ok: true, layer };
+    }
+
     setupBaseline(projectRoot);
     const created = createSmokeProject(projectRoot);
     const configBuilt = buildConfig(projectRoot);
@@ -2835,6 +2970,15 @@ async function smoke(options = {}) {
     assertToolchainTemplate(projectRoot);
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
+    assertAtomicGeneratorCommit(projectRoot);
+    if (layer === 'failure') {
+      await assertReleaseScopeBehavior();
+      await assertAppStateMachineBehavior();
+      await assertExtensionRegistryBehavior();
+      await assertViewResultCloseBehavior();
+      completed = true;
+      return { ok: true, layer, injected: ['scope', 'app', 'extension', 'view', 'generator'] };
+    }
     assertFrameworkUpgradeBehavior(projectRoot);
     assertConfigBuildFromExcel(projectRoot);
     const validation = assertOkValidation(projectRoot);
@@ -2978,41 +3122,61 @@ async function smoke(options = {}) {
     });
     assertOkValidation(projectRoot);
 
-    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+    updateJson(projectRoot, 'assets/modules/Battle/module.json', (descriptor) => {
+      descriptor.legacy = true;
+    });
+    const descriptorSchemaViolation = expectValidationIssue(projectRoot, "schema rejects unknown property 'legacy'");
+    const descriptorSchemaDetail = descriptorSchemaViolation.issueDetails.find((issue) => issue.message.includes("unknown property 'legacy'"));
+    assert(descriptorSchemaDetail.code === 'descriptor.schema', 'Expected formal descriptor schema issue code.');
+    updateJson(projectRoot, 'assets/modules/Battle/module.json', (descriptor) => {
+      delete descriptor.legacy;
+    });
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'tsconfig.yzforge.json', (tsconfig) => {
       tsconfig.compilerOptions.paths.yzforge = ['extensions/yzforge/runtime-template/index.ts'];
     });
-    const tsconfigPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.yzforge must be ["./packages/yzforge-runtime/src/index.ts"]');
+    const tsconfigPathViolation = expectValidationIssue(projectRoot, 'tsconfig.yzforge.json paths.yzforge must be ["./packages/yzforge-runtime/src/index.ts"]');
     const tsconfigPathDetail = tsconfigPathViolation.issueDetails.find((issue) => issue.message.includes('paths.yzforge'));
     assert(tsconfigPathDetail.code === 'path_map.tsconfig', 'Expected tsconfig path map issue code.');
     const tsconfigRepair = generate(projectRoot);
-    assert(tsconfigRepair.changed.includes('tsconfig.json'), 'Expected generate to repair tsconfig path map.');
+    assert(tsconfigRepair.changed.includes('tsconfig.yzforge.json'), 'Expected generate to repair the generated tsconfig path map.');
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
       tsconfig.extends = './temp/tsconfig.cocos.json';
       tsconfig.compilerOptions.types = ['./temp/declarations/cc'];
-      tsconfig.compilerOptions.moduleResolution = 'node';
     });
     const tempTsconfigViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not extend Cocos temp config');
     const tempTsconfigDetail = tempTsconfigViolation.issueDetails.find((issue) => issue.message.includes('must not extend Cocos temp config'));
     assert(tempTsconfigDetail.code === 'path_map.tsconfig_portability', 'Expected tsconfig portability issue code.');
-    const moduleResolutionDetail = tempTsconfigViolation.issueDetails.find((issue) => issue.message.includes("compilerOptions.moduleResolution must be 'bundler'"));
-    assert(moduleResolutionDetail.code === 'path_map.tsconfig_module_resolution', 'Expected moduleResolution issue code.');
-    const tempTsconfigRepair = generate(projectRoot);
-    assert(tempTsconfigRepair.changed.includes('tsconfig.json'), 'Expected generate to remove Cocos temp tsconfig dependency.');
+    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+      tsconfig.extends = './tsconfig.yzforge.json';
+      delete tsconfig.compilerOptions.types;
+    });
     assertOkValidation(projectRoot);
 
-    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+    updateJson(projectRoot, 'tsconfig.yzforge.json', (tsconfig) => {
+      tsconfig.compilerOptions.moduleResolution = 'node';
+    });
+    const moduleResolutionViolation = expectValidationIssue(projectRoot, "tsconfig.yzforge.json compilerOptions.moduleResolution must be 'bundler'");
+    const moduleResolutionDetail = moduleResolutionViolation.issueDetails.find((issue) => issue.message.includes("compilerOptions.moduleResolution must be 'bundler'"));
+    assert(moduleResolutionDetail.code === 'path_map.tsconfig_module_resolution', 'Expected moduleResolution issue code.');
+    const moduleResolutionRepair = generate(projectRoot);
+    assert(moduleResolutionRepair.changed.includes('tsconfig.yzforge.json'), 'Expected generate to repair generated moduleResolution.');
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'tsconfig.yzforge.json', (tsconfig) => {
       tsconfig.compilerOptions.paths['db://assets/*'] = [`${toPosix(projectRoot)}/assets/*`];
     });
-    const absoluteAssetsPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json paths.db://assets/* must be ["./assets/*"]');
+    const absoluteAssetsPathViolation = expectValidationIssue(projectRoot, 'tsconfig.yzforge.json paths.db://assets/* must be ["./assets/*"]');
     const absoluteAssetsPathDetail = absoluteAssetsPathViolation.issueDetails.find((issue) => issue.message.includes('paths.db://assets/* must be'));
     assert(absoluteAssetsPathDetail.code === 'path_map.tsconfig', 'Expected project-relative db://assets path map issue code.');
     const absoluteAssetsPathRepair = generate(projectRoot);
-    assert(absoluteAssetsPathRepair.changed.includes('tsconfig.json'), 'Expected generate to repair absolute db://assets path.');
+    assert(absoluteAssetsPathRepair.changed.includes('tsconfig.yzforge.json'), 'Expected generate to repair absolute db://assets path.');
     assertOkValidation(projectRoot);
 
-    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+    updateJson(projectRoot, 'tsconfig.yzforge.json', (tsconfig) => {
       tsconfig.compilerOptions.paths['db://internal/*'] = [[
         'D:',
         '/Applications/Cocos/Editor/Creator/0.0.0/',
@@ -3020,12 +3184,12 @@ async function smoke(options = {}) {
         '/resources/3d/engine/editor/assets/*',
       ].join('')];
     });
-    const cocosInternalPathViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not commit paths.db://internal/*');
+    const cocosInternalPathViolation = expectValidationIssue(projectRoot, 'tsconfig.yzforge.json must not commit paths.db://internal/*');
     const cocosInternalPathDetail = cocosInternalPathViolation.issueDetails.find((issue) => issue.message.includes('must not commit paths.db://internal/*'));
     assert(cocosInternalPathDetail.code === 'path_map.tsconfig_portability', 'Expected Cocos internal portability issue code.');
     assert(cocosInternalPathDetail.target === 'db://internal/*', 'Expected Cocos internal path map target.');
     const cocosInternalPathRepair = generate(projectRoot);
-    assert(cocosInternalPathRepair.changed.includes('tsconfig.json'), 'Expected generate to remove Cocos internal path map.');
+    assert(cocosInternalPathRepair.changed.includes('tsconfig.yzforge.json'), 'Expected generate to remove Cocos internal path map.');
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'import-map.json', (importMap) => {
@@ -3040,7 +3204,10 @@ async function smoke(options = {}) {
 
     updateJson(projectRoot, 'package.json', (packageJson) => {
       packageJson.name = 'yzforge';
-      packageJson.exports = { '.': './assets/yzforge/runtime/index.ts' };
+      packageJson.exports = {
+        '.': './assets/yzforge/runtime/index.ts',
+        './game-tools': './tools/index.js',
+      };
     });
     const packageJsonViolation = expectValidationIssue(projectRoot, "package.json name must not be 'yzforge'");
     const packageJsonDetail = packageJsonViolation.issueDetails.find((issue) => issue.message.includes("name must not be 'yzforge'"));
@@ -3049,6 +3216,7 @@ async function smoke(options = {}) {
     assert(packageJsonExportDetail.code === 'path_map.package_json', 'Expected package.json exports issue code.');
     const packageJsonRepair = generate(projectRoot);
     assert(packageJsonRepair.changed.includes('package.json'), 'Expected generate to repair package.json package boundary.');
+    assert(readJson(projectRoot, 'package.json').exports?.['./game-tools'] === './tools/index.js', 'Generator must preserve non-YZForge package exports.');
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'package.json', (packageJson) => {
@@ -3071,24 +3239,24 @@ async function smoke(options = {}) {
     assert(projectSettingsRepair.changed.includes('settings/v2/packages/project.json'), 'Expected generate to repair Cocos project import-map setting.');
     assertOkValidation(projectRoot);
 
-    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+    updateJson(projectRoot, 'tsconfig.yzforge.json', (tsconfig) => {
       tsconfig.compilerOptions.paths['yzforge/*'] = ['assets/yzforge/runtime/*'];
     });
-    const tsconfigDeepAliasViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not expose runtime deep path alias yzforge/*');
+    const tsconfigDeepAliasViolation = expectValidationIssue(projectRoot, 'tsconfig.yzforge.json must not expose runtime deep path alias yzforge/*');
     const tsconfigDeepAliasDetail = tsconfigDeepAliasViolation.issueDetails.find((issue) => issue.message.includes('runtime deep path alias yzforge/*'));
     assert(tsconfigDeepAliasDetail.code === 'path_map.runtime_deep_alias', 'Expected tsconfig runtime deep alias issue code.');
     const tsconfigDeepAliasRepair = generate(projectRoot);
-    assert(tsconfigDeepAliasRepair.changed.includes('tsconfig.json'), 'Expected generate to remove runtime deep tsconfig alias.');
+    assert(tsconfigDeepAliasRepair.changed.includes('tsconfig.yzforge.json'), 'Expected generate to remove runtime deep tsconfig alias.');
     assertOkValidation(projectRoot);
 
-    updateJson(projectRoot, 'tsconfig.json', (tsconfig) => {
+    updateJson(projectRoot, 'tsconfig.yzforge.json', (tsconfig) => {
       tsconfig.compilerOptions.paths['yzforge-contracts/modules/*'] = ['assets/app/contracts/modules/*.contract.generated.ts'];
     });
-    const legacyTsAliasViolation = expectValidationIssue(projectRoot, 'tsconfig.json must not expose legacy alias yzforge-contracts/modules/*');
+    const legacyTsAliasViolation = expectValidationIssue(projectRoot, 'tsconfig.yzforge.json must not expose legacy alias yzforge-contracts/modules/*');
     const legacyTsAliasDetail = legacyTsAliasViolation.issueDetails.find((issue) => issue.message.includes('legacy alias yzforge-contracts/modules/*'));
     assert(legacyTsAliasDetail.code === 'path_map.legacy_alias', 'Expected legacy tsconfig alias issue code.');
     const legacyTsAliasRepair = generate(projectRoot);
-    assert(legacyTsAliasRepair.changed.includes('tsconfig.json'), 'Expected generate to remove legacy tsconfig alias.');
+    assert(legacyTsAliasRepair.changed.includes('tsconfig.yzforge.json'), 'Expected generate to remove legacy tsconfig alias.');
     assertOkValidation(projectRoot);
 
     updateJson(projectRoot, 'import-map.json', (importMap) => {
@@ -3788,6 +3956,7 @@ async function smoke(options = {}) {
     completed = true;
     return {
       ok: true,
+      layer,
       projectRoot: options.keep ? toPosix(projectRoot) : undefined,
       created: created.map((item) => item.kind),
       generated: generated.changed.length,
@@ -3805,7 +3974,11 @@ async function smoke(options = {}) {
 }
 
 if (require.main === module) {
-  smoke({ keep: process.argv.includes('--keep') })
+  const layerIndex = process.argv.indexOf('--layer');
+  smoke({
+    keep: process.argv.includes('--keep'),
+    layer: layerIndex >= 0 ? process.argv[layerIndex + 1] : 'all',
+  })
     .then((result) => {
       console.log(JSON.stringify(result, null, 2));
     })

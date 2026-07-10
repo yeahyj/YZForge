@@ -13,7 +13,7 @@ import { ModuleNavigator } from './navigator';
 import { SharedRegistry } from './shared-registry';
 import { AppStorage } from './storage';
 import { UIManager } from './ui';
-import { ViewportManager } from './viewport';
+import { ViewportController } from './viewport';
 import type { App, AppOptions } from './app';
 import type { MainBinding } from './main-binding';
 
@@ -34,7 +34,7 @@ export class AppKernel {
     public readonly lifecycle: AppLifecycle;
     public readonly ui: UIManager;
     public readonly navigator: ModuleNavigator;
-    public viewport: ViewportManager;
+    public viewport: ViewportController;
     public main?: MainBinding;
 
     public constructor(app: App, options: AppOptions = {}) {
@@ -42,7 +42,7 @@ export class AppKernel {
         this.clock = new AppClock();
         this.storage = new AppStorage({ ...options.storage, boot: this.boot });
         this.logger = options.logger ?? new Logger();
-        this.entries = options.entries ?? getDefaultEntryRegistry();
+        this.entries = getDefaultEntryRegistry();
         this.ownership = new OwnershipLedger();
         this.releaseScope = new ReleaseScope('app', 'root', this.ownership);
         this.configs = new ConfigManager();
@@ -51,7 +51,7 @@ export class AppKernel {
         this.libraries = new LibraryRegistry(this);
         this.global = new GlobalRoot(app);
         this.lifecycle = new AppLifecycle();
-        this.viewport = new ViewportManager();
+        this.viewport = new ViewportController();
         this.ui = new UIManager({}, this.ownership);
         this.extensions = new ExtensionRegistry(app, this.logger.child('extension'), { systemUI: this.ui.system });
         this.navigator = new ModuleNavigator(app);

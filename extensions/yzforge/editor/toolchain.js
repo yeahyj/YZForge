@@ -83,6 +83,9 @@ function yzforgePackageScripts() {
     'yzforge:validate:build-matrix': 'node extensions/yzforge/editor/cli.js validate-build-matrix',
     'yzforge:cocos:build:web': 'node extensions/yzforge/editor/cli.js cocos-build --platform web-desktop --debug --output yzforge-build-matrix',
     'yzforge:smoke': 'node extensions/yzforge/editor/cli.js smoke',
+    'yzforge:test:runtime': 'node extensions/yzforge/editor/cli.js smoke --layer runtime',
+    'yzforge:test:fixtures': 'node extensions/yzforge/editor/cli.js smoke --layer fixtures',
+    'yzforge:test:failure': 'node extensions/yzforge/editor/cli.js smoke --layer failure',
     typecheck: 'node extensions/yzforge/editor/cli.js typecheck',
   };
 }
@@ -558,6 +561,13 @@ function writeGeneratedToolchainFile(filePath, content) {
 function prepareTypecheckTsconfig(projectRoot) {
   const root = path.resolve(projectRoot || process.cwd());
   const rootTsconfig = readJsonc(path.join(root, 'tsconfig.json'));
+  let inheritedTsconfig = {};
+  if (typeof rootTsconfig.extends === 'string' && rootTsconfig.extends.startsWith('.')) {
+    const inheritedPath = path.resolve(root, rootTsconfig.extends);
+    if (fs.existsSync(inheritedPath)) {
+      inheritedTsconfig = readJsonc(inheritedPath);
+    }
+  }
   const outputPath = path.join(root, TYPECHECK_TSCONFIG_PATH);
   const outputDir = path.dirname(outputPath);
   const projectRootRelative = toPosix(path.relative(outputDir, root)) || '.';
@@ -581,7 +591,14 @@ function prepareTypecheckTsconfig(projectRoot) {
     '',
   ].join('\n'));
 
-  const rootCompilerOptions = rootTsconfig.compilerOptions || {};
+  const rootCompilerOptions = {
+    ...(inheritedTsconfig.compilerOptions || {}),
+    ...(rootTsconfig.compilerOptions || {}),
+    paths: {
+      ...(inheritedTsconfig.compilerOptions?.paths || {}),
+      ...(rootTsconfig.compilerOptions?.paths || {}),
+    },
+  };
   const rootPaths = rootCompilerOptions.paths || {};
   const rebaseProjectPath = (target) => {
     if (typeof target !== 'string' || path.isAbsolute(target)) {
