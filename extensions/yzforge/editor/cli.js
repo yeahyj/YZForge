@@ -9,6 +9,7 @@ const { create } = require('./create');
 const { generate } = require('./generate');
 const { smoke } = require('./smoke');
 const { runCocosBuild, runTypecheck } = require('./toolchain');
+const { upgradeFramework } = require('./upgrade');
 const { validate } = require('./validate');
 
 function readOption(args, name, fallback) {
@@ -78,6 +79,20 @@ async function main() {
     const result = cleanGenerated(projectRoot, { dryRun });
     console.log(JSON.stringify(result, null, 2));
     if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (command === 'update' || command === 'upgrade') {
+    const args = process.argv.slice(3);
+    const result = upgradeFramework(projectRoot, {
+      check: args.includes('--check') || args.includes('--dry-run'),
+      noDoctor: args.includes('--no-doctor'),
+      typecheck: !args.includes('--no-typecheck'),
+    });
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok || (result.check && result.changed.length > 0)) {
       process.exitCode = 1;
     }
     return;

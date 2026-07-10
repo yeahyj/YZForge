@@ -7,11 +7,12 @@
 ## 推荐阅读顺序
 
 1. [框架使用手册](./framework.md)
-2. [配置表使用手册](./config-table.md)
-3. [UI 与 Prefab 流程](./ui.md)
-4. [本地存储](./storage.md)
-5. [时间与刷新周期](./clock.md)
-6. [AI 开发手册](./ai-development.md)
+2. [框架升级](./framework-upgrade.md)
+3. [配置表使用手册](./config-table.md)
+4. [UI 与 Prefab 流程](./ui.md)
+5. [本地存储](./storage.md)
+6. [时间与刷新周期](./clock.md)
+7. [AI 开发手册](./ai-development.md)
 
 ## 一句话规则
 
@@ -23,4 +24,5 @@
 - 配置表读取走生成的 `config.ts`。
 - 时间逻辑走 `app.clock`。
 - 本地数据走 `app.storage.save/settings/cache`。
+- 框架升级前先提交或备份，再运行 `npm run yzforge:update`。
 - `code/generated/*` 不手改。

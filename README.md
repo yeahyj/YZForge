@@ -54,6 +54,7 @@ assets/app/main/Main.scene
 | `YZForge -> 配置表` | 扫描 Excel、维护导出规则、生成配置表 |
 | `YZForge -> 创建帮助` | 查看可用创建消息和参数示例 |
 | `YZForge -> 生成全部` | 等同于刷新生成文件 |
+| `YZForge -> 升级框架` | 将当前项目迁移到已安装的 YZForge 版本 |
 | `YZForge -> Config -> 生成配置` | 生成配置表 JSON 和 TS 入口 |
 | `YZForge -> Config -> 检查配置` | 检查配置表生成物是否最新 |
 | `YZForge -> 安全清理` | 清理可安全重建的生成资源 |
@@ -160,6 +161,8 @@ if (app.clock.hasCrossedDay(lastClaimAtMs)) {
 | `npm run yzforge:create -- content-pack Level001 --owner Battle` | 创建内容包 |
 | `npm run yzforge:generate` | 刷新生成文件 |
 | `npm run yzforge:generate:check` | 检查生成文件是否最新 |
+| `npm run yzforge:update` | 执行框架迁移并同步项目 |
+| `npm run yzforge:update:check` | 只检查是否需要框架迁移或同步 |
 | `npm run yzforge:config:build` | 生成配置表 JSON 和 TS 入口 |
 | `npm run yzforge:config:check` | 检查配置表生成物是否最新 |
 | `npm run yzforge:validate:strict` | 严格校验项目结构和框架边界 |
@@ -171,6 +174,7 @@ if (app.clock.hasCrossedDay(lastClaimAtMs)) {
 
 - [快速上手](docs/getting-started.md)
 - [框架使用手册](docs/manual/framework.md)
+- [框架升级](docs/manual/framework-upgrade.md)
 - [配置表使用手册](docs/manual/config-table.md)
 - [UI 与 Prefab 流程](docs/manual/ui.md)
 - [本地存储](docs/manual/storage.md)
@@ -204,4 +208,4 @@ Scope -> Contract -> Bundle -> Handle
 
 ## License
 
-暂未声明 License。
+MIT License. See [LICENSE](./LICENSE).

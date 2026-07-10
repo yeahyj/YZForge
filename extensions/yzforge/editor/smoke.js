@@ -16,6 +16,7 @@ const {
   readCocosDashboardProfiles,
   resolveCocosEditorRoot,
 } = require('./toolchain');
+const { FRAMEWORK_LOCK_PATH, upgradeFramework } = require('./upgrade');
 const { validate } = require('./validate');
 
 const UUID_BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -2420,6 +2421,62 @@ function assertOkValidation(projectRoot) {
   return result;
 }
 
+function assertFrameworkUpgradeBehavior(projectRoot) {
+  const firstCheck = upgradeFramework(projectRoot, { check: true, noDoctor: true });
+  assert(!firstCheck.ok, 'Framework update check must fail while an update is pending.');
+  assert(firstCheck.changed.includes(FRAMEWORK_LOCK_PATH), 'First framework update check must report the missing version lock.');
+  assert(!fs.existsSync(path.join(projectRoot, FRAMEWORK_LOCK_PATH)), 'Framework update check must not write the version lock.');
+
+  const firstUpgrade = upgradeFramework(projectRoot, { noDoctor: true });
+  assert(firstUpgrade.lock.changed, 'First framework update must create the version lock.');
+  assert(readJson(projectRoot, FRAMEWORK_LOCK_PATH).version === firstUpgrade.toVersion, 'Framework version lock must record the installed version.');
+
+  const currentCheck = upgradeFramework(projectRoot, { check: true, noDoctor: true });
+  assert(currentCheck.ok, 'Current framework update check must pass.');
+  assert(currentCheck.alreadyCurrent, 'Repeated framework update check must be idempotent.');
+  assert(currentCheck.changed.length === 0, 'Current framework update check must not report changes.');
+
+  writeText(projectRoot, 'extensions/yzforge/migrations/0001-smoke.js', [
+    "'use strict';",
+    '',
+    'module.exports = {',
+    "  id: 'smoke-0.0.0-to-current',",
+    "  from: '0.0.0',",
+    `  to: '${firstUpgrade.toVersion}',`,
+    "  description: 'Smoke migration.',",
+    '  run(context) {',
+    "    context.writeText('.yzforge/migration-proof.txt', 'migrated\\n');",
+    '  },',
+    '};',
+    '',
+  ].join('\n'));
+  writeJson(projectRoot, FRAMEWORK_LOCK_PATH, {
+    ...firstUpgrade.lock.value,
+    version: '0.0.0',
+  });
+
+  const migrationCheck = upgradeFramework(projectRoot, { check: true, noDoctor: true });
+  assert(!migrationCheck.ok, 'Framework update check must fail while migrations are pending.');
+  assert(migrationCheck.migrations.applied.length === 1, 'Framework update check must resolve the migration path.');
+  assert(migrationCheck.changed.includes('.yzforge/migration-proof.txt'), 'Framework update check must report migration output.');
+  assert(!fs.existsSync(path.join(projectRoot, '.yzforge/migration-proof.txt')), 'Framework update check must not write migration output.');
+
+  const migrationUpgrade = upgradeFramework(projectRoot, { noDoctor: true });
+  assert(migrationUpgrade.migrations.applied.length === 1, 'Framework update must apply the resolved migration.');
+  requireText(projectRoot, '.yzforge/migration-proof.txt', 'migrated');
+  assert(readJson(projectRoot, FRAMEWORK_LOCK_PATH).version === firstUpgrade.toVersion, 'Framework migration must advance the version lock.');
+
+  writeJson(projectRoot, FRAMEWORK_LOCK_PATH, {
+    ...firstUpgrade.lock.value,
+    version: '0.0.1',
+  });
+  expectThrows(
+    () => upgradeFramework(projectRoot, { check: true, noDoctor: true }),
+    `No YZForge migration path from 0.0.1 to ${firstUpgrade.toVersion}`,
+  );
+  writeJson(projectRoot, FRAMEWORK_LOCK_PATH, firstUpgrade.lock.value);
+}
+
 function assertToolchainResolverInvariants() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
   const packageJson = readJson(projectRoot, 'package.json');
@@ -2433,6 +2490,8 @@ function assertToolchainResolverInvariants() {
   const smokeSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/smoke.js'), 'utf8');
   const forbiddenCocosInstallPath = ['D:', '/Applications/Cocos'].join('');
   assert(packageJson.scripts?.typecheck === 'node extensions/yzforge/editor/cli.js typecheck', 'typecheck script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:update'] === 'node extensions/yzforge/editor/cli.js update', 'Framework update script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:update:check'] === 'node extensions/yzforge/editor/cli.js update --check', 'Framework update check script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:config:table'] === 'node extensions/yzforge/editor/cli.js config-table', 'Config table script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:config:remove'] === 'node extensions/yzforge/editor/cli.js config-remove', 'Config remove script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:config:build'] === 'node extensions/yzforge/editor/cli.js config-build', 'Config build script must route through YZForge CLI.');
@@ -2446,6 +2505,8 @@ function assertToolchainResolverInvariants() {
   assert(extensionPackage.panels?.config?.main === 'editor/panel/config.js', 'YZForge Config panel must stay separate.');
   assert(extensionPackage.contributions?.messages?.['open-create-panel']?.methods?.includes('openCreatePanel'), 'Create panel menu must open the Create panel.');
   assert(extensionPackage.contributions?.messages?.['open-config-panel']?.methods?.includes('openConfigPanel'), 'Config panel menu must open the Config panel.');
+  assert(extensionPackage.contributions?.messages?.['upgrade-framework']?.methods?.includes('upgradeFramework'), 'Dashboard/menu must expose framework upgrade.');
+  assert(extensionPackage.contributions?.messages?.['upgrade-check']?.methods?.includes('upgradeCheck'), 'Dashboard must expose framework upgrade check.');
   assert(!configPanelSource.includes('config-format'), 'Config panel must not expose format selection before non-json export is implemented.');
   assert(toolchainSource.includes('resolveCocosEditorRoot'), 'ToolchainResolver must expose Cocos editor root resolution.');
   assert(toolchainSource.includes('resolveCocosExecutable'), 'ToolchainResolver must expose Cocos executable resolution.');
@@ -2459,6 +2520,7 @@ function assertToolchainResolverInvariants() {
   assert(toolchainSource.includes('runCocosBuild'), 'ToolchainResolver must own Cocos build execution.');
   assert(toolchainSource.includes('runTypecheck'), 'ToolchainResolver must own typecheck execution.');
   assert(cliSource.includes("command === 'typecheck'") && cliSource.includes('runTypecheck'), 'CLI must route typecheck through ToolchainResolver.');
+  assert(cliSource.includes("command === 'update'") && cliSource.includes('upgradeFramework'), 'CLI must route framework update.');
   assert(cliSource.includes("command === 'config-table'") && cliSource.includes('saveConfigPlanTable'), 'CLI must route config table registration through ConfigBuilder.');
   assert(cliSource.includes("'--label'"), 'CLI must support config table readable labels.');
   assert(cliSource.includes('rejectOptions') && cliSource.includes("'--primary-key'"), 'CLI must reject manually edited config primary keys.');
@@ -2773,6 +2835,7 @@ async function smoke(options = {}) {
     assertToolchainTemplate(projectRoot);
     const check = generate(projectRoot, { check: true });
     assert(check.changed.length === 0, `Generate check found stale files:\n${check.changed.join('\n')}`);
+    assertFrameworkUpgradeBehavior(projectRoot);
     assertConfigBuildFromExcel(projectRoot);
     const validation = assertOkValidation(projectRoot);
 

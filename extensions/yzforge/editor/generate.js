@@ -5,6 +5,7 @@ const path = require('path');
 const { generatedJson, generatedText, isTextChanged, kebabCase, readJsonc, toPosix, walk, writeTextIfChanged } = require('./fs-utils');
 const { scanProject } = require('./scanner');
 const { yzforgePackageScripts } = require('./toolchain');
+const { FRAMEWORK_VERSION } = require('./version');
 
 const CONFIG_META_KEY = '_yzforgeConfig';
 
@@ -673,8 +674,9 @@ function syncRuntimePackage(projectRoot, options, changed) {
 function runtimePackageJson() {
   return {
     name: 'yzforge',
-    version: '0.1.0',
+    version: FRAMEWORK_VERSION,
     private: true,
+    license: 'MIT',
     exports: {
       '.': './src/index.ts',
     },

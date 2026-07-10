@@ -44,12 +44,24 @@ Cocos 顶部菜单：
 | `YZForge -> 配置表` | 扫描 Excel、保存导出规则、生成配置 |
 | `YZForge -> 创建帮助` | 查看可用创建消息和参数示例 |
 | `YZForge -> 生成全部` | 刷新生成文件 |
+| `YZForge -> 升级框架` | 执行当前安装版本要求的项目迁移 |
 | `YZForge -> Config -> 生成配置` | 生成配置表 JSON 和 TS 入口 |
 | `YZForge -> Config -> 检查配置` | 检查配置表生成物是否最新 |
 | `YZForge -> 安全清理` | 清理可安全重建的生成资源 |
 | `YZForge -> 校验架构` | 检查项目结构和框架边界 |
 | `YZForge -> 严格校验` | 严格校验项目结构和框架边界 |
 | `YZForge -> 冒烟测试` | 运行 smoke 测试 |
+
+## 框架升级
+
+YZForge 当前仍处于早期开发阶段，升级可能包含目录、接口或生成物的破坏性调整。先提交或备份项目，再检查并执行升级：
+
+```bash
+npm run yzforge:update:check
+npm run yzforge:update
+```
+
+插件仪表盘的“框架”区域也提供相同操作。完整流程见 [框架升级](./framework-upgrade.md)。
 
 ## 先判断 Scope
 

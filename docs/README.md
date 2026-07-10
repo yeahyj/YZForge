@@ -6,10 +6,11 @@
 
 1. [快速上手](./getting-started.md)
 2. [框架使用手册](./manual/framework.md)
-3. [配置表使用手册](./manual/config-table.md)
-4. [UI 与 Prefab 流程](./manual/ui.md)
-5. [本地存储](./manual/storage.md)
-6. [时间与刷新周期](./manual/clock.md)
+3. [框架升级](./manual/framework-upgrade.md)
+4. [配置表使用手册](./manual/config-table.md)
+5. [UI 与 Prefab 流程](./manual/ui.md)
+6. [本地存储](./manual/storage.md)
+7. [时间与刷新周期](./manual/clock.md)
 
 日常开发可以优先使用 Cocos 顶部菜单里的 `YZForge` 插件；提交前、CI 和 AI 批处理再使用文档里的 CLI 命令。
 
@@ -20,6 +21,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [框架使用手册](./manual/framework.md) | 项目结构、Module、Library、ContentPack、资源、本地存储和校验 |
+| [框架升级](./manual/framework-upgrade.md) | 版本锁、迁移脚本、插件升级和 CLI 升级流程 |
 | [配置表使用手册](./manual/config-table.md) | Excel 表头、面板流程、CLI、生成 JSON 和 TS 读取方式 |
 | [UI 与 Prefab 流程](./manual/ui.md) | View、Part、Prefab、AutoRefs 和 UI 打开流程 |
 | [本地存储](./manual/storage.md) | `save` / `settings` / `cache` 三分区和 key 规则 |

@@ -10,6 +10,7 @@ const { validate } = require('./validate');
 const { scanProject } = require('./scanner');
 const { smoke } = require('./smoke');
 const { kebabCase, toPosix } = require('./fs-utils');
+const { upgradeFramework: runFrameworkUpgrade } = require('./upgrade');
 const en = require('../i18n/en');
 const zh = require('../i18n/zh');
 
@@ -940,6 +941,19 @@ function showCreateHelp() {
   return { ok: true, message };
 }
 
+async function confirmFrameworkUpgrade() {
+  if (!global.Editor || !Editor.Dialog || typeof Editor.Dialog.warn !== 'function') {
+    return true;
+  }
+  const result = await Editor.Dialog.warn(t('upgrade_confirm_title'), {
+    detail: t('upgrade_confirm_detail'),
+    buttons: [t('upgrade_cancel'), t('upgrade_confirm_action')],
+    default: 0,
+    cancel: 0,
+  });
+  return result.response === 1;
+}
+
 function describeProject() {
   const project = scanProject(projectRoot());
   return {
@@ -999,6 +1013,23 @@ exports.methods = {
   async generateCheck() {
     const result = withGeneratedDetails(generate(projectRoot(), { check: true }));
     console.log('[YZForge] generate check:', result);
+    return result;
+  },
+
+  async upgradeFramework() {
+    if (!await confirmFrameworkUpgrade()) {
+      return { ok: false, cancelled: true };
+    }
+    const result = runFrameworkUpgrade(projectRoot());
+    const refreshed = await refreshChangedFiles(result.changed);
+    const completed = { ...result, refreshed };
+    console.log('[YZForge] upgrade framework:', completed);
+    return completed;
+  },
+
+  async upgradeCheck() {
+    const result = runFrameworkUpgrade(projectRoot(), { check: true, noDoctor: true });
+    console.log('[YZForge] upgrade check:', result);
     return result;
   },
 

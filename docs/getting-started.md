@@ -50,6 +50,7 @@ assets/app/main/AppBootSettings.ts
 | `YZForge -> 配置表` | 扫描 Excel，维护配置表导出规则 |
 | `YZForge -> 创建帮助` | 查看可用创建消息和参数示例 |
 | `YZForge -> 生成全部` | 刷新生成文件 |
+| `YZForge -> 升级框架` | 将项目迁移到当前已安装的框架版本 |
 | `YZForge -> Config -> 生成配置` | 生成配置表 JSON 和 TS 入口 |
 | `YZForge -> Config -> 检查配置` | 检查配置表生成物是否最新 |
 | `YZForge -> 安全清理` | 清理可安全重建的生成资源 |
@@ -211,6 +212,8 @@ this.app.storage.save.setJson('player', playerSave);
 | --- | --- |
 | `npm run yzforge:generate` | 刷新生成文件 |
 | `npm run yzforge:generate:check` | 检查生成文件是否最新 |
+| `npm run yzforge:update` | 执行框架迁移并同步项目 |
+| `npm run yzforge:update:check` | 只检查框架升级会产生哪些变化 |
 | `npm run yzforge:config:build` | 生成配置表 JSON 和 TS 入口 |
 | `npm run yzforge:config:check` | 检查配置表生成物是否最新 |
 | `npm run yzforge:validate:strict` | 严格校验项目结构和框架边界 |
@@ -220,6 +223,7 @@ this.app.storage.save.setJson('player', playerSave);
 ## 继续阅读
 
 - [框架使用手册](./manual/framework.md)
+- [框架升级](./manual/framework-upgrade.md)
 - [UI 与 Prefab 流程](./manual/ui.md)
 - [配置表使用手册](./manual/config-table.md)
 - [本地存储](./manual/storage.md)

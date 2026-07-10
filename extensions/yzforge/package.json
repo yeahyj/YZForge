@@ -4,6 +4,7 @@
   "description": "i18n:yzforge.description",
   "main": "editor/main.js",
   "author": "YZForge",
+  "license": "MIT",
   "package_version": 2,
   "editor": ">=3.8.0",
   "panels": {
@@ -67,6 +68,11 @@
         "path": "YZForge",
         "label": "i18n:yzforge.generate_all",
         "message": "generate-all"
+      },
+      {
+        "path": "YZForge",
+        "label": "i18n:yzforge.upgrade_framework",
+        "message": "upgrade-framework"
       },
       {
         "path": "YZForge/Config",
@@ -133,6 +139,16 @@
       "generate-check": {
         "methods": [
           "generateCheck"
+        ]
+      },
+      "upgrade-framework": {
+        "methods": [
+          "upgradeFramework"
+        ]
+      },
+      "upgrade-check": {
+        "methods": [
+          "upgradeCheck"
         ]
       },
       "config-dashboard": {

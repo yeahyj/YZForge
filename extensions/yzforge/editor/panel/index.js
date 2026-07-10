@@ -33,6 +33,13 @@ const template = `
         </div>
       </div>
       <div class="command-group">
+        <div class="command-title" data-i18n="workbench_framework">Framework</div>
+        <div class="tool-row">
+          <button id="upgrade-check" data-i18n="upgrade_check" data-i18n-title="upgrade_framework_title">Upgrade Check</button>
+          <button id="upgrade" class="command-primary" data-i18n="upgrade_framework" data-i18n-title="upgrade_framework_title">Upgrade Framework</button>
+        </div>
+      </div>
+      <div class="command-group">
         <div class="command-title" data-i18n="workbench_validate">Validate</div>
         <div class="tool-row wide-tools">
           <button id="validate" data-i18n="validate_architecture">Validate</button>
@@ -148,6 +155,8 @@ module.exports = Editor.Panel.define({
     status: '#status',
     refresh: '#refresh',
     generate: '#generate',
+    upgrade: '#upgrade',
+    upgradeCheck: '#upgrade-check',
     clean: '#clean',
     validate: '#validate',
     validateStrict: '#validate-strict',
@@ -175,6 +184,8 @@ module.exports = Editor.Panel.define({
       for (const button of [
         this.$.refresh,
         this.$.generate,
+        this.$.upgrade,
+        this.$.upgradeCheck,
         this.$.clean,
         this.$.validate,
         this.$.validateStrict,
@@ -242,6 +253,29 @@ module.exports = Editor.Panel.define({
       this.setBusy(true, 'panel_status_generating');
       try {
         this.setResult(await this.call('generate-check'));
+      } catch (error) {
+        this.setResult(this.errorResult(error));
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
+    async upgradeFramework() {
+      this.setBusy(true, 'panel_status_upgrading');
+      try {
+        this.setResult(await this.call('upgrade-framework'));
+        await this.refreshSummary({ silentResult: true });
+      } catch (error) {
+        this.setResult(this.errorResult(error));
+      } finally {
+        this.setBusy(false);
+      }
+    },
+
+    async upgradeCheck() {
+      this.setBusy(true, 'panel_status_upgrading');
+      try {
+        this.setResult(await this.call('upgrade-check'));
       } catch (error) {
         this.setResult(this.errorResult(error));
       } finally {
@@ -335,6 +369,8 @@ module.exports = Editor.Panel.define({
     this.$.refresh.addEventListener('click', () => this.refreshSummary());
     this.$.generate.addEventListener('click', () => this.generateAll());
     this.$.generateCheck.addEventListener('click', () => this.generateCheck());
+    this.$.upgrade.addEventListener('click', () => this.upgradeFramework());
+    this.$.upgradeCheck.addEventListener('click', () => this.upgradeCheck());
     this.$.clean.addEventListener('click', () => this.cleanGenerated());
     this.$.cleanPreview.addEventListener('click', () => this.cleanPreview());
     this.$.validate.addEventListener('click', () => this.validateProject());

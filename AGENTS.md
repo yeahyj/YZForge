@@ -22,6 +22,7 @@ This project is a Cocos Creator project governed by YZForge. Follow these rules 
 ```bash
 npm run yzforge:ai:context
 npm run yzforge:ai:doctor
+npm run yzforge:update:check
 npm run yzforge:generate:check
 npm run yzforge:config:check
 npm run yzforge:validate:strict

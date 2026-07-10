@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "framework": "YZForge",
+  "version": "0.1.0",
+  "channel": "development",
+  "source": {
+    "kind": "local-extension",
+    "package": "extensions/yzforge/package.json"
+  },
+  "note": "YZForge is still in active development. Minor versions may include breaking migrations."
+}
