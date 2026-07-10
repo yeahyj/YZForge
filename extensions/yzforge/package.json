@@ -13,10 +13,10 @@
       "type": "dockable",
       "main": "editor/panel/index.js",
       "size": {
-        "min-width": 420,
+        "min-width": 400,
         "min-height": 460,
-        "width": 500,
-        "height": 620
+        "width": 680,
+        "height": 760
       }
     },
     "create": {
@@ -24,10 +24,10 @@
       "type": "dockable",
       "main": "editor/panel/create.js",
       "size": {
-        "min-width": 420,
+        "min-width": 400,
         "min-height": 460,
-        "width": 520,
-        "height": 620
+        "width": 640,
+        "height": 740
       }
     },
     "config": {
@@ -35,10 +35,10 @@
       "type": "dockable",
       "main": "editor/panel/config.js",
       "size": {
-        "min-width": 460,
+        "min-width": 440,
         "min-height": 520,
-        "width": 620,
-        "height": 700
+        "width": 760,
+        "height": 780
       }
     }
   },

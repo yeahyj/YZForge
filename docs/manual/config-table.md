@@ -141,14 +141,16 @@ YZForge -> 配置表
 常规步骤：
 
 1. 点击 `Scan Excel / 扫描 Excel`，扫描 `config-source/excel/**/*.xlsx`。
-2. 在 `Saved Rule` 选择已有规则，或选择 `New Rule`。
+2. 在左侧规则区选择已有规则，或点击 `New Rule / 新建规则`。
 3. 选择 `Source` 和 `Sheet`。
 4. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
 5. 填写 `Rule Name / 规则名称`。
 6. 填写 `Table Key / 代码表名`。
 7. 按需要勾选 `Generate ID constants`。
-8. 点击 `Save Table / 保存表规则` 写入 `config-source/export-plan.json`。
+8. 在输出预览中确认目标路径；点击 `Save Rule / 保存规则`（或按 `Ctrl/Cmd + S`）写入 `config-source/export-plan.json`。
 9. 点击 `Build Config / 生成配置` 生成 JSON 和 `generated/config.ts`。
+
+面板会用“未保存”状态标记当前编辑；切换规则或重新扫描 Excel 前会确认是否放弃修改。必填项和 `Table Key` 的 lowerCamelCase 格式会在发送命令前校验。
 
 `Delete Rule / 删除规则` 只删除导出规则，不删除 Excel。下一次 `Build Config / 生成配置` 会清理不再属于导出计划的旧生成 JSON。
 

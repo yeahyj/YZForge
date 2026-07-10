@@ -74,9 +74,9 @@ assets/app/main/AppBootSettings.ts
 
 | 菜单 | 用途 |
 | --- | --- |
-| `YZForge -> 仪表盘` | 查看项目摘要，执行生成、校验、诊断和 smoke |
-| `YZForge -> 创建` | 可视化创建 Module、Library、ContentPack、View、Part、Model、Service、Flow |
-| `YZForge -> 配置表` | 扫描 Excel，维护配置表导出规则 |
+| `YZForge -> 仪表盘` | 查看项目摘要，并按生成、校验、框架、清理四类任务执行维护操作 |
+| `YZForge -> 创建` | 按结构、UI、模块代码、App 分组创建对象，并预览规范化名称和目标路径 |
+| `YZForge -> 配置表` | 扫描 Excel，维护带未保存提示和输出预览的配置表导出规则 |
 | `YZForge -> 创建帮助` | 查看可用创建消息和参数示例 |
 | `YZForge -> 生成全部` | 刷新生成文件 |
 | `YZForge -> 升级框架` | 将项目迁移到当前已安装的框架版本 |
@@ -192,7 +192,7 @@ config-source/excel
 ```text
 YZForge -> 配置表
   Scan Excel / 扫描 Excel
-  Save Table / 保存表规则
+  Save Rule / 保存规则
   Build Config / 生成配置
 ```
 

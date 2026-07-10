@@ -3,70 +3,105 @@
 const shared = require('./shared');
 
 const template = `
-<section class="shell dashboard-shell">
+<section class="shell dashboard-shell" data-state="ready">
   <header class="topbar">
-    <div>
-      <h1 data-i18n="dashboard_panel_title">YZForge Dashboard</h1>
-      <p id="status" data-i18n="panel_status_ready">Ready</p>
+    <div class="brand-lockup">
+      <div class="brand-mark">YZ</div>
+      <div class="title-stack">
+        <div class="eyebrow" data-i18n="panel_product_label">PROJECT GOVERNANCE</div>
+        <h1 data-i18n="dashboard_panel_title">YZForge Dashboard</h1>
+        <p class="status-line"><span class="status-dot"></span><span id="status" data-i18n="panel_status_ready">Ready</span></p>
+      </div>
     </div>
-    <button id="refresh" data-i18n="panel_refresh" data-i18n-title="panel_refresh_title" title="Refresh project summary">Refresh</button>
+    <div class="topbar-actions">
+      <button id="open-create" data-i18n="open_create_panel">Create</button>
+      <button id="open-config" data-i18n="open_config_panel">Config</button>
+      <button id="refresh" class="icon-button" data-i18n-title="panel_refresh_title" title="Refresh">↻</button>
+    </div>
   </header>
 
   <section class="section summary">
-    <div class="section-title" data-i18n="panel_project">Project</div>
-    <div class="summary-grid">
-      <div><strong id="module-count">0</strong><span data-i18n="panel_modules">Modules</span></div>
-      <div><strong id="library-count">0</strong><span data-i18n="panel_libraries">Libraries</span></div>
-      <div><strong id="pack-count">0</strong><span data-i18n="panel_packs">Packs</span></div>
+    <div class="section-heading">
+      <div>
+        <div class="section-title" data-i18n="panel_project">Project</div>
+        <div class="section-description" data-i18n="panel_project_desc">Current project topology</div>
+      </div>
+      <span class="section-meta" data-i18n="panel_live_snapshot">Live snapshot</span>
     </div>
-    <div id="module-list" class="list"></div>
+    <div class="summary-grid">
+      <div class="metric metric-module"><strong id="module-count">0</strong><span data-i18n="panel_modules">Modules</span></div>
+      <div class="metric metric-library"><strong id="library-count">0</strong><span data-i18n="panel_libraries">Libraries</span></div>
+      <div class="metric metric-pack"><strong id="pack-count">0</strong><span data-i18n="panel_packs">Packs</span></div>
+    </div>
+    <div id="module-list" class="entity-list"></div>
   </section>
 
   <section class="section tools">
-    <div class="section-title" data-i18n="panel_workbench">Workbench</div>
-    <div class="command-groups">
-      <div class="command-group">
-        <div class="command-title" data-i18n="workbench_generate">Generate</div>
+    <div class="section-heading">
+      <div>
+        <div class="section-title" data-i18n="panel_workbench">Workbench</div>
+        <div class="section-description" data-i18n="panel_workbench_desc">Common project maintenance actions</div>
+      </div>
+    </div>
+    <div class="command-grid">
+      <article class="command-card">
+        <div class="command-card-head"><span class="command-glyph">G</span><div><strong data-i18n="workbench_generate">Generate</strong><p data-i18n="workbench_generate_desc">Refresh derived files</p></div></div>
         <div class="tool-row">
           <button id="generate" class="command-primary" data-i18n="generate_all">Generate All</button>
           <button id="generate-check" data-i18n="generate_check">Generate Check</button>
         </div>
-      </div>
-      <div class="command-group">
-        <div class="command-title" data-i18n="workbench_framework">Framework</div>
+      </article>
+
+      <article class="command-card">
+        <div class="command-card-head"><span class="command-glyph">V</span><div><strong data-i18n="workbench_validate">Validate</strong><p data-i18n="workbench_validate_desc">Inspect architecture health</p></div></div>
         <div class="tool-row">
-          <button id="upgrade-check" data-i18n="upgrade_check" data-i18n-title="upgrade_framework_title">Upgrade Check</button>
-          <button id="upgrade" class="command-primary" data-i18n="upgrade_framework" data-i18n-title="upgrade_framework_title">Upgrade Framework</button>
-        </div>
-      </div>
-      <div class="command-group">
-        <div class="command-title" data-i18n="workbench_validate">Validate</div>
-        <div class="tool-row wide-tools">
           <button id="validate" data-i18n="validate_architecture">Validate</button>
-          <button id="validate-strict" data-i18n="validate_architecture_strict">Validate Strict</button>
+          <button id="validate-strict" class="command-primary" data-i18n="validate_architecture_strict">Validate Strict</button>
+        </div>
+        <div class="tool-row compact-tools">
           <button id="diagnostics" data-i18n="panel_diagnostics">Diagnostics</button>
-          <button id="runtime-snapshot" data-i18n="runtime_snapshot">Runtime Snapshot</button>
           <button id="smoke-test" data-i18n="smoke_test">Smoke Test</button>
         </div>
-      </div>
-      <div class="command-group">
-        <div class="command-title" data-i18n="workbench_clean">Clean</div>
+      </article>
+
+      <article class="command-card">
+        <div class="command-card-head"><span class="command-glyph">F</span><div><strong data-i18n="workbench_framework">Framework</strong><p data-i18n="workbench_framework_desc">Version and runtime evidence</p></div></div>
+        <div class="tool-row">
+          <button id="upgrade-check" data-i18n="upgrade_check" data-i18n-title="upgrade_framework_title">Upgrade Check</button>
+          <button id="upgrade" data-i18n="upgrade_framework" data-i18n-title="upgrade_framework_title">Upgrade</button>
+        </div>
+        <button id="runtime-snapshot" class="full-button" data-i18n="runtime_snapshot">Runtime Snapshot</button>
+      </article>
+
+      <article class="command-card danger-card">
+        <div class="command-card-head"><span class="command-glyph danger-glyph">C</span><div><strong data-i18n="workbench_clean">Clean</strong><p data-i18n="workbench_clean_desc">Preview before removing output</p></div></div>
         <div class="tool-row">
           <button id="clean-preview" data-i18n="clean_preview">Clean Preview</button>
-          <button id="clean" data-i18n="clean_generated" data-i18n-title="clean_generated_title">Safe Clean</button>
+          <button id="clean" class="danger" data-i18n="clean_generated" data-i18n-title="clean_generated_title">Safe Clean</button>
         </div>
         <label class="clean-toggle" data-i18n-title="clean_scripts_title">
           <input id="clean-scripts" type="checkbox" />
           <span data-i18n="clean_scripts">Include generated TS</span>
         </label>
-      </div>
+      </article>
     </div>
   </section>
 
   <section class="section result">
-    <div class="section-title" data-i18n="panel_result">Result</div>
+    <div class="section-heading">
+      <div>
+        <div class="section-title" data-i18n="panel_result">Result</div>
+        <div class="section-description" data-result-summary data-i18n="panel_result_empty_summary">Run an action to inspect its result</div>
+      </div>
+      <span class="state-pill" data-result-state data-state="info" data-i18n="panel_result_state_info">Idle</span>
+    </div>
+    <div data-result-empty class="empty-state" data-i18n="panel_result_empty">No command has run yet.</div>
     <div id="result-list" class="result-list"></div>
-    <pre id="result"></pre>
+    <details class="raw-details hidden">
+      <summary data-i18n="panel_raw_output">Raw output</summary>
+      <div class="raw-toolbar"><button data-result-copy data-i18n="panel_copy">Copy</button></div>
+      <pre id="result"></pre>
+    </details>
   </section>
 </section>
 `;
@@ -76,74 +111,142 @@ ${shared.baseStyle}
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
-.summary-grid div {
+.metric {
+  position: relative;
   display: grid;
-  gap: 2px;
-  padding: 8px;
-  border-radius: 3px;
+  min-width: 0;
+  gap: 3px;
+  padding: 10px 11px;
+  overflow: hidden;
+  border: 1px solid var(--color-normal-border);
+  border-radius: var(--yz-radius);
   background: var(--color-normal-fill);
 }
 
-.summary-grid strong {
-  font-size: 18px;
+.metric::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  content: '';
+  background: var(--color-primary-fill);
+}
+
+.metric-library::before { opacity: 0.68; }
+.metric-pack::before { opacity: 0.42; }
+
+.metric strong {
+  font-size: 21px;
+  font-weight: 650;
   line-height: 1;
 }
 
-.summary-grid span,
-.list {
+.metric span {
   color: var(--color-normal-contrast-weaker);
+  font-size: 10px;
 }
 
-.list {
-  margin-top: 8px;
-  max-height: 92px;
-  overflow: auto;
+.entity-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 9px;
 }
 
-.command-groups {
+.command-grid {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
-.command-group {
+.command-card {
   display: grid;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-normal-border);
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--color-normal-border);
+  border-radius: var(--yz-radius);
+  background: var(--color-normal-fill);
 }
 
-.command-group:first-child {
-  padding-top: 0;
-  border-top: 0;
+.command-card-head {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
 }
 
-.command-title {
-  color: var(--color-normal-contrast-weaker);
+.command-card-head > div {
+  min-width: 0;
+}
+
+.command-card-head strong {
   font-size: 11px;
-  font-weight: 600;
 }
 
-.wide-tools {
-  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+.command-card-head p {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-glyph {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  place-items: center;
+  color: var(--color-primary-contrast);
+  border: 1px solid var(--color-primary-border);
+  border-radius: 7px;
+  background: var(--color-primary-fill);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.danger-card {
+  border-color: var(--color-danger-border, var(--color-normal-border));
+}
+
+.danger-glyph {
+  color: var(--color-danger-contrast, #ff969e);
+  border-color: var(--color-danger-border, #873d45);
+  background: transparent;
+}
+
+.compact-tools button,
+.full-button {
+  min-height: 25px;
+  font-size: 10px;
+}
+
+.full-button {
+  width: 100%;
 }
 
 .clean-toggle {
   display: flex;
-  grid-template-columns: none;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-normal-border);
+  gap: 7px;
+  color: var(--color-normal-contrast-weaker);
+  cursor: pointer;
+  font-size: 10px;
 }
 
-.clean-toggle input {
-  width: auto;
-  min-height: auto;
+@media (max-width: 560px) {
+  .command-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 400px) {
+  .summary-grid { grid-template-columns: 1fr; }
+  .topbar-actions button:not(.icon-button) { display: none; }
 }
 `;
 
@@ -154,6 +257,8 @@ module.exports = Editor.Panel.define({
     shell: '.shell',
     status: '#status',
     refresh: '#refresh',
+    openCreate: '#open-create',
+    openConfig: '#open-config',
     generate: '#generate',
     upgrade: '#upgrade',
     upgradeCheck: '#upgrade-check',
@@ -179,43 +284,30 @@ module.exports = Editor.Panel.define({
     },
 
     setBusy(busy, label) {
-      const key = label || (busy ? 'panel_status_working' : 'panel_status_ready');
-      this.$.status.textContent = this.t(key);
-      for (const button of [
-        this.$.refresh,
-        this.$.generate,
-        this.$.upgrade,
-        this.$.upgradeCheck,
-        this.$.clean,
-        this.$.validate,
-        this.$.validateStrict,
-        this.$.diagnostics,
-        this.$.smokeTest,
-        this.$.runtimeSnapshot,
-        this.$.generateCheck,
-        this.$.cleanPreview,
-      ]) {
-        button.disabled = busy;
+      if (busy || this.$.shell.dataset.state === 'busy') {
+        shared.setStatus(this, label || (busy ? 'panel_status_working' : 'panel_status_ready'), busy ? 'busy' : 'ready');
       }
+      this.$.shell.setAttribute('aria-busy', String(busy));
+      for (const button of this.$.shell.querySelectorAll('button')) button.disabled = busy;
       this.$.cleanScripts.disabled = busy;
     },
 
     cleanOptions() {
-      return {
-        includeScripts: this.$.cleanScripts.checked === true,
-      };
+      return { includeScripts: this.$.cleanScripts.checked === true };
     },
 
     setResult(value) {
       shared.setResult(this, value);
     },
 
-    errorResult(error) {
-      return shared.errorResult(error);
-    },
-
     async call(message, payload) {
       return await shared.call(message, payload);
+    },
+
+    renderModules(modules) {
+      this.$.moduleList.innerHTML = modules.length > 0
+        ? modules.map((item) => `<span class="tag">${shared.escapeHtml(item.name)}</span>`).join('')
+        : `<span class="form-hint">${shared.escapeHtml(this.t('panel_no_modules'))}</span>`;
     },
 
     async refreshSummary(options = {}) {
@@ -226,159 +318,55 @@ module.exports = Editor.Panel.define({
         this.$.moduleCount.textContent = String(modules.length);
         this.$.libraryCount.textContent = String((summary.libraries || []).length);
         this.$.packCount.textContent = String((summary.contentPacks || []).length);
-        this.$.moduleList.textContent = modules.map((item) => item.name).join(', ') || this.t('panel_no_modules');
-        if (!options.silentResult) {
-          this.setResult(summary);
-        }
+        this.renderModules(modules);
+        if (!options.silentResult) this.setResult(summary);
       } catch (error) {
-        this.setResult(this.errorResult(error));
+        this.setResult(shared.errorResult(error));
       } finally {
         this.setBusy(false);
       }
     },
 
-    async generateAll() {
-      this.setBusy(true, 'panel_status_generating');
+    async runCommand(message, statusKey, options = {}) {
+      this.setBusy(true, statusKey);
       try {
-        this.setResult(await this.call('generate-all'));
-        await this.refreshSummary({ silentResult: true });
+        const result = await this.call(message, options.payload);
+        this.setResult(result);
+        if (options.refresh && result?.ok !== false) await this.refreshSummary({ silentResult: true });
       } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async generateCheck() {
-      this.setBusy(true, 'panel_status_generating');
-      try {
-        this.setResult(await this.call('generate-check'));
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async upgradeFramework() {
-      this.setBusy(true, 'panel_status_upgrading');
-      try {
-        this.setResult(await this.call('upgrade-framework'));
-        await this.refreshSummary({ silentResult: true });
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async upgradeCheck() {
-      this.setBusy(true, 'panel_status_upgrading');
-      try {
-        this.setResult(await this.call('upgrade-check'));
-      } catch (error) {
-        this.setResult(this.errorResult(error));
+        this.setResult(shared.errorResult(error));
       } finally {
         this.setBusy(false);
       }
     },
 
     async cleanGenerated() {
-      this.setBusy(true, 'panel_status_cleaning');
-      try {
-        this.setResult(await this.call('clean-generated', {
-          dryRun: false,
-          ...this.cleanOptions(),
-        }));
-        await this.refreshSummary({ silentResult: true });
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async cleanPreview() {
-      this.setBusy(true, 'panel_status_cleaning');
-      try {
-        this.setResult(await this.call('clean-generated-preview', this.cleanOptions()));
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async validateProject() {
-      this.setBusy(true, 'panel_status_validating');
-      try {
-        this.setResult(await this.call('validate-architecture'));
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async validateProjectStrict() {
-      this.setBusy(true, 'panel_status_validating');
-      try {
-        this.setResult(await this.call('validate-architecture-strict'));
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async runDiagnostics() {
-      this.setBusy(true, 'panel_status_diagnosing');
-      try {
-        this.setResult(await this.call('project-diagnostics'));
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async runtimeSnapshot() {
-      this.setBusy(true, 'panel_status_diagnosing');
-      try {
-        this.setResult(await this.call('runtime-snapshot'));
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
-    },
-
-    async smokeTest() {
-      this.setBusy(true, 'panel_status_smoking');
-      try {
-        this.setResult(await this.call('smoke-test'));
-      } catch (error) {
-        this.setResult(this.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
+      const includeScripts = this.$.cleanScripts.checked === true;
+      if (includeScripts && typeof window !== 'undefined' && typeof window.confirm === 'function'
+        && !window.confirm(this.t('clean_scripts_confirm'))) return;
+      await this.runCommand('clean-generated', 'panel_status_cleaning', {
+        payload: { dryRun: false, ...this.cleanOptions() },
+        refresh: true,
+      });
     },
   },
   ready() {
-    shared.translate(this);
+    shared.initialize(this);
     this.$.refresh.addEventListener('click', () => this.refreshSummary());
-    this.$.generate.addEventListener('click', () => this.generateAll());
-    this.$.generateCheck.addEventListener('click', () => this.generateCheck());
-    this.$.upgrade.addEventListener('click', () => this.upgradeFramework());
-    this.$.upgradeCheck.addEventListener('click', () => this.upgradeCheck());
+    this.$.openCreate.addEventListener('click', () => this.call('open-create-panel').catch((error) => this.setResult(shared.errorResult(error))));
+    this.$.openConfig.addEventListener('click', () => this.call('open-config-panel').catch((error) => this.setResult(shared.errorResult(error))));
+    this.$.generate.addEventListener('click', () => this.runCommand('generate-all', 'panel_status_generating', { refresh: true }));
+    this.$.generateCheck.addEventListener('click', () => this.runCommand('generate-check', 'panel_status_validating'));
+    this.$.upgrade.addEventListener('click', () => this.runCommand('upgrade-framework', 'panel_status_upgrading', { refresh: true }));
+    this.$.upgradeCheck.addEventListener('click', () => this.runCommand('upgrade-check', 'panel_status_upgrading'));
     this.$.clean.addEventListener('click', () => this.cleanGenerated());
-    this.$.cleanPreview.addEventListener('click', () => this.cleanPreview());
-    this.$.validate.addEventListener('click', () => this.validateProject());
-    this.$.validateStrict.addEventListener('click', () => this.validateProjectStrict());
-    this.$.diagnostics.addEventListener('click', () => this.runDiagnostics());
-    this.$.runtimeSnapshot.addEventListener('click', () => this.runtimeSnapshot());
-    this.$.smokeTest.addEventListener('click', () => this.smokeTest());
-    this.refreshSummary();
+    this.$.cleanPreview.addEventListener('click', () => this.runCommand('clean-generated-preview', 'panel_status_cleaning', { payload: this.cleanOptions() }));
+    this.$.validate.addEventListener('click', () => this.runCommand('validate-architecture', 'panel_status_validating'));
+    this.$.validateStrict.addEventListener('click', () => this.runCommand('validate-architecture-strict', 'panel_status_validating'));
+    this.$.diagnostics.addEventListener('click', () => this.runCommand('project-diagnostics', 'panel_status_diagnosing'));
+    this.$.runtimeSnapshot.addEventListener('click', () => this.runCommand('runtime-snapshot', 'panel_status_diagnosing'));
+    this.$.smokeTest.addEventListener('click', () => this.runCommand('smoke-test', 'panel_status_smoking'));
+    this.refreshSummary({ silentResult: true });
   },
   beforeClose() {},
   close() {},

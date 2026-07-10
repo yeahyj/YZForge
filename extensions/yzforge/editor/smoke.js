@@ -2672,6 +2672,53 @@ function assertFrameworkUpgradeBehavior(projectRoot) {
   writeJson(projectRoot, FRAMEWORK_LOCK_PATH, firstUpgrade.lock.value);
 }
 
+function assertPanelExperienceInvariants() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const panelRoot = path.join(projectRoot, 'extensions/yzforge/editor/panel');
+  const sources = {
+    dashboard: fs.readFileSync(path.join(panelRoot, 'index.js'), 'utf8'),
+    create: fs.readFileSync(path.join(panelRoot, 'create.js'), 'utf8'),
+    config: fs.readFileSync(path.join(panelRoot, 'config.js'), 'utf8'),
+    shared: fs.readFileSync(path.join(panelRoot, 'shared.js'), 'utf8'),
+  };
+  const english = require('../i18n/en');
+  const chinese = require('../i18n/zh');
+  const extensionPackage = readJson(projectRoot, 'extensions/yzforge/package.json');
+
+  for (const [name, source] of Object.entries(sources).filter(([name]) => name !== 'shared')) {
+    assert(source.includes('brand-lockup'), `${name} panel must use the shared branded header.`);
+    assert(source.includes('data-result-state'), `${name} panel must expose summarized result state.`);
+    assert(source.includes('raw-details hidden'), `${name} panel must keep raw output secondary and collapsible.`);
+    assert(source.includes('data-result-copy'), `${name} panel must allow raw result copying.`);
+    for (const match of source.matchAll(/data-i18n(?:-title|-placeholder)?="([^"]+)"/g)) {
+      const key = match[1];
+      assert(Boolean(english[key]), `${name} panel i18n key '${key}' is missing in English.`);
+      assert(Boolean(chinese[key]), `${name} panel i18n key '${key}' is missing in Chinese.`);
+    }
+  }
+
+  for (const key of [
+    'panel_copied', 'panel_status_failed', 'panel_result_state_success', 'panel_result_state_error',
+    'panel_result_state_warning', 'panel_result_changed', 'panel_result_failed', 'panel_create_named',
+    'config_state_saved', 'config_state_dirty', 'config_discard_confirm',
+  ]) {
+    assert(Boolean(english[key]) && Boolean(chinese[key]), `Dynamic panel i18n key '${key}' must exist in both locales.`);
+  }
+
+  assert(sources.shared.includes('function resultSummary'), 'Shared panel UX must summarize command results.');
+  assert(sources.shared.includes('function setStatus'), 'Shared panel UX must own consistent status state.');
+  assert(sources.dashboard.includes('command-card') && sources.dashboard.includes("'open-create-panel'"), 'Dashboard must expose task cards and quick panel navigation.');
+  assert(sources.dashboard.includes('clean_scripts_confirm'), 'Dashboard must confirm destructive generated script cleanup.');
+  assert(sources.create.includes('kind-choice') && sources.create.includes('targetPathForKind'), 'Create panel must expose visual kind selection and live target preview.');
+  assert(sources.create.includes('validationMessage'), 'Create panel must validate before dispatching create commands.');
+  assert(sources.config.includes('config-workspace') && sources.config.includes('configOutputPath'), 'Config panel must expose a responsive mapping workspace and output preview.');
+  assert(sources.config.includes('markConfigDirty') && sources.config.includes('confirmDiscard'), 'Config panel must protect unsaved rule edits.');
+  assert(sources.config.includes('event.metaKey') && sources.config.includes("event.key.toLowerCase() === 's'"), 'Config panel must support keyboard save.');
+  assert(extensionPackage.panels.default.size.width >= 640, 'Dashboard default size must fit the task-card layout.');
+  assert(extensionPackage.panels.create.size.width >= 600, 'Create default size must fit kind choices and preview.');
+  assert(extensionPackage.panels.config.size.width >= 720, 'Config default size must fit the mapping workspace.');
+}
+
 function assertToolchainResolverInvariants() {
   const projectRoot = path.resolve(__dirname, '..', '..', '..');
   const packageJson = readJson(projectRoot, 'package.json');
@@ -2934,6 +2981,7 @@ async function smoke(options = {}) {
   let completed = false;
   try {
     if (layer === 'all' || layer === 'runtime') {
+      assertPanelExperienceInvariants();
       assertToolchainResolverInvariants();
       assertRuntimeLifecycleInvariants();
       await assertAppStateMachineBehavior();
