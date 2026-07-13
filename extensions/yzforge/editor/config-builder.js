@@ -309,6 +309,101 @@ function deleteConfigPlanTable(projectRoot, table) {
   return { ok: true, changed: changed ? [CONFIG_PLAN_PATH] : [], plan: nextPlan, deleted };
 }
 
+function saveConfigSource(projectRoot, options = {}) {
+  const source = normalizeConfigSourcePath(projectRoot, options.source);
+  const sourcePath = path.join(projectRoot, source);
+  const availableSheets = new Set(listSheets(sourcePath));
+  const requestedTables = Array.isArray(options.tables) ? options.tables : [];
+  if (requestedTables.length === 0) {
+    throw new Error(`Config source must include at least one sheet: ${source}`);
+  }
+
+  const plan = readPlan(projectRoot);
+  const existingForSource = plan.tables.filter((table) => table.source === source);
+  const existingById = new Map(existingForSource.filter((table) => table.id).map((table) => [table.id, table]));
+  const existingBySheet = new Map(existingForSource.map((table) => [table.sheet, table]));
+  const seenSheets = new Set();
+  const nextTables = requestedTables.map((table) => {
+    const sheet = String(table?.sheet || '').trim();
+    if (!availableSheets.has(sheet)) {
+      throw new Error(`Config sheet does not exist in ${source}: ${sheet || '<empty>'}`);
+    }
+    if (seenSheets.has(sheet)) {
+      throw new Error(`Config source contains duplicate sheet rule: ${source}#${sheet}`);
+    }
+    seenSheets.add(sheet);
+    const requestedId = normalizePlanId(table.id);
+    const previous = (requestedId && existingById.get(requestedId)) || existingBySheet.get(sheet);
+    if (requestedId && !previous && plan.tables.some((item) => item.id === requestedId)) {
+      throw new Error(`Config table rule id belongs to another source: ${requestedId}`);
+    }
+    const normalized = normalizePlanTable(projectRoot, {
+      ...table,
+      source,
+      id: previous?.id || requestedId,
+      label: table.label ?? previous?.label,
+    });
+    return {
+      ...normalized,
+      id: normalized.id || createPlanTableId(),
+    };
+  });
+
+  const tableKeys = new Set(plan.tables
+    .filter((table) => table.source !== source)
+    .map((table) => `${table.scope?.kind || ''}:${table.scope?.owner || ''}:${table.scope?.name || ''}:${table.table}`));
+  const ruleIds = new Set();
+  for (const table of nextTables) {
+    if (ruleIds.has(table.id)) {
+      throw new Error(`Config source contains a duplicate rule id: ${table.id}`);
+    }
+    ruleIds.add(table.id);
+    const key = `${table.scope.kind}:${table.scope.owner || ''}:${table.scope.name || ''}:${table.table}`;
+    if (tableKeys.has(key)) {
+      throw new Error(`Config source produces a duplicate table key in one scope: ${table.table}`);
+    }
+    tableKeys.add(key);
+  }
+
+  const keptIds = new Set(nextTables.map((table) => table.id));
+  const removed = existingForSource.filter((table) => !keptIds.has(table.id));
+  const nextPlan = {
+    ...plan,
+    tables: plan.tables.filter((table) => table.source !== source).concat(nextTables),
+  };
+  nextPlan.tables.sort((a, b) => tablePlanSortKey(a).localeCompare(tablePlanSortKey(b)));
+  const changed = writePlan(projectRoot, nextPlan);
+  return {
+    ok: true,
+    changed: changed ? [CONFIG_PLAN_PATH] : [],
+    plan: nextPlan,
+    source,
+    tables: nextTables,
+    removed,
+  };
+}
+
+function deleteConfigSource(projectRoot, options = {}) {
+  const source = normalizeConfigSourcePath(projectRoot, options.source);
+  const plan = readPlan(projectRoot);
+  const removed = plan.tables.filter((table) => table.source === source);
+  if (removed.length === 0) {
+    throw new Error(`Config source has no saved rules: ${source}`);
+  }
+  const nextPlan = {
+    ...plan,
+    tables: plan.tables.filter((table) => table.source !== source),
+  };
+  const changed = writePlan(projectRoot, nextPlan);
+  return {
+    ok: true,
+    changed: changed ? [CONFIG_PLAN_PATH] : [],
+    plan: nextPlan,
+    source,
+    removed,
+  };
+}
+
 function normalizePlanTable(projectRoot, table) {
   const source = normalizeConfigSourcePath(projectRoot, table.source);
   const scope = table.scope || {};
@@ -593,7 +688,9 @@ module.exports = {
   CONFIG_PLAN_PATH,
   buildConfig,
   configDashboard,
+  deleteConfigSource,
   readPlan,
   deleteConfigPlanTable,
+  saveConfigSource,
   saveConfigPlanTable,
 };

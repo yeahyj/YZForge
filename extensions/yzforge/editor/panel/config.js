@@ -18,94 +18,77 @@ const template = `
 
   <section class="config-overview" aria-label="Config overview">
     <div class="overview-item"><strong id="config-source-count">0</strong><span data-i18n="config_sources">Excel sources</span></div>
-    <div class="overview-item"><strong id="config-rule-count">0</strong><span data-i18n="config_rules">Saved rules</span></div>
+    <div class="overview-item"><strong id="config-rule-count">0</strong><span data-i18n="config_exported_sheets">Exported sheets</span></div>
     <div class="overview-item"><strong id="config-target-count">0</strong><span data-i18n="config_targets">Available targets</span></div>
   </section>
 
-  <div class="config-workspace">
-    <section class="section rule-section">
-      <div class="section-heading">
-        <div>
-          <div class="section-title" data-i18n="config_saved_table">Saved Rule</div>
-          <div class="section-description" data-i18n="config_rule_list_desc">Select a rule or start a new mapping</div>
-        </div>
-        <span id="config-dirty-state" class="state-pill" data-state="success" data-i18n="config_state_saved">Saved</span>
+  <section class="section file-section">
+    <div class="section-heading">
+      <div>
+        <div class="section-title" data-i18n="config_file_defaults">File Configuration</div>
+        <div class="section-description" data-i18n="config_file_defaults_desc">Set the owning target once for the whole Excel file</div>
       </div>
+      <span id="config-dirty-state" class="state-pill" data-state="info" data-i18n="config_state_unconfigured">Not configured</span>
+    </div>
 
+    <div class="form-grid file-form">
+      <label class="source-field">
+        <span data-i18n="config_source_file">Excel File</span>
+        <select id="config-source"></select>
+      </label>
       <label>
-        <span data-i18n="config_rule">Rule</span>
-        <select id="config-plan-table"></select>
+        <span data-i18n="config_scope_kind">Scope</span>
+        <select id="config-scope-kind">
+          <option value="module">Module</option>
+          <option value="library">Library</option>
+          <option value="content-pack">ContentPack</option>
+          <option value="global">Global</option>
+        </select>
       </label>
-
-      <div class="rule-actions">
-        <button id="config-new-table" data-i18n="config_new_table">New Rule</button>
-        <button id="config-delete-table" class="danger" data-i18n="config_delete_table">Delete Rule</button>
-      </div>
-
-      <label class="rule-name-row">
-        <span data-i18n="config_rule_name">Rule Name</span>
-        <input id="config-rule-label" data-i18n-placeholder="config_rule_name_placeholder" placeholder="Battle Items" />
+      <label>
+        <span data-i18n="config_scope_target">Target</span>
+        <select id="config-scope-target"></select>
       </label>
+    </div>
 
-      <div class="rule-note" data-i18n="config_rule_note">Rules are stored in config-source/export-plan.json.</div>
-    </section>
+    <div class="file-options">
+      <label class="check-label">
+        <input id="config-generate-keys" type="checkbox" checked />
+        <span data-i18n="config_generate_keys_default">Generate ID constants for all sheets</span>
+      </label>
+    </div>
 
-    <section class="section mapping-section">
-      <div class="section-heading">
-        <div>
-          <div class="section-title" data-i18n="config_mapping">Data Mapping</div>
-          <div class="section-description" data-i18n="config_mapping_desc">Connect one Excel sheet to its owning scope</div>
-        </div>
-      </div>
-
-      <div class="form-grid">
-        <label>
-          <span data-i18n="config_source">Source</span>
-          <select id="config-source"></select>
-        </label>
-        <label>
-          <span data-i18n="config_sheet">Sheet</span>
-          <select id="config-sheet"></select>
-        </label>
-        <label>
-          <span data-i18n="config_scope_kind">Scope</span>
-          <select id="config-scope-kind">
-            <option value="module">Module</option>
-            <option value="library">Library</option>
-            <option value="content-pack">ContentPack</option>
-            <option value="global">Global</option>
-          </select>
-        </label>
-        <label>
-          <span data-i18n="config_scope_target">Target</span>
-          <select id="config-scope-target"></select>
-        </label>
-        <label class="table-field">
-          <span data-i18n="config_table">Table Key</span>
-          <input id="config-table" data-i18n-placeholder="config_table_placeholder" placeholder="battleItems" />
-          <span class="field-hint" data-i18n="config_table_hint">Use lower camel case; the row type is derived automatically.</span>
-        </label>
-        <label class="check-label generate-keys">
-          <input id="config-generate-keys" type="checkbox" checked />
-          <span data-i18n="config_generate_keys">Generate ID constants</span>
-        </label>
-      </div>
-
+    <div class="file-summary">
       <div class="preview-card config-preview">
         <div class="preview-kicker" data-i18n="config_output_preview">OUTPUT PREVIEW</div>
         <div id="config-preview-source" class="preview-value">—</div>
         <div id="config-preview-path" class="preview-path">—</div>
       </div>
+      <button id="config-details" class="details-button" aria-expanded="false">
+        <span data-i18n="config_details">Sheet Details</span>
+        <span id="config-details-count" class="button-badge">0</span>
+      </button>
+    </div>
+
+    <section id="sheet-details" class="sheet-details hidden" aria-hidden="true">
+      <div class="details-heading">
+        <div>
+          <div class="section-title" data-i18n="config_sheet_overrides">Sheet Overrides</div>
+          <div class="section-description" data-i18n="config_sheet_overrides_desc">Enable sheets or override table keys and targets only when needed</div>
+        </div>
+      </div>
+      <div id="sheet-list" class="sheet-list"></div>
     </section>
-  </div>
+  </section>
 
   <section class="section action-section">
     <div class="action-copy">
       <div class="section-title" data-i18n="config_actions">Apply Configuration</div>
-      <div id="config-form-hint" class="form-hint" data-state="info" data-i18n="config_form_ready">Mapping is ready to save.</div>
+      <div id="config-form-hint" class="form-hint" data-state="info" data-i18n="config_form_ready">File configuration is ready.</div>
     </div>
     <div class="config-actions">
-      <button id="config-save-table" class="primary" data-i18n="config_save_table">Save Rule</button>
+      <button id="config-delete-source" class="danger" data-i18n="config_delete_source">Remove File Rules</button>
+      <button id="config-save-source" class="primary" data-i18n="config_save_source">Save File Configuration</button>
       <button id="config-check" data-i18n="config_check">Config Check</button>
       <button id="config-build" class="command-primary" data-i18n="config_build">Build Config</button>
     </div>
@@ -145,61 +128,107 @@ ${shared.baseStyle}
 .overview-item {
   display: grid;
   min-width: 0;
-  gap: 2px;
-  padding: 9px 12px;
+  gap: 3px;
+  padding: 11px 13px;
   border-right: 1px solid var(--color-normal-border);
 }
 
 .overview-item:last-child { border-right: 0; }
-.overview-item strong { font-size: 16px; line-height: 1.15; }
-.overview-item span { color: var(--color-normal-contrast-weaker); font-size: 9px; }
+.overview-item strong { font-size: 18px; line-height: 1.15; }
+.overview-item span { color: var(--color-normal-contrast-weaker); font-size: 11px; }
 
-.config-workspace {
+.file-section { display: grid; gap: 12px; }
+.file-section > .section-heading { margin-bottom: 0; }
+.source-field { grid-column: 1 / -1; }
+
+.file-options {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+}
+
+.file-summary {
   display: grid;
-  grid-template-columns: minmax(190px, 0.72fr) minmax(300px, 1.4fr);
-  align-items: start;
-  gap: var(--yz-space);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
 }
 
-.rule-section,
-.mapping-section {
-  height: 100%;
-}
-
-.rule-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-  margin-top: 8px;
-}
-
-.rule-name-row { margin-top: 10px; }
-
-.rule-note {
-  margin-top: 10px;
-  padding-top: 9px;
-  color: var(--color-normal-contrast-weaker);
-  border-top: 1px solid var(--color-normal-border);
-  font-size: 9px;
-}
-
-.table-field { grid-column: 1 / -1; }
-
-.generate-keys {
-  align-self: end;
-  min-height: 31px;
-  padding: 0 1px;
-}
-
-.config-preview { margin-top: 11px; }
+.config-preview { min-height: 68px; }
 
 .preview-path {
   min-width: 0;
   overflow: hidden;
   color: var(--color-primary-contrast);
-  font: 10px/1.45 var(--font-mono, monospace);
+  font: 11px/1.5 var(--font-mono, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.details-button {
+  min-width: 138px;
+  gap: 8px;
+}
+
+.button-badge {
+  display: inline-grid;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0 6px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--color-normal-fill);
+  font-size: 11px;
+}
+
+.sheet-details {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-normal-border);
+}
+
+.sheet-list {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.sheet-row {
+  display: grid;
+  grid-template-columns: minmax(125px, 1.15fr) minmax(115px, 1fr) 105px minmax(120px, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-normal-border);
+  border-radius: var(--yz-radius);
+  background: var(--color-normal-fill);
+}
+
+.sheet-row[data-enabled='false'] .sheet-field:not(.sheet-enable) { opacity: 0.5; }
+
+.sheet-enable {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  align-self: stretch;
+  gap: 8px;
+  padding-bottom: 3px;
+}
+
+.sheet-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-keys {
+  min-width: 74px;
+  align-self: center;
+  justify-content: center;
 }
 
 .action-section {
@@ -209,32 +238,33 @@ ${shared.baseStyle}
   gap: 14px;
 }
 
-.action-copy { min-width: 150px; }
+.action-copy { min-width: 180px; }
 
 .config-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(105px, 1fr));
+  grid-template-columns: repeat(4, minmax(112px, 1fr));
   gap: 7px;
 }
 
-@media (max-width: 650px) {
-  .config-workspace { grid-template-columns: 1fr; }
+@media (max-width: 820px) {
+  .sheet-row { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .sheet-enable { grid-column: 1 / -1; min-height: 32px; }
+  .sheet-keys { justify-content: flex-start; }
   .action-section { align-items: stretch; flex-direction: column; }
+  .config-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 470px) {
   .config-overview,
+  .file-summary,
+  .sheet-row,
   .config-actions { grid-template-columns: 1fr; }
   .overview-item { border-right: 0; border-bottom: 1px solid var(--color-normal-border); }
   .overview-item:last-child { border-bottom: 0; }
+  .sheet-enable { grid-column: auto; }
+  .details-button { width: 100%; }
 }
 `;
-
-function configScopeTargetValue(scope = {}) {
-  if (scope.kind === 'content-pack') return `${scope.owner || ''}/${scope.name || ''}`;
-  if (scope.kind === 'global') return 'Global';
-  return scope.name || '';
-}
 
 function configDefaultTableKey(value) {
   const words = String(value || '').trim().split(/[^A-Za-z0-9]+/).filter(Boolean);
@@ -243,24 +273,48 @@ function configDefaultTableKey(value) {
   return `${first.charAt(0).toLowerCase()}${first.slice(1)}${rest.map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join('')}`;
 }
 
-function configPlanLabel(table) {
-  if (table.label) return table.label;
-  const scope = table.scope || {};
-  const target = configScopeTargetValue(scope);
-  return [scope.kind || 'unknown', target && target !== 'Global' ? target : undefined, table.table || table.sheet].filter(Boolean).join(' / ');
-}
-
 function pascalCase(value) {
-  return String(value || '').replace(/(^|[^A-Za-z0-9]+)([A-Za-z0-9])/g, (_match, _separator, char) => char.toUpperCase());
+  const normalized = configDefaultTableKey(value);
+  return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : '';
 }
 
-function configOutputPath(kind, target, table) {
+function sourceName(source) {
+  const filename = String(source || '').split('/').pop() || '';
+  return filename.replace(/\.xlsx$/i, '');
+}
+
+function scopeTargetValue(scope = {}) {
+  if (scope.kind === 'content-pack') return `${scope.owner || ''}/${scope.name || ''}`;
+  if (scope.kind === 'global') return 'Global';
+  return scope.name || '';
+}
+
+function scopeFrom(kind, target) {
+  if (kind === 'content-pack') {
+    const [owner, name] = String(target || '').split('/');
+    return { kind, owner, name };
+  }
+  if (kind === 'global') return { kind };
+  return { kind, name: target };
+}
+
+function scopeKey(scope = {}) {
+  return `${scope.kind || ''}:${scope.owner || ''}:${scope.name || ''}`;
+}
+
+function scopeLabel(scope = {}) {
+  if (scope.kind === 'global') return 'global';
+  return `${scope.kind || 'unknown'}:${scopeTargetValue(scope)}`;
+}
+
+function configOutputPath(scope, table) {
   if (!table) return '—';
   const filename = `${pascalCase(table)}.json`;
-  if (kind === 'global') return `assets/app/global/res/content/config/${filename}`;
-  if (kind === 'module') return `assets/modules/${target || '…'}/res/content/config/${filename}`;
-  if (kind === 'library') return `assets/libraries/${target || '…'}/res/content/config/${filename}`;
-  if (kind === 'content-pack') return `assets/content-packs/${target || '…'}/res/content/config/${filename}`;
+  const target = scopeTargetValue(scope);
+  if (scope.kind === 'global') return `assets/app/global/res/content/config/${filename}`;
+  if (scope.kind === 'module') return `assets/modules/${target || '…'}/res/content/config/${filename}`;
+  if (scope.kind === 'library') return `assets/libraries/${target || '…'}/res/content/config/${filename}`;
+  if (scope.kind === 'content-pack') return `assets/content-packs/${target || '…'}/res/content/config/${filename}`;
   return filename;
 }
 
@@ -268,11 +322,10 @@ module.exports = Editor.Panel.define({
   template,
   style,
   $: {
-    shell: '.shell', status: '#status', configPlanTable: '#config-plan-table', configNewTable: '#config-new-table',
-    configRuleLabel: '#config-rule-label', configSource: '#config-source', configSheet: '#config-sheet',
-    configScopeKind: '#config-scope-kind', configScopeTarget: '#config-scope-target', configTable: '#config-table',
-    configGenerateKeys: '#config-generate-keys', configScan: '#config-scan', configSaveTable: '#config-save-table',
-    configDeleteTable: '#config-delete-table', configBuild: '#config-build', configCheck: '#config-check',
+    shell: '.shell', status: '#status', configScan: '#config-scan', configSource: '#config-source',
+    configScopeKind: '#config-scope-kind', configScopeTarget: '#config-scope-target', configGenerateKeys: '#config-generate-keys',
+    configDetails: '#config-details', configDetailsCount: '#config-details-count', sheetDetails: '#sheet-details', sheetList: '#sheet-list',
+    configDeleteSource: '#config-delete-source', configSaveSource: '#config-save-source', configBuild: '#config-build', configCheck: '#config-check',
     configDirtyState: '#config-dirty-state', configFormHint: '#config-form-hint', configPreviewSource: '#config-preview-source',
     configPreviewPath: '#config-preview-path', configSourceCount: '#config-source-count', configRuleCount: '#config-rule-count',
     configTargetCount: '#config-target-count', resultList: '#result-list', result: '#result',
@@ -289,17 +342,23 @@ module.exports = Editor.Panel.define({
       }
       this.$.shell.setAttribute('aria-busy', String(busy));
       for (const control of this.$.shell.querySelectorAll('button, input, select')) control.disabled = busy;
-      if (!busy) this.updateFormState();
+      if (!busy) {
+        this.renderSheetDetails();
+        this.updateFormState();
+      }
     },
 
     setDirty(dirty) {
       this.isDirty = dirty;
-      this.$.configDirtyState.dataset.state = dirty ? 'warning' : 'success';
-      this.$.configDirtyState.textContent = this.t(dirty ? 'config_state_dirty' : 'config_state_saved');
+      const state = dirty ? 'warning' : (this.hasSavedRules ? 'success' : 'info');
+      const key = dirty ? 'config_state_dirty' : (this.hasSavedRules ? 'config_state_saved' : 'config_state_unconfigured');
+      this.$.configDirtyState.dataset.state = state;
+      this.$.configDirtyState.textContent = this.t(key);
       this.updateFormState();
     },
 
     markConfigDirty() {
+      this.syncFileControlsFromDrafts();
       if (!this.isApplying) this.setDirty(true);
       this.updatePreview();
     },
@@ -309,135 +368,259 @@ module.exports = Editor.Panel.define({
         || window.confirm(this.t('config_discard_confirm'));
     },
 
+    scopeTargets(kind) {
+      const scopes = this.configDashboardValue?.scopes || {};
+      if (kind === 'module') return scopes.modules || [];
+      if (kind === 'library') return scopes.libraries || [];
+      if (kind === 'content-pack') return (scopes.contentPacks || []).map((item) => `${item.owner}/${item.name}`);
+      if (kind === 'global') return scopes.global === false ? [] : ['Global'];
+      return [];
+    },
+
+    defaultScope() {
+      for (const kind of ['module', 'library', 'content-pack', 'global']) {
+        const targets = this.scopeTargets(kind);
+        if (targets.length > 0) return scopeFrom(kind, targets[0]);
+      }
+      return { kind: 'module', name: '' };
+    },
+
     updateOverview() {
       const dashboard = this.configDashboardValue || {};
       const scopes = dashboard.scopes || {};
-      const rules = dashboard.plan?.tables || [];
       const targetCount = (scopes.modules || []).length + (scopes.libraries || []).length
         + (scopes.contentPacks || []).length + (scopes.global ? 1 : 0);
       this.$.configSourceCount.textContent = String((dashboard.sources || []).length);
-      this.$.configRuleCount.textContent = String(rules.length);
+      this.$.configRuleCount.textContent = String((dashboard.plan?.tables || []).length);
       this.$.configTargetCount.textContent = String(targetCount);
     },
 
-    updateConfigSourceSheets(preferredSheet) {
-      const dashboard = this.configDashboardValue || {};
-      const source = (dashboard.sources || []).find((item) => item.source === this.$.configSource.value);
-      const sheets = source && Array.isArray(source.sheets) ? source.sheets : [];
-      const selected = preferredSheet || this.$.configSheet.value;
-      this.$.configSheet.innerHTML = sheets.length > 0
-        ? sheets.map((sheet) => `<option value="${shared.escapeHtml(sheet)}">${shared.escapeHtml(sheet)}</option>`).join('')
-        : `<option value="">${shared.escapeHtml(this.t('config_no_sheets'))}</option>`;
-      if (selected && sheets.includes(selected)) this.$.configSheet.value = selected;
-      this.applyConfigDefaults();
-      this.updatePreview();
-    },
-
-    updateConfigScopeTargets(preferredTarget) {
-      const dashboard = this.configDashboardValue || {};
-      const scopes = dashboard.scopes || {};
+    updateFileScopeTargets(preferredTarget) {
       const kind = this.$.configScopeKind.value;
-      let targets = [];
-      if (kind === 'module') targets = scopes.modules || [];
-      else if (kind === 'library') targets = scopes.libraries || [];
-      else if (kind === 'content-pack') targets = (scopes.contentPacks || []).map((item) => `${item.owner}/${item.name}`);
-      else if (kind === 'global') targets = scopes.global === false ? [] : ['Global'];
+      const targets = this.scopeTargets(kind);
       this.$.configScopeTarget.innerHTML = targets.length > 0
         ? targets.map((target) => `<option value="${shared.escapeHtml(target)}">${shared.escapeHtml(target)}</option>`).join('')
         : `<option value="">${shared.escapeHtml(this.t('config_no_target'))}</option>`;
       if (preferredTarget && targets.includes(preferredTarget)) this.$.configScopeTarget.value = preferredTarget;
-      this.updatePreview();
     },
 
-    updateConfigPlanTables(selectedId) {
-      const tables = this.configDashboardValue?.plan?.tables || [];
-      const selected = selectedId !== undefined ? selectedId : this.$.configPlanTable.value;
-      this.$.configPlanTable.innerHTML = [
-        `<option value="">${shared.escapeHtml(this.t('config_new_table'))}</option>`,
-        ...tables.map((table) => `<option value="${shared.escapeHtml(table.id || '')}">${shared.escapeHtml(configPlanLabel(table))}</option>`),
-      ].join('');
-      if (selected && tables.some((table) => table.id === selected)) this.$.configPlanTable.value = selected;
-    },
-
-    selectedConfigPlanTable() {
-      const tables = this.configDashboardValue?.plan?.tables || [];
-      return tables.find((table) => table.id === this.$.configPlanTable.value);
-    },
-
-    applyConfigPlanTable() {
-      const table = this.selectedConfigPlanTable();
+    selectSource(source) {
+      const dashboard = this.configDashboardValue || {};
+      const sourceInfo = (dashboard.sources || []).find((item) => item.source === source);
+      const existing = (dashboard.plan?.tables || []).filter((table) => table.source === source);
+      const existingBySheet = new Map(existing.map((table) => [table.sheet, table]));
+      const missingRules = existing.filter((table) => !(sourceInfo?.sheets || []).includes(table.sheet));
+      const fallbackScope = existing[0]?.scope || this.defaultScope();
+      const fallbackGenerateKeys = existing.length > 0 ? existing[0].generateKeys !== false : true;
       this.isApplying = true;
-      if (table) {
-        this.$.configRuleLabel.value = table.label || '';
-        this.$.configSource.value = table.source || '';
-        this.updateConfigSourceSheets(table.sheet || '');
-        this.$.configScopeKind.value = table.scope?.kind || 'module';
-        this.updateConfigScopeTargets(configScopeTargetValue(table.scope));
-        this.$.configTable.value = table.table || '';
-        this.$.configGenerateKeys.checked = table.generateKeys !== false;
-      } else {
-        this.$.configRuleLabel.value = '';
-        this.$.configTable.value = '';
-        this.$.configGenerateKeys.checked = true;
-        this.updateConfigSourceSheets();
-        this.updateConfigScopeTargets();
-        this.applyConfigDefaults();
-      }
-      this.currentRuleId = table?.id || '';
+      this.currentSource = source || '';
+      this.sourceError = sourceInfo?.error || '';
+      this.hasSavedRules = existing.length > 0;
+      this.sheetDrafts = (sourceInfo?.sheets || []).map((sheet) => {
+        const table = existingBySheet.get(sheet);
+        return {
+          id: table?.id,
+          label: table?.label,
+          sheet,
+          table: table?.table || configDefaultTableKey(sheet),
+          enabled: existing.length === 0 ? true : Boolean(table),
+          scope: table?.scope || { ...fallbackScope },
+          generateKeys: table ? table.generateKeys !== false : fallbackGenerateKeys,
+        };
+      });
+      this.$.configScopeKind.value = fallbackScope.kind || 'module';
+      this.updateFileScopeTargets(scopeTargetValue(fallbackScope));
+      this.$.configGenerateKeys.checked = fallbackGenerateKeys;
       this.isApplying = false;
-      this.setDirty(false);
+      this.syncFileControlsFromDrafts();
+      const mixed = this.hasMixedSettings();
+      this.setDetailsExpanded(mixed);
+      this.setDirty(missingRules.length > 0);
+      this.renderSheetDetails();
       this.updatePreview();
     },
 
-    changeConfigPlanTable() {
-      const nextId = this.$.configPlanTable.value;
-      if (nextId !== this.currentRuleId && !this.confirmDiscard()) {
-        this.$.configPlanTable.value = this.currentRuleId || '';
+    changeSource() {
+      const nextSource = this.$.configSource.value;
+      if (nextSource !== this.currentSource && !this.confirmDiscard()) {
+        this.$.configSource.value = this.currentSource || '';
         return;
       }
-      this.applyConfigPlanTable();
+      this.selectSource(nextSource);
     },
 
-    beginNewConfigTable() {
-      if (!this.confirmDiscard()) return;
-      this.$.configPlanTable.value = '';
-      this.applyConfigPlanTable();
-      this.$.configRuleLabel.focus();
+    hasMixedSettings() {
+      const enabled = (this.sheetDrafts || []).filter((row) => row.enabled);
+      if (enabled.length < 2) return false;
+      const scopes = new Set(enabled.map((row) => scopeKey(row.scope)));
+      const generateKeys = new Set(enabled.map((row) => row.generateKeys));
+      return scopes.size > 1 || generateKeys.size > 1;
     },
 
-    applyConfigDefaults() {
-      const sheet = this.$.configSheet.value;
-      if (!this.$.configTable.value && sheet) this.$.configTable.value = configDefaultTableKey(sheet);
+    syncFileControlsFromDrafts() {
+      const enabled = (this.sheetDrafts || []).filter((row) => row.enabled);
+      if (enabled.length === 0) {
+        this.$.configGenerateKeys.indeterminate = false;
+        return;
+      }
+      const scopeKeys = new Set(enabled.map((row) => scopeKey(row.scope)));
+      const generateKeys = new Set(enabled.map((row) => row.generateKeys));
+      this.isApplying = true;
+      if (scopeKeys.size === 1) {
+        this.$.configScopeKind.value = enabled[0].scope.kind;
+        this.updateFileScopeTargets(scopeTargetValue(enabled[0].scope));
+      }
+      this.$.configGenerateKeys.indeterminate = generateKeys.size > 1;
+      if (generateKeys.size === 1) this.$.configGenerateKeys.checked = enabled[0].generateKeys;
+      this.isApplying = false;
+    },
+
+    applyFileDefaults() {
+      if (this.isApplying) return;
+      this.$.configGenerateKeys.indeterminate = false;
+      const scope = scopeFrom(this.$.configScopeKind.value, this.$.configScopeTarget.value);
+      const generateKeys = this.$.configGenerateKeys.checked === true;
+      for (const row of this.sheetDrafts || []) {
+        if (!row.enabled) continue;
+        row.scope = { ...scope };
+        row.generateKeys = generateKeys;
+      }
+      this.markConfigDirty();
+      this.renderSheetDetails();
+    },
+
+    setDetailsExpanded(expanded) {
+      this.detailsExpanded = expanded;
+      this.$.sheetDetails.classList.toggle('hidden', !expanded);
+      this.$.sheetDetails.setAttribute('aria-hidden', String(!expanded));
+      this.$.configDetails.setAttribute('aria-expanded', String(expanded));
+    },
+
+    toggleDetails() {
+      this.setDetailsExpanded(!this.detailsExpanded);
+    },
+
+    targetOptions(kind, selected) {
+      const targets = this.scopeTargets(kind);
+      if (targets.length === 0) return `<option value="">${shared.escapeHtml(this.t('config_no_target'))}</option>`;
+      return targets.map((target) => `<option value="${shared.escapeHtml(target)}"${target === selected ? ' selected' : ''}>${shared.escapeHtml(target)}</option>`).join('');
+    },
+
+    renderSheetDetails() {
+      this.$.sheetList.innerHTML = '';
+      const rows = this.sheetDrafts || [];
+      for (const row of rows) {
+        const item = document.createElement('article');
+        item.className = 'sheet-row';
+        item.dataset.enabled = String(row.enabled);
+        item.innerHTML = `
+          <label class="sheet-field sheet-enable check-label">
+            <input data-sheet-enabled type="checkbox"${row.enabled ? ' checked' : ''} />
+            <span class="sheet-name" title="${shared.escapeHtml(row.sheet)}">${shared.escapeHtml(row.sheet)}</span>
+          </label>
+          <label class="sheet-field">
+            <span>${shared.escapeHtml(this.t('config_table'))}</span>
+            <input data-sheet-table value="${shared.escapeHtml(row.table)}" />
+          </label>
+          <label class="sheet-field">
+            <span>${shared.escapeHtml(this.t('config_scope_kind'))}</span>
+            <select data-sheet-kind>
+              ${['module', 'library', 'content-pack', 'global'].map((kind) => `<option value="${kind}"${row.scope.kind === kind ? ' selected' : ''}>${kind === 'content-pack' ? 'ContentPack' : `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`}</option>`).join('')}
+            </select>
+          </label>
+          <label class="sheet-field">
+            <span>${shared.escapeHtml(this.t('config_scope_target'))}</span>
+            <select data-sheet-target>${this.targetOptions(row.scope.kind, scopeTargetValue(row.scope))}</select>
+          </label>
+          <label class="sheet-field sheet-keys check-label" title="${shared.escapeHtml(this.t('config_generate_keys'))}">
+            <input data-sheet-keys type="checkbox"${row.generateKeys ? ' checked' : ''} />
+            <span>${shared.escapeHtml(this.t('config_keys_short'))}</span>
+          </label>`;
+        const enabled = item.querySelector('[data-sheet-enabled]');
+        const table = item.querySelector('[data-sheet-table]');
+        const kind = item.querySelector('[data-sheet-kind]');
+        const target = item.querySelector('[data-sheet-target]');
+        const keys = item.querySelector('[data-sheet-keys]');
+        const syncDisabled = () => {
+          for (const control of [table, kind, target, keys]) control.disabled = this.isBusy || !row.enabled;
+          item.dataset.enabled = String(row.enabled);
+        };
+        enabled.disabled = this.isBusy;
+        syncDisabled();
+        enabled.addEventListener('change', () => {
+          row.enabled = enabled.checked;
+          if (row.enabled) {
+            row.scope = scopeFrom(this.$.configScopeKind.value, this.$.configScopeTarget.value);
+            row.generateKeys = this.$.configGenerateKeys.checked === true;
+            keys.checked = row.generateKeys;
+          }
+          syncDisabled();
+          this.markConfigDirty();
+        });
+        table.addEventListener('input', () => { row.table = table.value.trim(); this.markConfigDirty(); });
+        kind.addEventListener('change', () => {
+          const targets = this.scopeTargets(kind.value);
+          row.scope = scopeFrom(kind.value, targets[0] || '');
+          target.innerHTML = this.targetOptions(kind.value, scopeTargetValue(row.scope));
+          this.markConfigDirty();
+        });
+        target.addEventListener('change', () => { row.scope = scopeFrom(kind.value, target.value); this.markConfigDirty(); });
+        keys.addEventListener('change', () => { row.generateKeys = keys.checked; this.markConfigDirty(); });
+        this.$.sheetList.appendChild(item);
+      }
+      if (rows.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-state';
+        empty.textContent = this.t('config_no_sheets');
+        this.$.sheetList.appendChild(empty);
+      }
     },
 
     updatePreview() {
-      const source = this.$.configSource.value;
-      const sheet = this.$.configSheet.value;
-      const kind = this.$.configScopeKind.value;
-      const target = this.$.configScopeTarget.value;
-      const table = this.$.configTable.value.trim();
-      this.$.configPreviewSource.textContent = source && sheet ? `${source}  ·  ${sheet}` : this.t('config_preview_empty');
-      this.$.configPreviewPath.textContent = configOutputPath(kind, target, table);
+      const source = this.currentSource || '';
+      const enabled = (this.sheetDrafts || []).filter((row) => row.enabled);
+      const mixed = this.hasMixedSettings();
+      this.$.configDetailsCount.textContent = String(enabled.length);
+      this.$.configPreviewSource.textContent = source || this.t('config_preview_empty');
+      if (enabled.length === 1) {
+        this.$.configPreviewPath.textContent = configOutputPath(enabled[0].scope, enabled[0].table);
+      } else if (enabled.length > 1) {
+        const targetLabel = mixed ? this.t('config_mixed_targets') : scopeLabel(enabled[0].scope);
+        this.$.configPreviewPath.textContent = this.t('config_file_preview')
+          .replace('{count}', String(enabled.length))
+          .replace('{target}', targetLabel || '—');
+      } else {
+        this.$.configPreviewPath.textContent = this.t('config_no_enabled_sheets');
+      }
       this.updateFormState();
     },
 
     validationMessage() {
-      if (!this.$.configSource.value) return this.t('config_source_required');
-      if (!this.$.configSheet.value) return this.t('config_sheet_required');
-      if (!this.$.configScopeTarget.value) return this.t('config_target_required');
-      const table = this.$.configTable.value.trim();
-      if (!table) return this.t('config_table_required');
-      if (!/^[a-z][A-Za-z0-9]*$/.test(table)) return this.t('config_table_invalid');
+      if (!this.currentSource) return this.t('config_source_required');
+      if (this.sourceError) return this.sourceError;
+      const enabled = (this.sheetDrafts || []).filter((row) => row.enabled);
+      if (enabled.length === 0) return this.t('config_sheet_required');
+      for (const row of enabled) {
+        if (!row.table || !/^[a-z][A-Za-z0-9]*$/.test(row.table)) {
+          return this.t('config_sheet_table_invalid').replace('{sheet}', row.sheet);
+        }
+        if (!scopeTargetValue(row.scope)) {
+          return this.t('config_sheet_target_required').replace('{sheet}', row.sheet);
+        }
+      }
       return '';
     },
 
     updateFormState() {
       const validation = this.validationMessage();
-      const message = validation || (this.isDirty ? this.t('config_unsaved_hint') : this.t('config_form_ready'));
+      const needsSave = this.isDirty || !this.hasSavedRules;
+      const message = validation || (this.isDirty ? this.t('config_unsaved_hint') : (this.hasSavedRules ? this.t('config_form_ready') : this.t('config_unconfigured_hint')));
       this.$.configFormHint.textContent = message;
       this.$.configFormHint.dataset.state = validation ? 'error' : 'info';
-      this.$.configSaveTable.disabled = Boolean(this.isBusy || validation || !this.isDirty);
-      this.$.configDeleteTable.disabled = Boolean(this.isBusy || !this.currentRuleId);
+      this.$.configSaveSource.disabled = Boolean(this.isBusy || validation || !needsSave);
+      this.$.configDeleteSource.disabled = Boolean(this.isBusy || !this.hasSavedRules);
+      this.$.configCheck.disabled = Boolean(this.isBusy || this.isDirty || !this.hasSavedRules);
+      this.$.configBuild.disabled = Boolean(this.isBusy || validation);
     },
 
     async refreshConfigDashboard(options = {}) {
@@ -447,13 +630,17 @@ module.exports = Editor.Panel.define({
         this.configDashboardValue = dashboard;
         this.updateOverview();
         const sources = dashboard.sources || [];
-        const selectedSource = this.$.configSource.value;
+        const preferred = options.selectedSource ?? this.currentSource;
         this.$.configSource.innerHTML = sources.length > 0
-          ? sources.map((item) => `<option value="${shared.escapeHtml(item.source)}">${shared.escapeHtml(item.source)}</option>`).join('')
+          ? sources.map((item) => {
+            const configured = (dashboard.plan?.tables || []).filter((table) => table.source === item.source).length;
+            const state = item.error ? this.t('config_source_scan_failed') : `${configured}/${item.sheets.length}`;
+            const label = `${sourceName(item.source)}  ·  ${state}`;
+            return `<option value="${shared.escapeHtml(item.source)}">${shared.escapeHtml(label)}</option>`;
+          }).join('')
           : `<option value="">${shared.escapeHtml(this.t('config_no_sources'))}</option>`;
-        if (selectedSource && sources.some((item) => item.source === selectedSource)) this.$.configSource.value = selectedSource;
-        this.updateConfigPlanTables(options.selectedId ?? this.currentRuleId);
-        this.applyConfigPlanTable();
+        if (preferred && sources.some((item) => item.source === preferred)) this.$.configSource.value = preferred;
+        this.selectSource(this.$.configSource.value);
         if (!options.silentResult) this.setResult(dashboard);
       } catch (error) {
         this.setResult(shared.errorResult(error));
@@ -467,42 +654,32 @@ module.exports = Editor.Panel.define({
       await this.refreshConfigDashboard();
     },
 
-    configTablePayload() {
-      const kind = this.$.configScopeKind.value;
-      const target = this.$.configScopeTarget.value;
-      const scope = { kind };
-      if (kind === 'content-pack') {
-        const [owner, name] = target.split('/');
-        scope.owner = owner;
-        scope.name = name;
-      } else if (kind !== 'global') {
-        scope.name = target;
-      }
-      const payload = {
-        label: this.$.configRuleLabel.value.trim(),
-        source: this.$.configSource.value,
-        sheet: this.$.configSheet.value,
-        table: this.$.configTable.value.trim(),
-        generateKeys: this.$.configGenerateKeys.checked === true,
-        scope,
+    configSourcePayload() {
+      return {
+        source: this.currentSource,
+        tables: (this.sheetDrafts || []).filter((row) => row.enabled).map((row) => ({
+          id: row.id,
+          label: row.label,
+          sheet: row.sheet,
+          table: row.table,
+          scope: row.scope,
+          generateKeys: row.generateKeys,
+          format: 'json',
+        })),
       };
-      if (this.currentRuleId) payload.id = this.currentRuleId;
-      return payload;
     },
 
-    async saveConfigTable() {
-      this.applyConfigDefaults();
+    async saveConfigSource() {
       if (this.validationMessage()) {
         this.updateFormState();
         return;
       }
       this.setBusy(true, 'panel_status_generating');
       try {
-        const result = await this.call('config-save-table', this.configTablePayload());
+        const result = await this.call('config-save-source', this.configSourcePayload());
         this.setResult(result);
         if (result?.ok !== false) {
-          this.currentRuleId = result.table?.id || this.currentRuleId;
-          await this.refreshConfigDashboard({ silentResult: true, keepBusy: true, selectedId: this.currentRuleId });
+          await this.refreshConfigDashboard({ silentResult: true, keepBusy: true, selectedSource: this.currentSource });
         }
       } catch (error) {
         this.setResult(shared.errorResult(error));
@@ -511,17 +688,15 @@ module.exports = Editor.Panel.define({
       }
     },
 
-    async deleteConfigTable() {
-      const table = this.selectedConfigPlanTable();
-      if (!table) return;
-      if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(this.t('config_delete_confirm'))) return;
+    async deleteConfigSource() {
+      if (!this.hasSavedRules) return;
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(this.t('config_delete_source_confirm'))) return;
       this.setBusy(true, 'panel_status_generating');
       try {
-        const result = await this.call('config-delete-table', { id: table.id });
+        const result = await this.call('config-delete-source', { source: this.currentSource });
         this.setResult(result);
         if (result?.ok !== false) {
-          this.currentRuleId = '';
-          await this.refreshConfigDashboard({ silentResult: true, keepBusy: true, selectedId: '' });
+          await this.refreshConfigDashboard({ silentResult: true, keepBusy: true, selectedSource: this.currentSource });
         }
       } catch (error) {
         this.setResult(shared.errorResult(error));
@@ -531,26 +706,31 @@ module.exports = Editor.Panel.define({
     },
 
     async buildConfig() {
+      if (this.validationMessage()) {
+        this.updateFormState();
+        return;
+      }
       this.setBusy(true, 'panel_status_generating');
       try {
-        const result = await this.call('config-build');
-        this.setResult(result);
-      } catch (error) {
-        this.setResult(shared.errorResult(error));
-      } finally {
-        this.setBusy(false);
+        if (this.isDirty || !this.hasSavedRules) {
+          const saved = await this.call('config-save-source', this.configSourcePayload());
+          if (saved?.ok === false) {
+            this.setResult(saved);
+            return;
+          }
+          await this.refreshConfigDashboard({ silentResult: true, keepBusy: true, selectedSource: this.currentSource });
+        }
+        this.setResult(await this.call('config-build'));
       }
+      catch (error) { this.setResult(shared.errorResult(error)); }
+      finally { this.setBusy(false); }
     },
 
     async checkConfig() {
       this.setBusy(true, 'panel_status_validating');
-      try {
-        this.setResult(await this.call('config-check'));
-      } catch (error) {
-        this.setResult(shared.errorResult(error));
-      } finally {
-        this.setBusy(false);
-      }
+      try { this.setResult(await this.call('config-check')); }
+      catch (error) { this.setResult(shared.errorResult(error)); }
+      finally { this.setBusy(false); }
     },
   },
   ready() {
@@ -558,25 +738,28 @@ module.exports = Editor.Panel.define({
     this.isBusy = false;
     this.isDirty = false;
     this.isApplying = false;
-    this.currentRuleId = '';
+    this.hasSavedRules = false;
+    this.currentSource = '';
+    this.sourceError = '';
+    this.sheetDrafts = [];
+    this.detailsExpanded = false;
     this.$.configScan.addEventListener('click', () => this.scanConfigSources());
-    this.$.configPlanTable.addEventListener('change', () => this.changeConfigPlanTable());
-    this.$.configNewTable.addEventListener('click', () => this.beginNewConfigTable());
-    this.$.configSource.addEventListener('change', () => { this.updateConfigSourceSheets(); this.markConfigDirty(); });
-    this.$.configSheet.addEventListener('change', () => { this.applyConfigDefaults(); this.markConfigDirty(); });
-    this.$.configScopeKind.addEventListener('change', () => { this.updateConfigScopeTargets(); this.markConfigDirty(); });
-    this.$.configScopeTarget.addEventListener('change', () => this.markConfigDirty());
-    this.$.configRuleLabel.addEventListener('input', () => this.markConfigDirty());
-    this.$.configTable.addEventListener('input', () => this.markConfigDirty());
-    this.$.configGenerateKeys.addEventListener('change', () => this.markConfigDirty());
-    this.$.configSaveTable.addEventListener('click', () => this.saveConfigTable());
-    this.$.configDeleteTable.addEventListener('click', () => this.deleteConfigTable());
+    this.$.configSource.addEventListener('change', () => this.changeSource());
+    this.$.configScopeKind.addEventListener('change', () => {
+      this.updateFileScopeTargets();
+      this.applyFileDefaults();
+    });
+    this.$.configScopeTarget.addEventListener('change', () => this.applyFileDefaults());
+    this.$.configGenerateKeys.addEventListener('change', () => this.applyFileDefaults());
+    this.$.configDetails.addEventListener('click', () => this.toggleDetails());
+    this.$.configSaveSource.addEventListener('click', () => this.saveConfigSource());
+    this.$.configDeleteSource.addEventListener('click', () => this.deleteConfigSource());
     this.$.configBuild.addEventListener('click', () => this.buildConfig());
     this.$.configCheck.addEventListener('click', () => this.checkConfig());
     this.$.shell.addEventListener('keydown', (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
-        if (!this.$.configSaveTable.disabled) void this.saveConfigTable();
+        if (!this.$.configSaveSource.disabled) void this.saveConfigSource();
       }
     });
     this.refreshConfigDashboard({ silentResult: true });

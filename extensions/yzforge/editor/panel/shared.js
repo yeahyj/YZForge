@@ -10,7 +10,7 @@ const baseStyle = `
   --yz-radius-lg: 11px;
   --yz-space: 12px;
   color: var(--color-normal-contrast);
-  font: 12px/1.5 var(--font-normal);
+  font: 13px/1.5 var(--font-normal);
 }
 
 *,
@@ -83,7 +83,7 @@ const baseStyle = `
 .eyebrow {
   margin-bottom: 1px;
   color: var(--color-primary-contrast);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 1.1px;
   text-transform: uppercase;
@@ -109,7 +109,7 @@ p {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .status-dot {
@@ -160,14 +160,14 @@ p {
 
 .section-title {
   color: var(--color-normal-contrast);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
 }
 
 .section-description {
   margin-top: 2px;
   color: var(--color-normal-contrast-weaker);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .section-meta,
@@ -175,13 +175,13 @@ p {
 .tag {
   display: inline-flex;
   align-items: center;
-  min-height: 20px;
+  min-height: 22px;
   padding: 1px 7px;
   color: var(--color-normal-contrast-weaker);
   border: 1px solid var(--color-normal-border);
   border-radius: 999px;
   background: var(--color-normal-fill);
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -217,14 +217,14 @@ label,
 label > span,
 .field-label {
   color: var(--color-normal-contrast-weaker);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 550;
 }
 
 .field-hint,
 .form-hint {
   color: var(--color-normal-contrast-weaker);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .form-hint[data-state='error'] {
@@ -234,7 +234,7 @@ label > span,
 input,
 select {
   width: 100%;
-  min-height: 31px;
+  min-height: 34px;
   padding: 5px 9px;
   color: var(--color-normal-contrast);
   border: 1px solid var(--color-normal-border);
@@ -262,8 +262,8 @@ select:disabled {
 }
 
 input[type='checkbox'] {
-  width: 14px;
-  min-height: 14px;
+  width: 16px;
+  min-height: 16px;
   margin: 0;
   padding: 0;
   accent-color: var(--color-primary-fill);
@@ -274,8 +274,8 @@ button {
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 30px;
-  padding: 5px 10px;
+  min-height: 34px;
+  padding: 6px 11px;
   color: var(--color-normal-contrast);
   border: 1px solid var(--color-normal-border);
   border-radius: var(--yz-radius-sm);
@@ -283,6 +283,7 @@ button {
   background: var(--color-normal-fill-hover);
   cursor: pointer;
   font: inherit;
+  font-size: 13px;
   font-weight: 550;
   transition: transform 100ms ease, border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
@@ -326,8 +327,8 @@ button:disabled {
 }
 
 .icon-button {
-  width: 31px;
-  flex: 0 0 31px;
+  width: 34px;
+  flex: 0 0 34px;
   padding: 0;
   font-size: 15px;
 }
@@ -342,7 +343,7 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  min-height: 28px;
+  min-height: 30px;
   gap: 14px;
 }
 
@@ -366,7 +367,7 @@ button:disabled {
 
 .preview-kicker {
   color: var(--color-normal-contrast-weaker);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -376,7 +377,7 @@ button:disabled {
   min-width: 0;
   overflow: hidden;
   color: var(--color-normal-contrast);
-  font: 11px/1.45 var(--font-mono, monospace);
+  font: 12px/1.45 var(--font-mono, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -427,15 +428,15 @@ button:disabled {
   color: var(--color-normal-contrast-weaker);
   border-radius: 3px;
   background: var(--color-normal-fill-emphasis);
-  font: 9px/1.5 var(--font-mono, monospace);
+  font: 10px/1.5 var(--font-mono, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .result-row button {
-  min-height: 23px;
-  padding: 2px 7px;
-  font-size: 10px;
+  min-height: 30px;
+  padding: 3px 8px;
+  font-size: 13px;
 }
 
 .empty-state {
@@ -462,7 +463,7 @@ button:disabled {
   padding: 8px 1px 0;
   color: var(--color-normal-contrast-weaker);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
   user-select: none;
 }
 
@@ -473,9 +474,9 @@ button:disabled {
 }
 
 .raw-toolbar button {
-  min-height: 23px;
-  padding: 2px 7px;
-  font-size: 10px;
+  min-height: 30px;
+  padding: 3px 8px;
+  font-size: 13px;
 }
 
 pre {
@@ -490,7 +491,7 @@ pre {
   border: 1px solid var(--color-normal-border);
   border-radius: var(--yz-radius-sm);
   background: var(--color-normal-fill);
-  font: 10px/1.55 var(--font-mono, monospace);
+  font: 11px/1.55 var(--font-mono, monospace);
 }
 
 .hidden {

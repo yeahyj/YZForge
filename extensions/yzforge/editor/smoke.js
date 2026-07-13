@@ -6,7 +6,14 @@ const path = require('path');
 const vm = require('vm');
 const { validateBuildMatrix } = require('./build-matrix');
 const { cleanGenerated } = require('./cleanup');
-const { buildConfig, configDashboard, deleteConfigPlanTable, saveConfigPlanTable } = require('./config-builder');
+const {
+  buildConfig,
+  configDashboard,
+  deleteConfigPlanTable,
+  deleteConfigSource,
+  saveConfigPlanTable,
+  saveConfigSource,
+} = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
 const { kebabCase, toPosix } = require('./fs-utils');
@@ -161,34 +168,55 @@ function makeStoredZip(entries) {
   return Buffer.concat([...localParts, ...centralParts, eocd]);
 }
 
-function writeXlsx(projectRoot, relativePath, sheetName, rows) {
-  const sheetRows = rows.map((row, rowIndex) => {
-    if (!row) {
-      return '';
-    }
-    const cells = row.map((value, columnIndex) => xlsxCell(value, rowIndex, columnIndex)).join('');
-    return `<row r="${rowIndex + 1}">${cells}</row>`;
-  }).join('');
-  const sheetXml = [
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
-    `<sheetData>${sheetRows}</sheetData>`,
-    '</worksheet>',
-  ].join('');
+function writeXlsxSheets(projectRoot, relativePath, sheets) {
+  const worksheets = sheets.map((sheet) => {
+    const sheetRows = sheet.rows.map((row, rowIndex) => {
+      if (!row) {
+        return '';
+      }
+      const cells = row.map((value, columnIndex) => xlsxCell(value, rowIndex, columnIndex)).join('');
+      return `<row r="${rowIndex + 1}">${cells}</row>`;
+    }).join('');
+    return [
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+      `<sheetData>${sheetRows}</sheetData>`,
+      '</worksheet>',
+    ].join('');
+  });
   const workbookXml = [
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
     '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
-    `<sheets><sheet name="${xmlEscape(sheetName)}" sheetId="1" r:id="rId1"/></sheets>`,
+    `<sheets>${sheets.map((sheet, index) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')}</sheets>`,
     '</workbook>',
   ].join('');
+  const contentTypes = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+    '<Default Extension="xml" ContentType="application/xml"/>',
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+    ...sheets.map((_sheet, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`),
+    '</Types>',
+  ].join('');
+  const workbookRelationships = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+    ...sheets.map((_sheet, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`),
+    '</Relationships>',
+  ].join('');
   const zip = makeStoredZip([
-    ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'],
+    ['[Content_Types].xml', contentTypes],
     ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
     ['xl/workbook.xml', workbookXml],
-    ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'],
-    ['xl/worksheets/sheet1.xml', sheetXml],
+    ['xl/_rels/workbook.xml.rels', workbookRelationships],
+    ...worksheets.map((sheetXml, index) => [`xl/worksheets/sheet${index + 1}.xml`, sheetXml]),
   ]);
   writeBinary(projectRoot, relativePath, zip);
+}
+
+function writeXlsx(projectRoot, relativePath, sheetName, rows) {
+  writeXlsxSheets(projectRoot, relativePath, [{ name: sheetName, rows }]);
 }
 
 function listRuntimeSourceFiles(sourceRoot, current = '') {
@@ -2534,6 +2562,47 @@ function assertConfigBuildFromExcel(projectRoot) {
   assert(deletedRule.deleted?.id === tempRule.table.id, 'Config rule delete must report the deleted rule.');
   assert(configDashboard(projectRoot).plan.tables.length === 2, 'Config rule delete must remove exactly one plan table.');
 
+  const batchRows = [
+    ['id', 'label'],
+    ['string', 'string'],
+    ['pk', 'client'],
+    ['id', 'label'],
+    ['one', 'One'],
+  ];
+  writeXlsxSheets(projectRoot, 'config-source/excel/BatchTables.xlsx', [
+    { name: 'Items', rows: batchRows },
+    { name: 'Rewards', rows: batchRows },
+  ]);
+  const savedSource = saveConfigSource(projectRoot, {
+    source: 'config-source/excel/BatchTables.xlsx',
+    tables: [
+      { sheet: 'Items', table: 'batchItems', scope: { kind: 'module', name: 'Battle' }, generateKeys: true },
+      { sheet: 'Rewards', table: 'batchRewards', scope: { kind: 'module', name: 'Battle' }, generateKeys: true },
+    ],
+  });
+  assert(savedSource.tables.length === 2, 'File-level config save must register every enabled sheet atomically.');
+  assert(savedSource.tables.every((table) => table.id), 'File-level config save must assign stable ids to every sheet.');
+  const savedIds = new Map(savedSource.tables.map((table) => [table.sheet, table.id]));
+  const overriddenSource = saveConfigSource(projectRoot, {
+    source: 'config-source/excel/BatchTables.xlsx',
+    tables: [
+      { sheet: 'Items', table: 'batchItems', scope: { kind: 'module', name: 'Battle' }, generateKeys: true },
+      { sheet: 'Rewards', table: 'libraryRewards', scope: { kind: 'library', name: 'BattleCore' }, generateKeys: false },
+    ],
+  });
+  assert(overriddenSource.tables.every((table) => savedIds.get(table.sheet) === table.id), 'Sheet detail overrides must preserve stable rule ids.');
+  assert(overriddenSource.tables.find((table) => table.sheet === 'Rewards')?.scope?.kind === 'library', 'Sheet detail override must support a different owning scope.');
+  assert(overriddenSource.tables.find((table) => table.sheet === 'Rewards')?.generateKeys === false, 'Sheet detail override must preserve per-sheet ID key settings.');
+  const planCountBeforeRejectedBatch = configDashboard(projectRoot).plan.tables.length;
+  expectThrows(() => saveConfigSource(projectRoot, {
+    source: 'config-source/excel/BatchTables.xlsx',
+    tables: [{ sheet: 'Missing', table: 'missing', scope: { kind: 'module', name: 'Battle' } }],
+  }), 'does not exist');
+  assert(configDashboard(projectRoot).plan.tables.length === planCountBeforeRejectedBatch, 'Rejected file-level config save must not partially mutate the plan.');
+  const deletedSource = deleteConfigSource(projectRoot, { source: 'config-source/excel/BatchTables.xlsx' });
+  assert(deletedSource.removed.length === 2, 'File-level config delete must remove every rule for the selected Excel file.');
+  assert(configDashboard(projectRoot).plan.tables.length === 2, 'File-level config delete must preserve unrelated rules.');
+
   expectThrows(() => saveConfigPlanTable(projectRoot, {
     source: '../Bad.xlsx',
     sheet: 'Bad',
@@ -2684,6 +2753,23 @@ function assertPanelExperienceInvariants() {
   const english = require('../i18n/en');
   const chinese = require('../i18n/zh');
   const extensionPackage = readJson(projectRoot, 'extensions/yzforge/package.json');
+  const previousEditor = global.Editor;
+  const panelDefinitions = {};
+  try {
+    global.Editor = {
+      I18n: { getLanguage: () => 'en' },
+      Panel: { define: (definition) => definition },
+    };
+    for (const name of ['dashboard', 'create', 'config']) {
+      const filename = name === 'dashboard' ? 'index.js' : `${name}.js`;
+      const modulePath = path.join(panelRoot, filename);
+      delete require.cache[require.resolve(modulePath)];
+      panelDefinitions[name] = require(modulePath);
+    }
+  } finally {
+    if (previousEditor === undefined) delete global.Editor;
+    else global.Editor = previousEditor;
+  }
 
   for (const [name, source] of Object.entries(sources).filter(([name]) => name !== 'shared')) {
     assert(source.includes('brand-lockup'), `${name} panel must use the shared branded header.`);
@@ -2697,26 +2783,44 @@ function assertPanelExperienceInvariants() {
     }
   }
 
+  for (const [name, definition] of Object.entries(panelDefinitions)) {
+    assert(typeof definition.template === 'string' && typeof definition.style === 'string', `${name} panel must expose template and style.`);
+    for (const [property, selector] of Object.entries(definition.$ || {})) {
+      const exists = selector.startsWith('#')
+        ? definition.template.includes(`id="${selector.slice(1)}"`)
+        : new RegExp(`class="[^"]*\\b${selector.slice(1)}\\b`).test(definition.template);
+      assert(exists, `${name} panel selector '${property}: ${selector}' must exist in its template.`);
+    }
+  }
+
   for (const key of [
     'panel_copied', 'panel_status_failed', 'panel_result_state_success', 'panel_result_state_error',
     'panel_result_state_warning', 'panel_result_changed', 'panel_result_failed', 'panel_create_named',
-    'config_state_saved', 'config_state_dirty', 'config_discard_confirm',
+    'config_state_saved', 'config_state_dirty', 'config_state_unconfigured', 'config_discard_confirm',
+    'config_delete_source_confirm', 'config_keys_short', 'config_file_preview', 'config_sheet_table_invalid',
   ]) {
     assert(Boolean(english[key]) && Boolean(chinese[key]), `Dynamic panel i18n key '${key}' must exist in both locales.`);
   }
 
   assert(sources.shared.includes('function resultSummary'), 'Shared panel UX must summarize command results.');
   assert(sources.shared.includes('function setStatus'), 'Shared panel UX must own consistent status state.');
+  assert(/button \{[^}]*font-size: 13px;/s.test(sources.shared), 'Shared panel buttons must keep readable 13px labels.');
+  assert(!/\.create-tab \{[^}]*font-size: 10px;/s.test(sources.create), 'Create category buttons must not regress to 10px labels.');
+  assert(!/\.compact-tools button,[^}]*font-size: 10px;/s.test(sources.dashboard), 'Dashboard secondary actions must not regress to 10px labels.');
   assert(sources.dashboard.includes('command-card') && sources.dashboard.includes("'open-create-panel'"), 'Dashboard must expose task cards and quick panel navigation.');
   assert(sources.dashboard.includes('clean_scripts_confirm'), 'Dashboard must confirm destructive generated script cleanup.');
   assert(sources.create.includes('kind-choice') && sources.create.includes('targetPathForKind'), 'Create panel must expose visual kind selection and live target preview.');
   assert(sources.create.includes('validationMessage'), 'Create panel must validate before dispatching create commands.');
-  assert(sources.config.includes('config-workspace') && sources.config.includes('configOutputPath'), 'Config panel must expose a responsive mapping workspace and output preview.');
+  assert(sources.config.includes('file-section') && sources.config.includes('configOutputPath'), 'Config panel must expose file-level defaults and output preview.');
+  assert(sources.config.includes('sheet-details') && sources.config.includes('renderSheetDetails'), 'Config panel must keep per-sheet overrides behind an explicit details interaction.');
+  assert(sources.config.includes("'config-save-source'") && sources.config.includes("'config-delete-source'"), 'Config panel must save and remove file rules atomically.');
   assert(sources.config.includes('markConfigDirty') && sources.config.includes('confirmDiscard'), 'Config panel must protect unsaved rule edits.');
   assert(sources.config.includes('event.metaKey') && sources.config.includes("event.key.toLowerCase() === 's'"), 'Config panel must support keyboard save.');
   assert(extensionPackage.panels.default.size.width >= 640, 'Dashboard default size must fit the task-card layout.');
   assert(extensionPackage.panels.create.size.width >= 600, 'Create default size must fit kind choices and preview.');
   assert(extensionPackage.panels.config.size.width >= 720, 'Config default size must fit the mapping workspace.');
+  assert(extensionPackage.contributions?.messages?.['config-save-source']?.methods?.includes('saveConfigSource'), 'Config panel must expose file-level save messaging.');
+  assert(extensionPackage.contributions?.messages?.['config-delete-source']?.methods?.includes('deleteConfigSource'), 'Config panel must expose file-level delete messaging.');
 }
 
 function assertToolchainResolverInvariants() {

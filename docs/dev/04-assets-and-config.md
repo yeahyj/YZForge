@@ -75,11 +75,10 @@ ContentPack 的配置入口通过 `manifest.generated.json` 和 `LoadedContentPa
 打开 Cocos 菜单 `YZForge -> Config Tables`：
 
 1. 点击 `Scan Excel`，扫描 `config-source/excel/**/*.xlsx`。
-2. 在 `Saved Rule` 选择已有规则，或选择 `New Rule` 新建规则。
-3. 选择 `Source` 和 `Sheet`。
-4. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
-5. 填 `Rule Name` 和 `Table Key / 代码表名`。
-6. 勾选 `Generate ID constants`，生成主键常量，业务代码不用手写字符串。
+2. 选择 Excel 文件，并为整个文件设置默认归属：`Module`、`Library`、`ContentPack` 或 `Global`。
+3. 默认会导出文件内全部工作表；点击 `Sheet Details / 详细设置` 可以停用工作表，或覆盖单表的 `Table Key`、归属和 ID 常量选项。
+4. 点击 `Save File Configuration / 保存文件配置`。面板会把文件级默认值展开成明确的逐表导出规则。
+5. 点击 `Build Config / 生成配置`；存在未保存修改时会先保存再生成。
 7. 点击 `Save Table` 写入 `config-source/export-plan.json`。
 8. 点击 `Build Config` 生成 JSON 和 `generated/config.ts`。
 

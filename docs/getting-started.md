@@ -192,7 +192,8 @@ config-source/excel
 ```text
 YZForge -> 配置表
   Scan Excel / 扫描 Excel
-  Save Rule / 保存规则
+  Save File Configuration / 保存文件配置
+  Sheet Details / 详细设置（仅在需要逐表覆盖时打开）
   Build Config / 生成配置
 ```
 

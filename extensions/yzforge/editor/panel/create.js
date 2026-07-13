@@ -126,12 +126,12 @@ ${shared.baseStyle}
 }
 
 .create-tab {
-  min-height: 27px;
-  padding: 3px 5px;
+  min-height: 34px;
+  padding: 5px 7px;
   color: var(--color-normal-contrast-weaker);
   border-color: transparent;
   background: transparent;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .create-tab.active {
@@ -148,12 +148,12 @@ ${shared.baseStyle}
 
 .kind-choice {
   justify-content: flex-start;
-  min-height: 36px;
-  padding: 5px 7px;
+  min-height: 42px;
+  padding: 7px 9px;
   gap: 7px;
   color: var(--color-normal-contrast-weaker);
   background: var(--color-normal-fill);
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .kind-choice.active {
@@ -171,7 +171,7 @@ ${shared.baseStyle}
   color: var(--color-primary-contrast);
   border-radius: 6px;
   background: var(--color-primary-fill);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 750;
 }
 
@@ -196,7 +196,7 @@ ${shared.baseStyle}
 }
 
 .preview-title {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .create-footer {
@@ -357,15 +357,27 @@ module.exports = Editor.Panel.define({
       const choices = Array.from(this.$.kindGrid.querySelectorAll('.kind-choice'));
       const activeChoices = choices.filter((choice) => choice.dataset.createGroup === targetGroup);
       if (activeChoices.length === 0) return;
-      for (const choice of choices) choice.classList.toggle('hidden', choice.dataset.createGroup !== targetGroup);
-      for (const tab of this.$.shell.querySelectorAll('.create-tab')) tab.classList.toggle('active', tab.dataset.createGroup === targetGroup);
+      for (const choice of choices) {
+        choice.classList.toggle('hidden', choice.dataset.createGroup !== targetGroup);
+        choice.setAttribute('role', 'radio');
+      }
+      for (const tab of this.$.shell.querySelectorAll('.create-tab')) {
+        const active = tab.dataset.createGroup === targetGroup;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-selected', String(active));
+      }
       if (!activeChoices.some((choice) => choice.dataset.kind === this.$.kind.value)) this.chooseKind(activeChoices[0].dataset.kind);
       else this.chooseKind(this.$.kind.value);
     },
 
     chooseKind(kind) {
       this.$.kind.value = kind;
-      for (const choice of this.$.kindGrid.querySelectorAll('.kind-choice')) choice.classList.toggle('active', choice.dataset.kind === kind);
+      for (const choice of this.$.kindGrid.querySelectorAll('.kind-choice')) {
+        const active = choice.dataset.kind === kind;
+        choice.classList.toggle('active', active);
+        choice.setAttribute('aria-checked', String(active));
+      }
       this.updateVisibility();
       this.normalizeNameField();
       this.updatePreview();

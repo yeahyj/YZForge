@@ -166,6 +166,16 @@
           "deleteConfigTable"
         ]
       },
+      "config-save-source": {
+        "methods": [
+          "saveConfigSource"
+        ]
+      },
+      "config-delete-source": {
+        "methods": [
+          "deleteConfigSource"
+        ]
+      },
       "config-build": {
         "methods": [
           "configBuild"

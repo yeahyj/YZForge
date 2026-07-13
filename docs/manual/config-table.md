@@ -141,18 +141,22 @@ YZForge -> 配置表
 常规步骤：
 
 1. 点击 `Scan Excel / 扫描 Excel`，扫描 `config-source/excel/**/*.xlsx`。
-2. 在左侧规则区选择已有规则，或点击 `New Rule / 新建规则`。
-3. 选择 `Source` 和 `Sheet`。
-4. 选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
-5. 填写 `Rule Name / 规则名称`。
-6. 填写 `Table Key / 代码表名`。
-7. 按需要勾选 `Generate ID constants`。
-8. 在输出预览中确认目标路径；点击 `Save Rule / 保存规则`（或按 `Ctrl/Cmd + S`）写入 `config-source/export-plan.json`。
-9. 点击 `Build Config / 生成配置` 生成 JSON 和 `generated/config.ts`。
+2. 选择一个 `Excel File / Excel 文件`。
+3. 为整个文件选择配置归属：`Module`、`Library`、`ContentPack` 或 `Global`。
+4. 按需要选择是否为全部工作表生成 ID 常量。
+5. 点击 `Save File Configuration / 保存文件配置`（或按 `Ctrl/Cmd + S`）写入 `config-source/export-plan.json`。
+6. 点击 `Build Config / 生成配置` 生成 JSON 和 `generated/config.ts`。如果当前文件配置尚未保存，“生成配置”会先保存再生成。
 
-面板会用“未保存”状态标记当前编辑；切换规则或重新扫描 Excel 前会确认是否放弃修改。必填项和 `Table Key` 的 lowerCamelCase 格式会在发送命令前校验。
+默认情况下，一个 Excel 文件中的全部工作表使用同一个归属。只有以下情况才需要打开 `Sheet Details / 详细设置`：
 
-`Delete Rule / 删除规则` 只删除导出规则，不删除 Excel。下一次 `Build Config / 生成配置` 会清理不再属于导出计划的旧生成 JSON。
+- 某些工作表不需要导出。
+- 某张工作表需要单独修改 `Table Key / 代码表名`。
+- 同一个 Excel 文件中的工作表确实属于不同 Module、Library、ContentPack 或 Global。
+- 某张工作表不需要生成 ID 常量。
+
+面板按文件提供默认值，但保存到导出计划时仍会展开成明确的逐表规则，不会在生成阶段依赖隐式继承。面板会标记未保存状态；切换文件或重新扫描 Excel 前会确认是否放弃修改。必填项和 `Table Key` 的 lowerCamelCase 格式会在发送命令前校验。
+
+`Remove File Rules / 移除文件规则` 只删除该 Excel 文件的导出规则，不删除 Excel。下一次 `Build Config / 生成配置` 会清理不再属于导出计划的旧生成 JSON。
 
 `Config Check / 检查配置` 只检查生成物是否最新，不写文件，适合提交前和 CI。
 

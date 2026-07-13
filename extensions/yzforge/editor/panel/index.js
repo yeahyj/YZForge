@@ -148,7 +148,7 @@ ${shared.baseStyle}
 
 .metric span {
   color: var(--color-normal-contrast-weaker);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .entity-list {
@@ -187,14 +187,12 @@ ${shared.baseStyle}
 }
 
 .command-card-head strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .command-card-head p {
-  overflow: hidden;
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .command-glyph {
@@ -207,7 +205,7 @@ ${shared.baseStyle}
   border: 1px solid var(--color-primary-border);
   border-radius: 7px;
   background: var(--color-primary-fill);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 750;
 }
 
@@ -223,8 +221,8 @@ ${shared.baseStyle}
 
 .compact-tools button,
 .full-button {
-  min-height: 25px;
-  font-size: 10px;
+  min-height: 32px;
+  font-size: 13px;
 }
 
 .full-button {
@@ -237,7 +235,7 @@ ${shared.baseStyle}
   gap: 7px;
   color: var(--color-normal-contrast-weaker);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 @media (max-width: 560px) {
@@ -246,7 +244,9 @@ ${shared.baseStyle}
 
 @media (max-width: 400px) {
   .summary-grid { grid-template-columns: 1fr; }
-  .topbar-actions button:not(.icon-button) { display: none; }
+  .topbar { flex-direction: column; }
+  .topbar-actions { width: 100%; }
+  .topbar-actions button:not(.icon-button) { flex: 1; }
 }
 `;
 
