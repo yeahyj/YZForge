@@ -22,6 +22,8 @@ This project is a Cocos Creator project governed by YZForge. Follow these rules 
 ```bash
 npm run yzforge:ai:context
 npm run yzforge:ai:doctor
+npm run yzforge:check
+npm run yzforge:check:full
 npm run yzforge:update:check
 npm run yzforge:generate:check
 npm run yzforge:config:check
@@ -42,4 +44,4 @@ npm run typecheck
 - ContentPack: optional content owned by one Module.
 - Global: app-level shared UI/resources only.
 
-When unsure, keep the change in the smallest owning Scope and run `npm run yzforge:ai:doctor`.
+When unsure, keep the change in the smallest owning Scope and run `npm run yzforge:check`.

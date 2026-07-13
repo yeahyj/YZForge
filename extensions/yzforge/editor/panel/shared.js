@@ -589,6 +589,30 @@ function normalizeRows(items, fallback = {}) {
 
 function resultRows(panel, value) {
   if (!value || typeof value !== 'object') return [];
+  if (Array.isArray(value.checks) && value.checks.length > 0) {
+    const labelKeys = {
+      config: 'project_check_step_config',
+      generate: 'project_check_step_generate',
+      validate: 'project_check_step_validate',
+      typecheck: 'project_check_step_typecheck',
+      smoke: 'project_check_step_smoke',
+    };
+    const rows = value.checks.map((check) => ({
+      label: `${t(panel, labelKeys[check.id] || check.name || 'project_check')}${check.error ? `: ${check.error}` : ''}`,
+      code: t(panel, check.ok ? 'project_check_passed' : 'project_check_failed'),
+      severity: check.ok ? 'success' : 'error',
+    }));
+    for (const check of value.checks.filter((item) => !item.ok)) {
+      if (Array.isArray(check.result?.issueDetails)) {
+        rows.push(...normalizeRows(check.result.issueDetails));
+      } else if (Array.isArray(check.result?.changedDetails)) {
+        rows.push(...normalizeRows(check.result.changedDetails, { code: 'changed' }));
+      } else if (Array.isArray(check.result?.changed)) {
+        rows.push(...normalizeRows(check.result.changed, { code: 'changed' }));
+      }
+    }
+    return rows;
+  }
   if (Array.isArray(value.issueDetails) && value.issueDetails.length > 0) return normalizeRows(value.issueDetails);
   if (Array.isArray(value.failedDetails) && value.failedDetails.length > 0) return normalizeRows(value.failedDetails, { code: 'failed', severity: 'error' });
   if (Array.isArray(value.details) && value.details.length > 0) return normalizeRows(value.details);
@@ -633,7 +657,19 @@ function resultSummary(panel, value, rows) {
   const state = resultState(value);
   if (state === 'error') {
     if (value && typeof value === 'object' && value.error) return String(value.error);
-    const issueCount = rows.length
+    const nestedCheckIssues = Array.isArray(value?.checks)
+      ? value.checks
+        .filter((check) => !check.ok)
+        .reduce((count, check) => count
+          + (Array.isArray(check.result?.issueDetails) ? check.result.issueDetails.length : 0)
+          + (Array.isArray(check.result?.changed) ? check.result.changed.length : 0), 0)
+      : 0;
+    const failedChecks = Array.isArray(value?.checks)
+      ? value.checks.filter((check) => !check.ok).length
+      : 0;
+    const issueCount = nestedCheckIssues
+      || failedChecks
+      || rows.length
       || (Array.isArray(value?.issues) ? value.issues.length : 0)
       || (Array.isArray(value?.failed) ? value.failed.length : 0);
     return t(panel, 'panel_result_failed').replace('{count}', String(issueCount));

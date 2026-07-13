@@ -4,19 +4,15 @@ AI 完成任务前按顺序检查：
 
 ```bash
 npm run yzforge:ai:context
-npm run yzforge:ai:doctor
+npm run yzforge:check
 ```
 
-如果改了配置表，还要确认：
+`yzforge:check` 已包含配置生成物、普通生成物、严格架构和类型检查。`yzforge:ai:doctor` 仍可用于取得面向 AI 的修复建议，但不需要与统一检查重复执行。
+
+如果改了生成规则、目录结构、runtime 或 editor 工具，改跑完整检查：
 
 ```bash
-npm run yzforge:config:check
-```
-
-如果改了生成规则、目录结构、runtime 或 editor 工具，还要运行：
-
-```bash
-npm run yzforge:smoke
+npm run yzforge:check:full
 ```
 
 提交前确认：

@@ -19,12 +19,10 @@ npm run typecheck
 提交前建议跑：
 
 ```bash
-npm run yzforge:generate:check
-npm run yzforge:config:check
-npm run yzforge:validate:strict
-npm run typecheck
-npm run yzforge:smoke
+npm run yzforge:check
 ```
+
+框架级改动使用 `npm run yzforge:check:full`，它会额外运行完整 smoke。
 
 ## 插件和 CLI 怎么选
 
@@ -44,6 +42,7 @@ Cocos 顶部菜单：
 | `YZForge -> 配置表` | 扫描 Excel、保存导出规则、生成配置 |
 | `YZForge -> 创建帮助` | 查看可用创建消息和参数示例 |
 | `YZForge -> 生成全部` | 刷新生成文件 |
+| `YZForge -> 提交前检查` | 一次检查配置、生成物、严格架构和 TypeScript |
 | `YZForge -> 升级框架` | 执行当前安装版本要求的项目迁移 |
 | `YZForge -> Config -> 生成配置` | 生成配置表 JSON 和 TS 入口 |
 | `YZForge -> Config -> 检查配置` | 检查配置表生成物是否最新 |
@@ -372,27 +371,19 @@ import { BattleEnterParams } from '../../Battle/code/public';
 普通业务改动：
 
 ```bash
-npm run yzforge:generate:check
-npm run yzforge:validate:strict
-npm run typecheck
+npm run yzforge:check
 ```
 
 配置表改动：
 
 ```bash
-npm run yzforge:config:check
-npm run yzforge:validate:strict
-npm run typecheck
+npm run yzforge:check
 ```
 
 框架、生成器、校验器或 runtime 改动：
 
 ```bash
-npm run yzforge:generate:check
-npm run yzforge:config:check
-npm run yzforge:validate:strict
-npm run typecheck
-npm run yzforge:smoke
+npm run yzforge:check:full
 ```
 
 ## 不要做

@@ -278,6 +278,10 @@ function shouldExclude(relativePath, entry) {
   const posixPath = toPosix(relativePath);
   const segments = posixPath.split('/');
 
+  if (segments.length > 1 && segments[0] === 'extensions' && segments[1] !== 'yzforge') {
+    return true;
+  }
+
   if (entry.isDirectory()) {
     if (EXCLUDED_DIR_NAMES.has(entry.name)) {
       return true;
@@ -405,7 +409,7 @@ Location: ${targetDir}
 
 Next steps:
   cd ${targetDir}${installHint}
-  ${packageManager} run yzforge:ai:doctor
+  ${packageManager} run yzforge:check
 
 Then open the project root with Cocos Creator 3.8.8.
 `);

@@ -153,6 +153,8 @@ function buildAiContext(projectRoot) {
       typecheck: 'npm run typecheck',
       aiContext: 'npm run yzforge:ai:context',
       aiDoctor: 'npm run yzforge:ai:doctor',
+      check: 'npm run yzforge:check',
+      checkFull: 'npm run yzforge:check:full',
     },
     rules: {
       neverEdit: [
@@ -164,7 +166,7 @@ function buildAiContext(projectRoot) {
       assets: 'Use generated asset refs; do not handwrite resources.load, bundle.load, or cross-scope paths.',
       config: 'Edit Excel under config-source/excel and export-plan rules; build with yzforge:config:build.',
       configPrimaryKey: 'Excel header rule pk is the only primary-key source; an id field must be marked pk.',
-      validation: 'Before finishing, run ai-doctor or the check commands listed above.',
+      validation: 'Before finishing, run npm run yzforge:check; use npm run yzforge:check:full for framework-level changes.',
     },
     scopes: {
       global: project.global ? descriptorSummary('global', project.global) : undefined,
@@ -204,7 +206,7 @@ function renderAiSummary(context) {
     '- Do not handwrite dynamic resource paths.',
     '- Do not handwrite config JSON.',
     '- Config primary keys come from Excel `pk` rules only.',
-    '- Run `npm run yzforge:ai:doctor` before finishing framework changes.',
+    '- Run `npm run yzforge:check`; use `npm run yzforge:check:full` for framework changes.',
     '',
     '## Scopes',
     '',
@@ -233,6 +235,8 @@ function renderAiSummary(context) {
     `- Config check: \`${context.commands.configCheck}\``,
     `- Strict validate: \`${context.commands.validateStrict}\``,
     `- Typecheck: \`${context.commands.typecheck}\``,
+    `- Preflight check: \`${context.commands.check}\``,
+    `- Full preflight check: \`${context.commands.checkFull}\``,
     `- AI doctor: \`${context.commands.aiDoctor}\``,
     '',
   );

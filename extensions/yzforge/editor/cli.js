@@ -7,6 +7,7 @@ const { cleanGenerated } = require('./cleanup');
 const { buildConfig, deleteConfigPlanTable, saveConfigPlanTable } = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
+const { runProjectCheck } = require('./quality-check');
 const { smoke } = require('./smoke');
 const { runCocosBuild, runTypecheck } = require('./toolchain');
 const { upgradeFramework } = require('./upgrade');
@@ -144,6 +145,18 @@ async function main() {
     const args = process.argv.slice(3);
     const result = runAiDoctor(projectRoot, {
       typecheck: !args.includes('--no-typecheck'),
+    });
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (command === 'check') {
+    const args = process.argv.slice(3);
+    const result = await runProjectCheck(projectRoot, {
+      smoke: args.includes('--smoke') || args.includes('--full'),
     });
     console.log(JSON.stringify(result, null, 2));
     if (!result.ok) {

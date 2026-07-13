@@ -71,6 +71,11 @@
       },
       {
         "path": "YZForge",
+        "label": "i18n:yzforge.project_check",
+        "message": "project-check"
+      },
+      {
+        "path": "YZForge",
         "label": "i18n:yzforge.upgrade_framework",
         "message": "upgrade-framework"
       },
@@ -139,6 +144,11 @@
       "generate-check": {
         "methods": [
           "generateCheck"
+        ]
+      },
+      "project-check": {
+        "methods": [
+          "projectCheck"
         ]
       },
       "upgrade-framework": {

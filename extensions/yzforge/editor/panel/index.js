@@ -54,6 +54,7 @@ const template = `
 
       <article class="command-card">
         <div class="command-card-head"><span class="command-glyph">V</span><div><strong data-i18n="workbench_validate">Validate</strong><p data-i18n="workbench_validate_desc">Inspect architecture health</p></div></div>
+        <button id="project-check" class="full-button command-primary" data-i18n="project_check" data-i18n-title="project_check_desc">Preflight Check</button>
         <div class="tool-row">
           <button id="validate" data-i18n="validate_architecture">Validate</button>
           <button id="validate-strict" class="command-primary" data-i18n="validate_architecture_strict">Validate Strict</button>
@@ -260,6 +261,7 @@ module.exports = Editor.Panel.define({
     openCreate: '#open-create',
     openConfig: '#open-config',
     generate: '#generate',
+    projectCheck: '#project-check',
     upgrade: '#upgrade',
     upgradeCheck: '#upgrade-check',
     clean: '#clean',
@@ -357,6 +359,7 @@ module.exports = Editor.Panel.define({
     this.$.openConfig.addEventListener('click', () => this.call('open-config-panel').catch((error) => this.setResult(shared.errorResult(error))));
     this.$.generate.addEventListener('click', () => this.runCommand('generate-all', 'panel_status_generating', { refresh: true }));
     this.$.generateCheck.addEventListener('click', () => this.runCommand('generate-check', 'panel_status_validating'));
+    this.$.projectCheck.addEventListener('click', () => this.runCommand('project-check', 'panel_status_checking'));
     this.$.upgrade.addEventListener('click', () => this.runCommand('upgrade-framework', 'panel_status_upgrading', { refresh: true }));
     this.$.upgradeCheck.addEventListener('click', () => this.runCommand('upgrade-check', 'panel_status_upgrading'));
     this.$.clean.addEventListener('click', () => this.cleanGenerated());

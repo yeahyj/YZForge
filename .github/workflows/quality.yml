@@ -12,21 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generated output is current
+      - name: Preflight check
         shell: pwsh
-        run: npm run yzforge:generate:check
-
-      - name: Config output is current
-        shell: pwsh
-        run: npm run yzforge:config:check
-
-      - name: Strict architecture validation
-        shell: pwsh
-        run: npm run yzforge:validate:strict
-
-      - name: TypeScript
-        shell: pwsh
-        run: npm run typecheck
+        run: npm run yzforge:check
 
       - name: Runtime tests
         shell: pwsh

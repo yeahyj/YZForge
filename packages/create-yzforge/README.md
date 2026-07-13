@@ -16,10 +16,12 @@ npm create yzforge@latest MyGame
 
 ```bash
 cd MyGame
-npm run yzforge:ai:doctor
+npm run yzforge:check
 ```
 
 然后用 Cocos Creator 3.8.8 打开项目根目录。
+
+创建器只会复制 `extensions/yzforge`，模板维护者自用的其他 Cocos 插件不会进入新项目。
 
 ## 开发期本地测试
 

@@ -2798,6 +2798,8 @@ function assertPanelExperienceInvariants() {
     'panel_result_state_warning', 'panel_result_changed', 'panel_result_failed', 'panel_create_named',
     'config_state_saved', 'config_state_dirty', 'config_state_unconfigured', 'config_discard_confirm',
     'config_delete_source_confirm', 'config_keys_short', 'config_file_preview', 'config_sheet_table_invalid',
+    'project_check_passed', 'project_check_failed', 'project_check_step_config', 'project_check_step_generate',
+    'project_check_step_validate', 'project_check_step_typecheck', 'project_check_step_smoke',
   ]) {
     assert(Boolean(english[key]) && Boolean(chinese[key]), `Dynamic panel i18n key '${key}' must exist in both locales.`);
   }
@@ -2808,6 +2810,7 @@ function assertPanelExperienceInvariants() {
   assert(!/\.create-tab \{[^}]*font-size: 10px;/s.test(sources.create), 'Create category buttons must not regress to 10px labels.');
   assert(!/\.compact-tools button,[^}]*font-size: 10px;/s.test(sources.dashboard), 'Dashboard secondary actions must not regress to 10px labels.');
   assert(sources.dashboard.includes('command-card') && sources.dashboard.includes("'open-create-panel'"), 'Dashboard must expose task cards and quick panel navigation.');
+  assert(sources.dashboard.includes('id="project-check"') && sources.dashboard.includes("'project-check'"), 'Dashboard must expose the unified preflight check.');
   assert(sources.dashboard.includes('clean_scripts_confirm'), 'Dashboard must confirm destructive generated script cleanup.');
   assert(sources.create.includes('kind-choice') && sources.create.includes('targetPathForKind'), 'Create panel must expose visual kind selection and live target preview.');
   assert(sources.create.includes('validationMessage'), 'Create panel must validate before dispatching create commands.');
@@ -2821,6 +2824,7 @@ function assertPanelExperienceInvariants() {
   assert(extensionPackage.panels.config.size.width >= 720, 'Config default size must fit the mapping workspace.');
   assert(extensionPackage.contributions?.messages?.['config-save-source']?.methods?.includes('saveConfigSource'), 'Config panel must expose file-level save messaging.');
   assert(extensionPackage.contributions?.messages?.['config-delete-source']?.methods?.includes('deleteConfigSource'), 'Config panel must expose file-level delete messaging.');
+  assert(extensionPackage.contributions?.messages?.['project-check']?.methods?.includes('projectCheck'), 'Dashboard must expose unified project-check messaging.');
 }
 
 function assertToolchainResolverInvariants() {
@@ -2830,10 +2834,13 @@ function assertToolchainResolverInvariants() {
   const toolchainSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/toolchain.js'), 'utf8');
   const cliSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/cli.js'), 'utf8');
   const aiSupportSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/ai-support.js'), 'utf8');
+  const qualityCheckSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/quality-check.js'), 'utf8');
   const generateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/generate.js'), 'utf8');
   const validateSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/validate.js'), 'utf8');
   const configPanelSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/panel/config.js'), 'utf8');
   const smokeSource = fs.readFileSync(path.join(projectRoot, 'extensions/yzforge/editor/smoke.js'), 'utf8');
+  const creatorSource = fs.readFileSync(path.join(projectRoot, 'packages/create-yzforge/bin/create-yzforge.js'), 'utf8');
+  const qualityWorkflowSource = fs.readFileSync(path.join(projectRoot, '.github/workflows/quality.yml'), 'utf8');
   const forbiddenCocosInstallPath = ['D:', '/Applications/Cocos'].join('');
   assert(packageJson.scripts?.typecheck === 'node extensions/yzforge/editor/cli.js typecheck', 'typecheck script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:update'] === 'node extensions/yzforge/editor/cli.js update', 'Framework update script must route through YZForge CLI.');
@@ -2844,6 +2851,8 @@ function assertToolchainResolverInvariants() {
   assert(packageJson.scripts?.['yzforge:config:check'] === 'node extensions/yzforge/editor/cli.js config-build --check', 'Config check script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:ai:context'] === 'node extensions/yzforge/editor/cli.js ai-context', 'AI context script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:ai:doctor'] === 'node extensions/yzforge/editor/cli.js ai-doctor', 'AI doctor script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:check'] === 'node extensions/yzforge/editor/cli.js check', 'Preflight check script must route through YZForge CLI.');
+  assert(packageJson.scripts?.['yzforge:check:full'] === 'node extensions/yzforge/editor/cli.js check --smoke', 'Full preflight check script must append smoke testing.');
   assert(packageJson.scripts?.['yzforge:validate:build-matrix'] === 'node extensions/yzforge/editor/cli.js validate-build-matrix', 'BuildMatrixValidator script must route through YZForge CLI.');
   assert(packageJson.scripts?.['yzforge:cocos:build:web'] === 'node extensions/yzforge/editor/cli.js cocos-build --platform web-desktop --debug --output yzforge-build-matrix', 'Cocos web build script must route through YZForge CLI.');
   assert(extensionPackage.panels?.default?.main === 'editor/panel/index.js', 'YZForge Dashboard panel must stay separate.');
@@ -2853,6 +2862,7 @@ function assertToolchainResolverInvariants() {
   assert(extensionPackage.contributions?.messages?.['open-config-panel']?.methods?.includes('openConfigPanel'), 'Config panel menu must open the Config panel.');
   assert(extensionPackage.contributions?.messages?.['upgrade-framework']?.methods?.includes('upgradeFramework'), 'Dashboard/menu must expose framework upgrade.');
   assert(extensionPackage.contributions?.messages?.['upgrade-check']?.methods?.includes('upgradeCheck'), 'Dashboard must expose framework upgrade check.');
+  assert(extensionPackage.contributions?.messages?.['project-check']?.methods?.includes('projectCheck'), 'Dashboard/menu must expose the unified preflight check.');
   assert(!configPanelSource.includes('config-format'), 'Config panel must not expose format selection before non-json export is implemented.');
   assert(toolchainSource.includes('resolveCocosEditorRoot'), 'ToolchainResolver must expose Cocos editor root resolution.');
   assert(toolchainSource.includes('resolveCocosExecutable'), 'ToolchainResolver must expose Cocos executable resolution.');
@@ -2874,7 +2884,11 @@ function assertToolchainResolverInvariants() {
   assert(cliSource.includes("command === 'config-build'") && cliSource.includes('buildConfig'), 'CLI must route config build through ConfigBuilder.');
   assert(cliSource.includes("command === 'ai-context'") && cliSource.includes('writeAiContext'), 'CLI must route AI context generation.');
   assert(cliSource.includes("command === 'ai-doctor'") && cliSource.includes('runAiDoctor'), 'CLI must route AI doctor.');
+  assert(cliSource.includes("command === 'check'") && cliSource.includes('runProjectCheck'), 'CLI must route the unified preflight check.');
   assert(aiSupportSource.includes('buildAiContext') && aiSupportSource.includes('.yzforge/ai-context.json'), 'AI support must generate machine-readable context.');
+  assert(qualityCheckSource.includes('runAiDoctor') && qualityCheckSource.includes('includeSmoke'), 'Preflight check must reuse AI doctor and optionally append smoke testing.');
+  assert(creatorSource.includes("segments[0] === 'extensions'") && creatorSource.includes("segments[1] !== 'yzforge'"), 'Project creator must copy only the YZForge extension.');
+  assert(qualityWorkflowSource.includes('npm run yzforge:check'), 'Quality workflow must use the unified preflight check.');
   assert(fs.existsSync(path.join(projectRoot, 'AGENTS.md')), 'AGENTS.md must exist for AI development rules.');
   assert(fs.existsSync(path.join(projectRoot, 'docs/ai/README.md')), 'docs/ai README must exist for AI task workflows.');
   assert(!generateSource.includes('resolveCocosEngineAssets') && !generateSource.includes(forbiddenCocosInstallPath), 'Generator must not write local Cocos engine paths into committed project config.');

@@ -13,6 +13,7 @@ const {
 } = require('./config-builder');
 const { create } = require('./create');
 const { generate } = require('./generate');
+const { runProjectCheck } = require('./quality-check');
 const { validate } = require('./validate');
 const { scanProject } = require('./scanner');
 const { smoke } = require('./smoke');
@@ -1020,6 +1021,15 @@ exports.methods = {
   async generateCheck() {
     const result = withGeneratedDetails(generate(projectRoot(), { check: true }));
     console.log('[YZForge] generate check:', result);
+    return result;
+  },
+
+  async projectCheck(first) {
+    const options = normalizeOptions(first);
+    const result = await runProjectCheck(projectRoot(), {
+      smoke: options.smoke === true || options.full === true,
+    });
+    console.log('[YZForge] project check:', result);
     return result;
   },
 

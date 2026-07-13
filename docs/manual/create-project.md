@@ -15,7 +15,7 @@ YZForge 有两类命令，名字相近但职责不同：
 ```bash
 npx create-yzforge@latest MyGame
 cd MyGame
-npm run yzforge:ai:doctor
+npm run yzforge:check
 ```
 
 也可以使用等价的 npm create 写法：
@@ -36,7 +36,7 @@ cd YZForge
 node packages/create-yzforge/bin/create-yzforge.js ../MyGame --template . --skip-install
 cd ../MyGame
 npm install
-npm run yzforge:ai:doctor
+npm run yzforge:check
 ```
 
 也可以继续用传统方式直接克隆框架仓库作为项目起点：
@@ -45,7 +45,7 @@ npm run yzforge:ai:doctor
 git clone https://github.com/yeahyj/YZForge.git MyGame
 cd MyGame
 npm install
-npm run yzforge:ai:doctor
+npm run yzforge:check
 ```
 
 ## 创建器会做什么
@@ -54,10 +54,11 @@ npm run yzforge:ai:doctor
 
 1. 从 YZForge 模板复制 Cocos 项目。
 2. 跳过 `node_modules`、`library`、`temp`、`local`、`build` 等本机产物。
-3. 把根 `package.json` 的 `name` 改成项目名。
-4. 生成新的 Cocos 项目 `uuid`。
-5. 初始化 `.yzforge/framework-lock.json`。
-6. 默认执行依赖安装。
+3. 在 `extensions` 中只复制 YZForge；模板仓库作者自用的其他 Cocos 插件不会进入新项目。
+4. 把根 `package.json` 的 `name` 改成项目名。
+5. 生成新的 Cocos 项目 `uuid`。
+6. 初始化 `.yzforge/framework-lock.json`。
+7. 默认执行依赖安装。
 
 它不会在创建时改业务模块结构，也不会自动删除示例模块。创建完成后，你可以用 `YZForge -> 创建` 面板或 `npm run yzforge:create` 开始添加自己的业务模块。
 

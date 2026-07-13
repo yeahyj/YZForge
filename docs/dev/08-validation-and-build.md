@@ -21,11 +21,13 @@ npm run typecheck
 提交前建议：
 
 ```bash
-npm run yzforge:generate:check
-npm run yzforge:config:check
-npm run yzforge:validate:strict
-npm run typecheck
-npm run yzforge:smoke
+npm run yzforge:check
+```
+
+`yzforge:check` 会依次检查配置生成物、普通生成物、严格架构规则和 TypeScript，不修改项目文件。改了框架、生成器、校验器、runtime 或编辑器工具时，使用包含 smoke 的完整检查：
+
+```bash
+npm run yzforge:check:full
 ```
 
 需要真实 Cocos 构建证据时：
@@ -47,6 +49,8 @@ npm run yzforge:cocos:build:web
 | `yzforge:config:remove` | 从 CLI 按稳定 ID 删除一条配置表导出规则 |
 | `yzforge:config:build` | 从 Excel 导出配置 JSON，并刷新 `generated/config.ts` |
 | `yzforge:config:check` | 检查配置 JSON 和配置生成入口是否最新，不写文件 |
+| `yzforge:check` | 统一提交前检查：配置、生成物、严格架构和 TypeScript |
+| `yzforge:check:full` | 在统一提交前检查之后追加完整 smoke |
 | `yzforge:validate` | 基础架构校验 |
 | `yzforge:validate:strict` | 严格架构校验，提交前默认使用 |
 | `typecheck` | 使用项目工具链解析 Cocos 和 TypeScript 类型 |
@@ -59,11 +63,7 @@ npm run yzforge:cocos:build:web
 推荐无 Cocos 构建环境的 CI：
 
 ```bash
-npm run yzforge:generate:check
-npm run yzforge:config:check
-npm run yzforge:validate:strict
-npm run typecheck
-npm run yzforge:smoke
+npm run yzforge:check:full
 ```
 
 有 Cocos 构建环境时再加：
