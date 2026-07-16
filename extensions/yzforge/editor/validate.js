@@ -71,7 +71,11 @@ function createIssueCollector(projectRoot) {
 
 
 function hashFile(filePath) {
-  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  // Runtime copies are text generated across Windows and Unix hosts. Their
+  // semantic content must match, but Git checkout line endings must not turn a
+  // healthy project into a false runtime-package drift error.
+  const content = fs.readFileSync(filePath, 'utf8').replace(/\r\n?/g, '\n');
+  return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
 function relativeFiles(root, predicate) {
