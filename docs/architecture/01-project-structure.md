@@ -258,7 +258,7 @@ Library 内部手写代码目录不强制固定。`types/`、`system/`、`compon
 
 | 路径 | 作用 | 维护方式 |
 | --- | --- | --- |
-| `assets/content-packs/<Owner>/<ContentPack>/content-pack.json` | ContentPack 描述文件，声明 owner、id、bundle、libraries，以及可选的 presentationRequests。 | 手写，Validator 校验 |
+| `assets/content-packs/<Owner>/<ContentPack>/content-pack.json` | ContentPack 描述文件，声明 owner、id、bundle、libraries，以及必填的 presentationRequests。 | 手写，Validator 校验 |
 | `assets/content-packs/<Owner>/<ContentPack>/manifest.generated.json` | ContentPack 内资源映射，供 `ContentPackManager` 运行时读取。 | 生成，不手改 |
 | `assets/content-packs/<Owner>/<ContentPack>/res/prefab/` | 内容 prefab，例如关卡根节点、章节内容节点。 | 手工维护 |
 | `assets/content-packs/<Owner>/<ContentPack>/res/scene/` | 可选场景资源，第一版核心不直接切场景。 | 手工维护 |

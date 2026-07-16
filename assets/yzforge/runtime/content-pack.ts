@@ -66,8 +66,6 @@ export interface ContentPackRecordSnapshot {
     readonly metadataAssets: AssetScopeSnapshot;
     /** Per-load runtime resources, nodes, and Parts. */
     readonly leases: readonly ContentPackLeaseSnapshot[];
-    /** @deprecated Use metadataAssets. Kept for diagnostics compatibility. */
-    readonly assets: AssetScopeSnapshot;
 }
 
 export interface ContentPackLeaseSnapshot {
@@ -442,7 +440,6 @@ export class ContentPackManager {
             manifest: record.manifest,
             metadataAssets,
             leases: Array.from(record.leases.values()).map((lease) => lease.snapshot()),
-            assets: metadataAssets,
         };
     }
 
@@ -476,7 +473,7 @@ function readContentPackManifest(ref: ContentPackRef, asset: JsonAsset): Content
             mismatches,
         });
     }
-    const expectedRequests = normalizePresentationRequests(ref.presentationRequests ?? [], `ContentPack ref ${ref.id}`);
+    const expectedRequests = normalizePresentationRequests(ref.presentationRequests, `ContentPack ref ${ref.id}`);
     const actualRequests = normalizePresentationRequests(manifest.presentationRequests, `ContentPack manifest ${ref.id}`);
     if (!samePresentationRequests(actualRequests, expectedRequests)) {
         throw new YZForgeError(`ContentPack manifest mismatch: ${ref.id} (presentationRequests)`, 'content_pack.manifest_mismatch', {
@@ -566,7 +563,7 @@ export function explainContentPack(ref: ContentPackRef): ContentPackLoadPlan {
         bundleName: ref.bundle,
         dependencies: ref.libraries.map((library) => library.name),
         contractKeys: Object.keys(contract).sort(),
-        presentationRequests: normalizePresentationRequests(ref.presentationRequests ?? [], `ContentPack ref ${ref.id}`),
+        presentationRequests: normalizePresentationRequests(ref.presentationRequests, `ContentPack ref ${ref.id}`),
     };
 }
 

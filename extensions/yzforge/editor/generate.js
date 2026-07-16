@@ -1140,7 +1140,7 @@ function scanContentPackRefs(pack) {
 }
 
 function normalizeContentPackPresentationRequests(pack, refs) {
-  const requests = pack.presentationRequests ?? [];
+  const requests = pack.presentationRequests;
   if (!Array.isArray(requests)) {
     throw new Error(`${pack.projectPath} presentationRequests must be an array.`);
   }

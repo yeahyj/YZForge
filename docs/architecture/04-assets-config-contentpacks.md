@@ -54,7 +54,7 @@ npm run yzforge:config:check
 
 ```text
 content-pack.json
-  构建身份、owner、bundle、Library dependencies、可选 presentationRequests
+  构建身份、owner、bundle、Library dependencies、presentationRequests
 
 manifest.generated.json
   运行时 identity、refs path、config table、codec、presentationRequests、contentHash

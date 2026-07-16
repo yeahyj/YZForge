@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const FRAMEWORK_NAME = 'YZForge';
-const FALLBACK_FRAMEWORK_VERSION = '0.1.0';
+const FALLBACK_FRAMEWORK_VERSION = '0.2.0';
 
 function readPackageVersion(filePath) {
   try {

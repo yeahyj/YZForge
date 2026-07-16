@@ -15,13 +15,13 @@ function expectedBundle(kind, descriptor) {
 const REQUIRED_DESCRIPTOR_FIELDS = {
   module: ['$schema', 'schemaVersion', 'kind', 'name', 'bundle', 'entry', 'public', 'enterParams', 'libraries'],
   library: ['$schema', 'schemaVersion', 'kind', 'name', 'bundle', 'entry', 'public', 'libraries'],
-  'content-pack': ['$schema', 'schemaVersion', 'kind', 'id', 'owner', 'name', 'bundle', 'libraries'],
+  'content-pack': ['$schema', 'schemaVersion', 'kind', 'id', 'owner', 'name', 'bundle', 'libraries', 'presentationRequests'],
 };
 
 const OPTIONAL_DESCRIPTOR_FIELDS = {
   module: [],
   library: [],
-  'content-pack': ['presentationRequests'],
+  'content-pack': [],
 };
 
 const PRESENTATION_REQUEST_FIELDS = ['key', 'capability', 'version', 'prefab'];

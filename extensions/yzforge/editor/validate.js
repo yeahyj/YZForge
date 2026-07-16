@@ -2224,7 +2224,7 @@ function scanContentPackRefs(pack, projectRoot, issues) {
 }
 
 function normalizeContentPackPresentationRequests(pack, refs, issues) {
-  const requests = pack.presentationRequests ?? [];
+  const requests = pack.presentationRequests;
   if (!Array.isArray(requests)) {
     issues.push(`${pack.projectPath} presentationRequests must be an array.`);
     return [];

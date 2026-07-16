@@ -59,7 +59,7 @@
     "contentPack": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["$schema", "schemaVersion", "kind", "id", "owner", "name", "bundle", "libraries"],
+      "required": ["$schema", "schemaVersion", "kind", "id", "owner", "name", "bundle", "libraries", "presentationRequests"],
       "properties": {
         "$schema": { "type": "string" },
         "schemaVersion": { "const": 2 },

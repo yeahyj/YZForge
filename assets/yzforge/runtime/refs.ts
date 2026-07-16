@@ -167,16 +167,13 @@ export function defineLibraryRef<TTokens = unknown, TConfig extends object = obj
 }
 
 export function defineContentPack<TContract = unknown, TConfig = unknown>(
-    options: Omit<ContentPackRef<TContract, TConfig>, 'kind' | 'presentationRequests'> & {
-        readonly presentationRequests?: readonly ContentPackPresentationRequest[];
-    },
+    options: Omit<ContentPackRef<TContract, TConfig>, 'kind'>,
 ): ContentPackRef<TContract, TConfig> {
     const libraries = options.libraries ?? [];
     return {
         ...options,
         kind: 'content-pack',
         libraries,
-        presentationRequests: options.presentationRequests ?? [],
     };
 }
 
