@@ -16,7 +16,7 @@
     }
   },
   "_generated": {
-    "generator": "yzforge@0.2.0",
+    "generator": "yzforge@0.3.0",
     "source": "assets/content-packs/Start/Test2/content-pack.json",
     "hash": "9f32050de0495ebf"
   }

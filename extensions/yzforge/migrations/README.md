@@ -8,9 +8,9 @@
 'use strict';
 
 module.exports = {
-  id: '0.2.0-to-0.3.0',
-  from: '0.2.0',
-  to: '0.3.0',
+  id: '0.3.0-to-0.4.0',
+  from: '0.3.0',
+  to: '0.4.0',
   description: '迁移旧版项目结构。',
   run(context) {
     const value = context.readJson('some-file.json', {});
