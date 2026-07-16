@@ -68,8 +68,8 @@ const template = `
       <article class="command-card">
         <div class="command-card-head"><span class="command-glyph">F</span><div><strong data-i18n="workbench_framework">Framework</strong><p data-i18n="workbench_framework_desc">Version and runtime evidence</p></div></div>
         <div class="tool-row">
-          <button id="upgrade-check" data-i18n="upgrade_check" data-i18n-title="upgrade_framework_title">Upgrade Check</button>
-          <button id="upgrade" data-i18n="upgrade_framework" data-i18n-title="upgrade_framework_title">Upgrade</button>
+          <button id="upgrade-check" data-i18n="upgrade_check">Upgrade Check</button>
+          <button id="upgrade" data-i18n="upgrade_framework">Upgrade</button>
         </div>
         <button id="runtime-snapshot" class="full-button" data-i18n="runtime_snapshot">Runtime Snapshot</button>
       </article>

@@ -244,6 +244,20 @@ function writeRuntimeFixture(projectRoot) {
   }
 }
 
+function writeFrameworkMigrationFixture(projectRoot) {
+  const sourceRoot = path.resolve(__dirname, '..', 'migrations');
+  for (const entry of fs.readdirSync(sourceRoot, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.js')) {
+      continue;
+    }
+    writeText(
+      projectRoot,
+      `extensions/yzforge/migrations/${entry.name}`,
+      fs.readFileSync(path.join(sourceRoot, entry.name), 'utf8'),
+    );
+  }
+}
+
 function readJson(projectRoot, relativePath) {
   return JSON.parse(fs.readFileSync(path.join(projectRoot, relativePath), 'utf8'));
 }
@@ -2467,6 +2481,7 @@ function setupBaseline(projectRoot) {
     'void loadToolchainTypeScript;',
     '',
   ].join('\n'));
+  writeFrameworkMigrationFixture(projectRoot);
   writeRuntimeFixture(projectRoot);
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/screen-fitter.ts', SCREEN_FITTER_UUID);
   writeScriptMeta(projectRoot, 'assets/yzforge/runtime/full-screen-root.ts', FULL_SCREEN_ROOT_UUID);
@@ -2946,6 +2961,23 @@ function assertFrameworkUpgradeBehavior(projectRoot) {
   assert(currentCheck.ok, 'Current framework update check must pass.');
   assert(currentCheck.alreadyCurrent, 'Repeated framework update check must be idempotent.');
   assert(currentCheck.changed.length === 0, 'Current framework update check must not report changes.');
+
+  writeJson(projectRoot, FRAMEWORK_LOCK_PATH, {
+    ...firstUpgrade.lock.value,
+    version: '0.1.0',
+  });
+  const shippedMigrationCheck = upgradeFramework(projectRoot, { check: true, noDoctor: true });
+  assert(!shippedMigrationCheck.ok, 'Shipped framework migrations must be pending before the version lock advances.');
+  assert(
+    shippedMigrationCheck.migrations.applied.some((migration) => migration.id === 'content-pack-presentation-v2'),
+    'Framework upgrade must resolve the ContentPack presentation v2 migration.',
+  );
+  const shippedMigrationUpgrade = upgradeFramework(projectRoot, { noDoctor: true });
+  assert(
+    shippedMigrationUpgrade.migrations.applied.some((migration) => migration.id === 'content-pack-presentation-v2'),
+    'Framework upgrade must apply the ContentPack presentation v2 migration.',
+  );
+  assert(readJson(projectRoot, FRAMEWORK_LOCK_PATH).version === firstUpgrade.toVersion, 'Shipped migration must advance the framework version lock.');
 
   writeText(projectRoot, 'extensions/yzforge/migrations/0001-smoke.js', [
     "'use strict';",
@@ -4390,7 +4422,7 @@ async function smoke(options = {}) {
     assertOkValidation(projectRoot);
 
     fs.appendFileSync(path.join(projectRoot, 'assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts'), '// tampered\n', 'utf8');
-    expectValidationIssue(projectRoot, 'generated hash mismatch');
+    expectValidationIssue(projectRoot, 'is stale for assets/modules/Battle/res/view/PageBattle.prefab');
     const refs = generate(projectRoot);
     assert(refs.changed.includes('assets/modules/Battle/code/view/refs/PageBattle.refs.generated.ts'), 'Expected regenerate to repair tampered AutoRefs.');
 

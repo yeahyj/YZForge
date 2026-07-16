@@ -18,7 +18,8 @@ const { validate } = require('./validate');
 const { scanProject } = require('./scanner');
 const { smoke } = require('./smoke');
 const { kebabCase, toPosix } = require('./fs-utils');
-const { upgradeFramework: runFrameworkUpgrade } = require('./upgrade');
+const { readFrameworkLock, upgradeFramework: runFrameworkUpgrade } = require('./upgrade');
+const { installedFrameworkVersion } = require('./version');
 const en = require('../i18n/en');
 const zh = require('../i18n/zh');
 
@@ -949,17 +950,20 @@ function showCreateHelp() {
   return { ok: true, message };
 }
 
-async function confirmFrameworkUpgrade() {
-  if (!global.Editor || !Editor.Dialog || typeof Editor.Dialog.warn !== 'function') {
-    return true;
+async function showFrameworkUpgradeResult(result) {
+  const from = result.fromVersion || t('upgrade_version_unknown');
+  const to = result.toVersion || t('upgrade_version_unknown');
+  const detail = result.ok
+    ? `${t('upgrade_result_range')}: ${from} → ${to}\n${t('upgrade_result_success_detail')}`
+    : `${t('upgrade_result_range')}: ${from} → ${to}\n${t('upgrade_result_failure_reason')}: ${result.error || t('upgrade_version_unknown')}`;
+  const title = result.ok ? t('upgrade_result_success') : t('upgrade_result_failure');
+  if (!global.Editor || !Editor.Dialog) {
+    return;
   }
-  const result = await Editor.Dialog.warn(t('upgrade_confirm_title'), {
-    detail: t('upgrade_confirm_detail'),
-    buttons: [t('upgrade_cancel'), t('upgrade_confirm_action')],
-    default: 0,
-    cancel: 0,
-  });
-  return result.response === 1;
+  const show = result.ok ? Editor.Dialog.info : (Editor.Dialog.warn || Editor.Dialog.info);
+  if (typeof show === 'function') {
+    await show(title, { detail });
+  }
 }
 
 function describeProject() {
@@ -1034,14 +1038,27 @@ exports.methods = {
   },
 
   async upgradeFramework() {
-    if (!await confirmFrameworkUpgrade()) {
-      return { ok: false, cancelled: true };
+    try {
+      const result = runFrameworkUpgrade(projectRoot());
+      const refreshed = await refreshChangedFiles(result.changed);
+      const completed = { ...result, refreshed };
+      await showFrameworkUpgradeResult(completed);
+      console.log('[YZForge] upgrade framework:', completed);
+      return completed;
+    } catch (error) {
+      const lock = readFrameworkLock(projectRoot());
+      const failed = {
+        ok: false,
+        fromVersion: lock?.version || null,
+        toVersion: installedFrameworkVersion(projectRoot()),
+        error: error instanceof Error ? error.message : String(error),
+        changed: [],
+        refreshed: [],
+      };
+      await showFrameworkUpgradeResult(failed);
+      console.warn('[YZForge] upgrade framework failed:', failed);
+      return failed;
     }
-    const result = runFrameworkUpgrade(projectRoot());
-    const refreshed = await refreshChangedFiles(result.changed);
-    const completed = { ...result, refreshed };
-    console.log('[YZForge] upgrade framework:', completed);
-    return completed;
   },
 
   async upgradeCheck() {
