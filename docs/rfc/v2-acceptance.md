@@ -22,6 +22,8 @@ npm run yzforge:ai:doctor
 - Module load 任意一步失败时，UI、unit lifecycle、assets、libraries、bundle 全部尝试释放。
 - View `beforeOpen`、`onOpen` 任意一步失败时，disposer 被执行，结果被 cancel，Node 和 asset 被释放。
 - Part 通过 `PartLease` 持有，初始化失败与 release 都覆盖 lifecycle、Node 和 prefab asset。
+- ContentPack 每次 load 都有独立 lease asset scope；释放一个 lease 不影响同 record 的其他 Node、asset 或 Part。
+- ContentPack 特殊表现只通过声明式 capability id + 精确 version 请求；缺失、版本不符或非 Prefab 请求必须回滚加载，不能执行内容包提供的脚本。
 - Navigator enter/back/unload 串行化；rollback failure 进入结构化 snapshot。
 - ContentPack 的运行时路径来自 manifest，不来自 TypeScript ref 中的路径副本。
 

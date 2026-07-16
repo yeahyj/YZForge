@@ -2236,6 +2236,66 @@ function scanContentPackRefs(pack, projectRoot, issues) {
   return refs;
 }
 
+function normalizeContentPackPresentationRequests(pack, refs, issues) {
+  const requests = pack.presentationRequests ?? [];
+  if (!Array.isArray(requests)) {
+    issues.push(`${pack.projectPath} presentationRequests must be an array.`);
+    return [];
+  }
+  const normalized = [];
+  const keys = new Set();
+  for (const [index, request] of requests.entries()) {
+    const label = `${pack.projectPath} presentationRequests[${index}]`;
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      issues.push(`${label} must be an object.`);
+      continue;
+    }
+    const allowed = new Set(['key', 'capability', 'version', 'prefab']);
+    let valid = true;
+    for (const field of Object.keys(request)) {
+      if (!allowed.has(field)) {
+        issues.push(`${label} rejects unknown property '${field}'.`);
+        valid = false;
+      }
+    }
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(request.key || '')) {
+      issues.push(`${label}.key must be an alphanumeric Pascal/camel identifier.`);
+      valid = false;
+    }
+    if (!/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(request.capability || '')) {
+      issues.push(`${label}.capability must be a dotted lowercase capability id.`);
+      valid = false;
+    }
+    if (!Number.isSafeInteger(request.version) || request.version <= 0) {
+      issues.push(`${label}.version must be a positive integer.`);
+      valid = false;
+    }
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(request.prefab || '')) {
+      issues.push(`${label}.prefab must be a generated prefab ref key.`);
+      valid = false;
+    } else if (refs[request.prefab]?.kind !== 'asset' || refs[request.prefab]?.type !== 'Prefab') {
+      issues.push(`${label}.prefab '${request.prefab}' must name a prefab under this ContentPack.`);
+      valid = false;
+    }
+    if (typeof request.key === 'string' && keys.has(request.key)) {
+      issues.push(`${pack.projectPath} presentation request key '${request.key}' is duplicated.`);
+      valid = false;
+    }
+    if (typeof request.key === 'string') {
+      keys.add(request.key);
+    }
+    if (valid) {
+      normalized.push({
+        key: request.key,
+        capability: request.capability,
+        version: request.version,
+        prefab: request.prefab,
+      });
+    }
+  }
+  return normalized.sort(comparePresentationRequestKeys);
+}
+
 function validateContentPackManifest(projectRoot, project, issues) {
   for (const pack of project.contentPacks) {
     const manifestPath = path.join(pack.dir, 'manifest.generated.json');
@@ -2255,14 +2315,16 @@ function validateContentPackManifest(projectRoot, project, issues) {
 
     const expectedRefs = scanContentPackRefs(pack, projectRoot, issues);
     const expectedDependencies = [...(pack.libraries || [])].sort();
+    const expectedPresentationRequests = normalizeContentPackPresentationRequests(pack, expectedRefs, issues);
     const expectedBody = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: pack.id,
       owner: pack.owner,
       name: pack.name,
       bundle: pack.bundle || expectedBundle('content-pack', pack),
       dependencies: expectedDependencies,
-      contentHash: contentPackContentHash(expectedDependencies, expectedRefs),
+      presentationRequests: expectedPresentationRequests,
+      contentHash: contentPackContentHash(expectedDependencies, expectedRefs, expectedPresentationRequests),
       refs: expectedRefs,
     };
     const expected = generatedJson(pack.projectPath, expectedBody);
@@ -2272,18 +2334,38 @@ function validateContentPackManifest(projectRoot, project, issues) {
   }
 }
 
-function contentPackContentHash(dependencies, refs) {
+function contentPackContentHash(dependencies, refs, presentationRequests) {
   const normalizedRefs = {};
   for (const key of Object.keys(refs).sort()) {
     normalizedRefs[key] = refs[key];
   }
-  const value = JSON.stringify({ dependencies: [...dependencies].sort(), refs: normalizedRefs });
+  const normalizedRequests = [...(presentationRequests || [])]
+    .map((request) => ({
+      key: request.key,
+      capability: request.capability,
+      version: request.version,
+      prefab: request.prefab,
+    }))
+    .sort(comparePresentationRequestKeys);
+  const value = JSON.stringify({
+    dependencies: [...dependencies].sort(),
+    presentationRequests: normalizedRequests,
+    refs: normalizedRefs,
+  });
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193);
   }
   return `00000000${(hash >>> 0).toString(16)}`.slice(-8);
+}
+
+// Content hashes are persisted and verified on other devices. Do not use
+// localeCompare here: its result depends on the host's default locale.
+function comparePresentationRequestKeys(left, right) {
+  if (left.key < right.key) return -1;
+  if (left.key > right.key) return 1;
+  return 0;
 }
 
 const UUID_BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';

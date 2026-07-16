@@ -1,11 +1,12 @@
 import { Asset, instantiate, isValid, Node, Prefab } from 'cc';
 import type { BundleLease } from './bundle-manager';
 import type { OwnerRef, OwnershipLedger, ReleaseScope } from './lifetime';
-import type { LoadableAssetRef, PartRef } from './refs';
+import type { ContentPackAssetRef, LoadableAssetRef, PartRef } from './refs';
 import type { Logger } from './logger';
 import { YZForgeError } from './errors';
 import { disposePartRuntime, initializePartRuntime, type Part } from './ui';
 import { CompensationStack, runCleanupSteps } from './compensation';
+import type { Constructor } from './types';
 
 interface LoadedAssetRecord {
     readonly ref: LoadableAssetRef;
@@ -311,11 +312,12 @@ function describeError(error: unknown): unknown {
     return error;
 }
 
-export class ModuleAssets extends AssetScope {
+abstract class PartAssetScope extends AssetScope {
     private nextPartLeaseId = 0;
 
-    public async createPart<TData, TPart extends Part<TData>>(
-        ref: PartRef<TPart, TData>,
+    protected async createPartLease<TData, TPart extends Part<TData>>(
+        ref: LoadableAssetRef<Prefab>,
+        component: Constructor<TPart>,
         data: TData,
         options: Omit<InstantiateOptions, 'acquireAsset'> = {},
     ): Promise<PartLease<TPart>> {
@@ -326,7 +328,7 @@ export class ModuleAssets extends AssetScope {
                 { step: 'destroy part node', task: () => this.destroyNode(node) },
                 { step: 'release part prefab', task: () => this.release(ref) },
             ]));
-            const instance = node.getComponent(ref.component);
+            const instance = node.getComponent(component);
             if (!instance) {
                 throw new YZForgeError(`Part component not found after instantiate: ${ref.path}`, 'part.component_missing');
             }
@@ -364,7 +366,38 @@ export class ModuleAssets extends AssetScope {
         }
     }
 }
+
+export class ModuleAssets extends PartAssetScope {
+    public async createPart<TData, TPart extends Part<TData>>(
+        ref: PartRef<TPart, TData>,
+        data: TData,
+        options: Omit<InstantiateOptions, 'acquireAsset'> = {},
+    ): Promise<PartLease<TPart>> {
+        return await this.createPartLease(ref, ref.component, data, options);
+    }
+}
+
 export class LibraryAssets extends AssetScope {}
-export class ContentPackAssetScope extends AssetScope {}
+
+/**
+ * Per-ContentPack-lease asset scope.
+ *
+ * Content packs may contain prefabs whose component classes are supplied by the
+ * owning Module, Shared scope, or a declared Library. The pack itself never
+ * supplies TypeScript. Callers provide that already-loaded component class when
+ * creating a Part so the created node and prefab reference remain owned by the
+ * same ContentPack lease.
+ */
+export class ContentPackAssetScope extends PartAssetScope {
+    public async createPart<TData, TPart extends Part<TData>>(
+        ref: ContentPackAssetRef<Prefab>,
+        component: Constructor<TPart>,
+        data: TData,
+        options: Omit<InstantiateOptions, 'acquireAsset'> = {},
+    ): Promise<PartLease<TPart>> {
+        return await this.createPartLease(ref, component, data, options);
+    }
+}
+
 export class GlobalAssets extends AssetScope {}
 export class SharedAssets extends AssetScope {}

@@ -989,8 +989,14 @@ function renderModuleContentPacks(module, packs) {
   if (owned.length === 0) {
     return 'export const contentPacks = {};';
   }
-  const packRefs = new Map(owned.map((pack) => [pack.id, scanContentPackRefs(pack)]));
-  const allRefs = Array.from(packRefs.values()).flat();
+  const packDefinitions = new Map(owned.map((pack) => {
+    const refs = scanContentPackRefs(pack);
+    return [pack.id, {
+      refs,
+      presentationRequests: normalizeContentPackPresentationRequests(pack, refs),
+    }];
+  }));
+  const allRefs = Array.from(packDefinitions.values()).flatMap((definition) => definition.refs);
   const assetRefs = allRefs.filter((ref) => ref.kind === 'asset');
   const configRefs = allRefs.filter((ref) => ref.kind === 'config');
   const configDeclarations = renderContentPackConfigDeclarations(configRefs);
@@ -1011,7 +1017,8 @@ function renderModuleContentPacks(module, packs) {
     const exportName = `${pack.owner}${pack.name}ContentPack`;
     const refsName = `${exportName}Contract`;
     const configInterfaceName = `${exportName}ConfigTables`;
-    const refs = packRefs.get(pack.id) || [];
+    const definition = packDefinitions.get(pack.id) || { refs: [], presentationRequests: [] };
+    const refs = definition.refs;
     const packConfigRefs = refs.filter((ref) => ref.kind === 'config');
     const refsLines = refs.length === 0
       ? [`const ${refsName} = {};`]
@@ -1036,6 +1043,15 @@ function renderModuleContentPacks(module, packs) {
     const generic = packConfigRefs.length > 0
       ? `<typeof ${refsName}, ${configInterfaceName}>`
       : '';
+    const presentationRequestLines = definition.presentationRequests.length === 0
+      ? ['    presentationRequests: [],']
+      : [
+        '    presentationRequests: [',
+        ...definition.presentationRequests.map((request) => {
+          return `        { key: ${JSON.stringify(request.key)}, capability: ${JSON.stringify(request.capability)}, version: ${request.version}, prefab: ${JSON.stringify(request.prefab)} },`;
+        }),
+        '    ],',
+      ];
     return [
       ...refsLines,
       ...configLines,
@@ -1047,6 +1063,7 @@ function renderModuleContentPacks(module, packs) {
       `    name: '${pack.name}',`,
       `    bundle: '${pack.bundle}',`,
       `    libraries: [${libraries}],`,
+      ...presentationRequestLines,
       `    contract: ${refsName},`,
       '});',
     ].join('\n');
@@ -1122,9 +1139,59 @@ function scanContentPackRefs(pack) {
   return refs;
 }
 
+function normalizeContentPackPresentationRequests(pack, refs) {
+  const requests = pack.presentationRequests ?? [];
+  if (!Array.isArray(requests)) {
+    throw new Error(`${pack.projectPath} presentationRequests must be an array.`);
+  }
+  const prefabRefs = new Map(refs
+    .filter((ref) => ref.kind === 'asset' && ref.type === 'Prefab')
+    .map((ref) => [ref.key, ref]));
+  const keys = new Set();
+  const normalized = requests.map((request, index) => {
+    const label = `${pack.projectPath} presentationRequests[${index}]`;
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      throw new Error(`${label} must be an object.`);
+    }
+    const allowed = new Set(['key', 'capability', 'version', 'prefab']);
+    for (const field of Object.keys(request)) {
+      if (!allowed.has(field)) {
+        throw new Error(`${label} rejects unknown property '${field}'.`);
+      }
+    }
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(request.key || '')) {
+      throw new Error(`${label}.key must be an alphanumeric Pascal/camel identifier.`);
+    }
+    if (!/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(request.capability || '')) {
+      throw new Error(`${label}.capability must be a dotted lowercase capability id.`);
+    }
+    if (!Number.isSafeInteger(request.version) || request.version <= 0) {
+      throw new Error(`${label}.version must be a positive integer.`);
+    }
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(request.prefab || '')) {
+      throw new Error(`${label}.prefab must be a generated prefab ref key.`);
+    }
+    if (!prefabRefs.has(request.prefab)) {
+      throw new Error(`${label}.prefab '${request.prefab}' must name a prefab under this ContentPack.`);
+    }
+    if (keys.has(request.key)) {
+      throw new Error(`${pack.projectPath} presentation request key '${request.key}' is duplicated.`);
+    }
+    keys.add(request.key);
+    return {
+      key: request.key,
+      capability: request.capability,
+      version: request.version,
+      prefab: request.prefab,
+    };
+  });
+  return normalized.sort(comparePresentationRequestKeys);
+}
+
 function renderContentPackManifest(pack) {
+  const scannedRefs = scanContentPackRefs(pack);
   const refs = {};
-  for (const ref of scanContentPackRefs(pack)) {
+  for (const ref of scannedRefs) {
     if (ref.kind === 'config') {
       refs[ref.key] = {
         kind: 'config',
@@ -1141,30 +1208,52 @@ function renderContentPackManifest(pack) {
     }
   }
   const dependencies = [...(pack.libraries || [])].sort();
+  const presentationRequests = normalizeContentPackPresentationRequests(pack, scannedRefs);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: pack.id,
     owner: pack.owner,
     name: pack.name,
     bundle: pack.bundle,
     dependencies,
-    contentHash: contentPackContentHash(dependencies, refs),
+    presentationRequests,
+    contentHash: contentPackContentHash(dependencies, refs, presentationRequests),
     refs,
   };
 }
 
-function contentPackContentHash(dependencies, refs) {
+function contentPackContentHash(dependencies, refs, presentationRequests) {
   const normalizedRefs = {};
   for (const key of Object.keys(refs).sort()) {
     normalizedRefs[key] = refs[key];
   }
-  const value = JSON.stringify({ dependencies: [...dependencies].sort(), refs: normalizedRefs });
+  const normalizedRequests = [...(presentationRequests || [])]
+    .map((request) => ({
+      key: request.key,
+      capability: request.capability,
+      version: request.version,
+      prefab: request.prefab,
+    }))
+    .sort(comparePresentationRequestKeys);
+  const value = JSON.stringify({
+    dependencies: [...dependencies].sort(),
+    presentationRequests: normalizedRequests,
+    refs: normalizedRefs,
+  });
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+// Content hashes are persisted and verified on other devices. Do not use
+// localeCompare here: its result depends on the host's default locale.
+function comparePresentationRequestKeys(left, right) {
+  if (left.key < right.key) return -1;
+  if (left.key > right.key) return 1;
+  return 0;
 }
 
 function toolchainSchema() {

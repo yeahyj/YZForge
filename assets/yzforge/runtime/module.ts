@@ -1,6 +1,11 @@
 import type { App } from './app';
 import type { ConfigScope } from './config';
-import type { ContentPackLease, ContentPackLoadPlan, ContentPackRecordSnapshot } from './content-pack';
+import type {
+    ContentPackLease,
+    ContentPackLoadPlan,
+    ContentPackPresentationCapability,
+    ContentPackRecordSnapshot,
+} from './content-pack';
 import type { LibraryLease } from './library';
 import { EventBus } from './event-bus';
 import { YZForgeError } from './errors';
@@ -37,6 +42,7 @@ export interface ModuleLibraryAccess {
 
 export interface ModuleContentPackAccess {
     load<TContract, TConfig>(ref: ContentPackRef<TContract, TConfig>): Promise<ContentPackLease<TContract, TConfig>>;
+    registerPresentationCapability(capability: ContentPackPresentationCapability): void;
     explain?<TContract, TConfig>(ref: ContentPackRef<TContract, TConfig>): ContentPackLoadPlan;
     snapshot?(id: string): ContentPackRecordSnapshot | undefined;
     snapshots?(): ContentPackRecordSnapshot[];

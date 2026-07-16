@@ -230,6 +230,23 @@ const pack = await this.contentPacks.load(BattleLevel001ContentPack);
 
 ContentPack 不写可调用业务 API。它提供资源、配置和 manifest，由 owner Module 解释。
 
+内容 prefab 可以挂 owner Module、Shared 或已声明 Library 的脚本；ContentPack 目录本身不能放 TypeScript。若内容 prefab 需要作为动态 Part 创建，组件类仍由 owner Module 提供：
+
+```ts
+const pack = await this.contentPacks.load(BattleLevel001ContentPack);
+const root = await pack.assets.createPart(pack.refs.levelRoot, BattleLevelRootPart, { levelId: '001' });
+```
+
+每次 `load()` 都有独立的资源租约。释放一个 `pack` 只清理这个 pack 创建的 Node、Prefab 引用和 Part，不影响其他同包 load 的实例。
+
+需要特殊表现时，在 `content-pack.json` 声明 `presentationRequests`，并由 owner Module 在 `onCreate` 注册同 id、同 version 的能力：
+
+```ts
+this.contentPacks.registerPresentationCapability({ id: 'battle.level-root', version: 1 });
+```
+
+能力缺失或版本不同会拒绝加载；ContentPack 不能用这个字段传入脚本路径或类名。
+
 ## UI 用法
 
 View prefab 放在当前 Scope 的 `res/view`，Part prefab 放在 `res/part`。

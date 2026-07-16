@@ -33,13 +33,30 @@ export interface ContentPackManifestRef {
     readonly codec?: string;
 }
 
+/**
+ * A content-authored request for a presentation behavior supplied by its owner
+ * Module. It is deliberately declarative: no script path, class name, or
+ * reflective entry point can be supplied by a ContentPack.
+ */
+export interface ContentPackPresentationRequest {
+    /** Stable key local to this ContentPack. */
+    readonly key: string;
+    /** Namespaced capability registered by the owner Module. */
+    readonly capability: string;
+    /** Exact behavior contract version. */
+    readonly version: number;
+    /** Generated ContentPack prefab contract key. */
+    readonly prefab: string;
+}
+
 export interface ContentPackManifest {
-    readonly schemaVersion: 1;
+    readonly schemaVersion: 2;
     readonly id: string;
     readonly owner: string;
     readonly name: string;
     readonly bundle: string;
     readonly dependencies: readonly string[];
+    readonly presentationRequests: readonly ContentPackPresentationRequest[];
     readonly contentHash: string;
     readonly refs: Readonly<Record<string, ContentPackManifestRef>>;
 }
@@ -52,6 +69,7 @@ export interface ContentPackRef<TContract = unknown, TConfig = unknown> {
     readonly name: string;
     readonly bundle: string;
     readonly libraries: readonly LibraryRef[];
+    readonly presentationRequests: readonly ContentPackPresentationRequest[];
     readonly contract: TContract;
     readonly __config?: TConfig;
 }
@@ -149,13 +167,16 @@ export function defineLibraryRef<TTokens = unknown, TConfig extends object = obj
 }
 
 export function defineContentPack<TContract = unknown, TConfig = unknown>(
-    options: Omit<ContentPackRef<TContract, TConfig>, 'kind'>,
+    options: Omit<ContentPackRef<TContract, TConfig>, 'kind' | 'presentationRequests'> & {
+        readonly presentationRequests?: readonly ContentPackPresentationRequest[];
+    },
 ): ContentPackRef<TContract, TConfig> {
     const libraries = options.libraries ?? [];
     return {
         ...options,
         kind: 'content-pack',
         libraries,
+        presentationRequests: options.presentationRequests ?? [],
     };
 }
 

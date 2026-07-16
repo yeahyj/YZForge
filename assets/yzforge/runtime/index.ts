@@ -46,6 +46,7 @@ export type {
     ContentPackAssetRef,
     ContentPackConfigRef,
     ContentPackManifest,
+    ContentPackPresentationRequest,
     ContentPackRef,
     LibraryRef,
     LoadableAssetRef,
@@ -99,5 +100,11 @@ export type {
 } from './ui';
 export type { AppLifecycleEvents, AppLifecycleReader } from './lifecycle';
 export type { DeviceProfile, EdgeInsets, RectLike, ViewportConfig, ViewportReader } from './viewport';
-export type { ContentPackLease, ContentPackLoadPlan } from './content-pack';
+export type {
+    ContentPackLease,
+    ContentPackLeaseSnapshot,
+    ContentPackLoadPlan,
+    ContentPackPresentationCapability,
+    ContentPackRecordSnapshot,
+} from './content-pack';
 export type { LibraryLease } from './library';

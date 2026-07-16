@@ -392,17 +392,32 @@ async function assertAssetReleasePolicyBehavior() {
     constructor(name = 'Node') {
       this.name = name;
       this.active = true;
+      this.component = undefined;
     }
 
     addChild() {}
-    destroy() {}
+    destroy() {
+      if (this.destroyEvent) {
+        this.destroyEvent();
+      }
+    }
+    getComponent(type) {
+      return this.component instanceof type ? this.component : null;
+    }
   }
+  const partEvents = [];
+  class SmokePart {}
   const cc = {
     Asset,
     Prefab,
     Node,
-    instantiate() {
-      return new Node('Instance');
+    instantiate(prefab) {
+      const node = new Node('Instance');
+      if (prefab.component) {
+        node.component = new prefab.component();
+      }
+      node.destroyEvent = () => partEvents.push('destroy');
+      return node;
     },
     isValid() {
       return true;
@@ -413,7 +428,10 @@ async function assertAssetReleasePolicyBehavior() {
     './bundle-manager': {},
     './errors': errors,
     './lifetime': lifetime,
-    './ui': { disposePartRuntime: async () => {}, initializePartRuntime: async () => {} },
+    './ui': {
+      disposePartRuntime: async () => partEvents.push('dispose'),
+      initializePartRuntime: async () => partEvents.push('initialize'),
+    },
     './compensation': compensation,
   });
   const { AssetScope } = assetsRuntime;
@@ -453,6 +471,35 @@ async function assertAssetReleasePolicyBehavior() {
   assert(releaseEvents.join('|') === 'good|bad', 'AssetScope releaseAll must continue after a failed asset release.');
   assert(assetScope.snapshot().assets.some((item) => item.path === 'bad'), 'Failed asset release must remain visible in AssetScope snapshot.');
   assert(ledger.snapshot().leaks.some((item) => item.ownerId === scope.ownerId && item.kind === 'asset' && item.key.startsWith('bad::')), 'OwnershipLedger must expose failed asset release as leak evidence.');
+
+  const { ContentPackAssetScope } = assetsRuntime;
+  const partScope = new ReleaseScope('content-pack-lease', 'BattleLevel001', ledger);
+  const partBundle = {
+    name: 'yzforge-content-pack-battle-level001',
+    async loadAsset(assetPath) {
+      const prefab = new Prefab();
+      if (assetPath === 'content-part') {
+        prefab.component = SmokePart;
+      }
+      return prefab;
+    },
+    releaseAsset(assetPath) {
+      partEvents.push(`release:${assetPath}`);
+    },
+  };
+  const contentAssets = new ContentPackAssetScope('battle.level001/lease-a', partBundle, { debug() {}, warn() {} }, partScope, ledger);
+  const partLease = await contentAssets.createPart(
+    { kind: 'content-pack-asset', path: 'content-part', type: Prefab },
+    SmokePart,
+    { source: 'smoke' },
+  );
+  assert(partLease.instance instanceof SmokePart, 'ContentPackAssetScope.createPart must resolve the owner-supplied Part component.');
+  await partLease.release({ type: 'content_pack_part_release' });
+  assert(
+    partEvents.join('|') === 'initialize|dispose|destroy|release:content-part',
+    'ContentPack Part release must dispose lifecycle, destroy node, then release prefab in order.',
+  );
+  await partScope.release({ type: 'content_pack_part_scope_release' });
 }
 
 async function assertBundleCachePolicyBehavior() {
@@ -582,6 +629,194 @@ async function assertLibraryOwnerAcquireBehavior() {
   await leaseA.release({ type: 'release_owner_a' });
   assert(!registry.records.has(ref.name), 'LibraryRecord must release after its last lease is released.');
   assert(recordScope.released, 'Library record scope must release after the last lease.');
+}
+
+async function assertContentPackLeaseAndPresentationBehavior() {
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  const errors = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/errors.ts');
+  const lifetime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/lifetime.ts', {
+    './errors': errors,
+  });
+  const compensation = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/compensation.ts', {
+    './errors': errors,
+  });
+  class JsonAsset {}
+  class Prefab {}
+  const events = [];
+  class SmokeContentPackAssetScope {
+    constructor(ownerName, bundle, _logger, releaseScope) {
+      this.ownerName = ownerName;
+      this.bundle = bundle;
+      this.loaded = [];
+      this.released = false;
+      releaseScope.defer(`smoke-assets:${ownerName}`, () => {
+        this.released = true;
+        events.push(`assets:${ownerName}`);
+      });
+    }
+
+    async load(ref) {
+      this.loaded.push(ref.path);
+      if (ref.path === 'manifest.generated') {
+        return this.bundle.manifest;
+      }
+      return {};
+    }
+
+    snapshot() {
+      return {
+        ownerName: this.ownerName,
+        loadedCount: this.loaded.length,
+        trackedNodeCount: 0,
+        assets: [],
+      };
+    }
+  }
+  const contentPackRuntime = loadRuntimeModule(projectRoot, 'packages/yzforge-runtime/src/content-pack.ts', {
+    cc: { JsonAsset },
+    './assets': { ContentPackAssetScope: SmokeContentPackAssetScope },
+    './bundle-manager': {},
+    './config': {},
+    './errors': errors,
+    './kernel': {},
+    './lifetime': lifetime,
+    './refs': { assetRef: (type, assetPath) => ({ type, path: assetPath }) },
+    './compensation': compensation,
+    './runtime-version': { YZFORGE_RUNTIME_ABI: 2 },
+  });
+  const { ContentPackManager } = contentPackRuntime;
+  const { OwnershipLedger, ReleaseScope } = lifetime;
+  const ownership = new OwnershipLedger();
+  const appScope = new ReleaseScope('app', 'root', ownership);
+  const ownerScope = appScope.child('module', 'Battle');
+  const manifests = new Map();
+  const kernel = {
+    ownership,
+    logger: {
+      child() {
+        return { debug() {}, warn() {} };
+      },
+    },
+    libraries: { acquire: async () => {} },
+    bundles: {
+      async loadBundle(name) {
+        return { name, manifest: manifests.get(name) };
+      },
+    },
+    configs: { loadContentPackScope: async () => ({}) },
+  };
+
+  const contentHash = (dependencies, refs, presentationRequests) => {
+    const normalizedRefs = {};
+    for (const key of Object.keys(refs).sort()) normalizedRefs[key] = refs[key];
+    const normalizedRequests = [...presentationRequests]
+      .map((request) => ({
+        key: request.key,
+        capability: request.capability,
+        version: request.version,
+        prefab: request.prefab,
+      }))
+      .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
+    const value = JSON.stringify({
+      dependencies: [...dependencies].sort(),
+      presentationRequests: normalizedRequests,
+      refs: normalizedRefs,
+    });
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return `00000000${(hash >>> 0).toString(16)}`.slice(-8);
+  };
+  const createPack = (id, name, request) => {
+    const bundle = `yzforge-content-pack-battle-${name.toLowerCase()}`;
+    const refs = {
+      levelRoot: { kind: 'asset', type: 'Prefab', path: 'res/prefab/LevelRoot' },
+    };
+    const presentationRequests = Array.isArray(request) ? request : [request];
+    const manifest = {
+      schemaVersion: 2,
+      id,
+      owner: 'Battle',
+      name,
+      bundle,
+      dependencies: [],
+      presentationRequests,
+      refs,
+    };
+    manifest.contentHash = contentHash(manifest.dependencies, refs, manifest.presentationRequests);
+    manifests.set(bundle, { json: manifest });
+    return {
+      abi: 2,
+      id,
+      owner: 'Battle',
+      name,
+      bundle,
+      libraries: [],
+      presentationRequests,
+      contract: {
+        levelRoot: { kind: 'content-pack-asset-contract', type: Prefab },
+      },
+    };
+  };
+
+  const request = { key: 'levelRoot', capability: 'battle.level-root', version: 1, prefab: 'levelRoot' };
+  const ref = createPack('battle.level001', 'Level001', request);
+  const manager = new ContentPackManager(kernel, 'Battle', ownerScope);
+  let missingCapability;
+  try {
+    await manager.load(ref);
+  } catch (error) {
+    missingCapability = error;
+  }
+  assert(missingCapability?.code === 'content_pack.presentation_capability_missing', 'ContentPack load must reject an unregistered presentation capability.');
+  assert(!manager.records.has(ref.id), 'A rejected presentation capability must roll back the ContentPack record.');
+
+  manager.registerPresentationCapability({ id: 'battle.level-root', version: 1 });
+  const leaseA = await manager.load(ref);
+  const leaseB = await manager.load(ref);
+  const assetsA = leaseA.assets;
+  const assetsB = leaseB.assets;
+  assert(assetsA !== assetsB, 'Each ContentPack load must receive an independent AssetScope.');
+  const beforeRelease = manager.snapshot(ref.id);
+  assert(beforeRelease?.leaseCount === 2 && beforeRelease.leases.length === 2, 'ContentPack diagnostics must expose each active lease scope.');
+  await leaseA.release({ type: 'release_a' });
+  assert(assetsA.released === true && assetsB.released === false, 'Releasing one ContentPack lease must only release that lease resources.');
+  assert(manager.snapshot(ref.id)?.leaseCount === 1, 'ContentPack record must remain while another lease is active.');
+  await leaseB.release({ type: 'release_b' });
+  assert(!manager.records.has(ref.id), 'ContentPack record must release after the final lease is released.');
+  assert(events.includes('assets:battle.level001'), 'Record-owned manifest/config assets must release after the final lease.');
+
+  const localeStableRef = createPack('battle.localeorder', 'LocaleOrder', [
+    { key: 'a', capability: 'battle.level-root', version: 1, prefab: 'levelRoot' },
+    { key: 'A', capability: 'battle.level-root', version: 1, prefab: 'levelRoot' },
+  ]);
+  const localeStableLease = await manager.load(localeStableRef);
+  assert(
+    localeStableLease.manifest.presentationRequests.map((item) => item.key).join('|') === 'A|a',
+    'ContentPack presentation request ordering must use a locale-independent order.',
+  );
+  await localeStableLease.release({ type: 'release_locale_stable' });
+
+  const mismatchScope = appScope.child('module', 'BattleVersionMismatch');
+  const mismatchManager = new ContentPackManager(kernel, 'Battle', mismatchScope);
+  mismatchManager.registerPresentationCapability({ id: 'battle.level-root', version: 1 });
+  const mismatchRef = createPack(
+    'battle.level002',
+    'Level002',
+    { key: 'levelRoot', capability: 'battle.level-root', version: 2, prefab: 'levelRoot' },
+  );
+  let versionMismatch;
+  try {
+    await mismatchManager.load(mismatchRef);
+  } catch (error) {
+    versionMismatch = error;
+  }
+  assert(versionMismatch?.code === 'content_pack.presentation_capability_version_mismatch', 'ContentPack load must require an exact presentation capability version.');
+  await mismatchScope.release({ type: 'mismatch_scope_release' });
+  await ownerScope.release({ type: 'owner_scope_release' });
+  await appScope.release({ type: 'app_scope_release' });
 }
 
 async function assertExtensionRegistryBehavior() {
@@ -2292,6 +2527,14 @@ function createSmokeProject(projectRoot) {
   });
   updateJson(projectRoot, 'assets/content-packs/Battle/Level001/content-pack.json', (descriptor) => {
     descriptor.libraries = ['BattleCore'];
+    descriptor.presentationRequests = [
+      {
+        key: 'levelRoot',
+        capability: 'battle.level-root',
+        version: 1,
+        prefab: 'levelRoot',
+      },
+    ];
   });
 
   writeBundleMeta(projectRoot, 'assets/modules/Battle', 'yzforge-module-battle');
@@ -2410,6 +2653,8 @@ function assertGeneratedOutput(projectRoot) {
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', "enemyWave: contentPackConfigContract<EnemyWaveRow>({ primaryKey: 'id' })");
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'export interface BattleLevel001ContentPackConfigTables');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'defineContentPack<typeof BattleLevel001ContentPackContract, BattleLevel001ContentPackConfigTables>');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'presentationRequests: [');
+  requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'capability: "battle.level-root"');
   requireText(projectRoot, 'assets/modules/Battle/code/generated/content-packs.ts', 'contract: BattleLevel001ContentPackContract');
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'AnalyticsExtension');
   requireText(projectRoot, 'assets/app/bootstrap/install.generated.ts', 'app.installExtension(AnalyticsExtension)');
@@ -2422,7 +2667,9 @@ function assertGeneratedOutput(projectRoot) {
 
   const manifest = readJson(projectRoot, 'assets/content-packs/Battle/Level001/manifest.generated.json');
   assert(manifest.id === 'battle.level001', 'ContentPack manifest id mismatch.');
+  assert(manifest.schemaVersion === 2, 'ContentPack manifest schema must include presentation requests.');
   assert(Array.isArray(manifest.dependencies), 'ContentPack manifest dependencies must be materialized.');
+  assert(manifest.presentationRequests?.[0]?.capability === 'battle.level-root', 'ContentPack manifest presentation request missing.');
   assert(typeof manifest.contentHash === 'string' && manifest.contentHash.length > 0, 'ContentPack manifest content hash missing.');
   assert(manifest.refs.levelRoot?.type === 'Prefab', 'ContentPack prefab ref missing from manifest.');
   assert(manifest.refs.levelData?.type === 'JsonAsset', 'ContentPack runtime json ref missing from manifest.');
@@ -3058,12 +3305,17 @@ function assertRuntimeLifecycleInvariants() {
   assert(contentPackSource.includes('manifest.generated'), 'ContentPack manifest.generated.json must be loaded at runtime.');
   assert(contentPackSource.includes('materializeContentPackRefs(ref.contract, manifest)'), 'Loaded ContentPack refs must be materialized from runtime manifest values.');
   assert(contentPackSource.includes('content_pack.manifest_hash_mismatch'), 'ContentPack runtime must validate manifest content hash.');
+  assert(contentPackSource.includes("record.scope.child('content-pack-lease', leaseId)"), 'ContentPack leases must own a dedicated child ReleaseScope.');
+  assert(contentPackSource.includes('release lease resources'), 'ContentPack lease release must dispose its own resource scope.');
+  assert(contentPackSource.includes('registerPresentationCapability'), 'ContentPack runtime must support owner-registered presentation capabilities.');
+  assert(contentPackSource.includes('content_pack.presentation_capability_version_mismatch'), 'ContentPack runtime must require exact presentation capability versions.');
   assert(appSource.includes('kernel.entries.snapshot'), 'Runtime diagnostics must distinguish script and resource residency.');
   assert(uiSource.includes('new CompensationStack(`view.open:'), 'View open must use compensation rollback.');
   assert(uiSource.includes("reason: 'view_open_failed'"), 'Partial View open must close lifecycle with a cancellation result.');
   assert(!uiSource.includes('__yzforge'), 'View and Part business APIs must not expose legacy __yzforge lifecycle methods.');
   assert(viewRuntimeSource.includes("Symbol('yzforge.view.runtime-operation')"), 'View lifecycle control must use an internal symbol protocol.');
   assert(assetsSource.includes('createPart') && assetsSource.includes('PartLease'), 'ModuleAssets must provide owner-tracked Part creation.');
+  assert(assetsSource.includes('class ContentPackAssetScope extends PartAssetScope'), 'ContentPack assets must support owner-supplied Part creation.');
   assert(viewportSource.includes('export interface ViewportReader'), 'App must expose a readonly ViewportReader capability.');
   assert(screenFitterSource.includes('onViewportProfile') && !screenFitterSource.includes("from 'cc';\nimport { screen"), 'ScreenFitter must consume the shared viewport profile.');
   for (const internalName of ['UIManager', 'ModuleNavigator', 'LibraryRegistry', 'EntryRegistry', 'OwnershipLedger', 'ReleaseScope', 'ConfigManager']) {
@@ -3109,6 +3361,7 @@ async function smoke(options = {}) {
       await assertAssetReleasePolicyBehavior();
       await assertBundleCachePolicyBehavior();
       await assertLibraryOwnerAcquireBehavior();
+      await assertContentPackLeaseAndPresentationBehavior();
       await assertExtensionRegistryBehavior();
       await assertViewResultCloseBehavior();
       assertViewportProfileBehavior();
@@ -3148,6 +3401,31 @@ async function smoke(options = {}) {
     assertFrameworkUpgradeBehavior(projectRoot);
     assertConfigBuildFromExcel(projectRoot);
     const validation = assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/content-packs/Battle/Level001/content-pack.json', (descriptor) => {
+      descriptor.presentationRequests[0].prefab = 'missingPrefab';
+    });
+    expectValidationIssue(projectRoot, "presentationRequests[0].prefab 'missingPrefab' must name a prefab under this ContentPack");
+    updateJson(projectRoot, 'assets/content-packs/Battle/Level001/content-pack.json', (descriptor) => {
+      descriptor.presentationRequests[0].prefab = 'levelRoot';
+    });
+    generate(projectRoot);
+    assertOkValidation(projectRoot);
+
+    updateJson(projectRoot, 'assets/content-packs/Battle/Level001/content-pack.json', (descriptor) => {
+      descriptor.presentationRequests.push({
+        key: 'levelRoot',
+        capability: 'battle.level-root-alt',
+        version: 1,
+        prefab: 'levelRoot',
+      });
+    });
+    expectValidationIssue(projectRoot, "presentation request key 'levelRoot' is duplicated");
+    updateJson(projectRoot, 'assets/content-packs/Battle/Level001/content-pack.json', (descriptor) => {
+      descriptor.presentationRequests.splice(1, 1);
+    });
+    generate(projectRoot);
+    assertOkValidation(projectRoot);
 
     updateJson(projectRoot, '.yzforge/toolchain.example.json', (example) => {
       example.cocosVersion = '0.0.0';

@@ -197,6 +197,7 @@ function createContentPack(projectRoot, owner, name) {
     name,
     bundle: `yzforge-content-pack-${kebabCase(owner)}-${kebabCase(name)}`,
     libraries: [],
+    presentationRequests: [],
   });
   return { kind: 'content-pack', owner, name, changed };
 }

@@ -14,6 +14,17 @@
       "items": { "$ref": "#/$defs/pascalName" },
       "uniqueItems": true
     },
+    "contentPackPresentationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "capability", "version", "prefab"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
+        "capability": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$" },
+        "version": { "type": "integer", "minimum": 1 },
+        "prefab": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" }
+      }
+    },
     "module": {
       "type": "object",
       "additionalProperties": false,
@@ -57,7 +68,11 @@
         "owner": { "$ref": "#/$defs/pascalName" },
         "name": { "$ref": "#/$defs/pascalName" },
         "bundle": { "type": "string", "pattern": "^yzforge-content-pack-[a-z0-9-]+$" },
-        "libraries": { "$ref": "#/$defs/libraries" }
+        "libraries": { "$ref": "#/$defs/libraries" },
+        "presentationRequests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/contentPackPresentationRequest" }
+        }
       }
     }
   }
