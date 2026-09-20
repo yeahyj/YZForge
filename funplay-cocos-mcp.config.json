@@ -1,0 +1,27 @@
+{
+  "host": "127.0.0.1",
+  "port": 23103,
+  "portMode": "project",
+  "clientConfigEntries": {
+    "codex": {
+      "serverName": "cocos-yzforge-1936f9",
+      "url": "http://127.0.0.1:23103/",
+      "configPath": "C:\\Users\\ASUS\\.codex\\config.toml",
+      "projectIdentity": "1936f90fa88a9a7b58478adf"
+    }
+  },
+  "toolProfile": "full",
+  "enabledTools": [],
+  "disabledTools": [],
+  "enabledToolCategories": [],
+  "disabledToolCategories": [],
+  "enableSessions": false,
+  "enableConsoleLogging": true,
+  "executeJavascriptSafetyChecks": true,
+  "autostart": true,
+  "maxInteractionLogEntries": 50,
+  "lastClientTargetId": "codex",
+  "activeToolProfileName": "",
+  "savedToolProfiles": [],
+  "language": "auto"
+}
