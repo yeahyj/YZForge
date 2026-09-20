@@ -1,0 +1,89 @@
+{
+  "cSpell.words": ["ccclass", "YZForge"],
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+  "editor.detectIndentation": false,
+  "editor.insertSpaces": true,
+  "editor.tabSize": 4,
+  "editor.rulers": [120],
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.organizeImports": "never"
+  },
+  "editor.guides.bracketPairs": true,
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "files.trimTrailingWhitespace": true,
+  "files.autoSave": "off",
+  "files.exclude": {
+    "**/*.meta": true,
+    "**/.DS_Store": true,
+    "library": true,
+    "temp": true,
+    ".yzforge": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/*.meta": true,
+    "library": true,
+    "temp": true,
+    "local": true,
+    "build": true,
+    "profiles": true,
+    ".yzforge": true
+  },
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/library/**": true,
+    "**/temp/**": true,
+    "**/build/**": true,
+    "**/.yzforge/**": true
+  },
+  "files.readonlyInclude": {
+    "**/*.meta": true,
+    "**/*.scene": true,
+    "**/*.prefab": true,
+    "assets/**/generated/**": true,
+    "assets/**/yz-index.json": true,
+    "assets/game/modules/**/res/config/**": true,
+    "assets/game/modules/**/bundles/*/config/**": true
+  },
+  "eslint.enable": true,
+  "eslint.useFlatConfig": true,
+  "eslint.format.enable": false,
+  "eslint.validate": ["javascript", "typescript"],
+  "eslint.workingDirectories": ["."],
+  "eslint.run": "onType",
+  "prettier.requireConfig": true,
+  "prettier.resolveGlobalModules": false,
+  "js/ts.tsdk.path": "node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+  "js/ts.preferences.importModuleSpecifier": "relative",
+  "js/ts.preferences.preferTypeOnlyAutoImports": true,
+  "js/ts.preferences.quoteStyle": "single",
+  "js/ts.updateImportsOnFileMove.enabled": "prompt",
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 4
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 4
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2,
+    "files.trimTrailingWhitespace": false
+  }
+}

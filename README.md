@@ -6,7 +6,7 @@
 
 ## 开始使用
 
-1. 用 Creator **3.8.8** 打开本目录；安装 **Node.js ≥ 22.7**，执行 `npm ci`。
+1. 用 Creator **3.8.8** 打开本目录；安装 **Node.js 22.13+（22.x）或 24+**，执行 `npm ci`。
 2. 在扩展管理器中启用项目扩展 `yzforge-editor`，打开菜单 **YZForge → 项目工作台**。
 3. 打开 `assets/game/boot/Bootstrap.scene`，运行预览。当前示例演示 UI、配置、动态图片、音频和日历查询。
 4. 在工作台的“项目设置”中配置稳定的应用标识、音频分组、日历和绑定规则。应用标识决定本地存档前缀，正式使用后保持稳定。
@@ -16,14 +16,14 @@
 
 ## 工作台
 
-| 页面 | 可用操作 |
-| --- | --- |
-| 模块与资源包 | 创建普通模块或纯代码模块、添加资源包、声明依赖、创建节点组件与普通服务 |
-| 界面与绑定 | 在指定资源包创建 UI 预制体及配套脚本、按节点命名生成 Binding 并写入引用 |
-| 动态资源清单 | 用 UUID 登记类型和逻辑名、保留 UUID 移动文件 |
-| 配置表 | 创建 CSV 模板、登记 XLSX/CSV、预览校验结果、导出、移除导入项 |
-| 项目设置 | 应用标识、清理超时、音频分组、日历规则、绑定前缀及平台计时单位 |
-| 删除与恢复 | 预览模块/UI/资源包/脚本的文件与引用，移入回收区，按记录 ID 恢复 |
+| 页面         | 可用操作                                                                |
+| ------------ | ----------------------------------------------------------------------- |
+| 模块与资源包 | 创建普通模块或纯代码模块、添加资源包、声明依赖、创建节点组件与普通服务  |
+| 界面与绑定   | 在指定资源包创建 UI 预制体及配套脚本、按节点命名生成 Binding 并写入引用 |
+| 动态资源清单 | 用 UUID 登记类型和逻辑名、保留 UUID 移动文件                            |
+| 配置表       | 创建 CSV 模板、登记 XLSX/CSV、预览校验结果、导出、移除导入项            |
+| 项目设置     | 应用标识、清理超时、音频分组、日历规则、绑定前缀及平台计时单位          |
+| 删除与恢复   | 预览模块/UI/资源包/脚本的文件与引用，移入回收区，按记录 ID 恢复         |
 
 创建、删除、调整声明后，点击“生成资源目录与配置”，再“检查项目”。源配置在 `config-source`；生成的 JSON 进入声明的 Bundle，TS 类型和引用进入模块的 `generated`。不编辑生成文件。移除导入项后，有旧生成文件需要回收时使用工作台生成；CLI 会要求先在编辑器检查引用。
 
@@ -35,11 +35,11 @@
 
 业务继承 `ExampleViewBinding`，Binding 继承 `UIView<ExampleViewParams, ExampleViewResult>`。参数和结果由业务自行定义，初始模板使用 void。
 
-| 对象 | 业务钩子 |
-| --- | --- |
-| `UIView` | `onCreate`、`onShow`、`onHide`、`onDispose`、`onTick`、`onLateTick` |
+| 对象            | 业务钩子                                                                               |
+| --------------- | -------------------------------------------------------------------------------------- |
+| `UIView`        | `onCreate`、`onShow`、`onHide`、`onDispose`、`onTick`、`onLateTick`                    |
 | `GameComponent` | `onInit`、`onActivate`、`onReady`、`onTick`、`onLateTick`、`onDeactivate`、`onDispose` |
-| `AppEntry` | `appOptions`、`onBoot`、`onBootFailed` |
+| `AppEntry`      | `appOptions`、`onBoot`、`onBootFailed`                                                 |
 
 业务不覆盖引擎的 onLoad/start/onEnable/update 等入口，不依赖调用 super 来补救顺序。组件钩子同步执行，异步工作用 `activation.run`；UI 的 onCreate/onShow/onHide 可以异步。使用捕获的 `show` 或 `activation`，提交异步结果前调用其 `commit`。不要在正在关闭的界面回调里等待自己的 `handle.close()`；按钮结束界面调用 `show.finish(result)`。页面返回按钮使用 `void ctx.ui.back()`。
 
@@ -121,7 +121,16 @@ show.time.at(deadlineMs, onDeadline);
 
 ## 检查与验证
 
+项目已配置 ESLint、Prettier 和 VS Code 工作区设置。脚本使用 **4 个空格**；JSON/Markdown 使用 2 个空格。保存时格式化并执行 ESLint 修复；新建脚本与生成脚本也使用同一份 Prettier 规则。场景、预制体、meta 和生成数据由 Creator/生成器维护。
+
+在 VS Code 按 **Ctrl+Shift+B** 运行完整检查；**F5** 可输入 Creator 浏览器预览 URL，使用 Edge 调试。当前工作区使用 VS Code 的 `js/ts.*` 设置命名。安装、规则与操作说明见 [开发环境](docs/development.md)。
+
 ```text
+npm run verify
+npm run lint
+npm run lint:fix
+npm run format
+npm run format:check
 npm test
 npm run typecheck
 npm run check

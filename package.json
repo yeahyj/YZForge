@@ -1,18 +1,35 @@
 {
   "name": "YZForge",
   "private": true,
-  "engines": { "node": ">=22.7" },
-  "overrides": { "exceljs": { "uuid": "11.1.1" } },
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  },
   "scripts": {
     "test": "node --import ./tools/yzforge/register-tests.mjs --test tests/*.test.ts tests/*.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check": "node tools/yzforge/cli.mjs check",
     "generate": "node tools/yzforge/cli.mjs generate",
-    "mcp": "node tools/yzforge/mcp.mjs"
+    "mcp": "node tools/yzforge/mcp.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix --max-warnings 0",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "verify": "npm run lint && npm run format:check && npm run typecheck && npm run check && npm test"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.11.0",
+    "eslint-config-prettier": "10.1.8",
     "exceljs": "4.4.0",
-    "typescript": "5.9.3"
+    "globals": "17.12.0",
+    "prettier": "3.9.8",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0"
   },
   "uuid": "8d4277cb-7e51-4d7d-8d27-7b105a6f82c9",
   "creator": {

@@ -64,65 +64,215 @@ exports.style = `
 exports.$ = { workbench: '#workbench' };
 exports.methods = {};
 exports.ready = function () {
-  const find = id => this.$.workbench.querySelector('#' + id);
-  const value = id => find(id).value.trim();
-  let state, preview;
-  const show = result => { find('output').textContent = typeof result === 'string' ? result : JSON.stringify(result, null, 2); };
-  const selectModule = () => {
-    const module = state?.modules.find(item => item.id === value('moduleSelect'));
-    find('moduleDisplayName').value = module?.displayName || '';
-    find('dependencies').value = module?.dependencies.join(', ') || '';
-  };
-  const refresh = async () => {
-    state = await Editor.Message.request('yzforge-editor', 'state');
-    find('project').textContent = state.project;
-    find('summary').textContent = `${state.modules.length} 个模块 · ${state.modules.reduce((sum, m) => sum + Object.keys(m.views || {}).length, 0)} 个界面 · ${state.tables.tables.length} 张表`;
-    for (const id of ['moduleSelect','viewModule','assetModule','tableModule','deleteModuleSelect']) {
-      const selected = value(id), select = find(id); select.textContent = '';
-      for (const module of state.modules) { const option = document.createElement('option'); option.value = module.id; option.textContent = `${module.displayName} (${module.id})`; select.appendChild(option); }
-      if (state.modules.some(m => m.id === selected)) select.value = selected;
-    }
-    selectModule();
-    find('moduleList').textContent = state.modules.map(m => `${m.id}  ${m.displayName}\n  依赖：${m.dependencies.join(', ') || '无'}\n  包：${Object.entries(m.bundles).map(([group,b]) => group + ' → ' + b.id).join(' / ')}`).join('\n\n') || '创建第一个模块后开始开发。';
-    find('viewList').textContent = state.modules.flatMap(m => Object.entries(m.views || {}).map(([id,v]) => `${m.id}.${id}  [${v.kind}]\n  ${v.prefab}`)).join('\n');
-    find('assetList').textContent = state.modules.flatMap(m => Object.entries(m.assets || {}).map(([id,a]) => `${id}\n  ${a.type} · ${a.uuid}`)).join('\n');
-    find('tableList').textContent = JSON.stringify(state.tables.tables, null, 2);
-    find('appId').value = state.settings.appId;
-    find('cleanupTimeout').value = state.settings.cleanupTimeoutMs; find('maxVoices').value = state.settings.maxAudioVoices;
-    find('wechatClockUnit').value = state.settings.wechatPerformanceUnit || 'microseconds';
-    for (const [id,key] of [['audioChannels','audioChannels'],['calendarRules','calendar'],['bindingPrefixes','bindingPrefixes']]) find(id).value = JSON.stringify(state.settings[key] || {}, null, 2);
-  };
-  const run = async (action, args = {}) => {
-    find('status').textContent = '正在执行…';
-    this.$.workbench.querySelectorAll('button').forEach(button => { button.disabled = true; });
-    try { const result = await Editor.Message.request('yzforge-editor', 'dispatch', action, args); show(result); await refresh(); find('status').textContent = '已完成'; return result; }
-    catch (error) { show(error.message); find('status').textContent = '操作未完成，请查看定位信息'; throw error; }
-    finally { this.$.workbench.querySelectorAll('button').forEach(button => { button.disabled = false; }); find('deleteModule').disabled = !preview || preview.references.length > 0; }
-  };
-  const bind = (id, fn) => find(id).addEventListener('click', () => { Promise.resolve().then(fn).catch(error => { show(error.message); }); });
-  this.$.workbench.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => {
-    this.$.workbench.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('selected', b === button));
-    this.$.workbench.querySelectorAll('[data-page]').forEach(page => { page.hidden = page.dataset.page !== button.dataset.tab; });
-  }));
-  bind('refresh', refresh); bind('check', () => run('check')); bind('generate', () => run('generate'));
-  bind('createModule', () => run('createModule', { id: value('moduleId'), displayName: value('moduleName'), codeOnly: value('moduleTemplate') === 'code' }));
-  bind('createBundle', () => run('createBundle', { module: value('moduleSelect'), id: value('bundleId') }));
-  bind('createScript', () => run('createScript', { module: value('moduleSelect'), id: value('scriptId'), kind: value('scriptKind') }));
-  find('moduleSelect').addEventListener('change', selectModule);
-  bind('updateModule', () => run('updateModule', { module: value('moduleSelect'), displayName: value('moduleDisplayName') || undefined, dependencies: value('dependencies').split(',').map(v => v.trim()).filter(Boolean) }));
-  bind('createView', () => run('createView', { module: value('viewModule'), id: value('viewId'), kind: value('viewKind'), bundle: value('viewBundle') }));
-  bind('bindView', () => run('bindView', { module: value('viewModule'), id: value('viewId') }));
-  bind('useSelection', () => { const selection = Editor.Selection.getSelected('asset'); if (selection.length !== 1) throw Error('请在资源管理器选中一个资源或子资源'); find('assetUuid').value = selection[0]; });
-  bind('registerAsset', () => run('registerAsset', { module: value('assetModule'), id: value('assetId'), uuid: value('assetUuid'), type: value('assetType'), atlasFrame: value('atlasFrame') }));
-  bind('moveAsset', () => run('moveAsset', { uuid: value('assetUuid'), target: value('assetTarget') }));
-  bind('createTable', () => run('createTableTemplate', { module: value('tableModule'), id: value('tableId'), bundle: value('tableBundle') }));
-  bind('saveTable', () => run('tableMapping', { mapping: { ...JSON.parse(value('tableAdvanced')), id: `${value('tableModule')}.${value('tableId')}`, source: value('tableSource'), ...(value('tableSheet') ? { sheet: value('tableSheet') } : {}), bundle: value('tableBundle'), primaryKey: value('tablePk') } }));
-  bind('previewTables', () => run('previewTables')); bind('importTables', () => run('generate')); bind('removeTable', () => run('removeTable', { id: `${value('tableModule')}.${value('tableId')}` }));
-  bind('saveSettings', () => run('updateSettings', { appId: value('appId'), cleanupTimeoutMs: Number(value('cleanupTimeout')), maxAudioVoices: Number(value('maxVoices')), audioChannels: JSON.parse(value('audioChannels')), calendar: JSON.parse(value('calendarRules')), bindingPrefixes: JSON.parse(value('bindingPrefixes')), wechatPerformanceUnit: value('wechatClockUnit') }));
-  for (const id of ['deleteModuleSelect','deleteKind','deleteItem']) find(id).addEventListener('change', () => { preview = undefined; find('deleteModule').disabled = true; });
-  bind('previewDelete', async () => { preview = await run('previewDelete', { module: value('deleteModuleSelect'), kind: value('deleteKind'), id: value('deleteItem'), path: value('deleteItem') }); find('deletePreview').textContent = JSON.stringify(preview, null, 2); find('deleteModule').disabled = preview.references.length > 0; });
-  bind('deleteModule', async () => { if (!preview) throw Error('请先预览'); const result = await run('deleteModule', { module: preview.module, kind: preview.kind, id: preview.id, path: preview.path, signature: preview.signature }); find('restoreId').value = result.restoreId; preview = undefined; find('deleteModule').disabled = true; });
-  bind('restore', () => run('restore', { id: value('restoreId') }));
-  refresh().catch(error => show(error.message));
+    const find = (id) => this.$.workbench.querySelector('#' + id);
+    const value = (id) => find(id).value.trim();
+    let state, preview;
+    const show = (result) => {
+        find('output').textContent = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+    };
+    const selectModule = () => {
+        const module = state?.modules.find((item) => item.id === value('moduleSelect'));
+        find('moduleDisplayName').value = module?.displayName || '';
+        find('dependencies').value = module?.dependencies.join(', ') || '';
+    };
+    const refresh = async () => {
+        state = await Editor.Message.request('yzforge-editor', 'state');
+        find('project').textContent = state.project;
+        find('summary').textContent =
+            `${state.modules.length} 个模块 · ${state.modules.reduce((sum, m) => sum + Object.keys(m.views || {}).length, 0)} 个界面 · ${state.tables.tables.length} 张表`;
+        for (const id of ['moduleSelect', 'viewModule', 'assetModule', 'tableModule', 'deleteModuleSelect']) {
+            const selected = value(id),
+                select = find(id);
+            select.textContent = '';
+            for (const module of state.modules) {
+                const option = document.createElement('option');
+                option.value = module.id;
+                option.textContent = `${module.displayName} (${module.id})`;
+                select.appendChild(option);
+            }
+            if (state.modules.some((m) => m.id === selected)) select.value = selected;
+        }
+        selectModule();
+        find('moduleList').textContent =
+            state.modules
+                .map(
+                    (m) =>
+                        `${m.id}  ${m.displayName}\n  依赖：${m.dependencies.join(', ') || '无'}\n  包：${Object.entries(
+                            m.bundles,
+                        )
+                            .map(([group, b]) => group + ' → ' + b.id)
+                            .join(' / ')}`,
+                )
+                .join('\n\n') || '创建第一个模块后开始开发。';
+        find('viewList').textContent = state.modules
+            .flatMap((m) => Object.entries(m.views || {}).map(([id, v]) => `${m.id}.${id}  [${v.kind}]\n  ${v.prefab}`))
+            .join('\n');
+        find('assetList').textContent = state.modules
+            .flatMap((m) => Object.entries(m.assets || {}).map(([id, a]) => `${id}\n  ${a.type} · ${a.uuid}`))
+            .join('\n');
+        find('tableList').textContent = JSON.stringify(state.tables.tables, null, 2);
+        find('appId').value = state.settings.appId;
+        find('cleanupTimeout').value = state.settings.cleanupTimeoutMs;
+        find('maxVoices').value = state.settings.maxAudioVoices;
+        find('wechatClockUnit').value = state.settings.wechatPerformanceUnit || 'microseconds';
+        for (const [id, key] of [
+            ['audioChannels', 'audioChannels'],
+            ['calendarRules', 'calendar'],
+            ['bindingPrefixes', 'bindingPrefixes'],
+        ])
+            find(id).value = JSON.stringify(state.settings[key] || {}, null, 2);
+    };
+    const run = async (action, args = {}) => {
+        find('status').textContent = '正在执行…';
+        this.$.workbench.querySelectorAll('button').forEach((button) => {
+            button.disabled = true;
+        });
+        try {
+            const result = await Editor.Message.request('yzforge-editor', 'dispatch', action, args);
+            show(result);
+            await refresh();
+            find('status').textContent = '已完成';
+            return result;
+        } catch (error) {
+            show(error.message);
+            find('status').textContent = '操作未完成，请查看定位信息';
+            throw error;
+        } finally {
+            this.$.workbench.querySelectorAll('button').forEach((button) => {
+                button.disabled = false;
+            });
+            find('deleteModule').disabled = !preview || preview.references.length > 0;
+        }
+    };
+    const bind = (id, fn) =>
+        find(id).addEventListener('click', () => {
+            Promise.resolve()
+                .then(fn)
+                .catch((error) => {
+                    show(error.message);
+                });
+        });
+    this.$.workbench.querySelectorAll('[data-tab]').forEach((button) =>
+        button.addEventListener('click', () => {
+            this.$.workbench
+                .querySelectorAll('[data-tab]')
+                .forEach((b) => b.classList.toggle('selected', b === button));
+            this.$.workbench.querySelectorAll('[data-page]').forEach((page) => {
+                page.hidden = page.dataset.page !== button.dataset.tab;
+            });
+        }),
+    );
+    bind('refresh', refresh);
+    bind('check', () => run('check'));
+    bind('generate', () => run('generate'));
+    bind('createModule', () =>
+        run('createModule', {
+            id: value('moduleId'),
+            displayName: value('moduleName'),
+            codeOnly: value('moduleTemplate') === 'code',
+        }),
+    );
+    bind('createBundle', () => run('createBundle', { module: value('moduleSelect'), id: value('bundleId') }));
+    bind('createScript', () =>
+        run('createScript', { module: value('moduleSelect'), id: value('scriptId'), kind: value('scriptKind') }),
+    );
+    find('moduleSelect').addEventListener('change', selectModule);
+    bind('updateModule', () =>
+        run('updateModule', {
+            module: value('moduleSelect'),
+            displayName: value('moduleDisplayName') || undefined,
+            dependencies: value('dependencies')
+                .split(',')
+                .map((v) => v.trim())
+                .filter(Boolean),
+        }),
+    );
+    bind('createView', () =>
+        run('createView', {
+            module: value('viewModule'),
+            id: value('viewId'),
+            kind: value('viewKind'),
+            bundle: value('viewBundle'),
+        }),
+    );
+    bind('bindView', () => run('bindView', { module: value('viewModule'), id: value('viewId') }));
+    bind('useSelection', () => {
+        const selection = Editor.Selection.getSelected('asset');
+        if (selection.length !== 1) throw Error('请在资源管理器选中一个资源或子资源');
+        find('assetUuid').value = selection[0];
+    });
+    bind('registerAsset', () =>
+        run('registerAsset', {
+            module: value('assetModule'),
+            id: value('assetId'),
+            uuid: value('assetUuid'),
+            type: value('assetType'),
+            atlasFrame: value('atlasFrame'),
+        }),
+    );
+    bind('moveAsset', () => run('moveAsset', { uuid: value('assetUuid'), target: value('assetTarget') }));
+    bind('createTable', () =>
+        run('createTableTemplate', {
+            module: value('tableModule'),
+            id: value('tableId'),
+            bundle: value('tableBundle'),
+        }),
+    );
+    bind('saveTable', () =>
+        run('tableMapping', {
+            mapping: {
+                ...JSON.parse(value('tableAdvanced')),
+                id: `${value('tableModule')}.${value('tableId')}`,
+                source: value('tableSource'),
+                ...(value('tableSheet') ? { sheet: value('tableSheet') } : {}),
+                bundle: value('tableBundle'),
+                primaryKey: value('tablePk'),
+            },
+        }),
+    );
+    bind('previewTables', () => run('previewTables'));
+    bind('importTables', () => run('generate'));
+    bind('removeTable', () => run('removeTable', { id: `${value('tableModule')}.${value('tableId')}` }));
+    bind('saveSettings', () =>
+        run('updateSettings', {
+            appId: value('appId'),
+            cleanupTimeoutMs: Number(value('cleanupTimeout')),
+            maxAudioVoices: Number(value('maxVoices')),
+            audioChannels: JSON.parse(value('audioChannels')),
+            calendar: JSON.parse(value('calendarRules')),
+            bindingPrefixes: JSON.parse(value('bindingPrefixes')),
+            wechatPerformanceUnit: value('wechatClockUnit'),
+        }),
+    );
+    for (const id of ['deleteModuleSelect', 'deleteKind', 'deleteItem'])
+        find(id).addEventListener('change', () => {
+            preview = undefined;
+            find('deleteModule').disabled = true;
+        });
+    bind('previewDelete', async () => {
+        preview = await run('previewDelete', {
+            module: value('deleteModuleSelect'),
+            kind: value('deleteKind'),
+            id: value('deleteItem'),
+            path: value('deleteItem'),
+        });
+        find('deletePreview').textContent = JSON.stringify(preview, null, 2);
+        find('deleteModule').disabled = preview.references.length > 0;
+    });
+    bind('deleteModule', async () => {
+        if (!preview) throw Error('请先预览');
+        const result = await run('deleteModule', {
+            module: preview.module,
+            kind: preview.kind,
+            id: preview.id,
+            path: preview.path,
+            signature: preview.signature,
+        });
+        find('restoreId').value = result.restoreId;
+        preview = undefined;
+        find('deleteModule').disabled = true;
+    });
+    bind('restore', () => run('restore', { id: value('restoreId') }));
+    refresh().catch((error) => show(error.message));
 };
 exports.close = function () {};

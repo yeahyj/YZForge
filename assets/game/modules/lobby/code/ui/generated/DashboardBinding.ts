@@ -5,32 +5,60 @@ import type { DashboardParams, DashboardResult } from '../Dashboard.types';
 const { ccclass, property } = _decorator;
 @ccclass('lobby.DashboardBinding')
 export class DashboardBinding extends UIView<DashboardParams, DashboardResult> {
-  @property({ type: Label, visible: false })
-  private _bindLblTime: Label | null = null;
-  protected get lblTime(): Label { return this.requireBinding(this._bindLblTime, "lbl_time"); }
-  @property({ type: Label, visible: false })
-  private _bindLblPeriod: Label | null = null;
-  protected get lblPeriod(): Label { return this.requireBinding(this._bindLblPeriod, "lbl_period"); }
-  @property({ type: Label, visible: false })
-  private _bindLblItems: Label | null = null;
-  protected get lblItems(): Label { return this.requireBinding(this._bindLblItems, "lbl_items"); }
-  @property({ type: Sprite, visible: false })
-  private _bindSprIcon: Sprite | null = null;
-  protected get sprIcon(): Sprite { return this.requireBinding(this._bindSprIcon, "spr_icon"); }
-  @property({ type: Button, visible: false })
-  private _bindBtnReward: Button | null = null;
-  protected get btnReward(): Button { return this.requireBinding(this._bindBtnReward, "btn_reward"); }
-  @property({ type: Button, visible: false })
-  private _bindBtnAudio: Button | null = null;
-  protected get btnAudio(): Button { return this.requireBinding(this._bindBtnAudio, "btn_audio"); }
-  @property({ type: Button, visible: false })
-  private _bindBtnReload: Button | null = null;
-  protected get btnReload(): Button { return this.requireBinding(this._bindBtnReload, "btn_reload"); }
-  @property({ type: Label, visible: false })
-  private _bindLblResult: Label | null = null;
-  protected get lblResult(): Label { return this.requireBinding(this._bindLblResult, "lbl_result"); }
-  @property({ type: Label, visible: false })
-  private _bindLblStatus: Label | null = null;
-  protected get lblStatus(): Label { return this.requireBinding(this._bindLblStatus, "lbl_status"); }
-  protected validateBindings(): void { void this.lblTime; void this.lblPeriod; void this.lblItems; void this.sprIcon; void this.btnReward; void this.btnAudio; void this.btnReload; void this.lblResult; void this.lblStatus; }
+    @property({ type: Label, visible: false })
+    private _bindLblTime: Label | null = null;
+    protected get lblTime(): Label {
+        return this.requireBinding(this._bindLblTime, 'lbl_time');
+    }
+    @property({ type: Label, visible: false })
+    private _bindLblPeriod: Label | null = null;
+    protected get lblPeriod(): Label {
+        return this.requireBinding(this._bindLblPeriod, 'lbl_period');
+    }
+    @property({ type: Label, visible: false })
+    private _bindLblItems: Label | null = null;
+    protected get lblItems(): Label {
+        return this.requireBinding(this._bindLblItems, 'lbl_items');
+    }
+    @property({ type: Sprite, visible: false })
+    private _bindSprIcon: Sprite | null = null;
+    protected get sprIcon(): Sprite {
+        return this.requireBinding(this._bindSprIcon, 'spr_icon');
+    }
+    @property({ type: Button, visible: false })
+    private _bindBtnReward: Button | null = null;
+    protected get btnReward(): Button {
+        return this.requireBinding(this._bindBtnReward, 'btn_reward');
+    }
+    @property({ type: Button, visible: false })
+    private _bindBtnAudio: Button | null = null;
+    protected get btnAudio(): Button {
+        return this.requireBinding(this._bindBtnAudio, 'btn_audio');
+    }
+    @property({ type: Button, visible: false })
+    private _bindBtnReload: Button | null = null;
+    protected get btnReload(): Button {
+        return this.requireBinding(this._bindBtnReload, 'btn_reload');
+    }
+    @property({ type: Label, visible: false })
+    private _bindLblResult: Label | null = null;
+    protected get lblResult(): Label {
+        return this.requireBinding(this._bindLblResult, 'lbl_result');
+    }
+    @property({ type: Label, visible: false })
+    private _bindLblStatus: Label | null = null;
+    protected get lblStatus(): Label {
+        return this.requireBinding(this._bindLblStatus, 'lbl_status');
+    }
+    protected validateBindings(): void {
+        void this.lblTime;
+        void this.lblPeriod;
+        void this.lblItems;
+        void this.sprIcon;
+        void this.btnReward;
+        void this.btnAudio;
+        void this.btnReload;
+        void this.lblResult;
+        void this.lblStatus;
+    }
 }

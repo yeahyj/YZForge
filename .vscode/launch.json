@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "YZForge: 调试 Creator 浏览器预览",
+      "type": "msedge",
+      "request": "launch",
+      "url": "${input:creatorPreviewUrl}",
+      "webRoot": "${workspaceFolder}",
+      "sourceMaps": true,
+      "skipFiles": ["**/node_modules/**"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "creatorPreviewUrl",
+      "type": "promptString",
+      "description": "先在 Creator 启动浏览器预览，再粘贴完整预览 URL",
+      "default": "http://localhost:7456/"
+    }
+  ]
+}

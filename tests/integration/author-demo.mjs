@@ -2,12 +2,23 @@ import { call } from '../../tools/yzforge/mcp.mjs';
 
 // Run only against the initial empty example prefabs. All serialized writes go through MCP/Creator.
 const definitions = [
-  { target: 'db://assets/game/modules/lobby/res/ui/Dashboard.prefab', uuid: '91b45fca-617b-4fa0-82bb-e5f2871b57fa', kind: 'dashboard' },
-  { target: 'db://assets/game/modules/lobby/res/ui/RewardPopup.prefab', uuid: '0505cd73-cb77-404c-a4ec-b2f75ec5a5a2', kind: 'reward' },
+    {
+        target: 'db://assets/game/modules/lobby/res/ui/Dashboard.prefab',
+        uuid: '91b45fca-617b-4fa0-82bb-e5f2871b57fa',
+        kind: 'dashboard',
+    },
+    {
+        target: 'db://assets/game/modules/lobby/res/ui/RewardPopup.prefab',
+        uuid: '0505cd73-cb77-404c-a4ec-b2f75ec5a5a2',
+        kind: 'reward',
+    },
 ];
 for (const definition of definitions) {
-  await call('inspect_prefab', { target: definition.target });
-  const result = await call('execute_javascript', { context: 'scene', args: definition, code: `
+    await call('inspect_prefab', { target: definition.target });
+    const result = await call('execute_javascript', {
+        context: 'scene',
+        args: definition,
+        code: `
 return await (async () => {
   const prefab = await new Promise((yes,no)=>cc.assetManager.loadAny(args.uuid,(error,value)=>error?no(error):yes(value)));
   if (!(prefab instanceof cc.Prefab) || !prefab.data) throw Error('Expected the verified example prefab');
@@ -70,10 +81,19 @@ return await (async () => {
   const visit=n=>{if(!n._prefab){n._prefab=new PrefabInfo();n._prefab.fileId=id();n._prefab.root=root;n._prefab.asset=prefab;}
     for(const c of n.components) if(!c.__prefab){c.__prefab=new CompPrefabInfo();c.__prefab.fileId=id();}for(const child of n.children)visit(child);};visit(root);
   const content=cce.Utils.serialize(prefab);return {content:typeof content==='string'?content:JSON.stringify(content),nodes:serial};
-})();` });
-  const authored = result.data.result;
-  const saved = await call('execute_javascript', { context: 'editor', args: { uuid: definition.uuid, content: authored.content }, code: 'return await Editor.Message.request("asset-db", "save-asset", args.uuid, args.content);' });
-  console.log(JSON.stringify({ prefab: definition.kind, nodes: authored.nodes, saved: saved.ok }));
-  const bound = await call('execute_javascript', { context: 'editor', args: { id: definition.kind === 'dashboard' ? 'dashboard' : 'reward-popup' }, code: 'return await Editor.Message.request("yzforge-editor", "dispatch", "bindView", {module:"lobby",id:args.id});' });
-  console.log(JSON.stringify({ bindings: bound.data }));
+})();`,
+    });
+    const authored = result.data.result;
+    const saved = await call('execute_javascript', {
+        context: 'editor',
+        args: { uuid: definition.uuid, content: authored.content },
+        code: 'return await Editor.Message.request("asset-db", "save-asset", args.uuid, args.content);',
+    });
+    console.log(JSON.stringify({ prefab: definition.kind, nodes: authored.nodes, saved: saved.ok }));
+    const bound = await call('execute_javascript', {
+        context: 'editor',
+        args: { id: definition.kind === 'dashboard' ? 'dashboard' : 'reward-popup' },
+        code: 'return await Editor.Message.request("yzforge-editor", "dispatch", "bindView", {module:"lobby",id:args.id});',
+    });
+    console.log(JSON.stringify({ bindings: bound.data }));
 }

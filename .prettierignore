@@ -1,0 +1,30 @@
+# Cocos owns serialized assets and editor state.
+**/*.meta
+**/*.prefab
+**/*.scene
+.creator/
+settings/
+profiles/
+funplay-cocos-mcp.config.json
+
+# These files are written by the framework generators.
+**/generated/**
+assets/game/modules/**/res/config/**
+assets/game/modules/**/bundles/*/config/**
+assets/**/yz-index.json
+assets/game/modules/**/module.json
+config-source/tables.json
+project-settings/framework.json
+
+# Dependencies, outputs, local histories and external tool instructions.
+node_modules/
+library/
+temp/
+local/
+build/
+native/
+coverage/
+.yzforge/
+.agents/
+.codex/
+package-lock.json

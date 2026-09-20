@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { call } from '../../tools/yzforge/mcp.mjs';
-const url=new URL(process.argv[2]);assert.equal(url.hostname,'127.0.0.1');
-const requestOffset=(await(await fetch(new URL('/__requests',url))).json()).length;
-const output=await call('execute_javascript',{context:'editor',args:{url:url.href},code:`return await (async()=>{
+const url = new URL(process.argv[2]);
+assert.equal(url.hostname, '127.0.0.1');
+const requestOffset = (await (await fetch(new URL('/__requests', url))).json()).length;
+const output = await call('execute_javascript', {
+    context: 'editor',
+    args: { url: url.href },
+    code: `return await (async()=>{
   const BrowserWindow=require('electron').BrowserWindow;
   const window=new BrowserWindow({show:false,width:720,height:1280,webPreferences:{nodeIntegration:false,contextIsolation:true,backgroundThrottling:false,offscreen:true}});
   const errors=[];window.webContents.on('console-message',(_,level,message)=>{if(level>=3)errors.push(message);});
@@ -22,10 +26,24 @@ const output=await call('execute_javascript',{context:'editor',args:{url:url.hre
     require('fs').writeFileSync(screenshot,(await window.webContents.capturePage()).toPNG());
     return {state,result,errors,screenshot,initialRequests};
   }finally{window.destroy();}
-})();`});
-const value=output.data;assert.equal(value.state.sprite,true);assert.equal(value.state.bindings,9);assert.equal(value.result.status,'completed');assert.equal(value.result.value.amount,321);assert.deepEqual(value.errors,[]);
-const requests=(await(await fetch(new URL('/__requests',url))).json()).slice(requestOffset);
-value.initialRequests=value.initialRequests.slice(requestOffset);
-assert.ok(!value.initialRequests.some(item=>item.includes('0505cd73-cb77-404c-a4ec-b2f75ec5a5a2')||item.endsWith('.wav')),'Unrequested popup/audio were loaded at startup');
-assert.ok(requests.some(item=>item.includes('/assets/m-lobby/')),'Built module bundle was not requested');
-console.log(JSON.stringify({ok:true,...value,requests},null,2));
+})();`,
+});
+const value = output.data;
+assert.equal(value.state.sprite, true);
+assert.equal(value.state.bindings, 9);
+assert.equal(value.result.status, 'completed');
+assert.equal(value.result.value.amount, 321);
+assert.deepEqual(value.errors, []);
+const requests = (await (await fetch(new URL('/__requests', url))).json()).slice(requestOffset);
+value.initialRequests = value.initialRequests.slice(requestOffset);
+assert.ok(
+    !value.initialRequests.some(
+        (item) => item.includes('0505cd73-cb77-404c-a4ec-b2f75ec5a5a2') || item.endsWith('.wav'),
+    ),
+    'Unrequested popup/audio were loaded at startup',
+);
+assert.ok(
+    requests.some((item) => item.includes('/assets/m-lobby/')),
+    'Built module bundle was not requested',
+);
+console.log(JSON.stringify({ ok: true, ...value, requests }, null, 2));
