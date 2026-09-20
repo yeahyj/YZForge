@@ -53,6 +53,10 @@ ESLint、TypeScript ESLint、Prettier 及配套依赖使用精确版本和 packa
 
 旧的 typescript.tsdk、typescript.preferences.* 和 javascript.preferences.* 对应项已移除；替换关系也可查阅 [VS Code 官方设置声明](https://github.com/microsoft/vscode/blob/main/extensions/typescript-language-features/package.nls.json)。第一次打开项目时，按提示选择工作区 TypeScript 5.9.3。较旧的 VS Code 如不识别 js/ts 设置，应升级编辑器。
 
+项目根 `tsconfig.json` 显式设置 `moduleResolution: "bundler"`，覆盖 Creator 3.8.8 生成的旧 `"node"`（即 `node10`），消除 TypeScript 6 的弃用诊断。该解析模式支持项目现有的无扩展名相对导入，详见 [TypeScript 模块解析说明](https://www.typescriptlang.org/tsconfig/moduleResolution.html)。`module` 继续继承 Creator 的 `ES2015`；覆盖项维护在项目根配置中，`temp/tsconfig.cocos.json` 由 Creator 生成。已用本项目 TypeScript 5.9.3 和本机 VS Code 内置的 6.0.3 检查当前全部游戏与框架脚本。
+
+如果修改配置后仍显示旧诊断，执行命令面板中的“TypeScript: Restart TS Server”；需要切换编译器时，打开 TS 文件，执行“TypeScript: Select TypeScript Version”并选择工作区版本。
+
 工作区同时配置了：
 
 - 手动保存时格式化和 ESLint 修复；关闭自动保存以避免频繁触发 Creator 导入。
