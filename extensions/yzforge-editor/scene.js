@@ -1,0 +1,77 @@
+'use strict';
+const cc = require('cc');
+const { randomBytes } = require('crypto');
+const serialize = value => {
+  if (!global.cce?.Utils?.serialize) throw Error('Creator scene serializer is unavailable');
+  const data = cce.Utils.serialize(value); return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+};
+const load = uuid => new Promise((resolve, reject) => cc.assetManager.loadAny(uuid, (error, asset) => error ? reject(error) : resolve(asset)));
+function nodes(root) { const result = []; const visit = (node, path) => { result.push({ node, path }); for (const child of node.children) {
+  if (child._prefab?.root === child && child !== root) continue;
+  visit(child, path ? `${path}/${child.name}` : child.name);
+} }; visit(root, ''); return result; }
+function scan(root, prefixes) {
+  const fields = [], names = new Set();
+  for (const { node, path } of nodes(root)) {
+    const match = /^([a-z]+)_([a-zA-Z][a-zA-Z0-9_]*)$/.exec(node.name);
+    if (!match || !prefixes[match[1]]) continue;
+    const type = prefixes[match[1]], ctor = type === 'Node' ? cc.Node : cc[type];
+    if (!ctor) throw Error(`Unsupported binding component ${type}`);
+    const target = type === 'Node' ? node : node.getComponent(ctor);
+    if (!target) throw Error(`${path}: expected ${type} for ${node.name}`);
+    const suffix = match[2].split('_').map(part => part[0].toUpperCase() + part.slice(1)).join('');
+    const name = `${match[1]}${suffix}`, field = `_bind${name[0].toUpperCase()}${name.slice(1)}`;
+    if (names.has(name)) throw Error(`Duplicate binding name ${name}; rename one node`); names.add(name);
+    fields.push({ name, field, type, path, nodeName: node.name, target });
+  }
+  return fields;
+}
+function ensurePrefabIds(root, prefab) {
+  const { PrefabInfo, CompPrefabInfo } = cc.Prefab._utils;
+  if (!PrefabInfo || !CompPrefabInfo) throw Error('Creator prefab identity constructors unavailable');
+  for (const { node } of nodes(root)) {
+    if (!node._prefab) { node._prefab = new PrefabInfo(); node._prefab.fileId = randomBytes(16).toString('base64').replace(/=+$/, ''); }
+    node._prefab.root = root; node._prefab.asset = prefab;
+    for (const component of node.components) if (!component.__prefab) {
+      component.__prefab = new CompPrefabInfo(); component.__prefab.fileId = randomBytes(16).toString('base64').replace(/=+$/, '');
+    }
+  }
+}
+exports.load = function () {};
+exports.unload = function () {};
+exports.methods = {
+  classReady(name) { return !!cc.js.getClassByName(name); },
+  async scanPrefab(uuid, prefixes) {
+    const prefab = await load(uuid); if (!(prefab instanceof cc.Prefab) || !prefab.data) throw Error('Target is not a Prefab');
+    return scan(prefab.data, prefixes).map(({ target, ...field }) => field);
+  },
+  async bindPrefab(uuid, className, prefixes) {
+    const prefab = await load(uuid); if (!(prefab instanceof cc.Prefab) || !prefab.data) throw Error('Target is not a Prefab');
+    const ctor = cc.js.getClassByName(className); if (!ctor) throw Error(`Wait for script compilation: ${className}`);
+    const component = prefab.data.getComponent(ctor); if (!component) throw Error(`Prefab root is missing ${className}`);
+    const fields = scan(prefab.data, prefixes), serialized = new Set(ctor.__props__ || []);
+    for (const field of fields) if (!serialized.has(field.field)) throw Error(`Generated field is not compiled yet: ${field.field}`);
+    for (const name of serialized) if (name.startsWith('_bind')) component[name] = null;
+    for (const field of fields) component[field.field] = field.target;
+    for (const field of fields) if (component[field.field] !== field.target) throw Error(`Binding write failed: ${field.name}`);
+    return { content: serialize(prefab), fields: fields.map(({ target, ...field }) => field) };
+  },
+  createView(className, name, size) {
+    if (!size || !Number.isFinite(size.width) || !Number.isFinite(size.height) || size.width <= 0 || size.height <= 0) throw Error('View size must come from the project design resolution');
+    const ctor = cc.js.getClassByName(className); if (!ctor) throw Error(`Script not compiled: ${className}`);
+    const root = new cc.Node(name); root.layer = cc.Layers.Enum.UI_2D; root.active = false;
+    root.addComponent(cc.UITransform).setContentSize(size.width, size.height); root.addComponent(ctor);
+    const prefab = new cc.Prefab(); prefab.name = name; prefab.data = root; ensurePrefabIds(root, prefab);
+    root.active = true;
+    try { return serialize(prefab); } finally { root.destroy(); }
+  },
+  async validateBinding(uuid, className, prefixes) {
+    const prefab = await load(uuid), ctor = cc.js.getClassByName(className);
+    if (!ctor || !prefab?.data) throw Error('Prefab or compiled class unavailable');
+    const component = prefab.data.getComponent(ctor); if (!component) throw Error('View component missing');
+    const fields = scan(prefab.data, prefixes);
+    const missing = fields.filter(field => component[field.field] !== field.target).map(field => field.path);
+    if (missing.length) throw Error(`Stale bindings: ${missing.join(', ')}`);
+    return { className, bound: fields.length, fields: fields.map(field => field.name) };
+  },
+};

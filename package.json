@@ -1,5 +1,19 @@
 {
   "name": "YZForge",
+  "private": true,
+  "engines": { "node": ">=22.7" },
+  "overrides": { "exceljs": { "uuid": "11.1.1" } },
+  "scripts": {
+    "test": "node --import ./tools/yzforge/register-tests.mjs --test tests/*.test.ts tests/*.test.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check": "node tools/yzforge/cli.mjs check",
+    "generate": "node tools/yzforge/cli.mjs generate",
+    "mcp": "node tools/yzforge/mcp.mjs"
+  },
+  "devDependencies": {
+    "exceljs": "4.4.0",
+    "typescript": "5.9.3"
+  },
   "uuid": "8d4277cb-7e51-4d7d-8d27-7b105a6f82c9",
   "creator": {
     "version": "3.8.8"

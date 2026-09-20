@@ -1,0 +1,48 @@
+{
+  "id": "lobby",
+  "displayName": "示例大厅",
+  "dependencies": [],
+  "bundles": {
+    "default": {
+      "id": "m-lobby",
+      "root": "res"
+    }
+  },
+  "assets": {
+    "lobby/default/prefab/dashboard": {
+      "type": "Prefab",
+      "uuid": "91b45fca-617b-4fa0-82bb-e5f2871b57fa"
+    },
+    "lobby/default/prefab/reward-popup": {
+      "type": "Prefab",
+      "uuid": "0505cd73-cb77-404c-a4ec-b2f75ec5a5a2"
+    },
+    "lobby/default/sprite/status": {
+      "uuid": "3b9d34df-706e-4cc5-905b-3837ae1dd756@f9941",
+      "type": "SpriteFrame"
+    },
+    "lobby/default/audio/confirm": {
+      "uuid": "b58a9d5b-185b-4a73-bdb3-4f27aece7a8f",
+      "type": "AudioClip"
+    }
+  },
+  "views": {
+    "dashboard": {
+      "prefab": "lobby/default/prefab/dashboard",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "lobby.Dashboard",
+      "binding": "code/ui/generated/DashboardBinding.ts"
+    },
+    "reward-popup": {
+      "prefab": "lobby/default/prefab/reward-popup",
+      "kind": "popup",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "lobby.RewardPopup",
+      "binding": "code/ui/generated/RewardPopupBinding.ts"
+    }
+  },
+  "audio": {}
+}

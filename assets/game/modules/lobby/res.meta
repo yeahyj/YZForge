@@ -1,0 +1,13 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "9bacced1-1623-4b4e-95ab-0ed131b7e588",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "isBundle": true,
+    "bundleName": "m-lobby",
+    "priority": 1
+  }
+}

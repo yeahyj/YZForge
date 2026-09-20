@@ -4,6 +4,11 @@
 
   /* Add your custom configuration here. */
   "compilerOptions": {
-    "strict": false
-  }
+    "strict": true,
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "skipLibCheck": true
+  },
+  "include": ["assets/**/*.ts"],
+  "exclude": ["node_modules", "temp", "library", "build", "extensions", "tests"]
 }

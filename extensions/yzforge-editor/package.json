@@ -1,0 +1,16 @@
+{
+  "name": "yzforge-editor", "title": "YZForge 工作台", "version": "0.1.0", "package_version": 2,
+  "description": "模块、资源包、UI 自动绑定和配置表的统一工作台", "author": "YZForge",
+  "main": "main.js",
+  "panels": { "default": { "title": "YZForge 工作台", "type": "dockable", "main": "panel.js", "size": { "width": 880, "height": 740, "min-width": 620, "min-height": 480 } } },
+  "contributions": {
+    "menu": [{ "path": "YZForge", "label": "项目工作台", "message": "open-panel" }],
+    "messages": {
+      "open-panel": { "methods": ["openPanel"] },
+      "dispatch": { "methods": ["dispatch"] },
+      "state": { "methods": ["state"] }
+    },
+    "scene": { "script": "scene.js" },
+    "builder": "builder.js"
+  }
+}

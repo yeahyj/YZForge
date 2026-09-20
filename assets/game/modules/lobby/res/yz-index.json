@@ -1,0 +1,28 @@
+{
+  "formatVersion": 1,
+  "namespace": "lobby/default",
+  "assets": {
+    "lobby/default/prefab/dashboard": {
+      "bundle": "m-lobby",
+      "path": "ui/Dashboard",
+      "type": "Prefab",
+      "codeModule": "lobby"
+    },
+    "lobby/default/prefab/reward-popup": {
+      "bundle": "m-lobby",
+      "path": "ui/RewardPopup",
+      "type": "Prefab",
+      "codeModule": "lobby"
+    },
+    "lobby/default/sprite/status": {
+      "bundle": "m-lobby",
+      "path": "icons/status/spriteFrame",
+      "type": "SpriteFrame"
+    },
+    "lobby/default/audio/confirm": {
+      "bundle": "m-lobby",
+      "path": "audio/confirm",
+      "type": "AudioClip"
+    }
+  }
+}
