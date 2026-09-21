@@ -4,6 +4,12 @@ import ExcelJS from 'exceljs';
 import { digest, identifier, pascal, safePath } from './project.mjs';
 import { workbookSources, formulaResults } from './workbooks.mjs';
 
+// 表格说明写入 TSDoc 前按单行处理，避免说明中的注释结束符改变生成脚本。
+const commentText = (value) =>
+    String(value)
+        .replace(/\*\//g, '* /')
+        .replace(/[\r\n\u2028\u2029]+/g, ' ');
+
 /** RFC4180-style CSV parser: quoted commas/newlines and doubled quotes are preserved. */
 export function parseCSV(input) {
     const rows = [],
@@ -418,11 +424,14 @@ export async function compileTables(root, projectModules, runtime, registry, opt
                     .find((column) => column.name === field)
                     ?.comment.replace(/\*\//g, '* /')
                     .replace(/[\r\n]+/g, ' ');
-                return `${comment ? `  /** ${comment} */\n` : ''}  readonly ${field}: ${typeScript(schema)};`;
+                return `  /** ${commentText(comment || `${field} 字段`)}；${schema.nullable ? '允许 null' : '不可为空'}，加载后只读。 */\n  readonly ${field}: ${typeScript(schema)};`;
             })
             .join('\n');
         const indexes = Object.entries(definition.indexes)
-            .map(([id, index]) => `  readonly ${identifier(id)}: ${typeScript(definition.fields[index.field])};`)
+            .map(
+                ([id, index]) =>
+                    `  /** ${commentText(index.field)} 字段的${index.unique ? '唯一' : '分组'}索引；table.by('${identifier(id)}', value) 始终返回只读行数组。 */\n  readonly ${identifier(id)}: ${typeScript(definition.fields[index.field])};`,
+            )
             .join('\n');
         const usedEnums = new Set();
         const collectEnum = (schema) => {
@@ -447,9 +456,9 @@ export async function compileTables(root, projectModules, runtime, registry, opt
             );
         }
         output[`${generated}/${name}.types.ts`] =
-            `// Generated. Edit the source workbook.\nimport type { AssetKey } from '${framework}/assets/asset-types';\n${enumImports.join('\n')}\nexport type ${name}Id = ${typeScript(definition.fields[definition.primaryKey])};\nexport interface ${name}Row {\n${rowType}\n}\nexport interface ${name}Indexes {\n${indexes}\n}\n`;
+            `// 由 XLSX 自动生成，请修改源工作簿中的字段类型与说明。\nimport type { AssetKey } from '${framework}/assets/asset-types';\n${enumImports.join('\n')}\n/** ${mapping.id} 的主键类型，对应字段 ${definition.primaryKey}；查询时不隐式转换字符串和数字。 */\nexport type ${name}Id = ${typeScript(definition.fields[definition.primaryKey])};\n/** ${mapping.id} 的单行结构。config.load 后的数据递归只读，不用于保存可变玩家状态。 */\nexport interface ${name}Row {\n${rowType}\n}\n/** ${mapping.id} 声明的索引及查询值类型，供 ConfigTable.by 推导参数。 */\nexport interface ${name}Indexes {\n${indexes}\n}\n`;
         output[`${generated}/${name}.table.ts`] =
-            `// Generated contract; rows remain in resource bundles.\nimport { defineTable } from '${framework}/config/schema';\nimport type { ${name}Row, ${name}Id, ${name}Indexes } from './${name}.types';\nexport const ${name}Table = defineTable<${name}Row, ${name}Id, ${name}Indexes>(${JSON.stringify(definition, null, 2)});\n`;
+            `// 自动生成的配置合同，JSON 数据行留在资源 Bundle。\nimport { defineTable } from '${framework}/config/schema';\nimport type { ${name}Row, ${name}Id, ${name}Indexes } from './${name}.types';\n/**\n * ${mapping.id} 的轻量加载合同，import 本常量不会加载数据。\n * 使用 ctx.config.load(${name}Table, owner) 按需取得只读表；多分片时用选项选择 bundle。\n * owner 决定表句柄使用期限，界面临时数据传 show.scope。\n * @example\n * const table = await this.ctx.config.load(${name}Table, show.scope);\n * const rows = table.all(); // 按主键排序的只读数据行\n */\nexport const ${name}Table = defineTable<${name}Row, ${name}Id, ${name}Indexes>(${JSON.stringify(definition, null, 2)});\n`;
         routes[mapping.id] = [];
         for (const [group, rows] of table.groups) {
             rows.sort((a, b) => {
@@ -486,7 +495,7 @@ export async function compileTables(root, projectModules, runtime, registry, opt
         if (!own.length) continue;
         const directory = `${relative(root, module.directory).replaceAll('\\', '/')}/${module.layoutVersion === 2 ? 'code/' : ''}generated/config`;
         output[`${directory}/tables.ts`] =
-            '// Generated table references, without row data.\n' +
+            '// 自动生成的配置表引用集合，不包含 JSON 数据行。\n' +
             own
                 .map((table) => {
                     const name = pascal(table.mapping.id.split('.')[1]);
@@ -497,11 +506,11 @@ export async function compileTables(root, projectModules, runtime, registry, opt
                     return `import { ${name}Table } from '${prefix}${name}.table';`;
                 })
                 .join('\n') +
-            `\nexport const ${pascal(module.id)}Tables = {\n` +
+            `\n/** ${module.id} 模块的表合同集合；可传给 config.loadMany，实际 JSON 按需加载。 */\nexport const ${pascal(module.id)}Tables = {\n` +
             own
                 .map((table) => {
                     const id = table.mapping.id.split('.')[1];
-                    return `  ${identifier(id)}: ${pascal(id)}Table,`;
+                    return `  /** ${table.mapping.id} 的加载合同；用 config.load 或 loadMany 取得可查询的数据。 */\n  ${identifier(id)}: ${pascal(id)}Table,`;
                 })
                 .join('\n') +
             '\n} as const;\n';
@@ -514,7 +523,16 @@ export async function compileTables(root, projectModules, runtime, registry, opt
             resolve(owner.directory, enumeration.public ? 'contracts/generated/enums' : 'code/generated/enums'),
         ).replaceAll('\\', '/');
         output[`${directory}/${enumeration.name}.ts`] =
-            `// Generated named enum. Values are a stable data contract.\nexport const ${enumeration.name} = ${JSON.stringify(enumeration.members, null, 2)} as const;\nexport type ${enumeration.name} = (typeof ${enumeration.name})[keyof typeof ${enumeration.name}];\n`;
+            `// 根据 XLSX 的 __enums 自动生成，成员值属于稳定数据合同。\n/** ${enumeration.id} 的命名枚举值，可在表字段类型 enum<${enumeration.name}> 中使用；不加载表数据。 */\nexport const ${enumeration.name} = {\n${Object.entries(
+                enumeration.members,
+            )
+                .map(
+                    ([member, value]) =>
+                        `  /** ${commentText(enumeration.comments?.[member] || `${enumeration.name}.${member}`)}；配置中实际保存 ${commentText(JSON.stringify(value))}。 */\n  ${JSON.stringify(member)}: ${JSON.stringify(value)},`,
+                )
+                .join(
+                    '\n',
+                )}\n} as const;\n/** ${enumeration.name} 所有成员值的联合类型，与上方同名值对象分别用于类型声明和取值。 */\nexport type ${enumeration.name} = (typeof ${enumeration.name})[keyof typeof ${enumeration.name}];\n`;
     }
     return { output, routes, reports, previewOnly: options.preview === true };
 }

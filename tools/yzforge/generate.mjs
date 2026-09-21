@@ -15,6 +15,30 @@ const runtime = {
     ...(await import('../../assets/framework/config/config-table.ts')),
 };
 const forward = (path) => path.replaceAll('\\', '/');
+// 生成键仍保持相同的对象结构，只为编辑器悬停增加说明。
+const commentText = (value) =>
+    String(value)
+        .replace(/\*\//g, '* /')
+        .replace(/[\r\n\u2028\u2029]+/g, ' ');
+function resourceKeysSource(keys) {
+    return (
+        '{\n' +
+        Object.entries(keys)
+            .map(
+                ([kind, entries]) =>
+                    `  /** ${commentText(kind)} 资源键集合；动态目录自动编目，按需 load 时才加载内容。 */\n  ${JSON.stringify(kind)}: {\n` +
+                    Object.entries(entries)
+                        .map(
+                            ([name, key]) =>
+                                `    /** ${commentText(key.type)}：${commentText(key.id)}。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */\n    ${JSON.stringify(name)}: ${JSON.stringify(key)},`,
+                        )
+                        .join('\n') +
+                    '\n  },',
+            )
+            .join('\n') +
+        '\n}'
+    );
+}
 async function metadata(root) {
     const lookup = new Map();
     for (const path of await files(resolve(root, 'assets'), '.meta')) {
@@ -154,7 +178,7 @@ async function generateLocked(
                 (keys[kind] ??= {})[name] = key;
             }
             output[`${generatedRoot}/resources-${group}.ts`] =
-                `// Generated from Creator assets and stable resource identities.\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${JSON.stringify(keys, null, 2)} as const;\n`;
+                `// 根据 Creator 资源和稳定逻辑身份自动生成，请勿手动修改。\n/** ${module.id}/${group} 的类型化资源键；import 不加载资源，实际内容由 assets API 按 Scope 持有。 */\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${resourceKeysSource(keys)} as const;\n`;
         }
         const viewImports = [],
             viewKeys = [];
@@ -173,13 +197,20 @@ async function generateLocked(
                 types = `${type}Params, ${type}Result`;
             }
             viewKeys.push(
-                `  ${identifier(name)}: { id: ${JSON.stringify(`${module.id}.${name}`)} } as ViewKey<${types}>,`,
+                `  /** ${commentText(`${module.id}.${name}`)} 的 ${commentText(view.kind)} 界面合同；${view.kind === 'page' ? '页面导航使用 ui.pushPage' : '使用 ui.open'}，通过返回句柄 result 等待结果。 */\n  ${identifier(name)}: { id: ${JSON.stringify(`${module.id}.${name}`)} } as ViewKey<${types}>,`,
             );
         }
         output[`${generatedRoot}/views.ts`] =
-            `// Generated typed view references. No prefab, component or row data is imported.\nimport type { ViewKey } from '${frameworkPath}/ui/ui-manager';\n${viewImports.join('\n')}\nexport const ${pascal(module.id)}Views = {\n${viewKeys.join('\n')}\n} as const;\n`;
+            `// 自动生成的类型化 UI 引用，不导入预制体、组件实现或配置数据。\nimport type { ViewKey } from '${frameworkPath}/ui/ui-manager';\n${viewImports.join('\n')}\n/** ${module.id} 的 UI 公开合同；参数与结果类型由各界面 .types.ts 声明，打开时才加载界面。 */\nexport const ${pascal(module.id)}Views = {\n${viewKeys.join('\n')}\n} as const;\n`;
         output[`${generatedRoot}/bundles.ts`] =
-            `// Generated bundle references.\nexport const ${pascal(module.id)}Bundles = ${JSON.stringify(Object.fromEntries(Object.entries(module.bundles).map(([name, bundle]) => [identifier(name), { id: bundle.id }])), null, 2)} as const;\n`;
+            `// 自动生成的 Bundle 引用。\n/** ${module.id} 的资源包引用；openBundle 只准备包，内部资源和配置仍按需加载。 */\nexport const ${pascal(module.id)}Bundles = {\n${Object.entries(
+                module.bundles,
+            )
+                .map(
+                    ([name, bundle]) =>
+                        `  /** ${commentText(name)} 资源包，Bundle ID 为 ${commentText(bundle.id)}；可作为 config.load 的 bundle 选项。 */\n  ${JSON.stringify(identifier(name))}: { id: ${JSON.stringify(bundle.id)} },`,
+                )
+                .join('\n')}\n} as const;\n`;
         for (const [name, view] of Object.entries(module.views ?? {}))
             viewDefinitions.push({
                 id: `${module.id}.${name}`,
@@ -261,7 +292,7 @@ async function generateLocked(
             }
             const generatedRoot = `${forward(relative(root, module.directory))}/${module.layoutVersion === 2 ? 'contracts/' : ''}generated`;
             output[`${generatedRoot}/resources-${group}.ts`] =
-                `// Generated from the dynamic resource catalog.\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${JSON.stringify(keys, null, 2)} as const;\n`;
+                `// 根据 dynamic 目录及稳定资源身份自动生成，请勿逐项手动添加或修改。\n/** ${module.id}/${group} 的类型化动态资源键；只描述资源身份，import 不会加载对应内容。 */\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${resourceKeysSource(keys)} as const;\n`;
             const aliases = Object.fromEntries(
                 Object.entries(identities.aliases).filter(([id]) => id.startsWith(`${module.id}/${group}/`)),
             );
@@ -272,11 +303,11 @@ async function generateLocked(
     const release = { releaseId: settings.releaseId, bundles, namespaces, tables: tables.routes };
     if (typeof release.releaseId !== 'string' || !release.releaseId) throw Error('framework.json requires a releaseId');
     output['assets/game/app/generated/release.ts'] =
-        `// Generated release snapshot. Restart the game runtime to select another release.\nimport type { ContentRelease } from '../../../framework/assets/asset-types';\nexport const release: ContentRelease = ${JSON.stringify(release, null, 2)};\n`;
+        `// 自动生成的发布快照；切换发布版本需要重启游戏运行时。\nimport type { ContentRelease } from '../../../framework/assets/asset-types';\n/** 当前发布的 Bundle、动态索引及配置路由；由 App 装配使用，运行中不修改。 */\nexport const release: ContentRelease = ${JSON.stringify(release, null, 2)};\n`;
     output['assets/game/app/generated/options.ts'] =
-        `// Generated project settings. Framework defaults do not select a game, resolution or time zone.\nimport type { AppOptions } from '../../../framework/core/app';\nexport const runtimeOptions: Pick<AppOptions, 'appId' | 'cleanupTimeoutMs' | 'maxAudioVoices' | 'audioChannels' | 'time' | 'clockOptions'> = ${JSON.stringify(appOptions, null, 2)};\n`;
+        `// 自动生成的项目设置，请通过工作台或源设置文件修改。\nimport type { AppOptions } from '../../../framework/core/app';\n/** App 的音频、日历及清理参数；日历 offsetMinutes 为固定时区分钟偏移，480 表示 UTC+8。 */\nexport const runtimeOptions: Pick<AppOptions, 'appId' | 'cleanupTimeoutMs' | 'maxAudioVoices' | 'audioChannels' | 'time' | 'clockOptions'> = ${JSON.stringify(appOptions, null, 2)};\n`;
     output['assets/game/app/generated/assembly.ts'] =
-        `// Generated from module.json.\nimport type { ModuleDefinition } from '../../../framework/modules/module-manager';\nimport type { ViewDefinition } from '../../../framework/ui/ui-manager';\n${imports.join('\n')}\nexport const modules: readonly ModuleDefinition[] = [\n${definitions.join(',\n')}\n];\nexport const views: readonly ViewDefinition[] = ${JSON.stringify(viewDefinitions, null, 2)};\n`;
+        `// 根据 module.json 自动生成应用装配。\nimport type { ModuleDefinition } from '../../../framework/modules/module-manager';\nimport type { ViewDefinition } from '../../../framework/ui/ui-manager';\n${imports.join('\n')}\n/** 模块装配列表；登记或加载工厂代码不等于执行业务初始化，首次 use 才初始化。 */\nexport const modules: readonly ModuleDefinition[] = [\n${definitions.join(',\n')}\n];\n/** UI 装配列表，供 App 创建 UIManager；业务通过生成的 ViewKey 打开界面。 */\nexport const views: readonly ViewDefinition[] = ${JSON.stringify(viewDefinitions, null, 2)};\n`;
     const differences = [];
     for (const [path, source] of Object.entries(output)) {
         if (path.endsWith('.ts')) output[path] = await formatting.formatScript(resolve(root, path), source);

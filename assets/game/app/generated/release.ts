@@ -1,5 +1,6 @@
-// Generated release snapshot. Restart the game runtime to select another release.
+// 自动生成的发布快照；切换发布版本需要重启游戏运行时。
 import type { ContentRelease } from '../../../framework/assets/asset-types';
+/** 当前发布的 Bundle、动态索引及配置路由；由 App 装配使用，运行中不修改。 */
 export const release: ContentRelease = {
     releaseId: 'dev-20260920',
     bundles: {

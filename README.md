@@ -4,6 +4,8 @@
 
 模块划分业务边界，Cocos Bundle 划分交付内容，Scope 管理使用期限。复用代码直接使用普通目录或包，不设运行时 Extension 安装系统，也不另设 ContentPack 业务对象。
 
+常用 API 的参数、返回值、生命周期与示例已写入源码中文注释，可直接在 VS Code 悬停查看。先阅读 [API 使用指南](docs/api-guide.md)，理解 `show.scope`、`show.commit`、配置加载、时间周期与模块通信。
+
 ## 开始使用
 
 1. 用 Creator **3.8.8** 打开项目，安装 Node.js **22.13+（22.x）或 24+**，执行 `npm ci`。

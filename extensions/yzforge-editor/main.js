@@ -153,19 +153,19 @@ async function createModule(args) {
     await writeScript(
         'create-asset',
         path.join(directory, `code/${type}Module.ts`),
-        `import type { ModuleContext } from '${framework}/modules/module-manager';\nexport function create${type}Module(ctx: ModuleContext) {\n  return { api: { get moduleId() { return ctx.id; } } };\n}\n`,
+        `import type { ModuleContext } from '${framework}/modules/module-manager';\n/**\n * 模块业务初始化工厂；首次取得模块 API 时执行，同一代实例由多个调用者共享。\n * @param ctx - 模块上下文；服务清理通过 ctx.scope.defer 登记，短期任务使用更短的 Scope。\n * @returns 对外公开的 api；代码包加载完成不等于此工厂已经执行。\n */\nexport function create${type}Module(ctx: ModuleContext) {\n  return { api: { /** 当前模块的稳定 ID。 */ get moduleId() { return ctx.id; } } };\n}\n`,
     );
     await writeScript(
         'create-asset',
         path.join(directory, 'public.ts'),
-        `import type { ModuleRef } from '../../../framework/modules/module-manager';\nexport interface ${type}Api { readonly moduleId: string; }\nexport const ${type}Module: ModuleRef<${type}Api> = { id: '${id}' };\n`,
+        `import type { ModuleRef } from '../../../framework/modules/module-manager';\n/** 模块公开 API 合同；跨模块调用依赖此合同，不直接导入 code 中的私有实现。 */\nexport interface ${type}Api {\n  /** 当前模块的稳定 ID。 */\n  readonly moduleId: string;\n}\n/** 轻量模块引用；await app.modules.use(此引用, owner) 后通过 handle.api 使用业务能力。 */\nexport const ${type}Module: ModuleRef<${type}Api> = { id: '${id}' };\n`,
     );
     await ensureFolder(path.join(directory, 'contracts'));
     if (args.delivery !== 'eager') {
         await writeScript(
             'create-asset',
             path.join(directory, `code/${type}ModuleEntry.ts`),
-            `import { _decorator } from 'cc';\nimport { ModuleEntry } from '${framework}/modules/module-entry';\nimport { create${type}Module } from './${type}Module';\nconst { ccclass } = _decorator;\n@ccclass('${id}.${type}ModuleEntry')\nexport class ${type}ModuleEntry extends ModuleEntry {\n    get moduleId(): string { return '${id}'; }\n    get factory() { return create${type}Module; }\n}\n`,
+            `import { _decorator } from 'cc';\nimport { ModuleEntry } from '${framework}/modules/module-entry';\nimport { create${type}Module } from './${type}Module';\nconst { ccclass } = _decorator;\n/** @internal 本地按需代码包入口；加载器读取工厂，业务不使用引擎生命周期启动模块。 */\n@ccclass('${id}.${type}ModuleEntry')\nexport class ${type}ModuleEntry extends ModuleEntry {\n    /** @internal 与 module.json 对应的模块 ID。 */\n    get moduleId(): string { return '${id}'; }\n    /** @internal 返回工厂函数，读取此属性不会执行业务初始化。 */\n    get factory() { return create${type}Module; }\n}\n`,
         );
         await waitClass(`${id}.${type}ModuleEntry`);
         const content = await scene('createPrefab', `${id}.${type}ModuleEntry`, `${type}ModuleEntry`, false);
@@ -204,24 +204,28 @@ async function createScript(args) {
     await ensureFolder(folder);
     const framework = path.relative(folder, inside('assets/framework')).replaceAll('\\', '/');
     const content = component
-        ? `import { _decorator } from 'cc';\nimport { GameComponent, ActivationContext } from '${framework}/core/game-component';\nconst { ccclass } = _decorator;\n@ccclass('${manifest.id}.${type}')\nexport class ${type} extends GameComponent {\n  protected onInit(): void {}\n  protected onActivate(_activation: ActivationContext): void {\n    // _activation.run(async task => { ...; task.commit(() => { ... }); });\n  }\n}\n`
-        : `import type { ModuleContext } from '${framework}/modules/module-manager';\nexport class ${type} {\n  constructor(private readonly ctx: ModuleContext) {}\n}\n`;
+        ? `import { _decorator } from 'cc';\nimport { GameComponent, ActivationContext } from '${framework}/core/game-component';\nconst { ccclass } = _decorator;\n/** 普通框架组件；业务使用 onInit/onActivate/onTick 等钩子，不覆盖引擎 onLoad/update。 */\n@ccclass('${manifest.id}.${type}')\nexport class ${type} extends GameComponent {\n  /** 绑定与模块上下文就绪后执行一次，同步初始化组件自身状态。 */\n  protected onInit(): void {}\n  /**\n   * 每次业务激活执行；异步工作放入 _activation.run，并通过 task.commit 安全提交结果。\n   * @param _activation - 本次激活上下文；失活时取消，下一次激活会得到新的上下文。\n   */\n  protected onActivate(_activation: ActivationContext): void {\n    // 不把钩子改成 async：使用 _activation.run(async task => { ...; task.commit(() => { ... }); });\n  }\n}\n`
+        : `import type { ModuleContext } from '${framework}/modules/module-manager';\n/** 普通业务服务，用于可被多个界面共享的状态和业务规则；不依赖 Cocos 组件生命周期。 */\nexport class ${type} {\n  /**\n   * 创建服务；由模块工厂持有实例，需释放的监听或资源登记到对应 Scope。\n   * @param ctx - 宿主模块上下文；ctx.scope 覆盖本次模块业务实例。\n   */\n  constructor(private readonly ctx: ModuleContext) {}\n}\n`;
     const target = path.join(folder, `${type}.ts`);
     return writeScript('create-asset', target, content);
 }
 function bindingSource(module, className, fields, directory, component = false) {
     const framework = path.relative(directory, inside('assets/framework')).replaceAll('\\', '/');
     const types = [...new Set(fields.map((field) => field.type))];
+    const label = (value) =>
+        String(value)
+            .replace(/\*\//g, '* /')
+            .replace(/[\r\n\u2028\u2029]+/g, ' ');
     const declarations = fields
         .map(
             (field) =>
-                `  @property({ type: ${field.type}, visible: false })\n  private ${field.field}: ${field.type} | null = null;\n  protected get ${field.name}(): ${field.type} { return this.requireBinding(this.${field.field}, ${JSON.stringify(field.nodeName)}); }`,
+                `  /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */\n  @property({ type: ${field.type}, visible: false })\n  private ${field.field}: ${field.type} | null = null;\n  /**\n   * 自动绑定节点 ${label(field.nodeName)} 的 ${field.type}；节点改名或增删后通过工作台更新绑定。\n   * @throws FrameworkError ${component ? '引用缺失' : '引用缺失或已失效'}，需检查命名、组件和绑定结果。\n   */\n  protected get ${field.name}(): ${field.type} { return this.requireBinding(this.${field.field}, ${JSON.stringify(field.nodeName)}); }`,
         )
         .join('\n');
     const base = component
         ? `import { GameComponent } from '${framework}/core/game-component';`
         : `import { UIView } from '${framework}/ui/ui-view';\nimport type { ${className}Params, ${className}Result } from '../${className}.types';`;
-    return `// Generated by YZForge. Regeneration never modifies business code.\nimport { _decorator${types.length ? ', ' + types.join(', ') : ''} } from 'cc';\n${base}\nconst { ccclass${types.length ? ', property' : ''} } = _decorator;\n@ccclass('${module}.${className}Binding')\nexport class ${className}Binding extends ${component ? 'GameComponent' : `UIView<${className}Params, ${className}Result>`} {\n${declarations}\n  protected validateBindings(): void { ${fields.map((field) => `void this.${field.name};`).join(' ')} }\n}\n`;
+    return `// 由 YZForge 自动生成。节点绑定通过工作台更新，业务逻辑写在派生脚本中。\nimport { _decorator${types.length ? ', ' + types.join(', ') : ''} } from 'cc';\n${base}\nconst { ccclass${types.length ? ', property' : ''} } = _decorator;\n/** 自动绑定基类；由 Creator 根据节点命名写入引用，业务继承后直接使用受保护的节点 getter。 */\n@ccclass('${module}.${className}Binding')\nexport class ${className}Binding extends ${component ? 'GameComponent' : `UIView<${className}Params, ${className}Result>`} {\n${declarations}\n  /** @internal 框架初始化时验证全部绑定；重新生成会更新此方法。 */\n  protected validateBindings(): void { ${fields.map((field) => `void this.${field.name};`).join(' ')} }\n}\n`;
 }
 async function createView(args) {
     const { directory, manifest } = await moduleInfo(args.module),
@@ -239,16 +243,16 @@ async function createView(args) {
     await ensureFolder(path.join(directory, bundle.root, uiFolder));
     const files = {
         [path.join(code, `${className}.types.ts`)]:
-            `// Replace void with this view's own parameter/result contracts when needed.\nexport type ${className}Params = void;\nexport type ${className}Result = void;\n`,
+            `// 公开参数与结果合同；需要数据时将 void 替换为明确的只读对象类型。\n/** ui.open/pushPage 的参数类型，在 onShow 中通过 show.params 读取。 */\nexport type ${className}Params = void;\n/** show.finish 提交的业务结果类型，调用方在 handle.result 的 completed 分支读取。 */\nexport type ${className}Result = void;\n`,
         [path.join(generated, `${className}Binding.ts`)]: bindingSource(manifest.id, className, [], generated),
         [path.join(code, `${className}.ts`)]:
-            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n  // Override onCreate / onShow / onHide / onDispose as needed.\n}\n`,
+            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n/** 完整 UI 的渲染与输入入口；节点来自 Binding，可按复杂度把业务规则委托给 Service/Presenter。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n  // 按需重写 onCreate/onShow/onHide/onDispose，不覆盖引擎生命周期。\n  // onShow(show: ViewShowContext<本界面Params, 本界面Result>) 可异步加载。\n  // 临时资源使用 show.scope，await 后通过 show.commit 同步修改节点。\n  // 点击监听使用 show.listen；成功结束时调用 show.finish(result)。\n}\n`,
     };
     if (args.presenter) {
         files[path.join(code, `${className}Presenter.ts`)] =
-            `import type { TaskContext } from '${path.relative(code, inside('assets/framework/core/scope')).replaceAll('\\', '/')}';\nexport interface ${className}Port { render(): void; }\nexport class ${className}Presenter {\n    constructor(private readonly view: ${className}Port) {}\n    show(task: TaskContext): void { task.signal.throwIfAborted(); task.commit(() => this.view.render()); }\n}\n`;
+            `import type { TaskContext } from '${path.relative(code, inside('assets/framework/core/scope')).replaceAll('\\', '/')}';\n/** Presenter 需要的最小渲染接口；按实际展示模型补充参数，不暴露内部节点。 */\nexport interface ${className}Port {\n    /** 同步把展示数据渲染到节点，异步取数由 Presenter 组织。 */\n    render(): void;\n}\n/** 组织界面展示流程；跨界面共享的业务状态交给模块 Service，节点渲染交给 Port。 */\nexport class ${className}Presenter {\n    /** @param view - 本次展示使用的渲染接口。 */\n    constructor(private readonly view: ${className}Port) {}\n    /**\n     * 在当前展示仍有效时触发渲染；扩展异步流程时 await 后仍通过 task.commit 提交。\n     * @param task - 当前展示/任务上下文，不应跨展示保存。\n     */\n    show(task: TaskContext): void { task.signal.throwIfAborted(); task.commit(() => this.view.render()); }\n}\n`;
         files[path.join(code, `${className}.ts`)] =
-            `import { _decorator } from 'cc';\nimport type { TaskContext } from '${path.relative(code, inside('assets/framework/core/scope')).replaceAll('\\', '/')}';\nimport { ${className}Binding } from './generated/${className}Binding';\nimport { ${className}Presenter } from './${className}Presenter';\nconst { ccclass } = _decorator;\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n    protected onShow(show: TaskContext): void { new ${className}Presenter(this).show(show); }\n    render(): void { /* Update bound nodes from the presentation model. */ }\n}\n`;
+            `import { _decorator } from 'cc';\nimport type { TaskContext } from '${path.relative(code, inside('assets/framework/core/scope')).replaceAll('\\', '/')}';\nimport { ${className}Binding } from './generated/${className}Binding';\nimport { ${className}Presenter } from './${className}Presenter';\nconst { ccclass } = _decorator;\n/** 界面负责节点和输入，把展示流程交给 Presenter；共享业务规则放在模块 Service。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n    /**\n     * 每次显示时创建展示协调器；隐藏或被替换后旧 show 失效。\n     * @param show - 本次展示任务上下文。需要 params/time/listen 时使用完整 ViewShowContext 类型。\n     */\n    protected onShow(show: TaskContext): void { new ${className}Presenter(this).show(show); }\n    /** 同步更新自动绑定的节点；按需要接收明确的展示模型。 */\n    render(): void { /* 根据展示模型更新节点。 */ }\n}\n`;
     }
     for (const [target, text] of Object.entries(files)) await writeScript('create-asset', target, text);
     await waitClass(`${manifest.id}.${className}`);

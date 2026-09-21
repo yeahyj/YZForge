@@ -241,7 +241,7 @@ exports.createWorkbench = function (ctx) {
         await writeScript(
             'create-asset',
             path.join(code, `${className}.ts`),
-            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n    protected onInit(): void {}\n    // onActivate / onDeactivate / onDispose belong to the framework.\n}\n`,
+            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n/** 可组合的预制体部件；节点由 Binding 自动绑定，使用父对象传入的数据和回调，不进入 UI 页面栈。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n    /** 绑定和宿主上下文就绪后同步执行一次，适合初始化部件自身状态。 */\n    protected onInit(): void {}\n    // 按需重写 onActivate/onDeactivate/onDispose；异步任务放在 activation.run。\n    // 动态实例使用 ctx.assets.in(owner).instantiate，并由 owner 管理生命周期。\n}\n`,
         );
         await waitClass(`${manifest.id}.${className}`);
         let info;

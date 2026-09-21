@@ -17,51 +17,170 @@ import {
     validPeriod,
 } from './calendar';
 
+/**
+ * 服务器校时响应；两个时间值必须来自同一服务器时钟，均为 UTC 毫秒时间戳。
+ */
 export interface ServerTimeReply {
+    /**
+     * 原样返回请求编号，防止旧响应或错配响应更新当前校时结果。
+     */
     readonly requestId: string;
+    /**
+     * 服务器收到本次请求时的 UTC 毫秒时间戳。
+     */
     readonly receivedAtMs: number;
+    /**
+     * 服务器发出本次响应时的 UTC 毫秒时间戳，不得早于 receivedAtMs。
+     */
     readonly sentAtMs: number;
 }
+/**
+ * 由项目提供的服务器时间适配器；框架通过多次采样估算网络往返与服务器处理时间。
+ */
 export interface ServerTimeSource {
+    /**
+     * 向项目服务器请求一次校时样本。
+     * @param requestId - 本次请求编号，响应须原样返回。
+     * @param task - 本次采样的 scope、signal 和 commit；网络适配应响应取消，超时通过 signal 通知。
+     * @returns 服务器收到请求、发出响应的 UTC 毫秒时间戳。
+     */
     sample(requestId: string, task: TaskContext): Promise<ServerTimeReply>;
 }
+/**
+ * 框架当前估计时间及其来源、可信度快照。重要结算应检查质量或使用 requireNowMs。
+ */
 export interface TimeSnapshot {
+    /**
+     * 当前估计的 UTC 毫秒时间戳。
+     */
     readonly nowMs: number;
+    /**
+     * device 表示设备时钟；server 表示存在服务器校时锚点。来源为 server 时仍可能已过期。
+     */
     readonly source: 'device' | 'server';
+    /**
+     * local 仅本地估计；synced 已校时且满足项目阈值；stale 未完成、过期或恢复后待重新校时。
+     */
     readonly quality: 'local' | 'synced' | 'stale';
+    /**
+     * 距选中样本的时间，单位毫秒；无有效锚点或时钟连续性失效时为 null。
+     */
     readonly sampleAgeMs: number | null;
+    /**
+     * 估计误差，单位毫秒，包含采样和随时间增长的估计漂移；无法估计时为 null。
+     */
     readonly estimatedErrorMs: number | null;
+    /**
+     * 本次进程内校时锚点更新/重置的递增版本，供界面识别时间变化。
+     */
     readonly revision: number;
 }
+/**
+ * 可信服务器时间的质量要求。传给 requireNowMs 时是在项目规则基础上进一步收紧。
+ */
 export interface TimePolicy {
+    /**
+     * 允许的样本最大年龄，单位毫秒。项目默认 300000（5 分钟）；单次 requireNowMs 省略时不额外收紧。
+     */
     readonly maxAgeMs?: number;
+    /**
+     * 允许的估计误差上限，单位毫秒。项目默认 5000；单次 requireNowMs 省略时不额外收紧。
+     */
     readonly maxErrorMs?: number;
 }
+/**
+ * 应用级时间配置，通常来自面板生成选项，并由项目注入服务器适配器。
+ */
 export interface TimeOptions extends TimePolicy {
+    /**
+     * 服务器时间适配器；不提供时仅使用设备时间，sync 会报 TIME_SOURCE_MISSING。
+     */
     readonly source?: ServerTimeSource;
+    /**
+     * 每轮校时采样次数，整数 1～8，默认 3。
+     */
     readonly sampleCount?: number;
+    /**
+     * 单次采样的前台等待上限，单位毫秒，默认 5000。
+     * 时钟进入后台会使当前校时轮次失效，恢复前台后由服务重新发起校时；不保证后台继续采样。
+     */
     readonly requestTimeoutMs?: number;
+    /**
+     * 周期通知的默认时区、周起始日和日切点；单次订阅可覆盖。当前 calendar.format 等纯工具不自动继承。
+     */
     readonly calendar?: CalendarOptions;
 }
+/**
+ * 某个日历周期或截止时刻已到的通知；框架只通知，由业务决定刷新、结算与持久化去重。
+ */
 export interface CalendarEvent {
+    /**
+     * 本次周期/时刻的标识；跨重启去重需要业务保存最后处理标识。
+     */
     readonly occurrenceKey: string;
+    /**
+     * 本次边界或计划发生的 UTC 毫秒时间戳，可能早于实际派发时刻。
+     */
     readonly scheduledAtMs: number;
+    /**
+     * 框架观察并派发时的 UTC 毫秒时间戳。
+     */
     readonly observedAtMs: number;
+    /**
+     * due 到期；resume 回前台核对；time-adjusted 时间校正；initial 注册时主动通知当前周期。
+     */
     readonly reason: 'due' | 'resume' | 'time-adjusted' | 'initial';
+    /**
+     * 本次合并通知中跳过的中间周期数；无法建立上一次期次时为 null。业务需要逐日补算时应自行读取持久化记录。
+     */
     readonly missedCount: number | null;
 }
+/**
+ * 一次性或周期订阅句柄，跟随注册时的 Scope 结束；不会自动跨进程重启保存。
+ */
 export interface TimeHandle {
+    /**
+     * 计划是否仍有效；取消、持有者结束或一次性执行完成后为 false。
+     */
     readonly active: boolean;
+    /**
+     * 预计下一次到期的 UTC 毫秒时间戳；没有下一次时为 null，不承诺后台精确准时回调。
+     */
     readonly nextAtMs: number | null;
+    /**
+     * 提前取消本计划，重复调用安全；已执行中的回调通过 task.signal/commit 配合退出，不会被强制中断。
+     */
     cancel(): void;
 }
+/**
+ * 日历通知回调，可同步或返回 Promise。event 描述期次，task 管理本次工作；同一订阅串行执行。
+ * 异步写 UI 使用 task.commit；回调失败会取消该订阅并上报，不自动重试业务操作。
+ */
 export type CalendarCallback = (event: CalendarEvent, task: TaskContext) => void | Promise<void>;
+/**
+ * 跨日/周/月/年订阅选项；未提供的日历字段继承项目默认设置。
+ */
 export interface BoundaryOptions extends CalendarOptions {
+    /**
+     * 是否在注册后的异步派发中先通知当前周期，默认 false；true 适合初次刷新界面，不代表业务奖励可以重复发放。
+     */
     readonly emitCurrent?: boolean;
 }
+/**
+ * 相对日历周期的重复计划选项，围绕固定起算点计算每一期。
+ */
 export interface RepeatOptions {
+    /**
+     * 固定时区偏移分钟数，例如 480 为 UTC+8；省略时继承项目日历偏移。
+     */
     readonly offsetMinutes?: number;
+    /**
+     * 最初起算的 UTC 毫秒时间戳，省略时捕获注册当时的有效业务时间。跨重启恢复应保存并复用它。
+     */
     readonly anchorMs?: number;
+    /**
+     * 注册时是否异步通知最近已到的期次，默认 false；用于持久化 anchor 的恢复，业务负责去重。
+     */
     readonly emitLatestOnStart?: boolean;
 }
 type Anchor = { utc: number; mono: number; epoch: number; error: number };
@@ -79,8 +198,14 @@ type Plan = {
     candidate(now: number): { cursor: number; at: number; key: string; next: number | null };
 };
 
-/** UTC/date/calendar service. Relative gameplay delays deliberately live outside this API. */
+/**
+ * 应用级时间服务：当前时间、服务器校时、截止时刻和日/周/月/年周期通知。
+ * 后台暂停派发，回前台核对并合并错过的周期；不提供跨进程持久化或任意毫秒游戏调度。
+ */
 export class TimeService {
+    /**
+     * 纯日期工具集合。format/parts/add 等默认 UTC+0，不自动继承面板日历设置；需要北京时间时明确传 480。
+     */
     readonly calendar = calendar;
     private anchor?: Anchor;
     private revision = 0;
@@ -99,7 +224,17 @@ export class TimeService {
     private stopWake = () => {};
     private stopState: () => void;
     private dispatchReason: CalendarEvent['reason'] = 'due';
+    /**
+     * 创建应用级时间服务，一般由 App 装配。
+     * @param clock 平台时钟驱动。
+     * @param owner 服务所属的期限，结束后停止校时和日历订阅。
+     * @param settings 来源、质量阈值与业务日历规则。
+     * @param report 后台任务错误上报函数。
+     */
     constructor(
+        /**
+         * 时间服务使用的底层设备/单调时钟驱动；业务日期通常通过 nowMs 等入口读取。
+         */
         readonly clock: ClockDriver,
         owner: Scope,
         private readonly settings: TimeOptions = {},
@@ -129,6 +264,11 @@ export class TimeService {
         });
         this.pump();
     }
+    /**
+     * 获取当前估计的 UTC 毫秒时间戳；无锚点时读设备时间，有有效锚点时按单调计数推算。
+     * 时钟连续性失效后暂时保持最后一次估计，直到重新校时；可通过 snapshot 查看 stale 状态。
+     * @returns 毫秒整数，时区设置不会改变时间戳。读取本身不联网；需要符合质量规则的服务器时间用 requireNowMs。
+     */
     nowMs(): number {
         if (!this.anchor) return validEpoch(Math.floor(this.clock.deviceNowMs()));
         if (this.anchor.epoch !== this.clock.epoch) return this.lastEstimate;
@@ -137,15 +277,30 @@ export class TimeService {
         );
         return this.lastEstimate;
     }
+    /**
+     * 获取当前估计的 Unix 秒时间戳，向下取整；内部相当于 Math.floor(nowMs() / 1000)。
+     * @returns 秒整数，不是毫秒。
+     */
     nowSeconds(): number {
         return Math.floor(this.nowMs() / 1000);
     }
+    /**
+     * 将当前估计时间包装为新的 Date 对象；修改返回对象不会修改框架时钟。
+     * @returns 独立 Date；它自身不携带业务时区。
+     */
     nowDate(): Date {
         return new Date(this.nowMs());
     }
+    /**
+     * 直接获取设备时钟的 UTC 毫秒时间戳，不应用服务器校时，适合诊断设备时间。
+     */
     deviceNowMs(): number {
         return this.clock.deviceNowMs();
     }
+    /**
+     * 读取当前时间、来源、质量、样本年龄和估计误差；不会联网。
+     * @returns 不可变时间快照，具体字段含义见 TimeSnapshot。
+     */
     snapshot(): TimeSnapshot {
         const a = this.anchor;
         const age = a && a.epoch === this.clock.epoch ? Math.max(0, this.clock.monotonicMs() - a.mono) : null;
@@ -166,6 +321,12 @@ export class TimeService {
             revision: this.revision,
         });
     }
+    /**
+     * 只在服务器时间满足项目质量规则及本次附加规则时返回当前时间。
+     * @param policy 可选的更严格样本年龄/误差上限，单位均为毫秒。
+     * @returns 可信服务器 UTC 毫秒时间戳。
+     * @throws TIME_NOT_SYNCED：未校时、本地模式、已过期或误差超限。
+     */
     requireNowMs(policy: TimePolicy = {}): number {
         const state = this.snapshot();
         invariant(
@@ -177,9 +338,20 @@ export class TimeService {
         );
         return state.nowMs;
     }
+    /**
+     * 计算到截止时刻的剩余毫秒数，过期返回 0；每次调用从当前估计时间重新计算。
+     * @param deadlineMs 截止时刻的 UTC 毫秒时间戳。
+     * @returns 非负毫秒数，适合刷新倒计时。
+     */
     remainingMs(deadlineMs: number): number {
         return Math.max(0, validEpoch(deadlineMs) - this.nowMs());
     }
+    /**
+     * 监听校时、来源或质量变化；不是每秒更新通知，不保证注册时立即回调。
+     * @param callback 同步接收新的时间快照。
+     * @param scope 订阅期限，取消时自动解绑。
+     * @returns 可手动解绑的函数。
+     */
     onChanged(callback: (value: TimeSnapshot) => void, scope: Scope): () => void {
         scope.signal.throwIfAborted();
         const item = { scope, callback };
@@ -192,6 +364,11 @@ export class TimeService {
         detach = scope.signal.onAbort(off);
         return off;
     }
+    /**
+     * 清除校时锚点并使当前采样轮次失效，适合退出账号或切换服务器。
+     * 不修改设备时间；配置了服务器来源时恢复为 stale，待再次 sync。
+     * @param reason 取消在途校时的原因说明。
+     */
     resetSync(reason = 'Connection changed'): void {
         this.invalidateRound(reason);
         this.anchor = undefined;
@@ -200,6 +377,12 @@ export class TimeService {
         this.changed();
         this.pump();
     }
+    /**
+     * 采样服务器时间并更新框架锚点；并发调用共享同一轮，单个持有者取消只结束自己的等待。
+     * @param owner 本次等待的期限；所有等待者退出时取消本轮，迟到结果不能提交。
+     * @returns 更新后的 TimeSnapshot；不会修改系统时钟。
+     * @throws TIME_SOURCE_MISSING、TIME_BACKGROUND 或采样失败/取消错误。
+     */
     async sync(owner: Scope): Promise<TimeSnapshot> {
         owner.signal.throwIfAborted();
         this.scope.signal.throwIfAborted();
@@ -325,6 +508,11 @@ export class TimeService {
         this.pump();
         return this.snapshot();
     }
+    /**
+     * 创建固定持有者的时间入口，之后注册计划可省略 Scope。
+     * @param scope 订阅和校时等待的期限，例如 show.scope。
+     * @returns ScopedTime，不会创建另一套时钟。
+     */
     in(scope: Scope): ScopedTime {
         return new ScopedTime(this, scope);
     }
@@ -338,10 +526,26 @@ export class TimeService {
         invariant(now !== null, 'TIME_NOT_READY', 'Calendar anchor requires eligible foreground time');
         return now;
     }
+    /**
+     * 在指定绝对时刻通知一次；已过期时在下一次可用的前台派发中通知。
+     * @param epochMs 目标 UTC 毫秒时间戳，不是延迟时长。
+     * @param callback 到期处理，可返回 Promise。
+     * @param owner 计划期限，结束后取消。
+     * @returns 可提前取消的句柄；跨重启恢复由业务保存目标时间。
+     */
     at(epochMs: number, callback: CalendarCallback, owner: Scope): TimeHandle {
         validEpoch(epochMs);
         return this.plan(owner, callback, false, () => ({ cursor: 0, at: epochMs, key: `at:${epochMs}`, next: null }));
     }
+    /**
+     * 以登记时的有效业务时间为起点，经过指定日历周期后通知一次。
+     * @param period 正整数周期，例如 { unit: "week", count: 1 }；月按日历计算。
+     * @param callback 到期回调。
+     * @param owner 计划期限。
+     * @param input 可覆盖固定时区，省略时继承项目设置。
+     * @returns 一次性句柄；反复注册会重新起算，恢复任务应保存 deadline 并使用 at。
+     * @throws TIME_NOT_READY：当前业务时间不可用。
+     */
     afterPeriod(
         period: CalendarPeriod,
         callback: CalendarCallback,
@@ -355,6 +559,17 @@ export class TimeService {
             owner,
         );
     }
+    /**
+     * 监听进入新的业务日、周、月或年；具体边界采用项目日历规则，可单次覆盖。
+     * 后台不执行，恢复时将错过周期合并为最新一次通知；同一订阅不会因时间回拨重复通知旧期次。
+     * @param unit day/week/month/year，表示跨周期，而非从现在起等待这么长时间。
+     * @param callback 周期通知；异步结果使用 task.commit，业务结算自行持久化去重。
+     * @param owner 订阅期限；UI 使用 show.scope，长期账号业务使用账号期限。
+     * @param input 可覆盖时区、周起始日、日切点；emitCurrent 默认为 false。
+     * @returns 可取消的句柄，进程结束后不会自动恢复。
+     * @example
+     * app.time.onBoundary('day', onDayChanged, accountScope, { offsetMinutes: 480, resetMinute: 240, emitCurrent: true });
+     */
     onBoundary(unit: CalendarUnit, callback: CalendarCallback, owner: Scope, input: BoundaryOptions = {}): TimeHandle {
         const o = options({ ...this.settings.calendar, ...input });
         validPeriod({ unit, count: 1 });
@@ -379,6 +594,14 @@ export class TimeService {
             true,
         );
     }
+    /**
+     * 围绕固定 anchorMs 重复计算每一期，适合从开通日期起每月等业务；不是每月 1 日的自然月边界。
+     * @param period 正整数周期，例如 { unit: "month", count: 1 }。
+     * @param callback 到期回调，同一订阅串行执行。
+     * @param owner 计划期限。
+     * @param input 起算点、时区及是否通知最近已到期次。
+     * @returns 订阅句柄；月末按原锚点计算，1 月 31 日的后续期次不会因 2 月而永久变为 28 日。
+     */
     everyPeriod(
         period: CalendarPeriod,
         callback: CalendarCallback,
@@ -563,45 +786,113 @@ export class TimeService {
     }
 }
 
-/** Fixed owner; safe to capture in a particular UI show or component activation. */
+/**
+ * 绑定固定 Scope 的时间入口，通常由 show.time、activation.time、ctx.time 提供；不创建新时钟。
+ * 订阅跟随该期限取消，读取时间与纯日期工具本身不承担资源持有。
+ */
 export class ScopedTime {
+    /**
+     * @internal
+     * 使用 TimeService.in(scope) 创建固定持有者入口。
+     * @param service 所属的应用时间服务。
+     * @param owner 订阅和校时等待的期限。
+     */
     constructor(
         private readonly service: TimeService,
         private readonly owner: Scope,
     ) {}
+    /**
+     * 纯日期工具；format 等默认 UTC+0，不自动继承面板偏移。
+     * @example
+     * const text = show.time.calendar.format(show.time.nowMs(), "datetime", 480);
+     */
     get calendar() {
         return this.service.calendar;
     }
+    /**
+     * 获取当前估计 UTC 毫秒时间戳，不联网；严格服务器时间请使用 requireNowMs。
+     */
     nowMs(): number {
         return this.service.nowMs();
     }
+    /**
+     * 获取向下取整的 Unix 秒时间戳；与 nowMs 的单位不同。
+     */
     nowSeconds(): number {
         return this.service.nowSeconds();
     }
+    /**
+     * 返回当前估计时间的新 Date 对象；不携带项目时区，修改它不影响框架。
+     */
     nowDate(): Date {
         return this.service.nowDate();
     }
+    /**
+     * 读取时间来源、质量与误差快照，不会发起校时请求。
+     */
     snapshot(): TimeSnapshot {
         return this.service.snapshot();
     }
+    /**
+     * 要求可信服务器时间。
+     * @param policy 可额外收紧年龄和误差阈值，单位毫秒。
+     * @returns UTC 毫秒时间戳；质量不满足时抛出 TIME_NOT_SYNCED。
+     */
     requireNowMs(policy?: TimePolicy): number {
         return this.service.requireNowMs(policy);
     }
+    /**
+     * 计算非负剩余毫秒数，过期返回 0。
+     * @param deadline 截止时刻的 UTC 毫秒时间戳。
+     */
     remainingMs(deadline: number): number {
         return this.service.remainingMs(deadline);
     }
+    /**
+     * 发起或加入共享校时轮次；当前持有者结束时取消本次等待。
+     * @returns 校时后的快照；需要项目注入 ServerTimeSource，后台不可发起。
+     */
     sync(): Promise<TimeSnapshot> {
         return this.service.sync(this.owner);
     }
+    /**
+     * 监听校时和质量变化，随当前持有者取消；不是每秒通知。
+     * @param callback 同步处理时间快照。
+     * @returns 可提前解绑的函数。
+     */
     onChanged(callback: (value: TimeSnapshot) => void): () => void {
         return this.service.onChanged(callback, this.owner);
     }
+    /**
+     * 指定绝对时刻的一次通知，随当前 Scope 取消。
+     * @param epoch 目标 UTC 毫秒时间戳；已过期时在下一次可用派发中通知。
+     * @param callback 到期处理，可返回 Promise。
+     * @returns 可取消句柄。
+     */
     at(epoch: number, callback: CalendarCallback): TimeHandle {
         return this.service.at(epoch, callback, this.owner);
     }
+    /**
+     * 监听跨日、跨周、跨月或跨年，自动使用当前 Scope；show.time 的订阅会在显示结束时取消。
+     * @param unit day/week/month/year，边界由项目时区、日切点与周起始日决定。
+     * @param callback 通知回调，支持异步；后台恢复合并错过周期，业务负责持久化去重。
+     * @param input 单次日历覆盖与 emitCurrent；默认不通知当前周期，true 时注册后先异步通知一次。
+     * @returns 可手动取消的句柄。
+     * @example
+     * show.time.onBoundary('day', event => {
+     *     show.commit(() => { this.lblDay.string = event.occurrenceKey; });
+     * }, { emitCurrent: true });
+     */
     onBoundary(unit: CalendarUnit, callback: CalendarCallback, input?: BoundaryOptions): TimeHandle {
         return this.service.onBoundary(unit, callback, this.owner, input);
     }
+    /**
+     * 从登记时起经过一个日历周期后通知一次，自动跟随当前 Scope。
+     * @param period 正整数周期，例如一周 { unit: "week", count: 1 }。
+     * @param callback 到期处理。
+     * @param input 可覆盖时区偏移分钟数。
+     * @returns 一次性句柄；跨重启应保存截止时间改用 at，避免重新起算。
+     */
     afterPeriod(
         period: CalendarPeriod,
         callback: CalendarCallback,
@@ -609,6 +900,13 @@ export class ScopedTime {
     ): TimeHandle {
         return this.service.afterPeriod(period, callback, this.owner, input);
     }
+    /**
+     * 按固定起算点重复通知，自动跟随当前 Scope；错过多期时合并通知最新一期。
+     * @param period 正整数日历周期。
+     * @param callback 同一订阅内串行执行的回调。
+     * @param input anchorMs 为 UTC 毫秒，省略时从当前有效时间起算；恢复时复用已保存的 anchorMs。
+     * @returns 可取消句柄。
+     */
     everyPeriod(period: CalendarPeriod, callback: CalendarCallback, input?: RepeatOptions): TimeHandle {
         return this.service.everyPeriod(period, callback, this.owner, input);
     }

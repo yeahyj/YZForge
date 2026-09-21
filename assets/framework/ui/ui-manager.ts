@@ -10,27 +10,120 @@ import { ModuleContext, ModuleManager } from '../modules/module-manager';
 import { TimeService } from '../time/time-service';
 import { UIView, ViewShowContext } from './ui-view';
 
+/**
+ * 界面的公开类型合同，通常使用生成的 ModuleViews 常量；不直接导入界面私有组件或预制体。
+ * @typeParam Params - 打开参数类型，默认 void。
+ * @typeParam Result - show.finish 返回的业务结果类型，默认 void。
+ */
 export interface ViewKey<Params = void, Result = void> {
+    /**
+     * 全局界面 ID，必须在生成的 ViewDefinition 中登记。
+     */
     readonly id: string;
+    /**
+     * @internal
+     * 框架内部类型标记或生命周期入口，业务通过公开上下文和管理器使用，不直接读写或调用。
+     */
     readonly __params?: Params;
+    /**
+     * @internal
+     * 框架内部类型标记或生命周期入口，业务通过公开上下文和管理器使用，不直接读写或调用。
+     */
     readonly __result?: Result;
 }
+/**
+ * 界面最终结果的可判别联合：
+ * - completed：界面调用 show.finish，value 为业务结果。
+ * - cancelled：外部关闭、返回或所有者结束，没有业务结果。
+ * - failed：error 为错误，cleanupPending 为 true 时只是逻辑结案，实际清理仍在进行。
+ * 根据 status 分支后读取对应字段；不要把取消当成成功结果。
+ */
 export type ViewResult<T> =
-    | { readonly status: 'completed'; readonly value: T }
-    | { readonly status: 'cancelled' }
-    | { readonly status: 'failed'; readonly error: unknown; readonly cleanupPending: boolean };
+    | {
+          /**
+           * 界面结案状态：completed 业务成功、cancelled 取消、failed 失败；先判断状态再读取对应字段。
+           */
+          readonly status: 'completed';
+          /**
+           * 界面通过 show.finish 提交的业务结果，仅 status 为 completed 时存在。
+           */
+          readonly value: T;
+      }
+    | {
+          /**
+           * 界面结案状态：completed 业务成功、cancelled 取消、failed 失败；先判断状态再读取对应字段。
+           */
+          readonly status: 'cancelled';
+      }
+    | {
+          /**
+           * 界面结案状态：completed 业务成功、cancelled 取消、failed 失败；先判断状态再读取对应字段。
+           */
+          readonly status: 'failed';
+          /**
+           * 界面准备、运行或清理中的错误，仅 status 为 failed 时存在。
+           */
+          readonly error: unknown;
+          /**
+           * 逻辑结果已报告但底层清理仍在进行时为 true；不能因此认定节点和资源已释放。
+           */
+          readonly cleanupPending: boolean;
+      };
+/**
+ * 一次界面打开操作的句柄，用于观察结果或从外部关闭；与预制体实例和缓存条目不同。
+ */
 export interface ViewHandle<T> {
+    /**
+     * 界面定义的逻辑 ID，同一界面的多个允许并存实例共享此值；不是唯一实例编号。
+     */
     readonly id: string;
+    /**
+     * 等待这次界面结束，而非等待打开完成。正常以 ViewResult 返回，业务成功、取消与失败通过 status 区分。
+     * 通常在调用界面的外部等待；不要在该界面自己的 onShow、受跟踪点击回调或 onHide 中等待自身结果。
+     * cleanupPending 为 true 时，底层清理尚未结束。
+     */
     readonly result: Promise<ViewResult<T>>;
+    /**
+     * 从外部以 cancelled 结果请求关闭，可重复调用并等待实际清理。
+     * @returns 本次关闭流程完成的 Promise，不承载业务返回值。
+     * @remarks 界面内部提交成功结果用 show.finish；不要在自己的受跟踪任务中 await 自身 close，以免互相等待。
+     */
     close(): Promise<void>;
 }
+/**
+ * 工作台生成的界面装配描述，定义模块归属、预制体和 UI 策略；业务通过 ViewKey 使用。
+ */
 export interface ViewDefinition {
+    /**
+     * 唯一界面 ID，与 ViewKey.id 对应。
+     */
     readonly id: string;
+    /**
+     * 宿主业务模块 ID，显示之前必须完成初始化。
+     */
     readonly module: string;
+    /**
+     * 根节点带 UIView 的预制体资源键，由资源系统准备脚本和资源。
+     */
     readonly prefab: AssetKey<'Prefab'>;
+    /**
+     * 界面层级，由低到高为 page 页面、popup 弹窗、overlay 覆盖层、toast 提示、loading 加载层。
+     * Part 使用 GameComponent，由父对象组合，不登记为完整界面。
+     */
     readonly kind: 'page' | 'popup' | 'overlay' | 'toast' | 'loading';
+    /**
+     * 实例缓存策略，默认 none；keep-one 最多保留一个已结束展示的闲置实例。
+     * 缓存只复用节点，下一次展示仍有新的 show.scope；模块结束时缓存也会驱逐。
+     */
     readonly cache?: 'none' | 'keep-one';
+    /**
+     * 同一界面并存策略，默认 reject；allow 允许多个打开实例，结果和展示 Scope 各自独立。
+     */
     readonly duplicate?: 'reject' | 'allow';
+    /**
+     * 是否阻挡下层框架 UI 的输入。省略时 popup 和 loading 会阻挡，其他层默认不阻挡。
+     * 节点本身的点击范围仍取决于预制体布局；不是全局系统输入拦截器。
+     */
     readonly modal?: boolean;
 }
 type Instance = {
@@ -67,6 +160,10 @@ type RecordView = {
     unown: () => void;
 };
 const layerOrder = { page: 0, popup: 1, overlay: 2, toast: 3, loading: 4 };
+/**
+ * 统一管理完整 UI 的加载、模块持有、显示生命周期、输入层级、结果和页面栈。
+ * 通过生成的 ViewKey 打开；界面内部只重写 UIView 的框架钩子。
+ */
 export class UIManager {
     private readonly definitions = new Map<string, ViewDefinition>();
     private readonly records = new Map<number, RecordView>();
@@ -78,6 +175,18 @@ export class UIManager {
     private sequence = 0;
     private showing = 0;
     private accepting = true;
+    /**
+     * @internal
+     * 由 App 创建 UI 层并接入资源、模块及时间服务。
+     * @param root - Canvas 下的 UI 根节点。
+     * @param assets - 共享资源管理器。
+     * @param modules - 模块业务及代码管理器。
+     * @param time - 业务时间服务。
+     * @param clock - 前台清理超时计时器。
+     * @param definitions - 界面装配描述。
+     * @param report - 异步错误上报器。
+     * @param cleanupTimeoutMs - 清理超时毫秒数，默认 10000；超时隔离未完成实例，不强制释放。
+     */
     constructor(
         private readonly root: Node,
         private readonly assets: Assets,
@@ -105,6 +214,21 @@ export class UIManager {
         }
         modules.evictIdleViews = (id) => this.evictModule(id);
     }
+    /**
+     * 加载并显示一个界面，等待 onCreate/onShow 就绪后返回句柄，不等待玩家关闭。
+     * @param key - 生成的 ViewKey，决定参数及返回结果类型。
+     * @param params - 打开参数；普通对象及数组递归复制、冻结，函数和类服务实例保留身份；不要传循环结构。
+     * @param owner - 界面所有者，取消时关闭。子弹窗通常使用父界面的 show.scope。
+     * @returns 打开句柄，通过 handle.result 另行等待业务结果；onShow 已 finish 时可能返回已结束句柄。
+     * @throws FrameworkError 未登记、重复打开被禁止、绑定/初始化失败或上一实例仍异常清理；打开前取消会抛 OperationCancelled。
+     * @remarks open 不自动维护页面返回栈，页面导航请用 pushPage。
+     * @example
+     * const popup = await this.ctx.ui.open(RewardViews.rewardPopup, params, show.scope);
+     * const result = await popup.result;
+     * if (result.status === "completed") {
+     *     show.commit(() => this.renderReward(result.value));
+     * }
+     */
     async open<P, R>(key: ViewKey<P, R>, params: P, owner: Scope): Promise<ViewHandle<R>> {
         owner.signal.throwIfAborted();
         invariant(this.accepting, 'APP_STOPPING', 'UI is shutting down');
@@ -425,6 +549,10 @@ export class UIManager {
             await instance.scope.close();
         }
     }
+    /**
+     * @internal
+     * 销毁指定模块的闲置 UI 缓存，不关闭它当前已打开的界面；模块清理时自动调用。
+     */
     async evictModule(module: string): Promise<void> {
         for (const [id, instance] of Array.from(this.cache))
             if (instance.definition.module === module) {
@@ -449,6 +577,15 @@ export class UIManager {
             void this.requestClose(record, { status: 'failed', error, cleanupPending: false }).catch(this.report);
         }
     }
+    /**
+     * 串行导航到 page 层界面，并把它压入页面栈；新页面打开后暂停前一页的展示。
+     * @param key - kind 必须为 page 的 ViewKey。
+     * @param params - 页面打开参数，快照规则与 open 相同。
+     * @param owner - 页面所属导航会话；应覆盖该页的存活期，避免使用即将被暂停的上一页 show.scope。
+     * @returns 新页面句柄，不等待页面结束或前一页全部清理完成。
+     * @remarks 上一页暂停时结束旧 show.scope；返回后重新执行 onShow，并提供新的展示上下文。
+     * @throws FrameworkError 目标不是页面或打开失败；取消错误与 open 一致。
+     */
     pushPage<P, R>(key: ViewKey<P, R>, params: P, owner: Scope): Promise<ViewHandle<R>> {
         return this.navigate(() => this.pushPageNow(key, params, owner));
     }
@@ -477,6 +614,12 @@ export class UIManager {
         this.updateInput();
         return handle;
     }
+    /**
+     * 串行关闭当前栈顶页面，然后恢复前一页；空栈时直接完成，只有一页时会关闭最后一页。
+     * @returns 关闭及恢复完成的 Promise。
+     * @remarks 在即将关闭页面的受跟踪任务中，不要 await back，否则关闭会反过来等待该任务。
+     * 由外部导航协调器等待，或发起后结束当前回调并另行处理错误。
+     */
     back(): Promise<void> {
         return this.navigate(async () => {
             const current = this.pages[this.pages.length - 1];
@@ -484,6 +627,11 @@ export class UIManager {
             await this.resumeTop();
         });
     }
+    /**
+     * @internal
+     * App 关停时停止接受新界面、关闭全部操作、销毁缓存及 UI 层节点。
+     * @returns 所有界面及层节点实际清理完成后结束。
+     */
     async close(): Promise<void> {
         this.accepting = false;
         await Promise.all(

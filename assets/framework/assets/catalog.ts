@@ -13,8 +13,20 @@ const kinds: Record<AssetKind, string> = {
     Font: 'font',
     SceneAsset: 'scene',
 };
+/**
+ * Cocos 资源种类对应的逻辑 ID 段，例如 SpriteFrame → sprite、Prefab → prefab。
+ * 只读映射，生成器和运行时必须采用同一套命名。
+ */
 export const assetKinds = Object.freeze(kinds);
 const segment = /^[a-z][a-z0-9-]*$/;
+/**
+ * 构造并校验逻辑资源键，不读取清单、不检查资源是否存在。
+ * @param name - 未提供 namespace 时为完整 ID；提供 namespace 时为资源相对名称或路径。
+ * @param type - Cocos 资源种类，例如 SpriteFrame。
+ * @param namespace - 可选“模块/资源包”，例如 lobby/default。
+ * @returns 校验后的 AssetKey。
+ * @throws FrameworkError 名称段不满足小写字母开头、数字或连字符规则，或种类不匹配。
+ */
 export function logicalKey(name: string, type: AssetKind, namespace?: string): AssetKey {
     invariant(type in kinds, 'ASSET_TYPE_UNKNOWN', `Unsupported asset kind: ${type}`);
     const id = namespace ? `${namespace}/${kinds[type]}/${name}` : name;
@@ -26,6 +38,13 @@ export function logicalKey(name: string, type: AssetKind, namespace?: string): A
     );
     return { id, type };
 }
+/**
+ * @internal
+ * 检查索引版本、命名空间、资源地址和别名结构，供加载器使用；失败抛出 FrameworkError。
+ * @param value - 从 JsonAsset 读取的未知数据。
+ * @param namespace - 预期的“模块/资源包”。
+ * @returns 通过校验的索引对象；不会加载其中的资源。
+ */
 export function validateIndex(value: unknown, namespace: string): NamespaceIndex {
     const index = value as NamespaceIndex;
     invariant(
@@ -78,6 +97,15 @@ export function validateIndex(value: unknown, namespace: string): NamespaceIndex
     }
     return index;
 }
+/**
+ * @internal
+ * 从已经加载的清单解析资源地址，支持别名和可选的唯一短名称匹配。
+ * @param index - 已校验的命名空间索引。
+ * @param key - 待查的逻辑 ID 和资源种类。
+ * @param shortName - 默认 false；为 true 且 ID 只有四段时，允许按文件末段查找唯一候选。
+ * @returns 清单中的资源地址；不会下载目标资源。
+ * @throws FrameworkError 名称有歧义、资源未登记或种类不匹配。
+ */
 export function resolveIndex(index: NamespaceIndex, key: AssetKey, shortName = false): AssetAddress {
     let id = index.aliases?.[key.id] ?? key.id;
     if (shortName && !index.aliases?.[key.id] && key.id.split('/').length === 4) {

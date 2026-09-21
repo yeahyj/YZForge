@@ -4,17 +4,52 @@ import { AssetKey } from '../assets/asset-types';
 import { ClockDriver } from '../core/clock-driver';
 import { invariant, OperationCancelled, reportError } from '../core/errors';
 import { Scope } from '../core/scope';
+/**
+ * 音频通道名：内置 bgm 背景音乐、sfx 音效、voice 语音，也可使用 AppOptions.audioChannels 中声明的通道。
+ */
 export type AudioChannel = 'bgm' | 'sfx' | 'voice' | (string & {});
+/**
+ * 单次播放选项；实际音量为总音量 × 通道音量 × 本次音量，静音时输出为 0。
+ */
 export interface AudioOptions {
+    /**
+     * 通道，默认 sfx；bgm 采用单首替换策略，其他通道可并行播放。
+     */
     readonly channel?: AudioChannel;
+    /**
+     * 是否循环；bgm 默认 true，其他通道默认 false。循环播放需 stop 或由所有者结束。
+     */
     readonly loop?: boolean;
+    /**
+     * 本次播放音量，0～1，默认 1；不会修改通道或总音量。
+     */
     readonly volume?: number;
 }
+/**
+ * 一次托管播放的句柄，可暂停、继续、停止并观察结束。owner 取消时也会停止并归还音频引用。
+ */
 export interface PlaybackHandle {
+    /**
+     * 播放任务是否仍存活；暂停时仍为 true，停止或自然结束后为 false，不等同于当前扬声器正在发声。
+     */
     readonly active: boolean;
+    /**
+     * 播放结束结果：自然结束为 ended，手动停止、被替换或所有者取消为 stopped。
+     * 所有者取消时可能先报告 stopped，不能用它判断全部资源清理已完成；需要等待主动清理时调用 stop。
+     */
     readonly ended: Promise<'ended' | 'stopped'>;
+    /**
+     * 停止本次播放并清理其子 Scope；可重复调用。
+     * @returns 本次清理结束时完成的 Promise。
+     */
     stop(): Promise<void>;
+    /**
+     * 手动暂停，保留播放句柄和音频引用；回到前台不会自动解除手动暂停。
+     */
     pause(): void;
+    /**
+     * 解除手动暂停；应用在前台时恢复播放，在后台时等待回到前台。已结束的句柄不会重新播放。
+     */
     resume(): void;
 }
 type Playing = {
@@ -27,7 +62,10 @@ type Playing = {
     stopped: boolean;
     stop(): Promise<void>;
 };
-/** Pool sources, never fire-and-forget one-shots whose clip lifetime cannot be observed. */
+/**
+ * 托管音频播放、声部复用、BGM 替换和音量。
+ * 每次播放绑定 Scope，避免节点或 UI 已结束却遗留声音及资源引用。
+ */
 export class AudioManager {
     private readonly root: Node;
     private readonly free: AudioSource[] = [];
@@ -42,6 +80,15 @@ export class AudioManager {
     private accepting = true;
     private readonly scope: Scope;
     private readonly stopState: () => void;
+    /**
+     * 由 App 创建音频管理器。
+     * @param parent - 音频根节点的父节点。
+     * @param assets - 共享资源服务。
+     * @param clock - 前后台状态来源。
+     * @param owner - 应用所有者。
+     * @param maxVoices - 最大并发声部数，正整数，默认 16。
+     * @param channels - 额外通道及初始音量，值为 0～1。
+     */
     constructor(
         parent: Node,
         private readonly assets: Assets,
@@ -79,6 +126,18 @@ export class AudioManager {
             }
         });
     }
+    /**
+     * 按生成的音频资源键加载并播放，音频引用跟随 owner 的播放子 Scope。
+     * @param key - AudioClip 资源键。
+     * @param owner - 播放所有者；界面音效可以用 show.scope，常驻音乐需更长的所有者。
+     * @param input - 通道默认 sfx，音量默认 1；bgm 默认循环，其他通道默认不循环。
+     * @returns 可暂停和停止的 PlaybackHandle；后台创建的播放会等待回到前台。
+     * @throws FrameworkError 通道未声明、音量无效、声部达到上限或应用正关停。
+     * @throws OperationCancelled owner 取消或较新的 BGM 请求替代本次请求；资源加载失败也会拒绝。
+     * @example
+     * const sound = await this.ctx.audio.play(clickAudioKey, show.scope);
+     * // 需要提前停止时：await sound.stop();
+     */
     async play(key: AssetKey<'AudioClip'>, owner: Scope, input: AudioOptions = {}): Promise<PlaybackHandle> {
         owner.signal.throwIfAborted();
         invariant(this.accepting, 'APP_STOPPING', 'Audio is shutting down');
@@ -195,6 +254,13 @@ export class AudioManager {
             this.loading.delete(scope);
         }
     }
+    /**
+     * 播放背景音乐，等新音频就绪后停止旧 BGM；多次并发请求以最后一次为准。
+     * @param key - 背景音乐资源键。
+     * @param owner - 音乐所有者，应覆盖希望持续播放的业务阶段。
+     * @param input - 可选 loop 和 volume，分别默认 true、1；通道固定为 bgm。
+     * @returns 新 BGM 的播放句柄；旧句柄结束为 stopped。
+     */
     playBgm(
         key: AssetKey<'AudioClip'>,
         owner: Scope,
@@ -202,6 +268,12 @@ export class AudioManager {
     ): Promise<PlaybackHandle> {
         return this.play(key, owner, { ...input, channel: 'bgm' });
     }
+    /**
+     * 修改通道或总音量，并立即更新存活的播放任务。
+     * @param channel - master 表示总音量，其余须为已声明的通道。
+     * @param value - 0～1 的有限数值；不会自动保存到本地。
+     * @throws FrameworkError 音量无效或通道未声明。
+     */
     setVolume(channel: AudioChannel | 'master', value: number): void {
         this.validVolume(value);
         if (channel === 'master') this.master = value;
@@ -211,6 +283,11 @@ export class AudioManager {
         }
         for (const voice of this.playing) this.applyVolume(voice);
     }
+    /**
+     * 读取保存的音量设置，不乘其他音量因子，也不受当前静音状态影响。
+     * @param channel - master 或已声明通道。
+     * @returns 0～1 的音量值。
+     */
     getVolume(channel: AudioChannel | 'master'): number {
         if (channel === 'master') return this.master;
         this.validateChannel(channel);
@@ -223,11 +300,18 @@ export class AudioManager {
             `Declare audio channel in AppOptions: ${channel}`,
         );
     }
+    /**
+     * 切换全局静音，保留各级音量数值及播放进度。
+     * @param muted - true 静音，false 恢复按各级音量输出；不自动持久化设置。
+     */
     setMuted(muted: boolean): void {
         this.muted = muted;
         for (const voice of this.playing) this.applyVolume(voice);
     }
-    /** Call from the host's first user gesture; Cocos owns platform audio-unlock integration. */
+    /**
+     * 在玩家点击等真实交互回调中调用，尝试恢复前台中非手动暂停的声音。
+     * 平台音频解锁仍由 Cocos 和运行平台处理，此调用不保证绕过平台自动播放限制。
+     */
     resumeFromGesture(): void {
         for (const voice of this.playing)
             if (!voice.pausedByUser && !this.clock.background && !voice.source.playing) voice.source.play();
@@ -242,6 +326,11 @@ export class AudioManager {
             'Volume must be in [0, 1]',
         );
     }
+    /**
+     * @internal
+     * App 关停时停止接受播放、结束加载和声音，并销毁音频节点池。
+     * @returns 全部音频清理完成的 Promise。
+     */
     async close(): Promise<void> {
         this.accepting = false;
         this.stopState();

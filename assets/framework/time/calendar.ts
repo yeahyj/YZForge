@@ -1,29 +1,92 @@
 import { invariant } from '../core/errors';
 
+/**
+ * 日历周期单位：day 日、week 周、month 月、year 年。月和年按日历计算，不换算成固定 30/365 天。
+ */
 export type CalendarUnit = 'day' | 'week' | 'month' | 'year';
+/**
+ * 日历增量，例如 { unit: "week", count: 1 } 表示一周。用于日期加减、延后一次和重复周期。
+ */
 export interface CalendarPeriod {
+    /**
+     * 增量采用的日历单位：日、周、月或年。
+     */
     readonly unit: CalendarUnit;
+    /**
+     * 整数数量；calendar.add 允许负数和 0，afterPeriod/everyPeriod 要求正整数。
+     */
     readonly count: number;
 }
+/**
+ * 业务日历规则；低层 calendar 工具独立于项目设置。TimeService 的周期接口会先合并项目默认规则。
+ */
 export interface CalendarOptions {
+    /**
+     * 相对 UTC 的固定时区偏移，单位为分钟，范围 -840～840；480 表示 UTC+8。低层工具默认 0，不自动读取设备或项目时区；不含夏令时切换。
+     */
     readonly offsetMinutes?: number;
+    /**
+     * 每周起始日：0 周日、1 周一、…、6 周六，默认 1。
+     */
     readonly weekStartsOn?: number;
+    /**
+     * 业务日刷新时刻，相对此时区零点的分钟数，范围 0～1439，默认 0；240 表示凌晨 04:00，也影响业务周/月/年的边界。
+     */
     readonly resetMinute?: number;
 }
+/**
+ * 按指定固定时区拆出的日期和时间，各分量为数字；month 从 1 开始。
+ */
 export interface DateParts {
+    /**
+     * 年份，范围 1～9999。
+     */
     readonly year: number;
+    /**
+     * 月份，范围 1～12。
+     */
     readonly month: number;
+    /**
+     * 月内日期，从 1 开始。
+     */
     readonly day: number;
+    /**
+     * 星期编号，0 为周日、6 为周六。
+     */
     readonly weekday: number;
+    /**
+     * 小时，范围 0～23。
+     */
     readonly hour: number;
+    /**
+     * 分钟，范围 0～59。
+     */
     readonly minute: number;
+    /**
+     * 秒，范围 0～59。
+     */
     readonly second: number;
+    /**
+     * 秒内毫秒，范围 0～999。
+     */
     readonly millisecond: number;
 }
+/**
+ * 支持的最早 UTC 毫秒时间戳，对应公历 0001 年起点。
+ */
 export const MIN_EPOCH_MS = -62135596800000;
+/**
+ * 支持的最晚 UTC 毫秒时间戳，对应公历 9999 年末。
+ */
 export const MAX_EPOCH_MS = 253402300799999;
 const DAY = 86400000;
 const units: readonly CalendarUnit[] = ['day', 'week', 'month', 'year'];
+/**
+ * 校验 UTC 毫秒时间戳为支持范围内的安全整数。
+ * @param value 从 Unix 纪元起计算的毫秒数，不能传秒。
+ * @returns 原值。
+ * @throws INVALID_TIME：数值无效或超出支持的年份。
+ */
 export function validEpoch(value: number): number {
     invariant(
         Number.isSafeInteger(value) && value >= MIN_EPOCH_MS && value <= MAX_EPOCH_MS,
@@ -32,6 +95,11 @@ export function validEpoch(value: number): number {
     );
     return value;
 }
+/**
+ * 补齐并验证低层日历选项：默认 UTC+0、周一、一日零点。
+ * @param input 需要覆盖的日历规则；不读取项目设置。
+ * @returns 三个字段均明确的日历选项。
+ */
 export function options(input: CalendarOptions = {}): Required<CalendarOptions> {
     const result = {
         offsetMinutes: input.offsetMinutes ?? 0,
@@ -55,6 +123,12 @@ export function options(input: CalendarOptions = {}): Required<CalendarOptions> 
     );
     return result;
 }
+/**
+ * 验证周期单位和整数数量。
+ * @param period 日历增量。
+ * @param positive 为 true 时数量必须大于 0，默认 false 允许 0 和负数。
+ * @throws INVALID_CALENDAR_PERIOD：单位或数量无效。
+ */
 export function validPeriod(period: CalendarPeriod, positive = false): void {
     invariant(
         units.includes(period.unit) && Number.isSafeInteger(period.count) && (!positive || period.count > 0),
@@ -80,6 +154,12 @@ function fromDate(date: Date): DateParts {
         millisecond: date.getUTCMilliseconds(),
     });
 }
+/**
+ * 将毫秒时间戳拆成年、月、日、时、分、秒等分量。
+ * @param epochMs UTC 毫秒时间戳。
+ * @param offsetMinutes 固定时区偏移分钟数，默认 0；北京时间传 480。
+ * @returns 只读日期分量对象，原时间戳不会被修改。
+ */
 export function parts(epochMs: number, offsetMinutes = 0): DateParts {
     options({ offsetMinutes });
     const result = fromDate(new Date(validEpoch(epochMs) + offsetMinutes * 60000));
@@ -88,10 +168,22 @@ export function parts(epochMs: number, offsetMinutes = 0): DateParts {
 }
 const pad = (value: number, length = 2) => String(value).padStart(length, '0');
 const dateText = (p: DateParts) => `${pad(p.year, 4)}-${pad(p.month)}-${pad(p.day)}`;
+/**
+ * 转换为 UTC 的标准 ISO 文本，结尾为 Z，包含毫秒。
+ * @param epochMs UTC 毫秒时间戳。
+ * @returns 例如 2026-09-21T04:00:00.000Z；不使用业务时区。
+ */
 export function toISO(epochMs: number): string {
     return new Date(validEpoch(epochMs)).toISOString();
 }
-/** Strict RFC3339 subset: explicit zone, real calendar date, no rollover or leap seconds. */
+/**
+ * 严格解析带时区的 ISO 日期时间；检查真实日期，不猜测本地时区。
+ * @param text 必须带 Z 或 ±HH:mm，可带 1～3 位小数秒；不接受单独日期或 Excel 序号。
+ * @returns UTC 毫秒时间戳。
+ * @throws INVALID_ISO_TIME：文本或日期无效。
+ * @example
+ * const deadlineMs = show.time.calendar.parseISO("2026-10-01T04:00:00+08:00");
+ */
 export function parseISO(text: string): number {
     const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/.exec(text);
     invariant(m, 'INVALID_ISO_TIME', 'Use YYYY-MM-DDTHH:mm:ss[.SSS]Z or an explicit ±HH:mm offset');
@@ -121,11 +213,28 @@ export function parseISO(text: string): number {
     );
     return validEpoch(local - offset * 60000);
 }
+/**
+ * 将毫秒时间戳转换成用于界面显示的日期/时间字符串。
+ * 这是独立格式化工具，当前不自动继承面板的日历偏移，也不修改时间戳。
+ * @param epochMs UTC 毫秒时间戳，例如 show.time.nowMs()。
+ * @param style date 为 YYYY-MM-DD，time 为 HH:mm:ss，datetime 为两者组合；默认 datetime。
+ * @param offsetMinutes 相对 UTC 的分钟偏移，默认 0；480 表示 UTC+8。
+ * @returns 例如 2026-09-21 12:00:00。
+ * @example
+ * const text = show.time.calendar.format(show.time.nowMs(), 'datetime', 480);
+ */
 export function format(epochMs: number, style: 'date' | 'time' | 'datetime' = 'datetime', offsetMinutes = 0): string {
     const p = parts(epochMs, offsetMinutes);
     const time = `${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
     return style === 'date' ? dateText(p) : style === 'time' ? time : `${dateText(p)} ${time}`;
 }
+/**
+ * 按日历加减周期。日/周按固定 24 小时/7 天；月/年保持时分秒，日期超出目标月份时收敛到月末。
+ * @param epochMs 起点 UTC 毫秒时间戳。
+ * @param period 日历单位和整数数量，允许负数和 0。
+ * @param offsetMinutes 计算月/年时使用的固定时区偏移分钟数，默认 0。
+ * @returns 新的 UTC 毫秒时间戳，不修改起点。
+ */
 export function add(epochMs: number, period: CalendarPeriod, offsetMinutes = 0): number {
     validPeriod(period);
     const p = parts(epochMs, offsetMinutes);
@@ -140,6 +249,13 @@ export function add(epochMs: number, period: CalendarPeriod, offsetMinutes = 0):
         utc(year, month, Math.min(p.day, lastDay), p.hour, p.minute, p.second, p.millisecond) - offsetMinutes * 60000,
     );
 }
+/**
+ * 获取该时刻所属业务日/周/月/年的起点。
+ * @param epochMs UTC 毫秒时间戳。
+ * @param unit 业务周期单位。
+ * @param input 日历规则；低层默认 UTC+0/周一/零点，resetMinute 会改变周期归属。
+ * @returns 周期起点的 UTC 毫秒时间戳。
+ */
 export function startOf(epochMs: number, unit: CalendarUnit, input: CalendarOptions = {}): number {
     validPeriod({ unit, count: 1 });
     const o = options(input);
@@ -151,22 +267,54 @@ export function startOf(epochMs: number, unit: CalendarUnit, input: CalendarOpti
     if (unit === 'year') start = utc(p.year, 1, 1);
     return validEpoch(start - shift);
 }
+/**
+ * 获取当前业务周期结束后，下一个周期的起点。
+ * @param epochMs 当前 UTC 毫秒时间戳。
+ * @param unit 周期单位。
+ * @param input 时区、每周起始日和刷新分钟；默认使用低层规则。
+ * @returns 下一个边界的 UTC 毫秒时间戳。
+ */
 export function nextBoundary(epochMs: number, unit: CalendarUnit, input: CalendarOptions = {}): number {
     return add(startOf(epochMs, unit, input), { unit, count: 1 }, options(input).offsetMinutes);
 }
+/**
+ * 生成业务周期标识，可保存用于业务去重；标识包含日期、单位和日历规则。
+ * @param epochMs UTC 毫秒时间戳。
+ * @param unit 周期单位。
+ * @param input 日历规则，比较标识时应使用一致规则。
+ * @returns 周期标识字符串；格式应整体保存，不建议依赖字符串下标解析业务字段。
+ */
 export function periodKey(epochMs: number, unit: CalendarUnit, input: CalendarOptions = {}): string {
     const o = options(input);
     const date = dateText(parts(startOf(epochMs, unit, o), o.offsetMinutes));
     return `${unit}:${date}:o${o.offsetMinutes}:w${o.weekStartsOn}:r${o.resetMinute}`;
 }
+/**
+ * 判断两个时刻是否属于相同业务周期。
+ * @param a 第一个 UTC 毫秒时间戳。
+ * @param b 第二个 UTC 毫秒时间戳。
+ * @param unit 日/周/月/年。
+ * @param input 两个时刻共用的日历规则。
+ * @returns 是否具有相同周期起点。
+ */
 export function isSamePeriod(a: number, b: number, unit: CalendarUnit, input?: CalendarOptions): boolean {
     return startOf(a, unit, input) === startOf(b, unit, input);
 }
+/**
+ * 将持续时间转换为 HH:mm:ss，向上取整到秒；小时可超过 24，负数显示为 00:00:00。
+ * @param milliseconds 持续时间，单位为毫秒，不是绝对时间戳。
+ * @returns 不涉及时区的时长文字。
+ * @example
+ * const text = show.time.calendar.formatDuration(show.time.remainingMs(deadlineMs));
+ */
 export function formatDuration(milliseconds: number): string {
     invariant(Number.isFinite(milliseconds), 'INVALID_DURATION', 'Duration must be finite');
     const seconds = Math.ceil(Math.max(0, milliseconds) / 1000);
     return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
 }
+/**
+ * 纯日期工具集合，提供解析、格式化、周期运算和比较。各方法有独立默认参数；通过 show.time.calendar 访问也不会自动合并项目日历规则。
+ */
 export const calendar = Object.freeze({
     toISO,
     parseISO,
@@ -177,7 +325,19 @@ export const calendar = Object.freeze({
     nextBoundary,
     periodKey,
     isSamePeriod,
+    /**
+     * 取得当前时刻所属业务日的起点，是 startOf(ms, "day", input) 的便捷写法。
+     * @param ms - UTC 毫秒时间戳。
+     * @param input - 固定时区及日切规则，默认 UTC+0、零点；不自动继承项目设置。
+     * @returns 业务日起点的 UTC 毫秒时间戳。
+     */
     dayStartMs: (ms: number, input?: CalendarOptions) => startOf(ms, 'day', input),
+    /**
+     * 取得业务日标识，是 periodKey(ms, "day", input) 的便捷写法，可用于业务去重。
+     * @param ms - UTC 毫秒时间戳。
+     * @param input - 日历规则，默认 UTC+0、周一、零点；跨会话比较应保持规则一致。
+     * @returns 带规则的日标识；保存整个标识，不依赖字符串切片提取日期。
+     */
     dayKey: (ms: number, input?: CalendarOptions) => periodKey(ms, 'day', input),
     formatDuration,
 });

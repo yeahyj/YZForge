@@ -1,8 +1,18 @@
 import { CancellationSource, CancellationSignal } from './cancellation';
 import { ErrorReporter, FrameworkError, OperationCancelled, reportError } from './errors';
 type Cleanup = () => void | Promise<void>;
-/** Cancellation is immediate; close resolves only after physical cleanup. */
+/**
+ * 一段明确的使用期限，统一管理任务、资源持有和清理函数。
+ * 关闭时先取消，再等待已登记任务结束，最后清理资源；其他 Scope 的共享持有不受影响。
+ * show.scope 对应本次界面显示，ctx.scope 对应本次模块业务实例。
+ * @example
+ * const owner = app.flows.child('inventory-flow');
+ * try { await app.modules.use(InventoryModule, owner); } finally { await owner.close(); }
+ */
 export class Scope {
+    /**
+     * 本使用期限的取消信号；关闭开始时即变为 aborted，不必等清理完成。
+     */
     readonly signal: CancellationSignal;
     private readonly source: CancellationSource;
     private readonly children = new Set<Scope>();
@@ -10,20 +20,41 @@ export class Scope {
     private readonly cleanups = new Set<Cleanup>();
     private closing?: Promise<void>;
     private ended = false;
+    /**
+     * 创建独立期限；需要跟随父级结束时优先使用 parent.child(label)。
+     * @param label 日志和错误中的调试名称。
+     * @param report 清理和异步错误的上报函数，默认输出框架日志。
+     */
     constructor(
+        /**
+         * 用于日志和诊断的名称，不作为业务对象的唯一标识。
+         */
         readonly label: string,
         private readonly report: ErrorReporter = reportError,
     ) {
         this.source = new CancellationSource(report);
         this.signal = this.source.signal;
     }
+    /**
+     * 是否已完成全部清理；关闭中可能为 false，而 signal.aborted 已为 true。
+     */
     get closed(): boolean {
         return this.ended;
     }
-    /** @internal Used to reject module self-holds and initialization re-entry. */
+    /**
+     * @internal
+     * 判断 other 是否为自身或后代 Scope，供模块自持有和重入检查使用。
+     * @param other 待检查的使用期限。
+     */
     owns(other: Scope): boolean {
         return this === other || Array.from(this.children).some((child) => child.owns(other));
     }
+    /**
+     * 创建自动跟随当前 Scope 结束的子期限。
+     * @param label 子级调试名称。
+     * @returns 可提前关闭的独立子 Scope；关闭子级不会关闭父级。
+     * @throws 当前 Scope 已取消时抛出 OperationCancelled。
+     */
     child(label: string): Scope {
         this.signal.throwIfAborted();
         const child = new Scope(`${this.label}/${label}`, this.report);
@@ -33,6 +64,13 @@ export class Scope {
         });
         return child;
     }
+    /**
+     * 登记清理函数；close 时逆序执行，支持返回 Promise。
+     * @param cleanup 释放订阅、节点等持有物的函数。
+     * @returns 取消这项清理登记的函数；调用它不会执行 cleanup。
+     * @example
+     * show.scope.defer(() => customListener.dispose());
+     */
     defer(cleanup: Cleanup): () => void {
         this.signal.throwIfAborted();
         this.cleanups.add(cleanup);
@@ -40,13 +78,22 @@ export class Scope {
             this.cleanups.delete(cleanup);
         };
     }
-    /** @internal */
+    /**
+     * @internal
+     * 立即取消自身和子级，阻止新工作及 commit；不等待任务或释放资源，完整关闭使用 close。
+     * @param reason 传递给等待者的取消原因。
+     */
     cancel(reason = new OperationCancelled(`Scope ended: ${this.label}`)): void {
         if (this.signal.aborted) return;
         this.source.cancel(reason);
         for (const child of Array.from(this.children)) child.cancel(reason);
     }
-    /** @internal Register work through a captured task context. */
+    /**
+     * @internal
+     * 登记 Promise，使 close 等待它结束；不强制终止 Promise。业务优先使用 show.run 或 activation.run。
+     * @param task 纳入关闭屏障的工作。
+     * @returns 传入的同一个 Promise。
+     */
     track<T>(task: Promise<T>): Promise<T> {
         this.signal.throwIfAborted();
         this.tasks.add(task);
@@ -56,6 +103,12 @@ export class Scope {
         );
         return task;
     }
+    /**
+     * 立即取消，再等待登记任务和子级，最后执行清理；重复调用返回同一个 Promise。
+     * 不要在自身登记的任务中 await 自身 close，否则可能等待自己。此方法本身不设超时。
+     * @returns 全部清理完成后兑现。
+     * @throws SCOPE_CLEANUP_FAILED：汇总非取消错误，其余清理仍会继续。
+     */
     close(): Promise<void> {
         if (this.closing) return this.closing;
         let resolve!: () => void;
@@ -91,7 +144,11 @@ export class Scope {
         if (failures.length)
             throw new FrameworkError('SCOPE_CLEANUP_FAILED', `Cleanup failed: ${this.label}`, { failures });
     }
-    /** @internal Wait without releasing resources; UI hides only after this barrier. */
+    /**
+     * @internal
+     * 等待当前登记的自身与后代任务结束，保留资源持有，供 UI 隐藏屏障使用。
+     * @returns 各任务的完成或失败结果。
+     */
     async drainTasks(): Promise<PromiseSettledResult<unknown>[]> {
         const [own, nested] = await Promise.all([
             Promise.allSettled(Array.from(this.tasks)),
@@ -100,11 +157,36 @@ export class Scope {
         return [...own, ...nested.flat()];
     }
 }
+/**
+ * 一次受 Scope 管理的工作上下文。捕获本次上下文，异步返回后通过 commit 更新界面，避免旧结果写入下一次显示。
+ */
 export interface TaskContext {
+    /**
+     * 该任务持有资源和订阅的期限，传给 config.load、assets.load 等接口。
+     */
     readonly scope: Scope;
+    /**
+     * 该任务的取消信号；网络适配和长任务应主动响应或检查它。
+     */
     readonly signal: CancellationSignal;
+    /**
+     * 仅在 Scope 未取消且此次上下文仍有效时执行同步更新。
+     * show.commit 还检查当前显示是否被替换、结束或挂起；同一次显示内多个请求的先后顺序需业务另行处理。
+     * @param action 同步赋值或节点更新，不能传 async 函数或在其中 await。
+     * @returns 已执行为 true；上下文失效、跳过执行为 false。
+     * @throws ASYNC_COMMIT：回调返回 Promise；回调自己的异常继续向外抛出。
+     * @example
+     * const items = await ctx.config.load(ItemsTable, show.scope);
+     * show.commit(() => { label.string = items.require(1).name; });
+     */
     commit(action: () => void): boolean;
 }
+/**
+ * 构造绑定到固定 Scope 的任务上下文；UI 通常直接使用 show 或 activation。
+ * @param scope 该次工作的使用期限。
+ * @param isCurrent 可选的当前代次检查，默认只检查取消状态。
+ * @returns 属性不可替换的上下文。
+ */
 export function taskContext(scope: Scope, isCurrent: () => boolean = () => true): TaskContext {
     return Object.freeze({
         scope,
@@ -118,6 +200,13 @@ export function taskContext(scope: Scope, isCurrent: () => boolean = () => true)
         },
     });
 }
+/**
+ * 登记并执行同步或异步工作，使 owner.close 等待它结束；已运行的外部 Promise 需自行响应 signal。
+ * @param owner 工作所属的期限。
+ * @param task 在下一次 Promise 微任务中执行的函数。
+ * @param isCurrent 可选的代次检查，阻止过期提交。
+ * @returns 任务结果或错误；调用方应 await 或处理失败。
+ */
 export function runTask<T>(
     owner: Scope,
     task: (context: TaskContext) => T | Promise<T>,

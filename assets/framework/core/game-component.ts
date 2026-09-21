@@ -5,12 +5,30 @@ import { invariant, reportError } from './errors';
 import { assertLifecycle, synchronous } from './lifecycle';
 import { runTask, Scope, taskContext, TaskContext } from './scope';
 const { ccclass } = _decorator;
+/**
+ * 组件或 Part 的一次业务激活上下文；禁用或宿主结束时取消，重新激活得到新上下文。
+ */
 export interface ActivationContext extends TaskContext {
+    /**
+     * 跟随此次激活的时间接口，取消激活后自动移除日历订阅。
+     */
     readonly time: ScopedTime;
+    /**
+     * 登记此次激活的工作，停用时等待它退出。
+     * @param task 通过 signal 响应取消，异步完成后用 task.commit 同步更新。
+     * @returns 任务结果或错误，调用方应处理 Promise。
+     */
     run<T>(task: (context: TaskContext) => T | Promise<T>): Promise<T>;
 }
+/**
+ * 普通节点组件和 Part 的框架基类，使用 onInit/onActivate/onTick 等钩子。
+ * 必须经框架实例化或 app.bindScene 注入宿主后才开始业务，不覆盖 Cocos 生命周期。
+ */
 @ccclass('yzforge.GameComponent')
 export class GameComponent extends Component {
+    /**
+     * onInit 前注入的业务宿主上下文；跨模块 Part 通常使用调用方宿主。
+     */
     protected ctx!: ModuleContext;
     private instance?: Scope;
     private time?: TimeService;
@@ -22,19 +40,56 @@ export class GameComponent extends Component {
     private disposed = false;
     private allowed = false;
     private engineLoaded = false;
+    /**
+     * 读取生成 Binding 中的必需引用，当前实现进行非空检查。
+     * @param value - 由 Creator 自动写入的引用。
+     * @param nodeName - 原节点名，用于错误定位。
+     * @returns 非空引用；若业务会主动销毁节点，使用前仍需确认其引擎有效性。
+     * @throws FrameworkError 引用缺失时抛 BINDING_MISSING。
+     */
     protected requireBinding<T>(value: T | null, nodeName: string): T {
         invariant(value, 'BINDING_MISSING', `${this.name}: ${nodeName}`);
         return value;
     }
+    /**
+     * 生成 Binding 在 onInit 前执行的同步校验；通过面板扫描更新。
+     */
     protected validateBindings(): void {}
+    /**
+     * 引擎已加载且宿主已注入后，进行一次同步实例初始化；业务激活由后续 onActivate 处理。
+     */
     protected onInit(): void {}
+    /**
+     * 每次组件启用且宿主允许业务运行时同步调用。
+     * @param _activation 本次激活的 Scope、signal、time、run 和 commit；异步工作放在 run 中并处理错误。
+     */
     protected onActivate(_activation: ActivationContext): void {}
+    /**
+     * 实例第一次有效业务帧中，在 onTick 前同步调用一次；再次激活不会重复调用。
+     */
     protected onReady(): void {}
+    /**
+     * 业务激活期间每帧同步更新，禁用或宿主取消后停止。
+     * @param _dt 引擎帧间隔，单位为秒；业务日期通过时间服务获取。
+     */
     protected onTick(_dt: number): void {}
+    /**
+     * 激活且 onReady 已完成后，在引擎 lateUpdate 阶段同步调用。
+     * @param _dt 引擎帧间隔，单位为秒。
+     */
     protected onLateTick(_dt: number): void {}
+    /**
+     * 此次激活结束时同步调用；上下文已取消，登记工作随后排空，下次激活会等待旧工作退出。
+     */
     protected onDeactivate(): void {}
+    /**
+     * 已执行 onInit 的实例最终销毁时同步调用一次，普通禁用不会触发。
+     */
     protected onDispose(): void {}
-    /** @internal Inject before the first engine activation. */
+    /**
+     * @internal
+     * 框架内部类型标记或生命周期入口，业务通过公开上下文和管理器使用，不直接读写或调用。
+     */
     __bind(ctx: ModuleContext, instance: Scope, time: TimeService): void {
         assertLifecycle(this, GameComponent.prototype);
         invariant(!this.instance, 'COMPONENT_ALREADY_BOUND', this.name);
@@ -51,7 +106,10 @@ export class GameComponent extends Component {
         });
         if (this.engineLoaded) this.initialize();
     }
-    /** @internal An explicit business gate, separate from engine enabled/active. */
+    /**
+     * @internal
+     * 框架内部类型标记或生命周期入口，业务通过公开上下文和管理器使用，不直接读写或调用。
+     */
     __allow(owner: Scope | undefined): void {
         this.owner = owner;
         this.allowed = !!owner;
@@ -61,6 +119,10 @@ export class GameComponent extends Component {
         }
         if (this.enabledInHierarchy && this.initialized && !this.draining) this.activate();
     }
+    /**
+     * @internal
+     * 引擎生命周期适配入口，由框架调用；业务请重写对应的 onShow、onActivate、onTick 等框架钩子。
+     */
     onLoad(): void {
         this.engineLoaded = true;
         // Scene hosts may bind after engine onLoad. No business hook runs before injection.
@@ -72,12 +134,24 @@ export class GameComponent extends Component {
         this.initialized = true;
         synchronous(this.onInit(), 'onInit');
     }
+    /**
+     * @internal
+     * 引擎生命周期适配入口，由框架调用；业务请重写对应的 onShow、onActivate、onTick 等框架钩子。
+     */
     onEnable(): void {
         if (this.allowed && this.initialized && !this.draining) this.activate();
     }
+    /**
+     * @internal
+     * 引擎生命周期适配入口，由框架调用；业务请重写对应的 onShow、onActivate、onTick 等框架钩子。
+     */
     start(): void {
         /* Readiness is dispatched immediately before the first business frame. */
     }
+    /**
+     * @internal
+     * 引擎生命周期适配入口，由框架调用；业务请重写对应的 onShow、onActivate、onTick 等框架钩子。
+     */
     update(dt: number): void {
         if (!this.activation || this.activation.signal.aborted) return;
         try {
@@ -92,6 +166,10 @@ export class GameComponent extends Component {
             reportError(error);
         }
     }
+    /**
+     * @internal
+     * 引擎生命周期适配入口，由框架调用；业务请重写对应的 onShow、onActivate、onTick 等框架钩子。
+     */
     lateUpdate(dt: number): void {
         if (!this.activation || this.activation.signal.aborted || !this.ready) return;
         try {
@@ -102,9 +180,17 @@ export class GameComponent extends Component {
             reportError(error);
         }
     }
+    /**
+     * @internal
+     * 引擎生命周期适配入口，由框架调用；业务请重写对应的 onShow、onActivate、onTick 等框架钩子。
+     */
     onDisable(): void {
         void this.__deactivate().catch(reportError);
     }
+    /**
+     * @internal
+     * 引擎生命周期适配入口，由框架调用；业务请重写对应的 onShow、onActivate、onTick 等框架钩子。
+     */
     onDestroy(): void {
         void this.__deactivate()
             .then(() => this.__dispose())
@@ -128,7 +214,10 @@ export class GameComponent extends Component {
             throw error;
         }
     }
-    /** @internal Old activations drain before another one can run. */
+    /**
+     * @internal
+     * 框架内部类型标记或生命周期入口，业务通过公开上下文和管理器使用，不直接读写或调用。
+     */
     __deactivate(): Promise<void> {
         if (this.draining) return this.draining;
         const activation = this.activation;
@@ -149,7 +238,10 @@ export class GameComponent extends Component {
             if (this.allowed && this.enabledInHierarchy) this.activate();
         });
     }
-    /** @internal */
+    /**
+     * @internal
+     * 框架内部类型标记或生命周期入口，业务通过公开上下文和管理器使用，不直接读写或调用。
+     */
     __dispose(): void {
         if (this.disposed || !this.initialized) return;
         this.disposed = true;
