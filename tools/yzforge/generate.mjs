@@ -2,9 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { extname, relative, resolve } from 'node:path';
 import { register } from 'node:module';
 import { compileTables } from './config.mjs';
-import { lifecycleCheck, validateModules } from './checks.mjs';
+import { lifecycleCheck, validateModules, codeBoundaryCheck } from './checks.mjs';
 import settingsTools from './settings.cjs';
 import formatting from './format.cjs';
+import { workbookSources } from './workbooks.mjs';
+import { identityFile, scanCatalog, scriptDependencies } from './catalog.mjs';
 import { digest, files, identifier, json, modules, pascal, safePath, writeBatch, withProjectLock } from './project.mjs';
 register('./test-loader.mjs', import.meta.url);
 const runtime = {
@@ -37,11 +39,13 @@ async function metadata(root) {
 export async function generate(root, input = {}) {
     return withProjectLock(root, () => generateLocked(root, input));
 }
-async function generateLocked(root, { check = false, preview = false, allowObsolete = false } = {}) {
+async function generateLocked(
+    root,
+    { check = false, preview = false, allowObsolete = false, platform, previewFormulas = false } = {},
+) {
     const settings = await json(resolve(root, 'project-settings/framework.json'));
     const appOptions = settingsTools.runtimeOptions(settings);
     const projectModules = await modules(root);
-    validateModules(projectModules);
     const issues = await lifecycleCheck(root);
     if (issues.length) throw Error(issues.join('\n'));
     const meta = await metadata(root),
@@ -52,9 +56,16 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
         definitions = [],
         viewDefinitions = [],
         imports = [];
+    const sources = await workbookSources(root);
+    const identities = await scanCatalog(root, projectModules, meta, sources);
+    validateModules(projectModules);
+    await codeBoundaryCheck(root, projectModules);
+    const requiredScripts = await scriptDependencies(projectModules, meta);
+    output[identityFile] = JSON.stringify(identities, null, 2) + '\n';
     const paths = new Set();
     for (const module of projectModules) {
         const prefix = forward(relative(root, module.directory));
+        const generatedRoot = `${prefix}/${module.layoutVersion === 2 ? 'contracts/' : ''}generated`;
         const groups = new Map();
         for (const [group, definition] of Object.entries(module.bundles)) {
             const directory = await safePath(root, resolve(module.directory, definition.root));
@@ -72,7 +83,7 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
                 dependencies: definition.dependencies ?? [],
             };
             namespaces[`${module.id}/${group}`] = { bundle: definition.id, path: 'yz-index' };
-            groups.set(group, { formatVersion: 1, namespace: `${module.id}/${group}`, assets: {} });
+            groups.set(group, { formatVersion: 2, namespace: `${module.id}/${group}`, assets: {} });
         }
         const generatedKeys = new Map();
         for (const [id, registration] of Object.entries(module.assets ?? {})) {
@@ -123,11 +134,13 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
                 path,
                 type: registration.type,
                 ...(registration.atlasFrame ? { atlasFrame: registration.atlasFrame } : {}),
-                ...(registration.type === 'Prefab' ? { codeModule: module.id } : {}),
+                ...(['Prefab', 'SceneAsset'].includes(registration.type)
+                    ? { requiredCodeModules: await requiredScripts(registration.uuid) }
+                    : {}),
             };
             groups.get(parts[1]).assets[id] = address;
             registry.set(id, { ...registration, address });
-            const publicName = `${parts[1]}/${parts[2]}/${identifier(parts[3])}`;
+            const publicName = `${parts[1]}/${parts[2]}/${identifier(parts.slice(3).join('-'))}`;
             if (generatedKeys.has(publicName)) throw Error(`Generated identifier collision: ${id}`);
             generatedKeys.set(publicName, key);
         }
@@ -140,14 +153,12 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
                 if (keyGroup !== group) continue;
                 (keys[kind] ??= {})[name] = key;
             }
-            output[`${prefix}/generated/resources-${group}.ts`] =
-                `// Generated from module.json UUID registrations.\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${JSON.stringify(keys, null, 2)} as const;\n`;
+            output[`${generatedRoot}/resources-${group}.ts`] =
+                `// Generated from Creator assets and stable resource identities.\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${JSON.stringify(keys, null, 2)} as const;\n`;
         }
         const viewImports = [],
             viewKeys = [];
-        const frameworkPath = forward(
-            relative(resolve(module.directory, 'generated'), resolve(root, 'assets/framework')),
-        );
+        const frameworkPath = forward(relative(resolve(root, generatedRoot), resolve(root, 'assets/framework')));
         for (const [name, view] of Object.entries(module.views ?? {})) {
             let types = 'unknown, unknown';
             if (view.binding && view.className) {
@@ -156,10 +167,7 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
                     .replace('/generated/', '/')
                     .replace(/Binding\.ts$/, '.types.ts');
                 const source = forward(
-                    relative(
-                        resolve(module.directory, 'generated'),
-                        await safePath(root, resolve(module.directory, file)),
-                    ),
+                    relative(resolve(root, generatedRoot), await safePath(root, resolve(module.directory, file))),
                 ).replace(/\.ts$/, '');
                 viewImports.push(`import type { ${type}Params, ${type}Result } from ${JSON.stringify(source)};`);
                 types = `${type}Params, ${type}Result`;
@@ -168,9 +176,9 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
                 `  ${identifier(name)}: { id: ${JSON.stringify(`${module.id}.${name}`)} } as ViewKey<${types}>,`,
             );
         }
-        output[`${prefix}/generated/views.ts`] =
+        output[`${generatedRoot}/views.ts`] =
             `// Generated typed view references. No prefab, component or row data is imported.\nimport type { ViewKey } from '${frameworkPath}/ui/ui-manager';\n${viewImports.join('\n')}\nexport const ${pascal(module.id)}Views = {\n${viewKeys.join('\n')}\n} as const;\n`;
-        output[`${prefix}/generated/bundles.ts`] =
+        output[`${generatedRoot}/bundles.ts`] =
             `// Generated bundle references.\nexport const ${pascal(module.id)}Bundles = ${JSON.stringify(Object.fromEntries(Object.entries(module.bundles).map(([name, bundle]) => [identifier(name), { id: bundle.id }])), null, 2)} as const;\n`;
         for (const [name, view] of Object.entries(module.views ?? {}))
             viewDefinitions.push({
@@ -183,8 +191,20 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
                 ...(view.modal !== undefined ? { modal: view.modal } : {}),
             });
         if (module.code?.mode === 'bundled') {
-            if (!settings.platforms?.[settings.activePlatform]?.bundledVerified)
-                throw Error(`bundled code is not validated for platform ${settings.activePlatform}`);
+            const directory = await safePath(root, resolve(module.directory, module.code.root ?? 'code'));
+            const actual = await json(`${directory}.meta`);
+            if (!actual.userData?.isBundle || actual.userData.bundleName !== module.code.bundle)
+                throw Error(`Code Bundle is not configured in Creator: ${module.id}`);
+            if (bundles[module.code.bundle]) throw Error(`Duplicate code/resource Bundle: ${module.code.bundle}`);
+            if (
+                !meta.has(
+                    [...meta].find(
+                        ([, value]) => value.source === resolve(directory, `${module.code.entryPath}.prefab`),
+                    )?.[0],
+                )
+            )
+                throw Error(`Code entry Prefab missing: ${module.id}`);
+            bundles[module.code.bundle] = { id: module.code.bundle, dependencies: [] };
             definitions.push(
                 `{ id: ${JSON.stringify(module.id)}, dependencies: ${JSON.stringify(module.dependencies)}, codeBundle: ${JSON.stringify(module.code.bundle)}, entryPath: ${JSON.stringify(module.code.entryPath)} }`,
             );
@@ -203,8 +223,52 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
             );
         }
     }
-    const tables = await compileTables(root, projectModules, runtime, registry);
+    for (const mapping of sources.tables) {
+        const module = projectModules.find((item) => item.id === mapping.id.split('.')[0]);
+        if (!module) continue;
+        for (const group of mapping.shards
+            ? Object.values(mapping.shards.targets).filter(Boolean)
+            : [mapping.bundle ?? 'default']) {
+            if (!module.bundles[group]) continue;
+            const id = `${module.id}/${group}/json/config/${mapping.id.split('.')[1]}`;
+            registry.set(id, {
+                type: 'JsonAsset',
+                address: {
+                    bundle: module.bundles[group].id,
+                    path: `${module.layoutVersion === 2 ? 'dynamic/' : ''}config/${mapping.id.split('.')[1]}`,
+                    type: 'JsonAsset',
+                },
+            });
+        }
+    }
+    const tables = await compileTables(root, projectModules, runtime, registry, {
+        sources,
+        preview: preview && previewFormulas,
+    });
     Object.assign(output, tables.output);
+    for (const module of projectModules)
+        for (const [group, definition] of Object.entries(module.bundles)) {
+            const target = `${forward(relative(root, module.directory))}/${definition.root}/yz-index.json`;
+            const index = JSON.parse(output[target]);
+            for (const [id, entry] of registry)
+                if (id.startsWith(`${module.id}/${group}/`) && entry.address) index.assets[id] = entry.address;
+            const keys = {};
+            for (const [id, address] of Object.entries(index.assets)) {
+                const parts = id.split('/'),
+                    name = identifier(parts.slice(3).join('-'));
+                if (keys[parts[2]]?.[name]) throw Error(`Generated resource identifier collision: ${id}`);
+                (keys[parts[2]] ??= {})[name] = { id, type: address.type };
+            }
+            const generatedRoot = `${forward(relative(root, module.directory))}/${module.layoutVersion === 2 ? 'contracts/' : ''}generated`;
+            output[`${generatedRoot}/resources-${group}.ts`] =
+                `// Generated from the dynamic resource catalog.\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${JSON.stringify(keys, null, 2)} as const;\n`;
+            const aliases = Object.fromEntries(
+                Object.entries(identities.aliases).filter(([id]) => id.startsWith(`${module.id}/${group}/`)),
+            );
+            if (Object.keys(aliases).length) index.aliases = aliases;
+            runtime.validateIndex(index, `${module.id}/${group}`);
+            output[target] = JSON.stringify(index, null, 2) + '\n';
+        }
     const release = { releaseId: settings.releaseId, bundles, namespaces, tables: tables.routes };
     if (typeof release.releaseId !== 'string' || !release.releaseId) throw Error('framework.json requires a releaseId');
     output['assets/game/app/generated/release.ts'] =
@@ -230,9 +294,13 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
     }
     let owned = {};
     try {
-        owned = await json(resolve(root, '.yzforge/generated-files.json'));
+        owned = await json(resolve(root, 'project-settings/generated/generated-files.json'));
     } catch (error) {
         if (error.code !== 'ENOENT') throw error;
+        owned = await json(resolve(root, '.yzforge/generated-files.json')).catch((error) => {
+            if (error.code === 'ENOENT') return {};
+            throw error;
+        });
     }
     const obsolete = [];
     for (const [path, hash] of Object.entries(owned)) {
@@ -261,7 +329,7 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
             ? { paths: differences, transaction: null }
             : await writeBatch(root, {
                   ...output,
-                  '.yzforge/generated-files.json': JSON.stringify(
+                  'project-settings/generated/generated-files.json': JSON.stringify(
                       {
                           ...Object.fromEntries(obsolete.map((path) => [path, owned[path]])),
                           ...Object.fromEntries(Object.entries(output).map(([path, text]) => [path, digest(text)])),
@@ -277,5 +345,7 @@ async function generateLocked(root, { check = false, preview = false, allowObsol
         resources: registry.size,
         tables: tables.reports,
         checkedOutputs: Object.keys(output).length,
+        platform: platform ?? 'preview',
+        previewOnly: tables.previewOnly,
     };
 }

@@ -1,0 +1,14 @@
+{
+  "project-settings/generated/resource-identities.json": "sha256:c54ca388418dcabf8db15a2e2c02b78988e7200ddc7d607b613ef1762cbbb221",
+  "assets/game/modules/lobby/bundles/default/yz-index.json": "sha256:2ccfa9d819865fb931268c236085f5609af1c1bfdd54a09de49a395cb9f9e26a",
+  "assets/game/modules/lobby/contracts/generated/resources-default.ts": "sha256:bcc46aee8e4f5108b62d4fc18737cb16df6db4837ab74ccf0151b849a5c4d52f",
+  "assets/game/modules/lobby/contracts/generated/views.ts": "sha256:e2a3476a97a10eb621793010ff72eefea622cbd3bd57f607b101e4cfd5bbe565",
+  "assets/game/modules/lobby/contracts/generated/bundles.ts": "sha256:889bcecbf834fb47fcee3caff43fd0dfa3d671f6c3b000c14edac2d3096e90da",
+  "assets/game/modules/lobby/code/generated/config/Items.types.ts": "sha256:9adcff3067050a0b1495b71dd3b14c3670792d9a7b3e394501ffd4ac9dc4b889",
+  "assets/game/modules/lobby/code/generated/config/Items.table.ts": "sha256:c97cbb447bcc0c0234a14f24293d52c38242719f5c290997a4b558b39d2dfafb",
+  "assets/game/modules/lobby/bundles/default/dynamic/config/items.json": "sha256:93da869d4d08e1ed8828d1a9a3030cebe1e965f668388feb823b164804b4ca1c",
+  "assets/game/modules/lobby/code/generated/config/tables.ts": "sha256:502c69664d3644a74a2108ff2e05cfb8ee3fb956a3f2a78ec9fa5cf69ad1e56f",
+  "assets/game/app/generated/release.ts": "sha256:6182084235c7ff5d53917f6d5d64464a2cf726c6081076ab50252bf4d399b7a0",
+  "assets/game/app/generated/options.ts": "sha256:e42758acd806c2ec5405339029b278d23519c700d5261dd70aaf860ee961bb00",
+  "assets/game/app/generated/assembly.ts": "sha256:2a6a222a3f699adf3446e7f11a3abee7d47235f6572819ef7faaf62cec86ec67"
+}

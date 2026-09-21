@@ -6,8 +6,22 @@ const { execFile } = require('child_process');
 const { randomUUID, createHash } = require('crypto');
 const { runtimeOptions } = require('../../tools/yzforge/settings.cjs');
 const { formatScript } = require('../../tools/yzforge/format.cjs');
+const naming = require('../../tools/yzforge/naming.cjs');
+const bundleConfig = require('./bundle-config');
+const { pathToFileURL } = require('url');
+const workbookTools = () => {
+    const file = path.join(root(), 'tools/yzforge/workbooks.mjs');
+    return import(pathToFileURL(file).href + '?v=' + syncFs.statSync(file).mtimeMs);
+};
 const name = 'yzforge-editor';
 let queue = Promise.resolve();
+let autoTimer;
+let sourceWatcher;
+let autoEnabled = false;
+let activeOperation = false;
+let pendingGeneration = false;
+let autoStatus = { state: 'idle', message: '' };
+const assetEvents = ['asset-db:asset-add', 'asset-db:asset-change', 'asset-db:asset-delete'];
 const root = () => Editor.Project.path;
 const read = async (target) => JSON.parse(await fs.readFile(target, 'utf8'));
 const rel = (target) => path.relative(root(), target).replaceAll('\\', '/');
@@ -81,39 +95,59 @@ async function waitClass(className) {
     }
     throw Error(`脚本编译尚未完成：${className}。请修复编译错误后重试绑定。`);
 }
-async function moduleInfo(id) {
+async function moduleInfo(id, allowOrphan = false) {
     validId(id);
     const directory = inside(`assets/game/modules/${id}`);
-    return { directory, manifest: await read(path.join(directory, 'module.json')) };
+    const manifest = await read(path.join(directory, 'module.json')).catch((error) => {
+        if (allowOrphan && error.code === 'ENOENT' && syncFs.statSync(directory).isDirectory())
+            return { id, orphan: true, dependencies: [], bundles: {}, views: {}, assets: {} };
+        throw error;
+    });
+    return { directory, manifest };
 }
-async function bundleFolder(directory, definition) {
+async function bundleFolder(directory, definition, kind = 'resources') {
+    await bundleConfig.ensurePresets();
     const target = inside(path.join(directory, definition.root));
     await ensureFolder(target);
     const meta = await Editor.Message.request('asset-db', 'query-asset-meta', url(target));
     if (!meta) throw Error('Creator 尚未导入资源目录');
-    meta.userData = { ...meta.userData, isBundle: true, bundleName: definition.id, priority: 1 };
+    meta.userData = {
+        ...meta.userData,
+        isBundle: true,
+        bundleName: definition.id,
+        priority: kind === 'code' ? 2 : 1,
+        bundleConfigID: kind === 'code' ? bundleConfig.codeId : bundleConfig.resourceId,
+    };
     await Editor.Message.request('asset-db', 'save-asset-meta', url(target), JSON.stringify(meta));
     const check = await Editor.Message.request('asset-db', 'query-asset-meta', url(target));
     if (check?.userData?.bundleName !== definition.id || !check.userData.isBundle) throw Error('资源包属性保存失败');
 }
 async function createModule(args) {
-    const id = validId(args.id),
+    const id = validId(naming.slug(args.id)),
         directory = inside(`assets/game/modules/${id}`);
     if (await Editor.Message.request('asset-db', 'query-asset-info', url(directory))) throw Error(`模块已存在：${id}`);
     await ensureFolder(directory);
     await ensureFolder(path.join(directory, 'code'));
-    await ensureFolder(path.join(directory, 'generated'));
+    await ensureFolder(path.join(directory, 'code/generated'));
     const manifest = {
         id,
+        layoutVersion: 2,
         displayName: args.displayName || id,
-        dependencies: [],
-        bundles: args.codeOnly ? {} : { default: { id: `m-${id}`, root: 'res' } },
-        assets: {},
+        dependencies: naming.dependencies(
+            [...(await exports.methods.state()).modules, { id, dependencies: [] }],
+            id,
+            args.dependencies ?? [],
+        ),
+        bundles: args.codeOnly ? {} : { default: { id: `m-${id}`, root: 'bundles/default' } },
         views: {},
         audio: {},
     };
     await saveJson(path.join(directory, 'module.json'), manifest);
-    if (manifest.bundles.default) await bundleFolder(directory, manifest.bundles.default);
+    if (manifest.bundles.default) {
+        await bundleFolder(directory, manifest.bundles.default);
+        await ensureFolder(path.join(directory, 'bundles/default/dynamic'));
+        await ensureFolder(path.join(directory, 'bundles/default/static'));
+    }
     const type = pascal(id),
         framework = path.relative(path.join(directory, 'code'), inside('assets/framework')).replaceAll('\\', '/');
     await writeScript(
@@ -126,25 +160,45 @@ async function createModule(args) {
         path.join(directory, 'public.ts'),
         `import type { ModuleRef } from '../../../framework/modules/module-manager';\nexport interface ${type}Api { readonly moduleId: string; }\nexport const ${type}Module: ModuleRef<${type}Api> = { id: '${id}' };\n`,
     );
+    await ensureFolder(path.join(directory, 'contracts'));
+    if (args.delivery !== 'eager') {
+        await writeScript(
+            'create-asset',
+            path.join(directory, `code/${type}ModuleEntry.ts`),
+            `import { _decorator } from 'cc';\nimport { ModuleEntry } from '${framework}/modules/module-entry';\nimport { create${type}Module } from './${type}Module';\nconst { ccclass } = _decorator;\n@ccclass('${id}.${type}ModuleEntry')\nexport class ${type}ModuleEntry extends ModuleEntry {\n    get moduleId(): string { return '${id}'; }\n    get factory() { return create${type}Module; }\n}\n`,
+        );
+        await waitClass(`${id}.${type}ModuleEntry`);
+        const content = await scene('createPrefab', `${id}.${type}ModuleEntry`, `${type}ModuleEntry`, false);
+        await Editor.Message.request(
+            'asset-db',
+            'create-asset',
+            url(path.join(directory, 'code/entry.prefab')),
+            content,
+        );
+        manifest.code = { mode: 'bundled', root: 'code', bundle: `code-${id}`, entryPath: 'entry' };
+        await bundleFolder(directory, { root: 'code', id: manifest.code.bundle }, 'code');
+        await saveJson(path.join(directory, 'module.json'), manifest);
+    }
     return { id, directory: rel(directory) };
 }
 async function createBundle(args) {
     const { directory, manifest } = await moduleInfo(args.module),
         group = args.id === 'default' ? 'default' : validId(args.id);
     if (manifest.bundles[group]) throw Error('资源包已存在');
-    const definition =
-        group === 'default'
-            ? { id: `m-${manifest.id}`, root: 'res' }
-            : { id: `${manifest.id}-${group}`, root: `bundles/${group}` };
+    const definition = {
+        id: group === 'default' ? `m-${manifest.id}` : `${manifest.id}-${group}`,
+        root: `bundles/${group}`,
+    };
     await bundleFolder(directory, definition);
+    await ensureFolder(path.join(directory, definition.root, 'dynamic'));
+    await ensureFolder(path.join(directory, definition.root, 'static'));
     manifest.bundles[group] = definition;
     await saveJson(path.join(directory, 'module.json'), manifest);
     return definition;
 }
 async function createScript(args) {
     const { directory, manifest } = await moduleInfo(args.module),
-        id = validId(args.id),
-        type = pascal(id);
+        type = naming.named(args.id, args.kind).className;
     const component = args.kind === 'component',
         folder = path.join(directory, 'code', component ? 'components' : 'services');
     await ensureFolder(folder);
@@ -155,7 +209,7 @@ async function createScript(args) {
     const target = path.join(folder, `${type}.ts`);
     return writeScript('create-asset', target, content);
 }
-function bindingSource(module, className, fields, directory) {
+function bindingSource(module, className, fields, directory, component = false) {
     const framework = path.relative(directory, inside('assets/framework')).replaceAll('\\', '/');
     const types = [...new Set(fields.map((field) => field.type))];
     const declarations = fields
@@ -164,12 +218,14 @@ function bindingSource(module, className, fields, directory) {
                 `  @property({ type: ${field.type}, visible: false })\n  private ${field.field}: ${field.type} | null = null;\n  protected get ${field.name}(): ${field.type} { return this.requireBinding(this.${field.field}, ${JSON.stringify(field.nodeName)}); }`,
         )
         .join('\n');
-    return `// Generated by YZForge. Regeneration never modifies the business View.\nimport { _decorator${types.length ? ', ' + types.join(', ') : ''} } from 'cc';\nimport { UIView } from '${framework}/ui/ui-view';\nimport type { ${className}Params, ${className}Result } from '../${className}.types';\nconst { ccclass, property } = _decorator;\n@ccclass('${module}.${className}Binding')\nexport class ${className}Binding extends UIView<${className}Params, ${className}Result> {\n${declarations}\n  protected validateBindings(): void { ${fields.map((field) => `void this.${field.name};`).join(' ')} }\n}\n`;
+    const base = component
+        ? `import { GameComponent } from '${framework}/core/game-component';`
+        : `import { UIView } from '${framework}/ui/ui-view';\nimport type { ${className}Params, ${className}Result } from '../${className}.types';`;
+    return `// Generated by YZForge. Regeneration never modifies business code.\nimport { _decorator${types.length ? ', ' + types.join(', ') : ''} } from 'cc';\n${base}\nconst { ccclass${types.length ? ', property' : ''} } = _decorator;\n@ccclass('${module}.${className}Binding')\nexport class ${className}Binding extends ${component ? 'GameComponent' : `UIView<${className}Params, ${className}Result>`} {\n${declarations}\n  protected validateBindings(): void { ${fields.map((field) => `void this.${field.name};`).join(' ')} }\n}\n`;
 }
 async function createView(args) {
     const { directory, manifest } = await moduleInfo(args.module),
-        id = validId(args.id),
-        className = pascal(id);
+        { id, className } = naming.named(args.id, args.kind || 'popup');
     if (manifest.views[id]) throw Error('界面已存在');
     const group = args.bundle || 'default',
         bundle = manifest.bundles[group];
@@ -179,7 +235,8 @@ async function createView(args) {
     const code = path.join(directory, 'code/ui'),
         generated = path.join(code, 'generated');
     await ensureFolder(generated);
-    await ensureFolder(path.join(directory, bundle.root, 'ui'));
+    const uiFolder = `${manifest.layoutVersion === 2 ? 'dynamic/' : ''}ui`;
+    await ensureFolder(path.join(directory, bundle.root, uiFolder));
     const files = {
         [path.join(code, `${className}.types.ts`)]:
             `// Replace void with this view's own parameter/result contracts when needed.\nexport type ${className}Params = void;\nexport type ${className}Result = void;\n`,
@@ -187,6 +244,12 @@ async function createView(args) {
         [path.join(code, `${className}.ts`)]:
             `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n  // Override onCreate / onShow / onHide / onDispose as needed.\n}\n`,
     };
+    if (args.presenter) {
+        files[path.join(code, `${className}Presenter.ts`)] =
+            `import type { TaskContext } from '${path.relative(code, inside('assets/framework/core/scope')).replaceAll('\\', '/')}';\nexport interface ${className}Port { render(): void; }\nexport class ${className}Presenter {\n    constructor(private readonly view: ${className}Port) {}\n    show(task: TaskContext): void { task.signal.throwIfAborted(); task.commit(() => this.view.render()); }\n}\n`;
+        files[path.join(code, `${className}.ts`)] =
+            `import { _decorator } from 'cc';\nimport type { TaskContext } from '${path.relative(code, inside('assets/framework/core/scope')).replaceAll('\\', '/')}';\nimport { ${className}Binding } from './generated/${className}Binding';\nimport { ${className}Presenter } from './${className}Presenter';\nconst { ccclass } = _decorator;\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n    protected onShow(show: TaskContext): void { new ${className}Presenter(this).show(show); }\n    render(): void { /* Update bound nodes from the presentation model. */ }\n}\n`;
+    }
     for (const [target, text] of Object.entries(files)) await writeScript('create-asset', target, text);
     await waitClass(`${manifest.id}.${className}`);
     const content = await scene('createView', `${manifest.id}.${className}`, className, {
@@ -196,11 +259,11 @@ async function createView(args) {
     const prefab = await Editor.Message.request(
         'asset-db',
         'create-asset',
-        url(path.join(directory, bundle.root, `ui/${className}.prefab`)),
+        url(path.join(directory, bundle.root, `${uiFolder}/${className}.prefab`)),
         content,
     );
-    const assetId = `${manifest.id}/${group}/prefab/${id}`;
-    manifest.assets[assetId] = { type: 'Prefab', uuid: prefab.uuid };
+    const assetId = `${manifest.id}/${group}/prefab/${manifest.layoutVersion === 2 ? 'ui/' : ''}${id}`;
+    if (manifest.layoutVersion !== 2) (manifest.assets ??= {})[assetId] = { type: 'Prefab', uuid: prefab.uuid };
     manifest.views[id] = {
         prefab: assetId,
         kind: args.kind || 'popup',
@@ -216,7 +279,7 @@ async function bindView(args) {
     const { directory, manifest } = await moduleInfo(args.module),
         view = manifest.views[args.id];
     if (!view) throw Error('界面未登记');
-    const asset = manifest.assets[view.prefab];
+    const asset = await resourceIdentity(manifest, view.prefab);
     if (!asset) throw Error('界面 Prefab 未登记');
     const settings = await read(inside('project-settings/framework.json'));
     const fields = await scene('scanPrefab', asset.uuid, settings.bindingPrefixes);
@@ -243,15 +306,41 @@ async function bindView(args) {
     await Editor.Message.request('asset-db', 'save-asset', asset.uuid, bound.content);
     return scene('validateBinding', asset.uuid, view.className, settings.bindingPrefixes);
 }
-function runTool(command) {
+async function resourceIdentity(manifest, id) {
+    if (manifest.assets?.[id]) return manifest.assets[id];
+    const ledger = await read(inside('project-settings/generated/resource-identities.json')).catch((error) => {
+        if (error.code === 'ENOENT') return { entries: {} };
+        throw error;
+    });
+    const entry = Object.entries(ledger.entries).find(([, value]) => value.id === id && value.active);
+    if (entry) return { uuid: entry[0], type: entry[1].type };
+    const view = Object.values(manifest.views ?? {}).find((view) => view.prefab === id);
+    if (!view) return null;
+    const bundle = manifest.bundles[id.split('/')[1]];
+    if (!bundle) return null;
+    const target = inside(
+        `assets/game/modules/${manifest.id}/${bundle.root}/${manifest.layoutVersion === 2 ? 'dynamic/' : ''}ui/${view.className.split('.').pop()}.prefab`,
+    );
+    const info = await Editor.Message.request('asset-db', 'query-asset-info', url(target));
+    return info ? { uuid: info.uuid, type: 'Prefab' } : null;
+}
+function runTool(command, extra = []) {
     return new Promise((resolve, reject) =>
         execFile(
             'node',
-            [inside('tools/yzforge/cli.mjs'), command, '--editor'],
+            [inside('tools/yzforge/cli.mjs'), command, '--editor', ...extra],
             { cwd: root(), windowsHide: true, timeout: 120000, maxBuffer: 4 * 1024 * 1024 },
             (error, stdout, stderr) => {
-                if (error) reject(Error(stderr || stdout || error.message));
-                else {
+                if (error) {
+                    let message = stderr || stdout || error.message;
+                    try {
+                        const value = JSON.parse(message);
+                        message = value.error || value.message || message;
+                    } catch {
+                        /* Non-JSON process errors remain readable. */
+                    }
+                    reject(Error(message));
+                } else {
                     try {
                         resolve(JSON.parse(stdout));
                     } catch {
@@ -264,6 +353,7 @@ function runTool(command) {
 }
 async function registerAsset(args) {
     const { directory, manifest } = await moduleInfo(args.module);
+    if (manifest.layoutVersion === 2) throw Error('动态资源由 dynamic 目录自动生成，无需手工登记');
     const id = String(args.id),
         parts = id.split('/');
     if (parts.length !== 4 || parts[0] !== manifest.id || !manifest.bundles[parts[1]])
@@ -295,22 +385,19 @@ async function tableMapping(args) {
     return value;
 }
 async function createTableTemplate(args) {
-    validId(args.module);
-    validId(args.id);
-    const target = inside(`config-source/${args.module}/${args.id}.csv`);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, 'id,name,enabled\nint,string,bool\n,,true\n编号,名称,启用\n1,示例,true\n', {
-        flag: 'wx',
+    const { manifest } = await moduleInfo(args.module),
+        id = naming.slug(args.id),
+        bundle = args.bundle || 'default';
+    if (!manifest.bundles[bundle]) throw Error('请选择模块已有资源包');
+    const source = `config-source/${manifest.id}/${id}.xlsx`;
+    const tool = await workbookTools();
+    const result = await tool.createWorkbook(root(), source, {
+        module: manifest.id,
+        bundle,
+        enabled: true,
+        tables: [{ id, sheet: pascal(id), primaryKey: 'id', enabled: true }],
     });
-    return tableMapping({
-        mapping: {
-            id: `${args.module}.${args.id}`,
-            source: rel(target),
-            primaryKey: 'id',
-            bundle: args.bundle || 'default',
-            indexes: {},
-        },
-    });
+    return { source, hash: result.hash, config: result.config };
 }
 async function listFiles(directory) {
     const result = [];
@@ -323,27 +410,39 @@ async function listFiles(directory) {
     return result;
 }
 async function previewDelete(args) {
-    const { directory, manifest } = await moduleInfo(args.module),
+    const { directory, manifest } = await moduleInfo(args.module, true),
         state = await exports.methods.state(),
         kind = args.kind || 'module';
     const nextManifest = JSON.parse(JSON.stringify(manifest));
+    const workbooks = [];
     const refs = [],
         ids = [],
         targets = [];
     if (kind === 'module') {
         targets.push(directory);
-        ids.push(manifest.id + '/');
+        ids.push(manifest.id + '/', manifest.id + '.');
         refs.push(
             ...state.modules
                 .filter((module) => module.dependencies.includes(manifest.id))
                 .map((module) => `模块 ${module.id} 依赖此模块`),
         );
-        for (const table of state.tables.tables)
-            if (table.id.startsWith(manifest.id + '.')) refs.push(`配置导入项 ${table.id} 仍路由到此模块`);
-    } else if (kind === 'view') {
-        const view = manifest.views[args.id];
+        for (const workbook of state.workbooks ?? [])
+            if (workbook.config.module === manifest.id && workbook.config.enabled !== false) {
+                workbooks.push({
+                    source: workbook.source,
+                    hash: workbook.hash,
+                    previous: workbook.config,
+                    next: { ...workbook.config, enabled: false },
+                });
+            }
+        for (const table of state.tables.tables.filter((table) => table.formatVersion !== 2))
+            if (table.id.startsWith(manifest.id + '.')) refs.push(`请先将旧配置表 ${table.id} 迁移为 XLSX 配置页`);
+    } else if (kind === 'view' || kind === 'prefab') {
+        const view = kind === 'view' ? manifest.views[args.id] : manifest.components?.[args.id];
         if (!view) throw Error('未找到界面');
-        const registration = manifest.assets[view.prefab];
+        const registration = kind === 'view' ? await resourceIdentity(manifest, view.prefab) : { uuid: view.uuid };
+        const identities = await read(inside('project-settings/generated/resource-identities.json'));
+        const resourceId = view.prefab ?? identities.entries[view.uuid]?.id;
         if (!registration) throw Error('界面资源登记缺失');
         const prefab = await Editor.Message.request('asset-db', 'query-asset-info', registration.uuid);
         if (!prefab?.file) throw Error('界面 Prefab 未导入');
@@ -352,15 +451,21 @@ async function previewDelete(args) {
             inside(prefab.file),
             binding,
             binding.replace(`${path.sep}generated${path.sep}`, path.sep).replace(/Binding\.ts$/, '.ts'),
-            binding.replace(`${path.sep}generated${path.sep}`, path.sep).replace(/Binding\.ts$/, '.types.ts'),
+            ...(kind === 'view'
+                ? [binding.replace(`${path.sep}generated${path.sep}`, path.sep).replace(/Binding\.ts$/, '.types.ts')]
+                : []),
         );
-        ids.push(`${manifest.id}.${args.id}`, view.prefab);
-        delete nextManifest.views[args.id];
-        delete nextManifest.assets[view.prefab];
-        if (Object.values(nextManifest.views).some((other) => other.prefab === view.prefab))
+        const presenter = binding
+            .replace(path.sep + 'generated' + path.sep, path.sep)
+            .replace(/Binding\.ts$/, 'Presenter.ts');
+        if (syncFs.existsSync(presenter)) targets.push(presenter);
+        ids.push(`${manifest.id}.${args.id}`, ...(resourceId ? [resourceId] : []));
+        if (kind === 'view') delete nextManifest.views[args.id];
+        else delete nextManifest.components[args.id];
+        if (nextManifest.assets && resourceId) delete nextManifest.assets[resourceId];
+        if (kind === 'view' && Object.values(nextManifest.views).some((other) => other.prefab === view.prefab))
             refs.push('其他界面也使用此 Prefab');
     } else if (kind === 'bundle') {
-        if (args.id === 'default') throw Error('默认资源包随模块删除；不能单独删除');
         const bundle = manifest.bundles[args.id];
         if (!bundle) throw Error('未找到资源包');
         targets.push(inside(path.join(directory, bundle.root)));
@@ -371,12 +476,19 @@ async function previewDelete(args) {
                 (table.bundle === args.id || Object.values(table.shards?.targets || {}).includes(args.id))
             )
                 refs.push(`配置表 ${table.id} 仍使用此包`);
-        for (const id of Object.keys(nextManifest.assets))
+        for (const view of Object.values(manifest.views ?? {}))
+            if (view.prefab.startsWith(`${manifest.id}/${args.id}/`)) refs.push(`界面仍使用资源 ${view.prefab}`);
+        for (const id of Object.keys(nextManifest.assets ?? {}))
             if (id.startsWith(`${manifest.id}/${args.id}/`)) {
                 if (Object.values(nextManifest.views).some((view) => view.prefab === id))
                     refs.push(`界面仍使用资源 ${id}`);
                 delete nextManifest.assets[id];
             }
+        for (const component of Object.values(manifest.components ?? {})) {
+            const info = await Editor.Message.request('asset-db', 'query-asset-info', component.uuid);
+            if (info?.url.startsWith(url(inside(path.join(directory, bundle.root))) + '/'))
+                refs.push('通用预制体仍使用此包：' + component.className);
+        }
         delete nextManifest.bundles[args.id];
     } else if (kind === 'script') {
         const target = inside(args.path);
@@ -406,7 +518,7 @@ async function previewDelete(args) {
     for (const other of state.modules)
         for (const [id, registration] of Object.entries(other.assets || {})) {
             if (!uuids.has(registration.uuid.split('@')[0]) && !uuids.has(registration.uuid)) continue;
-            if (other.id === manifest.id && (kind === 'module' || !nextManifest.assets[id])) continue;
+            if (other.id === manifest.id && (kind === 'module' || !nextManifest.assets?.[id])) continue;
             refs.push(`动态资源 ${id} 仍登记了待删除的文件`);
         }
     for (const asset of assets) {
@@ -455,10 +567,41 @@ async function previewDelete(args) {
             visit(source);
         }
     }
+    // XLSX references live in typed cells, not plain-text files or Creator's asset reference graph.
+    for (const diagnostic of state.workbookDiagnostics ?? []) refs.push('配置表无法检查：' + diagnostic.message);
+    const workbookTool = await workbookTools();
+    for (const item of state.workbooks) {
+        if (!item.config.enabled || (kind === 'module' && item.config.module === manifest.id)) continue;
+        const workbook = await workbookTool.readWorkbook(root(), item.source);
+        for (const table of workbook.config.tables.filter((table) => table.enabled)) {
+            const sheet = workbook.book.getWorksheet(table.sheet);
+            if (!sheet) {
+                refs.push(item.source + ': 缺少工作表 ' + table.sheet);
+                continue;
+            }
+            sheet.eachRow((row, rowNumber) =>
+                row.eachCell((cell, column) => {
+                    const value = cell.value;
+                    const content =
+                        typeof value === 'string'
+                            ? value
+                            : value && typeof value === 'object'
+                              ? JSON.stringify(value)
+                              : '';
+                    const referenced = ids.find((id) => content.includes(id));
+                    if (referenced)
+                        refs.push(
+                            item.source + ':' + table.sheet + '!' + rowNumber + ',' + column + ' 引用 ' + referenced,
+                        );
+                }),
+            );
+        }
+    }
     const signature = createHash('sha256')
         .update(
             JSON.stringify({
                 manifest,
+                workbooks,
                 kind,
                 id: args.id,
                 files: await Promise.all(
@@ -481,80 +624,28 @@ async function previewDelete(args) {
         files: files.map(rel),
         references: [...new Set(refs)],
         signature,
+        workbooks,
         nextManifest: kind === 'module' ? null : nextManifest,
     };
 }
 async function deleteModule(args) {
-    const preview = await previewDelete(args);
-    if (preview.references.length) throw Error('仍被引用，不能删除：\n' + preview.references.join('\n'));
-    if (args.signature !== preview.signature) throw Error('文件状态已变化，请重新预览实际删除清单');
-    const { directory, manifest } = await moduleInfo(args.module),
-        id = await journal('delete-items', { original: rel(directory), manifest, preview });
-    const archive = inside(`.yzforge/trash/${id}`);
-    await fs.mkdir(archive, { recursive: true });
-    const moved = [];
-    try {
-        for (let index = 0; index < preview.targets.length; index++) {
-            const target = inside(preview.targets[index]),
-                destination = inside(path.join(archive, String(index)));
-            await fs.rename(target, destination);
-            moved.push({ source: rel(target), archive: rel(destination) });
-            try {
-                await fs.rename(target + '.meta', destination + '.meta');
-                moved.push({ source: rel(target + '.meta'), archive: rel(destination + '.meta') });
-            } catch (error) {
-                if (error.code !== 'ENOENT') throw error;
-            }
-        }
-        if (preview.nextManifest) await saveJson(path.join(directory, 'module.json'), preview.nextManifest);
-    } catch (error) {
-        for (const item of moved.reverse()) await fs.rename(inside(item.archive), inside(item.source));
-        throw error;
-    }
-    await fs.writeFile(path.join(archive, 'moves.json'), JSON.stringify(moved, null, 2));
-    await Editor.Message.request('asset-db', 'refresh-asset', 'db://assets/game/modules');
-    return { archive: rel(archive), restoreId: id, files: preview.files };
+    return recovery.remove(args);
 }
 async function restore(args) {
-    if (!/^[\d]+-[\da-f-]+$/.test(args.id)) throw Error('无效恢复记录');
-    const record = await read(inside(`.yzforge/editor-history/${args.id}.json`));
-    if (record.action !== 'delete-items') throw Error('此记录不是回收记录');
-    const archive = inside(`.yzforge/trash/${args.id}`),
-        moves = await read(path.join(archive, 'moves.json'));
-    const manifestPath = inside(path.join(record.original, 'module.json'));
-    if (
-        record.preview.nextManifest &&
-        JSON.stringify(await read(manifestPath)) !== JSON.stringify(record.preview.nextManifest)
-    )
-        throw Error('删除后模块清单又有修改，请先合并这些改动，再恢复此记录，避免覆盖新内容');
-    for (const move of moves)
-        if (
-            await fs.stat(inside(move.source)).then(
-                () => true,
-                (error) => {
-                    if (error.code === 'ENOENT') return false;
-                    throw error;
-                },
-            )
-        )
-            throw Error(`原位置已存在内容，不能覆盖恢复：${move.source}`);
-    for (const move of moves) await fs.stat(inside(move.archive));
-    const restored = [];
-    try {
-        for (const move of moves) {
-            const target = inside(move.source);
-            await fs.mkdir(path.dirname(target), { recursive: true });
-            await fs.rename(inside(move.archive), target);
-            restored.push(move);
-        }
-        if (record.preview.nextManifest) await saveJson(manifestPath, record.manifest);
-    } catch (error) {
-        for (const move of restored.reverse()) await fs.rename(inside(move.source), inside(move.archive));
-        throw error;
-    }
-    await Editor.Message.request('asset-db', 'refresh-asset', 'db://assets/game/modules');
-    return { restored: record.original };
+    return recovery.restore(args);
 }
+const recovery = require('./recovery').createRecovery({
+    inside,
+    rel,
+    url,
+    read,
+    journal,
+    moduleInfo,
+    previewDelete,
+    saveJson,
+    ensureFolder,
+    workbookTools,
+});
 const actions = {
     createModule,
     createBundle,
@@ -620,17 +711,19 @@ const actions = {
             });
             const archive = inside(`.yzforge/trash/${id}`);
             await fs.mkdir(archive, { recursive: true });
-            await fs.rename(target, path.join(archive, path.basename(target)));
+            await fs.copyFile(target, path.join(archive, path.basename(target)));
             try {
-                await fs.rename(target + '.meta', path.join(archive, path.basename(target) + '.meta'));
+                await fs.copyFile(target + '.meta', path.join(archive, path.basename(target) + '.meta'));
             } catch (error) {
                 if (error.code !== 'ENOENT') throw error;
             }
+            await Editor.Message.request('asset-db', 'delete-asset', url(target));
         }
         await Editor.Message.request('asset-db', 'refresh-asset', 'db://assets');
         return result;
     },
-    previewTables: () => runTool('preview'),
+    previewTables: () => runTool('preview', ['--preview-formulas']),
+    recalculate: (args) => runTool('recalculate', ['--source', args.source]),
     async updateSettings(args) {
         const target = inside('project-settings/framework.json'),
             settings = await read(target);
@@ -657,8 +750,11 @@ const actions = {
         const { directory, manifest } = await moduleInfo(args.module);
         if (args.displayName !== undefined) manifest.displayName = String(args.displayName);
         if (args.dependencies) {
-            args.dependencies.forEach(validId);
-            manifest.dependencies = args.dependencies;
+            manifest.dependencies = naming.dependencies(
+                (await exports.methods.state()).modules,
+                manifest.id,
+                args.dependencies,
+            );
         }
         await saveJson(path.join(directory, 'module.json'), manifest);
         return manifest;
@@ -675,14 +771,107 @@ const actions = {
         if (!source || !source.url.startsWith('db://assets/game/') || !rel(target).startsWith('assets/game/'))
             throw Error('只能移动当前游戏资源');
         await ensureFolder(path.dirname(target));
-        const result = await Editor.Message.request('asset-db', 'move-asset', source.url, url(target));
+        await Editor.Message.request('asset-db', 'move-asset', source.url, url(target));
+        const result = await Editor.Message.request('asset-db', 'query-asset-info', url(target));
         if (result.uuid !== source.uuid) throw Error('资源移动未保留 UUID');
         await journal('move-asset', { from: source.url, to: result.url, uuid: result.uuid });
         return result;
     },
 };
-exports.load = function () {};
-exports.unload = function () {};
+Object.assign(
+    actions,
+    require('./workbench').createWorkbench({
+        root,
+        inside,
+        rel,
+        url,
+        moduleInfo,
+        ensureFolder,
+        saveJson,
+        writeScript,
+        waitClass,
+        scene,
+        bindingSource,
+        workbookTools,
+        read,
+        actions: () => actions,
+        state: () => exports.methods.state(),
+    }),
+);
+Object.assign(
+    actions,
+    require('./migration').createMigration({
+        root,
+        inside,
+        rel,
+        url,
+        read,
+        moduleInfo,
+        listFiles,
+        ensureFolder,
+        saveJson,
+        writeScript,
+        bundleFolder,
+        workbookTools,
+        journal,
+    }),
+);
+function scheduleGeneration() {
+    if (!autoEnabled) return;
+    if (activeOperation) {
+        pendingGeneration = true;
+        return;
+    }
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(() => {
+        autoTimer = undefined;
+        autoStatus = { state: 'pending', message: '正在更新动态清单与配置' };
+        void exports.methods.dispatch('generate').then(
+            () => {
+                autoStatus = { state: 'ready', message: '动态清单与配置已同步' };
+            },
+            (error) => {
+                autoStatus = { state: 'error', message: error.message };
+                console.warn('[YZForge] 自动生成未完成：' + error.message);
+            },
+        );
+    }, 800);
+}
+function assetChanged(...args) {
+    const text = JSON.stringify(args).replaceAll('\\', '/');
+    if (
+        !text.includes('assets/game/modules/') ||
+        text.includes('/generated/') ||
+        text.includes('/yz-index.json') ||
+        text.includes('/dynamic/config/')
+    )
+        return;
+    scheduleGeneration();
+}
+exports.load = function () {
+    autoEnabled = true;
+    for (const event of assetEvents) Editor.Message.addBroadcastListener(event, assetChanged);
+    const source = inside('config-source');
+    if (syncFs.existsSync(source)) {
+        sourceWatcher = syncFs.watch(source, { recursive: true }, (_event, file) => {
+            if (file && /\.xlsx$/i.test(String(file)) && !path.basename(String(file)).startsWith('~$'))
+                scheduleGeneration();
+        });
+        sourceWatcher.on('error', (error) => {
+            autoStatus = { state: 'error', message: error.message };
+        });
+    }
+    void bundleConfig.ensurePresets().catch((error) => {
+        autoStatus = { state: 'error', message: error.message };
+    });
+};
+exports.unload = function () {
+    autoEnabled = false;
+    clearTimeout(autoTimer);
+    sourceWatcher?.close();
+    sourceWatcher = undefined;
+    for (const event of assetEvents) Editor.Message.removeBroadcastListener(event, assetChanged);
+};
 exports.methods = {
     openPanel() {
         Editor.Panel.open(name);
@@ -695,25 +884,109 @@ exports.methods = {
         } catch (error) {
             if (error.code !== 'ENOENT') throw error;
         }
-        const modules = [];
+        const modules = [],
+            orphans = [];
         for (const entry of entries)
             if (entry.isDirectory()) {
                 try {
                     modules.push(await read(path.join(directory, entry.name, 'module.json')));
                 } catch (error) {
                     if (error.code !== 'ENOENT') throw error;
+                    orphans.push({ id: entry.name, displayName: `${entry.name}（未完成的模块目录）` });
                 }
             }
+        const tool = await workbookTools();
+        const sources = await tool.workbookSources(root(), { tolerant: true });
+        const workbooks = sources.workbooks.map(({ source, hash, config, sheets, enums }) => ({
+            source,
+            hash,
+            config,
+            sheets,
+            enums,
+        }));
+        const history = [];
+        for (const entry of await fs.readdir(inside('.yzforge/trash'), { withFileTypes: true }).catch((error) => {
+            if (error.code === 'ENOENT') return [];
+            throw error;
+        })) {
+            if (!entry.isDirectory()) continue;
+            const record = await read(inside(`.yzforge/trash/${entry.name}/record.json`)).catch((error) => {
+                if (error.code === 'ENOENT') return null;
+                throw error;
+            });
+            if (record && ['deleted', 'interrupted', 'restoring'].includes(record.stage))
+                history.push({
+                    id: record.id,
+                    original: record.original,
+                    stage: record.stage,
+                    kind: record.preview.kind,
+                });
+        }
+        const scripts = (await listFiles(directory))
+            .filter((file) => file.endsWith('.ts') && !file.includes(`${path.sep}generated${path.sep}`))
+            .map(rel);
+        const prefabs = await Editor.Message.request('asset-db', 'query-assets', {
+            pattern: 'db://assets/game/modules/**',
+            importer: 'prefab',
+        });
         return {
             project: root(),
             modules,
             settings: await read(inside('project-settings/framework.json')),
-            tables: await read(inside('config-source/tables.json')),
+            tables: { tables: sources.tables },
+            workbooks,
+            workbookDiagnostics: sources.diagnostics,
+            orphans,
+            history,
+            scripts,
+            prefabs: prefabs.map(({ uuid, url }) => ({ uuid, url })),
+            autoStatus,
+            presets: (await Editor.Profile.getProject('builder', 'bundleConfig.custom')) ?? {},
         };
     },
     dispatch(action, args = {}) {
         if (!Object.prototype.hasOwnProperty.call(actions, action)) return Promise.reject(Error(`未知操作：${action}`));
-        const result = queue.then(() => actions[action](args));
+        const result = queue.then(async () => {
+            activeOperation = true;
+            let succeeded = false;
+            if (autoTimer) {
+                clearTimeout(autoTimer);
+                autoTimer = undefined;
+                pendingGeneration = true;
+            }
+            try {
+                const value = await actions[action](args);
+                if (
+                    [
+                        'create',
+                        'deleteModule',
+                        'restore',
+                        'saveWorkbook',
+                        'updateModule',
+                        'updateSettings',
+                        'moveAsset',
+                        'migrateModule',
+                    ].includes(action)
+                ) {
+                    clearTimeout(autoTimer);
+                    try {
+                        await actions.generate();
+                        autoStatus = { state: 'ready', message: '动态清单与配置已同步' };
+                    } catch (error) {
+                        autoStatus = { state: 'error', message: error.message };
+                        return { ...value, generationError: error.message };
+                    }
+                }
+                succeeded = true;
+                return value;
+            } finally {
+                activeOperation = false;
+                const pending = pendingGeneration;
+                pendingGeneration = false;
+                // A failed transaction retains the last good outputs until explicit recovery.
+                if (succeeded && pending) scheduleGeneration();
+            }
+        });
         queue = result.catch(() => {});
         return result;
     },

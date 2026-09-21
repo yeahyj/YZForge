@@ -1,0 +1,47 @@
+{
+  "formatVersion": 2,
+  "namespace": "lobby/default",
+  "assets": {
+    "lobby/default/audio/confirm": {
+      "bundle": "m-lobby",
+      "path": "dynamic/audio/confirm",
+      "type": "AudioClip"
+    },
+    "lobby/default/image/icons/status": {
+      "bundle": "m-lobby",
+      "path": "dynamic/icons/status",
+      "type": "ImageAsset"
+    },
+    "lobby/default/texture/icons/status": {
+      "bundle": "m-lobby",
+      "path": "dynamic/icons/status/texture",
+      "type": "Texture2D"
+    },
+    "lobby/default/sprite/status": {
+      "bundle": "m-lobby",
+      "path": "dynamic/icons/status/spriteFrame",
+      "type": "SpriteFrame"
+    },
+    "lobby/default/prefab/dashboard": {
+      "bundle": "m-lobby",
+      "path": "dynamic/ui/Dashboard",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "lobby"
+      ]
+    },
+    "lobby/default/prefab/reward-popup": {
+      "bundle": "m-lobby",
+      "path": "dynamic/ui/RewardPopup",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "lobby"
+      ]
+    },
+    "lobby/default/json/config/items": {
+      "bundle": "m-lobby",
+      "path": "dynamic/config/items",
+      "type": "JsonAsset"
+    }
+  }
+}

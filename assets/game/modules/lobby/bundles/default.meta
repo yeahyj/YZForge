@@ -8,6 +8,7 @@
   "userData": {
     "isBundle": true,
     "bundleName": "m-lobby",
-    "priority": 1
+    "priority": 1,
+    "bundleConfigID": "yzforge-resources"
   }
 }

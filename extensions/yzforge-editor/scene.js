@@ -10,12 +10,15 @@ const load = (uuid) =>
     new Promise((resolve, reject) =>
         cc.assetManager.loadAny(uuid, (error, asset) => (error ? reject(error) : resolve(asset))),
     );
-function nodes(root) {
+function nodes(root, includeNestedRoot = true) {
     const result = [];
     const visit = (node, path) => {
         result.push({ node, path });
         for (const child of node.children) {
-            if (child._prefab?.root === child && child !== root) continue;
+            if (child._prefab?.root === child && child !== root) {
+                if (includeNestedRoot) result.push({ node: child, path: path ? path + '/' + child.name : child.name });
+                continue;
+            }
             visit(child, path ? `${path}/${child.name}` : child.name);
         }
     };
@@ -48,7 +51,7 @@ function scan(root, prefixes) {
 function ensurePrefabIds(root, prefab) {
     const { PrefabInfo, CompPrefabInfo } = cc.Prefab._utils;
     if (!PrefabInfo || !CompPrefabInfo) throw Error('Creator prefab identity constructors unavailable');
-    for (const { node } of nodes(root)) {
+    for (const { node } of nodes(root, false)) {
         if (!node._prefab) {
             node._prefab = new PrefabInfo();
             node._prefab.fileId = randomBytes(16).toString('base64').replace(/=+$/, '');
@@ -65,6 +68,36 @@ function ensurePrefabIds(root, prefab) {
 exports.load = function () {};
 exports.unload = function () {};
 exports.methods = {
+    createPrefab(className, name, ui = false) {
+        const ctor = cc.js.getClassByName(className);
+        if (!ctor) throw Error(`Script not compiled: ${className}`);
+        const root = new cc.Node(name);
+        root.active = false;
+        if (ui) {
+            root.layer = cc.Layers.Enum.UI_2D;
+            root.addComponent(cc.UITransform).setContentSize(100, 100);
+        }
+        root.addComponent(ctor);
+        const prefab = new cc.Prefab();
+        prefab.name = name;
+        prefab.data = root;
+        ensurePrefabIds(root, prefab);
+        root.active = true;
+        try {
+            return serialize(prefab);
+        } finally {
+            root.destroy();
+        }
+    },
+    async attachComponent(uuid, className) {
+        const prefab = await load(uuid),
+            ctor = cc.js.getClassByName(className);
+        if (!(prefab instanceof cc.Prefab) || !ctor) throw Error('Prefab or compiled component unavailable');
+        if (prefab.data.getComponent(ctor)) throw Error('Root already has this component');
+        prefab.data.addComponent(ctor);
+        ensurePrefabIds(prefab.data, prefab);
+        return serialize(prefab);
+    },
     classReady(name) {
         return !!cc.js.getClassByName(name);
     },

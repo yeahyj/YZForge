@@ -36,6 +36,7 @@ export interface AssetAddress<K extends AssetKind = AssetKind> {
     readonly revision?: string;
     readonly atlasFrame?: string;
     readonly codeModule?: string;
+    readonly requiredCodeModules?: readonly string[];
 }
 export interface BundleDefinition {
     readonly id: string;
@@ -45,9 +46,10 @@ export interface BundleDefinition {
     readonly namespace?: string;
 }
 export interface NamespaceIndex {
-    readonly formatVersion: 1;
+    readonly formatVersion: 1 | 2;
     readonly namespace: string;
     readonly assets: Readonly<Record<string, AssetAddress>>;
+    readonly aliases?: Readonly<Record<string, string>>;
 }
 export interface TableRoute {
     readonly bundle: string;

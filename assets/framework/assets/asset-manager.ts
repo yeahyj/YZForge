@@ -65,6 +65,7 @@ export class Assets {
     private readonly instances = new WeakMap<Node, { scope: Scope; moduleId?: string }>();
     bindInstance: (node: Node, scope: Scope, moduleId: string | undefined, active: boolean) => void = () => {};
     activateInstance: (node: Node, scope: Scope) => void = () => {};
+    prepareCode: (id: string, owner: Scope) => Promise<void> = async () => {};
     codeReady: (moduleId: string) => boolean = () => false;
     moduleReady: (moduleId: string) => boolean = () => false;
     constructor(
@@ -94,8 +95,8 @@ export class Assets {
     attachConfig(config: ConfigManager): void {
         this.config = config;
     }
-    in(scope: Scope, namespace?: string): ScopedAssets {
-        return new ScopedAssets(this, scope, namespace);
+    in(scope: Scope, namespace?: string, moduleId?: string): ScopedAssets {
+        return new ScopedAssets(this, scope, namespace, moduleId);
     }
     async resolve<K extends AssetKind>(key: AssetKey<K>, scope: Scope): Promise<AssetAddress<K>>;
     async resolve(name: string, type: AssetKind, scope: Scope, namespace?: string): Promise<AssetAddress>;
@@ -125,7 +126,10 @@ export class Assets {
             });
         }
         const index = await untilCancelled(pending, owner.signal);
-        return Object.freeze({ ...resolveIndex(index, key), revision: this.release.releaseId });
+        return Object.freeze({
+            ...resolveIndex(index, key, typeof keyOrName === 'string'),
+            revision: this.release.releaseId,
+        });
     }
     async load<K extends AssetKind>(key: AssetKey<K>, scope: Scope): Promise<AssetTypes[K]> {
         const address = await this.resolve(key, scope);
@@ -146,20 +150,22 @@ export class Assets {
     }
     async loadAddress<K extends AssetKind>(address: AssetAddress<K>, scope: Scope): Promise<AssetTypes[K]> {
         scope.signal.throwIfAborted();
-        if (address.codeModule)
+        for (const id of address.requiredCodeModules ?? (address.codeModule ? [address.codeModule] : [])) {
+            if (!this.codeReady(id)) await this.prepareCode(id, scope);
             invariant(
-                this.codeReady(address.codeModule),
+                this.codeReady(id),
                 'MODULE_CODE_NOT_READY',
                 `Load module code before deserializing ${address.path}`,
             );
+        }
         const key = JSON.stringify([address.bundle, address.path, address.type, address.atlasFrame ?? '']);
         this.addresses.set(key, address);
         return (await this.cache.acquire(key, scope)).asset as AssetTypes[K];
     }
-    async openBundle(ref: BundleRef, scope: Scope): Promise<BundleHandle> {
+    async openBundle(ref: BundleRef, scope: Scope, moduleId?: string): Promise<BundleHandle> {
         await untilCancelled(this.prepareBundle(bundleId(ref)), scope.signal);
         invariant(this.config, 'APP_NOT_READY', 'Configuration service is not attached');
-        return new BundleHandle(this, this.config, bundleId(ref), scope);
+        return new BundleHandle(this, this.config, bundleId(ref), scope, moduleId);
     }
     async prepareBundle(id: string): Promise<EngineAssetManager.Bundle> {
         this.scope.signal.throwIfAborted();
@@ -207,16 +213,17 @@ export class Assets {
         key: AssetKey<'Prefab'>,
         parent: Node,
         scope: Scope,
-        input: { active?: boolean } = {},
+        input: { active?: boolean; moduleId?: string } = {},
     ): Promise<Node> {
         const instance = scope.child(`instance:${key.id}`);
         try {
             const address = await this.resolve(key, instance);
-            if (input.active !== false && address.codeModule)
+            const moduleId = input.moduleId ?? address.codeModule;
+            if (input.active !== false && moduleId)
                 invariant(
-                    this.moduleReady(address.codeModule),
+                    this.moduleReady(moduleId),
                     'MODULE_NOT_READY',
-                    `Module factory is still initializing: ${address.codeModule}`,
+                    `Module factory is still initializing: ${moduleId}`,
                 );
             const prefab = await this.loadAddress(address, instance);
             instance.signal.throwIfAborted();
@@ -224,8 +231,8 @@ export class Assets {
             node.active = false;
             // LIFO: destroy completes before the prefab lease is returned.
             instance.defer(() => destroyNode(node));
-            this.instances.set(node, { scope: instance, moduleId: address.codeModule });
-            this.bindInstance(node, instance, address.codeModule, input.active ?? true);
+            this.instances.set(node, { scope: instance, moduleId });
+            this.bindInstance(node, instance, moduleId, input.active ?? true);
             parent.addChild(node);
             node.active = input.active ?? true;
             return node;
@@ -246,16 +253,27 @@ export class Assets {
         this.activateInstance(node, instance.scope);
         node.active = true;
     }
-    async setSprite(target: Sprite, key: AssetKey<'SpriteFrame'>, owner: Scope): Promise<void> {
+    async setSprite(
+        target: Sprite,
+        key: AssetKey<'SpriteFrame'> | string,
+        owner: Scope,
+        namespace?: string,
+    ): Promise<void> {
         owner.signal.throwIfAborted();
         let state = this.sprites.get(target);
         if (!state) this.sprites.set(target, (state = { sequence: 0 }));
         const sequence = ++state.sequence;
         if (state.pending) void state.pending.close().catch(reportError);
-        const pending = owner.child(`sprite:${key.id}`);
+        const pending = owner.child(`sprite:${typeof key === 'string' ? key : key.id}`);
         state.pending = pending;
         try {
-            const frame = await this.load(key, pending);
+            const frame =
+                typeof key === 'string'
+                    ? ((await this.loadAddress(
+                          await this.resolve(key, 'SpriteFrame', pending, namespace),
+                          pending,
+                      )) as SpriteFrame)
+                    : await this.load(key, pending);
             pending.signal.throwIfAborted();
             if (state.sequence !== sequence || !isValid(target, true))
                 throw new FrameworkError('SPRITE_TARGET_CHANGED', 'Sprite assignment is no longer current');
@@ -311,9 +329,10 @@ export class ScopedAssets {
         readonly manager: Assets,
         readonly scope: Scope,
         readonly namespace?: string,
+        readonly moduleId?: string,
     ) {}
     in(scope: Scope): ScopedAssets {
-        return new ScopedAssets(this.manager, scope, this.namespace);
+        return new ScopedAssets(this.manager, scope, this.namespace, this.moduleId);
     }
     resolve<K extends AssetKind>(key: AssetKey<K>): Promise<AssetAddress<K>>;
     resolve(name: string, type: AssetKind): Promise<AssetAddress>;
@@ -325,26 +344,26 @@ export class ScopedAssets {
     load<K extends AssetKind>(key: AssetKey<K>): Promise<AssetTypes[K]>;
     load<K extends AssetKind>(name: string, type: K): Promise<AssetTypes[K]>;
     load(key: AssetKey | string, type?: AssetKind): Promise<Asset> {
-        return this.manager.load(typeof key === 'string' ? logicalKey(key, type!, this.namespace) : key, this.scope);
+        return typeof key === 'string'
+            ? this.manager
+                  .resolve(key, type!, this.scope, this.namespace)
+                  .then((address) => this.manager.loadAddress(address, this.scope))
+            : this.manager.load(key, this.scope);
     }
     loadPath<K extends AssetKind>(bundle: BundleRef, path: string, type: K): Promise<AssetTypes[K]> {
         return this.manager.loadPath(bundle, path, type, this.scope);
     }
     openBundle(ref: BundleRef, owner = this.scope): Promise<BundleHandle> {
-        return this.manager.openBundle(ref, owner);
+        return this.manager.openBundle(ref, owner, this.moduleId);
     }
-    instantiate(key: AssetKey<'Prefab'>, parent: Node, input?: { active?: boolean }): Promise<Node> {
-        return this.manager.instantiate(key, parent, this.scope, input);
+    instantiate(key: AssetKey<'Prefab'>, parent: Node, input?: { active?: boolean; moduleId?: string }): Promise<Node> {
+        return this.manager.instantiate(key, parent, this.scope, { moduleId: this.moduleId, ...input });
     }
     activate(node: Node): void {
         this.manager.activate(node);
     }
     setSprite(target: Sprite, key: AssetKey<'SpriteFrame'> | string): Promise<void> {
-        return this.manager.setSprite(
-            target,
-            typeof key === 'string' ? (logicalKey(key, 'SpriteFrame', this.namespace) as AssetKey<'SpriteFrame'>) : key,
-            this.scope,
-        );
+        return this.manager.setSprite(target, key, this.scope, this.namespace);
     }
 }
 export class BundleHandle {
@@ -355,11 +374,12 @@ export class BundleHandle {
         config: ConfigManager,
         readonly id: string,
         readonly scope: Scope,
+        moduleId?: string,
     ) {
-        this.assets = manager.in(scope, manager.release.bundles[id]?.namespace);
+        this.assets = manager.in(scope, manager.release.bundles[id]?.namespace, moduleId);
         this.tables = config.in(scope, id);
     }
-    instantiate(key: AssetKey<'Prefab'>, parent: Node, input?: { active?: boolean }): Promise<Node> {
+    instantiate(key: AssetKey<'Prefab'>, parent: Node, input?: { active?: boolean; moduleId?: string }): Promise<Node> {
         return this.assets.instantiate(key, parent, input);
     }
 }

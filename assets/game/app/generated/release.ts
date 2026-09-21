@@ -19,7 +19,7 @@ export const release: ContentRelease = {
         'lobby.items': [
             {
                 bundle: 'm-lobby',
-                path: 'config/items',
+                path: 'dynamic/config/items',
                 dataRevision: 'sha256:68821a6513140031db77adb219a6231b7591176e2c6163d4a3d60f4970ff8c60',
             },
         ],

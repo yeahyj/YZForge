@@ -1,105 +1,173 @@
 # YZForge
 
-面向 Cocos Creator 3.8.8 的通用游戏框架。运行时放在 `assets/framework`，Creator 工作台放在 `extensions/yzforge-editor`，生成工具放在 `tools/yzforge`。`assets/game` 当前是一套可以替换的演示应用，不是框架必须具备的游戏结构。
+面向 Cocos Creator 3.8.8 的通用游戏框架。运行时在 `assets/framework`，Creator 工作台在 `extensions/yzforge-editor`，生成工具在 `tools/yzforge`。`assets/game` 是可替换的演示应用。
 
-框架不内置大厅、战斗、章节、关卡、奖励、签到或商业化规则。模块组织业务边界，Cocos Bundle 组织资源交付，Scope 管理使用期限。没有运行时 Extension 安装体系，也没有另一套 ContentPack 对象体系。
+模块划分业务边界，Cocos Bundle 划分交付内容，Scope 管理使用期限。复用代码直接使用普通目录或包，不设运行时 Extension 安装系统，也不另设 ContentPack 业务对象。
 
 ## 开始使用
 
-1. 用 Creator **3.8.8** 打开本目录；安装 **Node.js 22.13+（22.x）或 24+**，执行 `npm ci`。
-2. 在扩展管理器中启用项目扩展 `yzforge-editor`，打开菜单 **YZForge → 项目工作台**。
-3. 打开 `assets/game/boot/Bootstrap.scene`，运行预览。当前示例演示 UI、配置、动态图片、音频和日历查询。
-4. 在工作台的“项目设置”中配置稳定的应用标识、音频分组、日历和绑定规则。应用标识决定本地存档前缀，正式使用后保持稳定。
-5. 创建自己的模块和资源包，替换 `GameRoot.onBoot` 的启动流程。删除示例前，先移除对示例的导入和配置表映射，再使用工作台的删除预览。
-
-设计分辨率和横竖屏属于 Creator 项目设置。新建 UI 读取这些设置；框架不修改它们。现有演示的 `720×1280` 和 SHOW_ALL 只存在于演示启动代码中。
+1. 用 Creator **3.8.8** 打开项目，安装 Node.js **22.13+（22.x）或 24+**，执行 `npm ci`。
+2. 启用项目扩展 `yzforge-editor`，打开 **YZForge → 项目工作台**。
+3. 打开 `assets/game/boot/Bootstrap.scene` 运行示例。设计分辨率和横竖屏在 Creator 项目设置中维护。
+4. 在工作台创建模块，选择代码随应用启动加载或按需加载。默认创建 `default` 资源包，也可选择纯代码模块。
+5. 替换 `GameRoot.onBoot` 中的演示启动流程。删除示例时先处理工作台列出的引用。
 
 ## 工作台
 
-| 页面         | 可用操作                                                                |
-| ------------ | ----------------------------------------------------------------------- |
-| 模块与资源包 | 创建普通模块或纯代码模块、添加资源包、声明依赖、创建节点组件与普通服务  |
-| 界面与绑定   | 在指定资源包创建 UI 预制体及配套脚本、按节点命名生成 Binding 并写入引用 |
-| 动态资源清单 | 用 UUID 登记类型和逻辑名、保留 UUID 移动文件                            |
-| 配置表       | 创建 CSV 模板、登记 XLSX/CSV、预览校验结果、导出、移除导入项            |
-| 项目设置     | 应用标识、清理超时、音频分组、日历规则、绑定前缀及平台计时单位          |
-| 删除与恢复   | 预览模块/UI/资源包/脚本的文件与引用，移入回收区，按记录 ID 恢复         |
+| 页面       | 操作                                                                                                                       |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 创建       | 模块、资源包、Page/Popup/Overlay/Toast/Loading、Part、普通预制体、Component、Service、XLSX；自动补后缀，预览实际路径和冲突 |
+| 自动绑定   | 扫描命名节点，生成 Binding，通过 Creator 写入并读回引用；已有预制体也可接入                                                |
+| 配置表     | 选择工作簿、Sheet、主键及目标包；保存 `__config`、预览、公式重算、正式导出                                                 |
+| 项目设置   | 展示代码/资源两份 Creator 配置；应用标识、音频、日历及框架参数                                                             |
+| 删除与恢复 | 模块、资源包、UI、Part/普通预制体、脚本的引用检查、完整备份、Creator 删除及 UUID 恢复                                      |
 
-创建、删除、调整声明后，点击“生成资源目录与配置”，再“检查项目”。源配置在 `config-source`；生成的 JSON 进入声明的 Bundle，TS 类型和引用进入模块的 `generated`。不编辑生成文件。移除导入项后，有旧生成文件需要回收时使用工作台生成；CLI 会要求先在编辑器检查引用。
+模块依赖、资源包、预制体、工作簿和导出目标使用选择控件。只需输入新对象的语义名称。创建前列出配套脚本、预制体、生成产物和 Creator 元数据；存在同名文件时停止。切换页面和刷新会保留未保存的配置草稿，源工作簿变化后会拒绝用旧摘要覆盖。
 
-删除检查包括序列化资源引用、显式 TS 导入和逻辑名引用；运行时拼接字符串无法被静态检查完整证明。被引用时会说明位置，不会直接强制删除。恢复不覆盖原位置的新文件，也不覆盖删除后又被修改的模块清单。历史与回收文件位于 `.yzforge`。
+资源导入、移动、删除以及 XLSX 保存会自动校验、更新清单和配置。批量事件合并执行；工作台操作与生成串行，失败操作保留上一份有效产物，错误显示于操作结果和 Creator 控制台。仍提供手动“生成清单与配置”和“检查”，用于修复后重试。
 
-## 自动绑定和生命周期
+## 模块与资源目录
 
-节点命名例如 `btn_confirm`、`lbl_title`、`spr_icon`、`node_content`。前缀到组件类型的映射在项目设置中维护。工作台生成隐藏序列化字段与受保护 getter，并由 Creator 写入引用，**不需要手动拖节点**。同一绑定范围内重名、缺少对应组件会报错；嵌套 Prefab 的内部不由外层自动扫描。
+```text
+assets/game/modules/inventory/
+├─ module.json
+├─ public.ts                         # ModuleRef 与公开 API 类型
+├─ contracts/generated/              # 资源 Key、ViewKey、BundleRef；可公开配置合同/枚举
+├─ code/                             # 选择按需代码时，这个目录是代码 Bundle
+│  ├─ InventoryModule.ts
+│  ├─ InventoryModuleEntry.ts         # 按需代码入口
+│  ├─ entry.prefab
+│  ├─ ui/                            # Page/Popup 等，以及可选 Presenter
+│  ├─ components/                    # Part 与普通组件；各自有 generated/Binding
+│  ├─ services/
+│  └─ generated/config/              # 私有表的 TS 合同和类型，不含数据行
+└─ bundles/
+   ├─ default/                       # 实际资源 Bundle
+   │  ├─ dynamic/                    # 自动编目
+   │  │  ├─ ui/
+   │  │  ├─ prefabs/ItemPart.prefab
+   │  │  ├─ icons/
+   │  │  ├─ audio/
+   │  │  └─ config/                  # XLSX 导出的 JSON
+   │  ├─ static/                     # 仅通过序列化引用使用，不进框架动态清单
+   │  └─ yz-index.json
+   └─ extra/                         # 可选；与 default 相同的结构
+```
 
-业务继承 `ExampleViewBinding`，Binding 继承 `UIView<ExampleViewParams, ExampleViewResult>`。参数和结果由业务自行定义，初始模板使用 void。
+**`bundles/default` 才是 Bundle，`dynamic` 和 `static` 是它的子目录。** static 不因这个名字而进入主包，也不表示一定从构建中剔除。最终交付和依赖归属以 Creator 产物为准；主场景的静态引用可能提前拉入可选内容。
 
-| 对象            | 业务钩子                                                                               |
-| --------------- | -------------------------------------------------------------------------------------- |
-| `UIView`        | `onCreate`、`onShow`、`onHide`、`onDispose`、`onTick`、`onLateTick`                    |
-| `GameComponent` | `onInit`、`onActivate`、`onReady`、`onTick`、`onLateTick`、`onDeactivate`、`onDispose` |
-| `AppEntry`      | `appOptions`、`onBoot`、`onBootFailed`                                                 |
+Creator 项目设置中有 **YZForge 代码配置**、**YZForge 资源配置** 两份真实预设，目录通过 `bundleConfigID` 引用。支持分包的小游戏默认本地分包；Web/原生默认本地 Bundle，开发者在 Creator 统一修改交付设置。工作台仅补建缺失预设，不重置已有修改。
 
-业务不覆盖引擎的 onLoad/start/onEnable/update 等入口，不依赖调用 super 来补救顺序。组件钩子同步执行，异步工作用 `activation.run`；UI 的 onCreate/onShow/onHide 可以异步。使用捕获的 `show` 或 `activation`，提交异步结果前调用其 `commit`。不要在正在关闭的界面回调里等待自己的 `handle.close()`；按钮结束界面调用 `show.finish(result)`。页面返回按钮使用 `void ctx.ui.back()`。
+按需模块的私有代码由代码 Bundle 注册；生成的主包装配只存代码包和入口标识。跨模块使用 `public.ts`、`contracts`、模块 API 或事件，禁止直接值导入另一个模块的 `code`。公开合同可用 `import type` 引用类型，数据行留在资源包。构建前检查生成一致性和类型，构建后核验实际资源包及代码入口归属，报告在 `.yzforge/build-reports`。
 
-## 常用 API
+## 自动绑定、Part 与生命周期
 
-下面的 `ctx` 是注入的 ModuleContext，`show` 是当前显示周期的 ViewShowContext；实际导入路径以工作台生成的文件为准。
+节点例如 `btn_confirm`、`lbl_title`、`spr_icon`、`node_content`。生成器创建隐藏序列化字段和受保护 getter，再由 Creator 自动写入引用，**无需手动拖节点**。同范围重名或缺组件时明确报错。外层可以绑定嵌套预制体的根节点，但不扫描其内部，也不改写嵌套预制体身份。
+
+| 对象       | 文件示例                                         | 基类和管理方式                                           |
+| ---------- | ------------------------------------------------ | -------------------------------------------------------- |
+| 完整界面   | InventoryPage、RewardPopup                       | 生成 Binding 继承 UIView，由 UI 管理器管理               |
+| UI 部件    | ItemPart.prefab、ItemPart.ts、ItemPartBinding.ts | 生成 Binding 继承 GameComponent，由父界面/创建者组合管理 |
+| 普通预制体 | ActorPrefab.prefab、ActorComponent.ts            | 生成 Binding 继承 GameComponent                          |
+| 服务       | InventoryService.ts                              | 普通 TypeScript 类，持有明确的 Scope                     |
+
+Part 支持动态创建。动态加载的 Part 放 `dynamic/prefabs/`；仅通过编辑器嵌套引用的放 `static/prefabs/`。同时需要两种用法时保留 dynamic 中的一份。已有预制体通过“创建 → UI 部件/通用预制体 → 预制体来源”接入，保留原 UUID 和节点结构。
 
 ```ts
-// 当前模块默认命名空间。类型写为 AssetKind 字符串。
+// InventoryRes 来自 contracts/generated/resources-default.ts。
+// Part 与父界面的显示周期一起结束。
+const partNode = await this.ctx.assets
+    .in(show.scope)
+    .instantiate(InventoryRes.prefab.prefabsItemPart, this.node);
+```
+
+跨模块资源会先准备其 `requiredCodeModules`，再反序列化。通过 `ctx.assets` 创建时，注入的是调用方的业务上下文，不按资源目录猜测宿主；共享 Part 优先接收数据与回调。单纯加载代码不启动所属模块的业务工厂。场景中手动放置的 GameComponent 使用 `app.bindScene(root, moduleId, owner)` 接入，注入之前不会运行业务 `onInit`。
+
+| 基类          | 业务钩子                                                                 |
+| ------------- | ------------------------------------------------------------------------ |
+| UIView        | onCreate、onShow、onHide、onDispose、onTick、onLateTick                  |
+| GameComponent | onInit、onActivate、onReady、onTick、onLateTick、onDeactivate、onDispose |
+| AppEntry      | appOptions、onBoot、onBootFailed                                         |
+
+业务使用框架钩子，不覆盖引擎 onLoad/start/onEnable/update。GameComponent 钩子同步执行，异步任务放在 `activation.run`；UI 的 onCreate/onShow/onHide 可以异步。异步返回后使用捕获的 `show.commit` 或 `activation.commit` 提交结果。按钮结束弹窗调用 `show.finish(result)`。
+
+简单界面直接编写渲染和输入逻辑；复杂界面可选择生成 Presenter，由它组织显示流程，页面负责渲染，跨界面业务状态放 Service。Part 不进入页面栈。
+
+## 资源寻址与通信
+
+```ts
 const assets = ctx.assets.in(show.scope);
-const address = await assets.resolve('icon', 'SpriteFrame');
-const frame = await assets.load('icon', 'SpriteFrame');
-await show.setSprite(this.sprIcon, ExampleRes.sprite.icon);
+const address = await assets.resolve('icons/coin', 'SpriteFrame');
+const frame = await assets.load('coin', 'SpriteFrame'); // 当前包内唯一时可用短名
+await assets.setSprite(this.sprIcon, InventoryRes.sprite.iconsCoin);
 
-// 完整逻辑名跨模块区分重名；同名 SpriteFrame / Texture2D 也分开。
-await assets.load('common/default/sprite/icon', 'SpriteFrame');
+// 跨命名空间使用生成 Key 或完整 AssetKey；scoped 字符串始终表示相对名。
+await assets.load({ id: 'common/default/sprite/icons/coin', type: 'SpriteFrame' });
 
-// ViewKey 自动携带 Params/Result 类型，不导入真实 Prefab 或 View 类。
-const popup = await ctx.ui.open(ExampleViews.exampleView, params, show.scope);
+const popup = await ctx.ui.open(InventoryViews.rewardPopup, params, show.scope);
 const result = await popup.result;
 if (result.status === 'completed') show.commit(() => applyResult(result.value));
 
-const sound = await ctx.audio.play(ExampleRes.audio.confirm, show.scope);
+const sound = await ctx.audio.play(InventoryRes.audio.audioConfirm, show.scope);
 await sound.ended;
 ctx.audio.setVolume('sfx', 0.5);
 ```
 
-逻辑资源标识是 `<module>/<group>/<kind>/<name>`。短名只在当前命名空间解析，不自动搜索所有模块。静态序列化引用和动态加载可以使用同一资源；清单不会复制资产，也不会让静态引用自动变为按需加载。框架持有自己的引用，不调用 `releaseAll` 清空其他使用者的资源。
+逻辑 ID 为 `module/group/kind/relative/path`，物理文件名按英文短横线规则生成身份。类型、命名空间和层级共同区分重名；短名有多个候选时列出候选并报错，不任取一个。图片的 ImageAsset、Texture2D、SpriteFrame 分别编目，图集子帧保留子资源名称。暂不支持的动态导入类型明确报错。
 
-登记图集帧时，选择 SpriteFrame 类型，使用 SpriteAtlas 的 UUID 并填写帧名。一次加载同时持有图集与该帧的引用，随所属 Scope 释放。
+`project-settings/generated/resource-identities.json` 保存 UUID 与稳定逻辑身份。包内移动和文件改名保持 Key，删除产生停用记录，其他 UUID 不能悄悄复用旧名；跨包身份迁移需显式处理。别名只能直接指向同命名空间的有效入口。身份与生成物所有权记录均进入 Git。
 
-模块通过 `app.modules.use(ModuleRef, owner)` 获得有使用期限的公开 API。运行依赖声明在 `module.json`；事实通知使用 `eventKey<T>`、`ctx.events.on(key, handler, owner)`、`emit(key, data)`。UI 之间优先使用参数和结果，不访问其他界面的内部节点。长于当前 UI 的流程使用独立的流程 Scope。
+模块通过 `app.modules.use(ModuleRef, owner)` 获得有期限的 API，依赖 API 注入模块工厂的第二个参数。通知使用 `eventKey<T>`、`ctx.events.on(key, handler, owner)` 和 `emit`。UI 之间优先使用参数、结果和有明确 Scope 的事件，不访问另一个界面的内部节点。
 
-`Scope.close()` 先取消，再等待登记任务和真实清理。`defer` 返回撤销登记的函数。清理超时只能报告并隔离尚未排空的实例，不能杀死 Promise 或提前释放其资源。
+`Scope.close()` 先取消，再等待登记任务和真实清理；超时只报告并隔离实例，不能提前释放仍在使用的资源。代码注册可在同一运行会话复用，业务实例结束时不会假称已卸载 JavaScript。
 
 ## 配置表
 
-输入支持 UTF-8 CSV、XLSX 的指定 Sheet。四行表头依次为 **字段名、类型、默认值、说明**，第五行起是数据。字段名以字母开头，使用字母和数字；`#` 开头或空表头的列忽略。布尔值接受 true/false、1/0；false 与 0 不按空值处理。字符串 ID 应使用文本单元格以保留前导零。
+新建流程使用 **XLSX**。工作簿第一张 `__config` 是唯一导出声明，`__enums` 定义命名枚举；旧 CSV 只用于迁移兼容。面板可选择每张表的目标包，未单独设置时继承工作簿默认包。索引、约束、分片路由、公开合同和外部工作簿输入同样在 `__config` 声明。
 
-支持：`int`、`float`、`bool`、`string`、`enum<a,b>`、`ref<table>`、`asset<SpriteFrame>` 等资源引用、`vec2`、`vec3`、`color`，以及这些类型的一维 `[]` 与末尾 `?` 可空标记。数组填写 JSON；向量填写 `[x,y]` / `[x,y,z]`；颜色填写 `#RRGGBB` / `#RRGGBBAA`。日期使用 string 加 `format: date` / `date-time` 约束；带时间的 ISO 文本必须明确偏移。暂不处理公式、Excel 日期值、富文本或数据区合并单元格。
+数据表第 1—4 行依次为字段名、类型、默认值、说明，第 5 行开始是数据。字符串 ID 使用文本单元格保留前导零；false 和 0 不视为空值。
 
-面板高级选项可声明主键、唯一/非唯一单字段索引、范围/长度约束、外键以及分片字段与资源包映射。分片字段由用户指定，不预设章节等业务含义。导出前检查跨分片主键、外键与资源逻辑名。强引用不隐式拉取其他分片；跨模块外键需要声明模块依赖。
+| 类型                                    | 填写规则                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------- |
+| int、float、bool、string                | 严格检查值；bool 接受 true/false、1/0                                   |
+| enum\<Quality\>、enum\<module.Quality\> | 引用 __enums 的命名枚举；成员值为统一的整数或字符串，跨模块枚举必须公开 |
+| ref\<module.table\>                     | 外键，导出时检查目标表和主键；不因此启动目标业务模块                    |
+| asset\<SpriteFrame\> 等                 | 完整逻辑 ID 或可唯一解析的相对名；验证后导出 AssetKey                   |
+| vec2、vec3                              | JSON 数组                                                               |
+| color                                   | #RRGGBB / #RRGGBBAA                                                     |
+| T[]、T?、T[]?                           | 一维 JSON 数组、可空值及可空数组                                        |
 
-输出为每个目标包内的 JSON，以及 `<Table>.types.ts`、`<Table>.table.ts`、`tables.ts`。TS 只有类型、表合同与引用，**不包含整张数据表**。
+日期使用 string 及 date/date-time 格式约束，带时间的 ISO 文本必须有偏移；不隐式转换 Excel 日期单元格。数据区的富文本、合并单元格等不支持的结构会报出位置。
+
+输出为目标 Bundle 的 `dynamic/config/<table>.json`，以及 `<Table>.types.ts`、`<Table>.table.ts`、`tables.ts`。公开合同放 `contracts/generated/config`，私有合同放 `code/generated/config`。命名枚举另导出 `<Enum>.ts`，包含 `as const` 值对象和对应类型。TS 不嵌入整张数据表。
+
+面板仅改写 `__config`，校验源文件摘要、保存备份，并逐项验证其他 ZIP 内容未改变；不会为了修改导出地址而重存数据页。并发框架写入互斥，旧草稿不能覆盖已变化的文件。
+
+ExcelJS 只读取公式与缓存，不计算公式。缓存可用于预览，正式导出必须有与源文件及声明输入摘要匹配的重算快照。当前重算适配器需要 **Windows 桌面 Microsoft Excel**，在独立副本中重算，不保存源工作簿；本机未安装 Excel，因此尚未验证这一适配器的实际 COM 重算。无公式 XLSX 导出已验证。
 
 ```ts
 const table = await ctx.config.load(EntriesTable, show.scope);
-table.get(1);        // 不存在时为 undefined
-table.require(1);    // 不存在时报错
+table.get(1);       // 不存在时为 undefined
+table.require(1);   // 不存在时报错
 table.has(1);
 table.all();
-table.by('category', 'normal'); // 仅可查询声明过的索引
+table.by('category', 'normal'); // 仅限声明的索引
 
-// 同一张表有多个分片时，必须明确目标资源包。
+// 多分片时明确选择 Bundle。
 const extra = await ctx.config.load(EntriesTable, show.scope, {
-  bundle: ExampleBundles.extra,
+    bundle: InventoryBundles.extra,
 });
 ```
 
-配置行及嵌套值只读。保存数据、当前时间、玩家状态不写回配置表。`loadMany` 在一组加载失败时回收这次取得的使用权。
+配置及嵌套数据只读；`loadMany` 成组加载失败会归还本次持有的资源。玩家存档、活动状态与当前时间属于运行时业务，不写回设计配置。
+
+## 删除与恢复
+
+默认包与其他资源包适用相同规则。预览检查模块依赖、Creator 引用、显式 TS 导入、已知逻辑名及 XLSX 引用；仍在使用的配置路由或绑定预制体会阻止单独删除资源包。
+
+完整备份及摘要检查通过后，由 Creator 逐个删除资源，再删除经核验的空目录，避免 Windows 下整目录删除失败。每步写入恢复记录；失败停止自动生成并保留备份。恢复检查冲突，导入原元数据，核验每个 UUID，并恢复配置启用状态。
+
+历史在 `.yzforge/trash` 与 `.yzforge/workbook-history`。不覆盖恢复位置的新内容；进程任意时刻崩溃仍可能需要根据记录处理。运行时拼接字符串和反射引用无法完整静态证明。
 
 ## 时间
 

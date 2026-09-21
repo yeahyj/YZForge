@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { extname, relative, resolve } from 'node:path';
 import ExcelJS from 'exceljs';
-import { digest, identifier, json, pascal, safePath } from './project.mjs';
+import { digest, identifier, pascal, safePath } from './project.mjs';
+import { workbookSources, formulaResults } from './workbooks.mjs';
 
 /** RFC4180-style CSV parser: quoted commas/newlines and doubled quotes are preserved. */
 export function parseCSV(input) {
@@ -39,7 +40,7 @@ export function parseCSV(input) {
     }
     return rows;
 }
-export function fieldType(text) {
+export function fieldType(text, context) {
     if (typeof text !== 'string') throw Error('Field type must be text');
     let source = text.trim(),
         nullable = false,
@@ -58,10 +59,18 @@ export function fieldType(text) {
         const match = /^(enum|ref|asset)<([^<>]+)>$/.exec(source);
         if (!match) throw Error(`Unsupported field type: ${text}`);
         if (match[1] === 'enum') {
-            const values = match[2].split(',').map((value) => value.trim());
-            if (values.some((value) => !value) || new Set(values).size !== values.length)
-                throw Error(`Invalid enum: ${text}`);
-            schema = { kind: 'enum', values };
+            if (context?.version === 2) {
+                const id = match[2].includes('.') ? match[2] : `${context.module}.${match[2]}`;
+                const enumeration = context.enums.get(id);
+                if (!enumeration || (enumeration.module !== context.module && !enumeration.public))
+                    throw Error(`Unknown or private named enum: ${id}`);
+                schema = { kind: 'enum', values: Object.values(enumeration.members), enumId: id };
+            } else {
+                const values = match[2].split(',').map((value) => value.trim());
+                if (values.some((value) => !value) || new Set(values).size !== values.length)
+                    throw Error(`Invalid enum: ${text}`);
+                schema = { kind: 'enum', values };
+            }
         } else if (match[1] === 'asset') {
             if (
                 ![
@@ -100,9 +109,12 @@ export function convert(value, schema, context) {
         case 'float':
             return strictNumber(value);
         case 'string':
-        case 'enum':
             if (typeof value !== 'string') throw Error('Text fields require text cells (format numeric IDs as text)');
             return value;
+        case 'enum':
+            return typeof schema.values?.[0] === 'number'
+                ? strictNumber(value)
+                : convert(value, { kind: 'string' }, context);
         case 'bool':
             if ([true, 'true', '1', 1].includes(value)) return true;
             if ([false, 'false', '0', 0].includes(value)) return false;
@@ -139,7 +151,7 @@ export function convert(value, schema, context) {
             throw Error(`Unsupported field kind ${schema.kind}`);
     }
 }
-async function readRows(root, mapping) {
+async function readRows(root, mapping, preview) {
     const path = await safePath(root, mapping.source);
     if (!mapping.source.replaceAll('\\', '/').startsWith('config-source/'))
         throw Error('Table source must be under config-source');
@@ -150,13 +162,30 @@ async function readRows(root, mapping) {
     const sheet = mapping.sheet ? book.getWorksheet(mapping.sheet) : book.worksheets[0];
     if (!sheet) throw Error(`Missing sheet ${mapping.sheet}`);
     const result = [];
+    let verified;
     for (let r = 1; r <= sheet.rowCount; r++) {
         const row = [];
         for (let c = 1; c <= sheet.columnCount; c++) {
             const cell = sheet.getCell(r, c);
             if (cell.isMerged && r >= 5)
                 throw Error(`${mapping.source}:${sheet.name}!${cell.address}: merged data cells are not supported`);
-            if (cell.type === ExcelJS.ValueType.Formula || cell.value instanceof Date)
+            if (cell.type === ExcelJS.ValueType.Formula) {
+                if (mapping.formatVersion !== 2)
+                    throw Error(
+                        `${mapping.source}:${sheet.name}!${cell.address}: migrate legacy formulas to XLSX v2 first`,
+                    );
+                if (r < 5 || sheet.name.startsWith('__'))
+                    throw Error(
+                        `${mapping.source}:${sheet.name}!${cell.address}: formulas are only allowed in data cells`,
+                    );
+                if (verified === undefined) verified = await formulaResults(root, mapping, preview);
+                const value = preview ? cell.result : verified[`${sheet.name}!${cell.address}`];
+                if (value === undefined || value === null || typeof value === 'object')
+                    throw Error(`${mapping.source}:${sheet.name}!${cell.address}: formula result missing or invalid`);
+                row.push(value);
+                continue;
+            }
+            if (cell.value instanceof Date)
                 throw Error(
                     `${mapping.source}:${sheet.name}!${cell.address}: use literal values and explicit ISO text`,
                 );
@@ -184,7 +213,9 @@ function typeScript(schema) {
             type = 'string';
             break;
         case 'enum':
-            type = schema.values.map((value) => JSON.stringify(value)).join(' | ');
+            type = schema.enumId
+                ? schema.enumId.replaceAll('.', '_')
+                : schema.values.map((value) => JSON.stringify(value)).join(' | ');
             break;
         case 'ref':
             type = schema.keyKind === 'int' ? 'number' : 'string';
@@ -207,8 +238,8 @@ function typeScript(schema) {
     }
     return schema.nullable ? `${type} | null` : type;
 }
-export async function compileTables(root, projectModules, runtime, registry) {
-    const source = await json(resolve(root, 'config-source/tables.json'));
+export async function compileTables(root, projectModules, runtime, registry, options = {}) {
+    const source = options.sources ?? (await workbookSources(root));
     const definitions = new Map(),
         tables = [],
         output = {},
@@ -220,7 +251,7 @@ export async function compileTables(root, projectModules, runtime, registry) {
             throw Error(`Invalid or duplicate tableId ${mapping.id}`);
         const module = targets.get(mapping.id.split('.')[0]);
         if (!module) throw Error(`Unknown table module ${mapping.id}`);
-        const rows = await readRows(root, mapping);
+        const rows = await readRows(root, mapping, options.preview === true);
         if (rows.length < 4) throw Error(`${mapping.source}: four header rows are required`);
         const fields = {},
             columns = [];
@@ -228,7 +259,11 @@ export async function compileTables(root, projectModules, runtime, registry) {
             if (empty(name) || String(name).startsWith('#')) return;
             if (typeof name !== 'string' || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(name) || name in fields)
                 throw Error(`${mapping.source}: invalid/duplicate column ${name}`);
-            const schema = fieldType(rows[1]?.[index]);
+            const schema = fieldType(rows[1]?.[index], {
+                version: mapping.formatVersion,
+                module: module.id,
+                enums: source.enums,
+            });
             for (const [rule, value] of Object.entries(mapping.constraints?.[name] ?? {})) {
                 if (!['min', 'max', 'minLength', 'maxLength', 'format'].includes(rule))
                     throw Error(`${mapping.id}.${name}: unsupported constraint ${rule}`);
@@ -277,7 +312,9 @@ export async function compileTables(root, projectModules, runtime, registry) {
         for (const schema of Object.values(table.definition.fields)) bindRefs(schema, table.module.id);
         table.definition.schemaHash = digest(table.definition);
         const { mapping, module, rows, columns, definition } = table;
-        const targets = mapping.shards ? Object.values(mapping.shards.targets) : [mapping.bundle ?? 'default'];
+        const targets = mapping.shards
+            ? Object.values(mapping.shards.targets).filter(Boolean)
+            : [mapping.bundle ?? 'default'];
         if (mapping.shards && !columns.some((column) => column.name === mapping.shards.field))
             throw Error(`${mapping.id}: shard routing field is not declared in the workbook`);
         for (const group of targets) {
@@ -293,6 +330,7 @@ export async function compileTables(root, projectModules, runtime, registry) {
                       String(raw[columns.find((column) => column.name === mapping.shards.field)?.index])
                   ]
                 : (mapping.bundle ?? 'default');
+            if (group === null) continue; // Explicitly disabled shard; absent mapping is still an error.
             if (!table.groups.has(group)) throw Error(`${mapping.source}: row ${position + 1}: unmapped shard value`);
             const row = {};
             for (const column of columns) {
@@ -305,7 +343,21 @@ export async function compileTables(root, projectModules, runtime, registry) {
                 try {
                     row[column.name] = convert(value, column.schema, {
                         asset: (name, type) => {
-                            const key = runtime.logicalKey(name, type, `${module.id}/${group}`);
+                            const complete = typeof name === 'string' && name.split('/').length >= 4;
+                            let key = runtime.logicalKey(name, type, complete ? undefined : `${module.id}/${group}`);
+                            if (!complete && !String(name).includes('/')) {
+                                const matches = [...registry].filter(
+                                    ([id, entry]) =>
+                                        id.startsWith(`${module.id}/${group}/`) &&
+                                        entry.type === type &&
+                                        id.split('/').pop() === name,
+                                );
+                                if (matches.length > 1)
+                                    throw Error(
+                                        `Ambiguous asset name ${name}: ${matches.map(([id]) => id).join(', ')}`,
+                                    );
+                                if (matches.length === 1) key = { id: matches[0][0], type };
+                            }
                             if (!registry.has(key.id) || registry.get(key.id).type !== type)
                                 throw Error(`Asset is not registered as ${type}: ${key.id}`);
                             return key;
@@ -337,7 +389,7 @@ export async function compileTables(root, projectModules, runtime, registry) {
         const target = targetTable.get(schema.target),
             match = target.all.find((item) => item.row[target.definition.primaryKey] === value);
         if (!match) throw Error(`${own.mapping.id}.${field}: missing foreign key ${schema.target}=${value}`);
-        const soft = own.mapping.references?.[field]?.mode === 'soft';
+        const soft = own.mapping.formatVersion === 2 || own.mapping.references?.[field]?.mode === 'soft';
         if (
             !soft &&
             match.group !== 'default' &&
@@ -345,6 +397,7 @@ export async function compileTables(root, projectModules, runtime, registry) {
         )
             throw Error(`${own.mapping.id}.${field}: strong foreign keys cannot cross sibling resource bundles`);
         if (
+            own.mapping.formatVersion !== 2 &&
             target.module.id !== own.module.id &&
             target.module.id !== 'shared' &&
             !own.module.dependencies.includes(target.module.id)
@@ -357,7 +410,7 @@ export async function compileTables(root, projectModules, runtime, registry) {
             for (const [name, schema] of Object.entries(definition.fields))
                 checkRef(row[name], schema, table, group, name);
         const name = pascal(mapping.id.split('.')[1]);
-        const generated = `${relative(root, module.directory).replaceAll('\\', '/')}/generated/config`;
+        const generated = `${relative(root, module.directory).replaceAll('\\', '/')}/${module.layoutVersion === 2 ? (mapping.public ? 'contracts' : 'code') + '/' : ''}generated/config`;
         const framework = relative(resolve(root, generated), resolve(root, 'assets/framework')).replaceAll('\\', '/');
         const rowType = Object.entries(definition.fields)
             .map(([field, schema]) => {
@@ -371,8 +424,30 @@ export async function compileTables(root, projectModules, runtime, registry) {
         const indexes = Object.entries(definition.indexes)
             .map(([id, index]) => `  readonly ${identifier(id)}: ${typeScript(definition.fields[index.field])};`)
             .join('\n');
+        const usedEnums = new Set();
+        const collectEnum = (schema) => {
+            if (schema.enumId) usedEnums.add(schema.enumId);
+            if (schema.element) collectEnum(schema.element);
+        };
+        Object.values(definition.fields).forEach(collectEnum);
+        const enumImports = [];
+        for (const id of usedEnums) {
+            const enumeration = source.enums.get(id),
+                owner = targets.get(enumeration.module);
+            if (!owner || (mapping.public && !enumeration.public))
+                throw Error(`Public table ${mapping.id} cannot expose private enum ${id}`);
+            const enumPath = resolve(
+                owner.directory,
+                enumeration.public ? 'contracts/generated/enums' : 'code/generated/enums',
+                `${enumeration.name}.ts`,
+            );
+            const importPath = relative(resolve(root, generated), enumPath).replaceAll('\\', '/').replace(/\.ts$/, '');
+            enumImports.push(
+                `import type { ${enumeration.name} as ${id.replaceAll('.', '_')} } from '${importPath.startsWith('.') ? importPath : './' + importPath}';`,
+            );
+        }
         output[`${generated}/${name}.types.ts`] =
-            `// Generated. Edit the source workbook and tables.json.\nimport type { AssetKey } from '${framework}/assets/asset-types';\nexport type ${name}Id = ${typeScript(definition.fields[definition.primaryKey])};\nexport interface ${name}Row {\n${rowType}\n}\nexport interface ${name}Indexes {\n${indexes}\n}\n`;
+            `// Generated. Edit the source workbook.\nimport type { AssetKey } from '${framework}/assets/asset-types';\n${enumImports.join('\n')}\nexport type ${name}Id = ${typeScript(definition.fields[definition.primaryKey])};\nexport interface ${name}Row {\n${rowType}\n}\nexport interface ${name}Indexes {\n${indexes}\n}\n`;
         output[`${generated}/${name}.table.ts`] =
             `// Generated contract; rows remain in resource bundles.\nimport { defineTable } from '${framework}/config/schema';\nimport type { ${name}Row, ${name}Id, ${name}Indexes } from './${name}.types';\nexport const ${name}Table = defineTable<${name}Row, ${name}Id, ${name}Indexes>(${JSON.stringify(definition, null, 2)});\n`;
         routes[mapping.id] = [];
@@ -392,7 +467,7 @@ export async function compileTables(root, projectModules, runtime, registry) {
                 };
             runtime.parseTable(envelope, definition, dataRevision);
             const bundle = module.bundles[group],
-                path = `config/${mapping.id.split('.')[1]}`;
+                path = `${module.layoutVersion === 2 ? 'dynamic/' : ''}config/${mapping.id.split('.')[1]}`;
             const target = relative(root, resolve(module.directory, bundle.root, `${path}.json`)).replaceAll('\\', '/');
             if (Object.keys(output).some((key) => key.toLowerCase() === target.toLowerCase()))
                 throw Error(`Output path collision: ${target}`);
@@ -409,13 +484,17 @@ export async function compileTables(root, projectModules, runtime, registry) {
     for (const module of projectModules) {
         const own = tables.filter((table) => table.module.id === module.id);
         if (!own.length) continue;
-        const directory = `${relative(root, module.directory).replaceAll('\\', '/')}/generated/config`;
+        const directory = `${relative(root, module.directory).replaceAll('\\', '/')}/${module.layoutVersion === 2 ? 'code/' : ''}generated/config`;
         output[`${directory}/tables.ts`] =
             '// Generated table references, without row data.\n' +
             own
                 .map((table) => {
                     const name = pascal(table.mapping.id.split('.')[1]);
-                    return `import { ${name}Table } from './${name}.table';`;
+                    const prefix =
+                        module.layoutVersion === 2 && table.mapping.public
+                            ? '../../../contracts/generated/config/'
+                            : './';
+                    return `import { ${name}Table } from '${prefix}${name}.table';`;
                 })
                 .join('\n') +
             `\nexport const ${pascal(module.id)}Tables = {\n` +
@@ -427,5 +506,15 @@ export async function compileTables(root, projectModules, runtime, registry) {
                 .join('\n') +
             '\n} as const;\n';
     }
-    return { output, routes, reports };
+    for (const enumeration of source.enums.values()) {
+        const owner = targets.get(enumeration.module);
+        if (!owner) throw Error(`Unknown enum module ${enumeration.module}`);
+        const directory = relative(
+            root,
+            resolve(owner.directory, enumeration.public ? 'contracts/generated/enums' : 'code/generated/enums'),
+        ).replaceAll('\\', '/');
+        output[`${directory}/${enumeration.name}.ts`] =
+            `// Generated named enum. Values are a stable data contract.\nexport const ${enumeration.name} = ${JSON.stringify(enumeration.members, null, 2)} as const;\nexport type ${enumeration.name} = (typeof ${enumeration.name})[keyof typeof ${enumeration.name}];\n`;
+    }
+    return { output, routes, reports, previewOnly: options.preview === true };
 }

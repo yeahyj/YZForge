@@ -2,20 +2,28 @@
   "formatVersion": 1,
   "appId": "com.example.yzforge-demo",
   "releaseId": "dev-20260920",
-  "activePlatform": "web-mobile",
-  "platforms": {
-    "web-mobile": { "bundledVerified": false },
-    "wechatgame": { "bundledVerified": false },
-    "android": { "bundledVerified": false },
-    "ios": { "bundledVerified": false }
-  },
   "bindingPrefixes": {
-    "btn": "Button", "lbl": "Label", "spr": "Sprite", "node": "Node",
-    "edit": "EditBox", "scroll": "ScrollView", "toggle": "Toggle", "slider": "Slider", "rich": "RichText"
+    "btn": "Button",
+    "lbl": "Label",
+    "spr": "Sprite",
+    "node": "Node",
+    "edit": "EditBox",
+    "scroll": "ScrollView",
+    "toggle": "Toggle",
+    "slider": "Slider",
+    "rich": "RichText"
   },
   "cleanupTimeoutMs": 10000,
   "maxAudioVoices": 16,
   "wechatPerformanceUnit": "microseconds",
-  "audioChannels": { "bgm": 1, "sfx": 1, "voice": 1 },
-  "calendar": { "offsetMinutes": 0, "weekStartsOn": 1, "resetMinute": 0 }
+  "audioChannels": {
+    "bgm": 1,
+    "sfx": 1,
+    "voice": 1
+  },
+  "calendar": {
+    "offsetMinutes": 0,
+    "weekStartsOn": 1,
+    "resetMinute": 0
+  }
 }

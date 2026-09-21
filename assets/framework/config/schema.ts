@@ -11,7 +11,8 @@ export interface FieldSchema {
     readonly kind: 'int' | 'float' | 'bool' | 'string' | 'enum' | 'ref' | 'asset' | 'vec2' | 'vec3' | 'color' | 'array';
     readonly nullable?: boolean;
     readonly element?: FieldSchema;
-    readonly values?: readonly string[];
+    readonly values?: readonly (string | number)[];
+    readonly enumId?: string;
     readonly target?: string;
     readonly keyKind?: 'int' | 'string';
     readonly assetType?: AssetKind;
@@ -70,7 +71,10 @@ export function validateValue(value: unknown, schema: FieldSchema, location: str
             fail(typeof value === 'string', 'a string');
             break;
         case 'enum':
-            fail(typeof value === 'string' && schema.values?.includes(value), `one of ${schema.values}`);
+            fail(
+                (typeof value === 'string' || typeof value === 'number') && schema.values?.includes(value),
+                `one of ${schema.values}`,
+            );
             break;
         case 'ref':
             validateValue(value, { kind: schema.keyKind ?? 'int' }, location);

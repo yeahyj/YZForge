@@ -21,6 +21,12 @@ export class GameComponent extends Component {
     private ready = false;
     private disposed = false;
     private allowed = false;
+    private engineLoaded = false;
+    protected requireBinding<T>(value: T | null, nodeName: string): T {
+        invariant(value, 'BINDING_MISSING', `${this.name}: ${nodeName}`);
+        return value;
+    }
+    protected validateBindings(): void {}
     protected onInit(): void {}
     protected onActivate(_activation: ActivationContext): void {}
     protected onReady(): void {}
@@ -43,6 +49,7 @@ export class GameComponent extends Component {
             await this.__deactivate();
             this.__dispose();
         });
+        if (this.engineLoaded) this.initialize();
     }
     /** @internal An explicit business gate, separate from engine enabled/active. */
     __allow(owner: Scope | undefined): void {
@@ -55,13 +62,18 @@ export class GameComponent extends Component {
         if (this.enabledInHierarchy && this.initialized && !this.draining) this.activate();
     }
     onLoad(): void {
-        invariant(this.instance, 'COMPONENT_NOT_BOUND', `Instantiate ${this.name} through the framework`);
+        this.engineLoaded = true;
+        // Scene hosts may bind after engine onLoad. No business hook runs before injection.
+        if (this.instance) this.initialize();
+    }
+    private initialize(): void {
         if (this.initialized) return;
+        this.validateBindings();
         this.initialized = true;
         synchronous(this.onInit(), 'onInit');
     }
     onEnable(): void {
-        if (this.allowed && !this.draining) this.activate();
+        if (this.allowed && this.initialized && !this.draining) this.activate();
     }
     start(): void {
         /* Readiness is dispatched immediately before the first business frame. */

@@ -131,6 +131,11 @@ export function validateModules(modules) {
             if (!['page', 'popup', 'overlay', 'toast', 'loading'].includes(view.kind))
                 throw Error(`${id}: invalid view kind`);
         }
+        if (module.code?.mode === 'bundled') {
+            if (!/^[a-z][a-z0-9-]*$/.test(module.code.bundle) || bundleIds.has(module.code.bundle))
+                throw Error(`Invalid/duplicate code bundle: ${module.code.bundle}`);
+            bundleIds.add(module.code.bundle);
+        }
     }
     const stack = new Set(),
         done = new Set();
@@ -144,4 +149,60 @@ export function validateModules(modules) {
         done.add(id);
     };
     for (const id of map.keys()) visit(id);
+}
+
+export async function codeBoundaryCheck(root, modules) {
+    const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), ts.sys.readFile);
+    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
+    const boundaries = modules.map((module) => ({
+        ...module,
+        codePath: resolve(module.directory, module.code?.root ?? 'code').replaceAll('\\', '/') + '/',
+    }));
+    const errors = [];
+    for (const file of await files(resolve(root, 'assets/game'), '.ts')) {
+        const source = ts.createSourceFile(file, ts.sys.readFile(file), ts.ScriptTarget.Latest, true);
+        const from = file.replaceAll('\\', '/');
+        const inspect = (specifier, typeOnly) => {
+            if (typeOnly) return;
+            const target = ts
+                .resolveModuleName(specifier, file, parsed.options, ts.sys)
+                .resolvedModule?.resolvedFileName.replaceAll('\\', '/');
+            const owner = boundaries.find((module) => target?.startsWith(module.codePath));
+            if (!owner || from.startsWith(owner.codePath)) return;
+            // Generated assembly may directly construct eager factories; bundled implementations have no such exception.
+            if (owner.code?.mode !== 'bundled' && from.endsWith('/app/generated/assembly.ts')) return;
+            errors.push(
+                `${relative(root, file)}: 私有模块实现不能跨边界导入 ${specifier}；请通过 public.ts / contracts 和 ModuleRef 通信`,
+            );
+        };
+        const visit = (node) => {
+            if (
+                (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+                node.moduleSpecifier &&
+                ts.isStringLiteral(node.moduleSpecifier)
+            ) {
+                const clause = node.importClause;
+                const typeOnly =
+                    node.isTypeOnly ||
+                    clause?.isTypeOnly ||
+                    (clause?.namedBindings &&
+                        ts.isNamedImports(clause.namedBindings) &&
+                        !clause.name &&
+                        clause.namedBindings.elements.length > 0 &&
+                        clause.namedBindings.elements.every((item) => item.isTypeOnly));
+                inspect(node.moduleSpecifier.text, typeOnly);
+            }
+            if (
+                ts.isCallExpression(node) &&
+                (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+                    (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+            ) {
+                const argument = node.arguments[0];
+                if (argument && ts.isStringLiteral(argument)) inspect(argument.text, false);
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(source);
+    }
+    if (errors.length) throw Error(errors.join('\n'));
 }

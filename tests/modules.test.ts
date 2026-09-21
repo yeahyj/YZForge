@@ -180,3 +180,42 @@ test('fault cleanup blocks new users until the retained instance actually drains
     await manager.use({ id: 'a' }, owner);
     await owner.close();
 });
+
+test('code preparation shares loading, survives a cancelled waiter, and does not start business factories', async () => {
+    const manager = new ModuleManager(
+        [{ id: 'inventory', dependencies: [], codeBundle: 'code-inventory', entryPath: 'entry' }],
+        new FakeClock(),
+        context,
+    );
+    const owner = new Scope('owner'),
+        cancelled = new Scope('cancelled'),
+        gate = deferred();
+    let loads = 0,
+        starts = 0;
+    manager.loadFactory = async () => {
+        loads++;
+        await gate.promise;
+        return () => {
+            starts++;
+            return { api: {} };
+        };
+    };
+    const first = manager.prepareCode('inventory', cancelled),
+        second = manager.prepareCode('inventory', owner);
+    await cancelled.close();
+    await assert.rejects(first, { code: 'OPERATION_CANCELLED' });
+    gate.resolve();
+    await second;
+    assert.equal(loads, 1);
+    assert.equal(starts, 0);
+    assert.equal(manager.isReady('inventory'), false);
+    const handle = await manager.use({ id: 'inventory' }, owner);
+    await handle.release();
+    const again = await manager.use({ id: 'inventory' }, owner);
+    await again.release();
+    assert.equal(loads, 1);
+    assert.equal(starts, 2);
+    await assert.rejects(manager.prepareCode('inventory', cancelled), { code: 'OPERATION_CANCELLED' });
+    await owner.close();
+    await manager.close();
+});

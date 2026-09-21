@@ -1,5 +1,5 @@
 // Generated contract; rows remain in resource bundles.
-import { defineTable } from '../../../../../framework/config/schema';
+import { defineTable } from '../../../../../../framework/config/schema';
 import type { ItemsRow, ItemsId, ItemsIndexes } from './Items.types';
 export const ItemsTable = defineTable<ItemsRow, ItemsId, ItemsIndexes>({
     id: 'lobby.items',

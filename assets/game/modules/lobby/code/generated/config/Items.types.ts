@@ -1,5 +1,6 @@
-// Generated. Edit the source workbook and tables.json.
-import type { AssetKey } from '../../../../../framework/assets/asset-types';
+// Generated. Edit the source workbook.
+import type { AssetKey } from '../../../../../../framework/assets/asset-types';
+
 export type ItemsId = number;
 export interface ItemsRow {
     /** 道具编号 */

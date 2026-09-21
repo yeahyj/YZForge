@@ -65,7 +65,7 @@ export class App {
                 Object.freeze({
                     id,
                     scope,
-                    assets: this.assets.in(scope, `${id}/default`),
+                    assets: this.assets.in(scope, `${id}/default`, id),
                     config: this.config.in(scope),
                     time: this.time.in(scope),
                     events: this.events,
@@ -78,13 +78,14 @@ export class App {
         );
         this.modules.loadFactory = bundleFactoryLoader(this.assets);
         this.assets.codeReady = (id) => this.modules.isCodeReady(id);
+        this.assets.prepareCode = (id, owner) => this.modules.prepareCode(id, owner);
         this.assets.moduleReady = (id) => this.modules.isReady(id);
         this.assets.bindInstance = (node, scope, id, active) => {
             const components = node.getComponentsInChildren(GameComponent);
             if (components.length && !id)
                 throw new FrameworkError(
                     'INSTANCE_MODULE_REQUIRED',
-                    'GameComponent prefabs require a registered module resource key',
+                    'Provide the business host moduleId or instantiate through ctx.assets',
                 );
             if (id)
                 for (const component of components) {
@@ -125,6 +126,19 @@ export class App {
             game.off(Game.EVENT_HIDE, hide);
             game.off(Game.EVENT_SHOW, show);
         };
+    }
+    /** Adopt hand-authored scene components; engine callbacks wait for this business gate. */
+    async bindScene(root: Node, moduleId: string, owner: Scope): Promise<Scope> {
+        const scope = owner.child(`scene-host:${moduleId}`);
+        try {
+            await this.modules.use({ id: moduleId }, scope);
+            scope.signal.throwIfAborted();
+            this.assets.bindInstance(root, scope, moduleId, true);
+            return scope;
+        } catch (error) {
+            await scope.close();
+            throw error;
+        }
     }
     close(): Promise<void> {
         if (!this.closing)

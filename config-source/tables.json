@@ -1,12 +1,4 @@
 {
   "formatVersion": 1,
-  "tables": [
-    {
-      "id": "lobby.items",
-      "source": "config-source/lobby/items.csv",
-      "primaryKey": "id",
-      "bundle": "default",
-      "indexes": {}
-    }
-  ]
+  "tables": []
 }

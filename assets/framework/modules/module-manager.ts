@@ -58,6 +58,9 @@ type ModuleRecord = {
 export class ModuleManager {
     private readonly definitions = new Map<string, ModuleDefinition>();
     private readonly records = new Map<string, ModuleRecord>();
+    private readonly codeScope = new Scope('module-code');
+    private readonly factories = new Map<string, Promise<ModuleFactory>>();
+    private readonly loadedCode = new Set<string>();
     private accepting = true;
     private readonly dependencyOrder: string[] = [];
     evictIdleViews: (moduleId: string) => Promise<void> = async () => {};
@@ -95,7 +98,30 @@ export class ModuleManager {
         this.dependencyOrder = Array.from(ready);
     }
     isCodeReady(id: string): boolean {
-        return this.records.get(id)?.codeReady ?? !!this.definitions.get(id)?.factory;
+        return this.loadedCode.has(id) || !!this.definitions.get(id)?.factory;
+    }
+    /** Loads executable classes without starting the module's business factory. */
+    async prepareCode(id: string, owner: Scope): Promise<void> {
+        owner.signal.throwIfAborted();
+        await untilCancelled(this.factoryFor(id), owner.signal);
+    }
+    private factoryFor(id: string): Promise<ModuleFactory> {
+        const definition = this.definitions.get(id);
+        invariant(this.accepting && definition, 'MODULE_UNKNOWN', id);
+        let pending = this.factories.get(id);
+        if (!pending) {
+            const scope = this.codeScope.child(id);
+            pending = this.loadFactory(definition, scope).then((factory) => {
+                this.loadedCode.add(id);
+                return factory;
+            });
+            this.factories.set(id, pending);
+            void pending.catch(() => {
+                if (this.factories.get(id) === pending) this.factories.delete(id);
+                void scope.close().catch(this.report);
+            });
+        }
+        return pending;
     }
     isReady(id: string): boolean {
         return this.records.get(id)?.state === 'ready';
@@ -176,7 +202,7 @@ export class ModuleManager {
             );
             this.records.set(ref.id, current);
             current.ready = Promise.resolve().then(async () => {
-                const factory = await this.loadFactory(definition, scope);
+                const factory = await untilCancelled(this.factoryFor(definition.id), scope.signal);
                 current.codeReady = true;
                 scope.signal.throwIfAborted();
                 const dependencies: Record<string, unknown> = {};
@@ -319,6 +345,11 @@ export class ModuleManager {
             } catch (error) {
                 failures.push(error);
             }
+        }
+        try {
+            await this.codeScope.close();
+        } catch (error) {
+            failures.push(error);
         }
         if (failures.length)
             throw new FrameworkError('MODULE_SHUTDOWN_FAILED', 'Some module cleanups failed', { failures });

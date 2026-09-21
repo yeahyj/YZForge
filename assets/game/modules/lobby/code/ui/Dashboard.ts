@@ -1,9 +1,9 @@
 import { _decorator, Button } from 'cc';
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
 import type { DashboardParams, DashboardResult } from './Dashboard.types';
-import { ItemsTable } from '../../generated/config/Items.table';
-import { LobbyRes } from '../../generated/resources-default';
-import { LobbyViews } from '../../generated/views';
+import { ItemsTable } from '../generated/config/Items.table';
+import { LobbyRes } from '../../contracts/generated/resources-default';
+import { LobbyViews } from '../../contracts/generated/views';
 import { DashboardBinding } from './generated/DashboardBinding';
 const { ccclass } = _decorator;
 @ccclass('lobby.Dashboard')
