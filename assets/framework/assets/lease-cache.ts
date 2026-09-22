@@ -1,7 +1,7 @@
 import { untilCancelled } from '../core/cancellation';
 import { Scope } from '../core/scope';
 import { ErrorReporter, reportError } from '../core/errors';
-type Entry<V> = { users: number; value?: V; ready: Promise<V>; released: boolean };
+type Entry<V> = { users: number; value?: V; ready: Promise<V>; released: boolean; holders: Set<Scope> };
 
 /**
  * @internal
@@ -39,7 +39,7 @@ export class LeaseCache<V> {
         if (previous) return previous;
         let entry = this.entries.get(key);
         if (!entry) {
-            entry = { users: 0, ready: Promise.resolve(undefined as V), released: false };
+            entry = { users: 0, ready: Promise.resolve(undefined as V), released: false, holders: new Set() };
             const captured = entry;
             this.entries.set(key, captured);
             captured.ready = Promise.resolve()
@@ -59,11 +59,13 @@ export class LeaseCache<V> {
         }
         const captured = entry;
         captured.users++;
+        captured.holders.add(scope);
         let returned = false,
             unown = () => {};
         const giveBack = () => {
             if (returned) return;
             returned = true;
+            captured.holders.delete(scope);
             owned!.delete(key);
             unown();
             if (--captured.users === 0 && captured.value !== undefined) this.drop(key, captured);
@@ -99,5 +101,18 @@ export class LeaseCache<V> {
      */
     get retainedCount(): number {
         return this.entries.size;
+    }
+    /** 返回共享加载和持有者的只读快照；不暴露实际资源对象。 */
+    inspect() {
+        return Object.freeze(
+            Array.from(this.entries, ([key, entry]) =>
+                Object.freeze({
+                    key,
+                    state: entry.value === undefined ? ('loading' as const) : ('ready' as const),
+                    users: entry.users,
+                    owners: Object.freeze(Array.from(entry.holders, (owner) => owner.inspect())),
+                }),
+            ),
+        );
     }
 }

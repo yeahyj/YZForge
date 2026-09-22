@@ -1,6 +1,19 @@
 import { CancellationSource, CancellationSignal } from './cancellation';
 import { ErrorReporter, FrameworkError, OperationCancelled, reportError } from './errors';
 type Cleanup = () => void | Promise<void>;
+/** 使用期限的只读诊断快照，不包含任务、节点或资源对象本身。 */
+export interface ScopeSnapshot {
+    /** 创建时的诊断名称。 */
+    readonly label: string;
+    /** active 可工作；cancelled 已取消；closing 正在等待；closed 已完成清理。 */
+    readonly state: 'active' | 'cancelled' | 'closing' | 'closed';
+    /** 尚未完成的任务名称；同名表示多个独立任务。 */
+    readonly tasks: readonly string[];
+    /** 尚未执行的清理回调数量，不等同于资源数量。 */
+    readonly cleanupCount: number;
+    /** 当前仍被持有的子期限，已完整关闭的子级会移除。 */
+    readonly children: readonly ScopeSnapshot[];
+}
 /**
  * 一段明确的使用期限，统一管理任务、资源持有和清理函数。
  * 关闭时先取消，再等待已登记任务结束，最后清理资源；其他 Scope 的共享持有不受影响。
@@ -16,7 +29,7 @@ export class Scope {
     readonly signal: CancellationSignal;
     private readonly source: CancellationSource;
     private readonly children = new Set<Scope>();
-    private readonly tasks = new Set<Promise<unknown>>();
+    private readonly tasks = new Map<Promise<unknown>, string>();
     private readonly cleanups = new Set<Cleanup>();
     private closing?: Promise<void>;
     private ended = false;
@@ -94,9 +107,9 @@ export class Scope {
      * @param task 纳入关闭屏障的工作。
      * @returns 传入的同一个 Promise。
      */
-    track<T>(task: Promise<T>): Promise<T> {
+    track<T>(task: Promise<T>, label = 'task'): Promise<T> {
         this.signal.throwIfAborted();
-        this.tasks.add(task);
+        this.tasks.set(task, label);
         task.then(
             () => this.tasks.delete(task),
             () => this.tasks.delete(task),
@@ -151,10 +164,20 @@ export class Scope {
      */
     async drainTasks(): Promise<PromiseSettledResult<unknown>[]> {
         const [own, nested] = await Promise.all([
-            Promise.allSettled(Array.from(this.tasks)),
+            Promise.allSettled(Array.from(this.tasks.keys())),
             Promise.all(Array.from(this.children).map((child) => child.drainTasks())),
         ]);
         return [...own, ...nested.flat()];
+    }
+    /** 读取谁在阻止清理；快照不延长任务或资源的使用期限，也不能用于修改框架内部状态。 */
+    inspect(): ScopeSnapshot {
+        return Object.freeze({
+            label: this.label,
+            state: this.ended ? 'closed' : this.closing ? 'closing' : this.signal.aborted ? 'cancelled' : 'active',
+            tasks: Object.freeze(Array.from(this.tasks.values())),
+            cleanupCount: this.cleanups.size,
+            children: Object.freeze(Array.from(this.children, (child) => child.inspect())),
+        });
     }
 }
 /**
@@ -211,6 +234,7 @@ export function runTask<T>(
     owner: Scope,
     task: (context: TaskContext) => T | Promise<T>,
     isCurrent?: () => boolean,
+    label = 'task',
 ): Promise<T> {
     owner.signal.throwIfAborted();
     const context = taskContext(owner, isCurrent);
@@ -219,5 +243,6 @@ export function runTask<T>(
             context.signal.throwIfAborted();
             return task(context);
         }),
+        label,
     );
 }

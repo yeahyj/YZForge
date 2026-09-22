@@ -25,6 +25,10 @@ export type LoadedTable<T> = T extends TableKey<infer R, infer K, infer I> ? Con
  * 导出 XLSX 是编辑器和构建工具的职责；运行时 API 负责加载和查询已经导出的数据。
  */
 export class ConfigManager {
+    /** 读取配置共享数据及其页面/模块持有者，便于定位哪一个使用期限阻止表数据释放。 */
+    inspect() {
+        return this.cache.inspect();
+    }
     private readonly cache: LeaseCache<{ data: TableData; scope: Scope }>;
     private readonly requests = new Map<
         string,
@@ -131,10 +135,14 @@ export class ConfigManager {
     }
 }
 /**
- * 带默认所有者的配置入口，通常从 ctx.config 或 BundleHandle.tables 获得。
- * ctx.config 默认跟随模块；只供本次界面使用的表应传 show.scope。
+ * 带默认所有者的配置入口，通常从 show.config、ctx.config 或 BundleHandle.tables 获得。
+ * ctx.config 默认跟随模块，show.config 默认跟随本次展示；跨模块公开表使用相同入口。
  */
 export class ScopedConfig {
+    /** 切换表的默认使用期限，保留当前默认数据包；不加载资源。 */
+    in(scope: Scope): ScopedConfig {
+        return this.manager.in(scope, this.bundle);
+    }
     /**
      * 创建带默认所有者及数据包的门面，一般使用 config.in。
      * @param manager - 应用配置管理器。
@@ -152,29 +160,55 @@ export class ScopedConfig {
     /**
      * 加载生成合同对应的配置表，并选择表句柄的生命周期。
      * @param key - 生成的表常量，例如 ItemsTable。
-     * @param owner - 默认当前入口的 scope；界面临时数据应明确传 show.scope。
      * @param input - 可选 bundle，显式设置时覆盖该入口默认包；多分片表必须有确定的包。
-     * @returns 类型完整的只读 ConfigTable；owner 取消后不能继续查询。
+     * @returns 类型完整的只读 ConfigTable；当前入口的 scope 取消后不能继续查询。
      * @throws FrameworkError 路由、版本或数据不合法；取消时抛 OperationCancelled。
      * @example
-     * const items = await this.ctx.config.load(ItemsTable, show.scope);
+     * const items = await show.config.load(ItemsTable);
      * show.commit(() => { this.lblTitle.string = items.require(1).name; });
      */
     load<R, K extends string | number, I extends object>(
         key: TableKey<R, K, I>,
-        owner = this.scope,
+        input?: ConfigLoadOptions,
+    ): Promise<ConfigTable<R, K, I>>;
+    /** 显式覆盖所有者的兼容入口；常规页面优先 show.config.load(Table, { bundle })。 */
+    load<R, K extends string | number, I extends object>(
+        key: TableKey<R, K, I>,
+        owner: Scope,
+        input?: ConfigLoadOptions,
+    ): Promise<ConfigTable<R, K, I>>;
+    load<R, K extends string | number, I extends object>(
+        key: TableKey<R, K, I>,
+        ownerOrInput: Scope | ConfigLoadOptions = this.scope,
         input: ConfigLoadOptions = {},
     ): Promise<ConfigTable<R, K, I>> {
-        return this.manager.load(key, owner, { bundle: this.bundle, ...input });
+        const owner = ownerOrInput instanceof Scope ? ownerOrInput : this.scope;
+        const options = ownerOrInput instanceof Scope ? input : ownerOrInput;
+        return this.manager.load(key, owner, { bundle: this.bundle, ...options });
     }
     /**
      * 并行加载一组表，全部成功才返回；失败清理本批持有。
      * @param keys - 属性名到生成表常量的映射，结果保留这些属性名和各表类型。
-     * @param owner - 默认当前 scope；UI 展示期间的数据可传 show.scope。
      * @param input - 所有表共用的加载选项，显式 bundle 覆盖入口默认包。
      * @returns 命名的只读表集合，不自动跨包合并数据。
      */
-    loadMany<T extends Record<string, AnyTableKey>>(keys: T, owner = this.scope, input: ConfigLoadOptions = {}) {
-        return this.manager.loadMany(keys, owner, { bundle: this.bundle, ...input });
+    loadMany<T extends Record<string, AnyTableKey>>(
+        keys: T,
+        input?: ConfigLoadOptions,
+    ): Promise<{ readonly [K in keyof T]: LoadedTable<T[K]> }>;
+    /** 显式覆盖一组表的所有者；省略时使用当前 ScopedConfig 的默认期限。 */
+    loadMany<T extends Record<string, AnyTableKey>>(
+        keys: T,
+        owner: Scope,
+        input?: ConfigLoadOptions,
+    ): Promise<{ readonly [K in keyof T]: LoadedTable<T[K]> }>;
+    loadMany<T extends Record<string, AnyTableKey>>(
+        keys: T,
+        ownerOrInput: Scope | ConfigLoadOptions = this.scope,
+        input: ConfigLoadOptions = {},
+    ) {
+        const owner = ownerOrInput instanceof Scope ? ownerOrInput : this.scope;
+        const options = ownerOrInput instanceof Scope ? input : ownerOrInput;
+        return this.manager.loadMany(keys, owner, { bundle: this.bundle, ...options });
     }
 }

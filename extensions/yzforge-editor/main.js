@@ -150,10 +150,16 @@ async function createModule(args) {
     }
     const type = pascal(id),
         framework = path.relative(path.join(directory, 'code'), inside('assets/framework')).replaceAll('\\', '/');
+    const dependencyImports = manifest.dependencies
+        .map((dependency) => `import { ${pascal(dependency)}Module } from '../../${dependency}/public';`)
+        .join('\n');
+    const dependencyRefs = manifest.dependencies
+        .map((dependency) => `'${dependency}': ${pascal(dependency)}Module`)
+        .join(', ');
     await writeScript(
         'create-asset',
         path.join(directory, `code/${type}Module.ts`),
-        `import type { ModuleContext } from '${framework}/modules/module-manager';\n/**\n * 模块业务初始化工厂；首次取得模块 API 时执行，同一代实例由多个调用者共享。\n * @param ctx - 模块上下文；服务清理通过 ctx.scope.defer 登记，短期任务使用更短的 Scope。\n * @returns 对外公开的 api；代码包加载完成不等于此工厂已经执行。\n */\nexport function create${type}Module(ctx: ModuleContext) {\n  return { api: { /** 当前模块的稳定 ID。 */ get moduleId() { return ctx.id; } } };\n}\n`,
+        `import { defineModule } from '${framework}/modules/module-manager';\nimport { ${type}Module } from '../public';\n${dependencyImports}\n/**\n * 显式装配模块服务，返回值在编译期匹配 public.ts 的 API 合同。\n * dependencies 按 module.json 的声明提供完整类型；无需 unknown 强制转换。\n * 需要内部服务时，在 code 中定义 moduleServices 合同，传入 services 选项并返回 services 对象。\n * UI 通过 this.ctx.services(服务合同) 读取；清理登记到 ctx.scope。\n */\nexport const create${type}Module = defineModule(${type}Module, { dependencies: { ${dependencyRefs} } }, (ctx, _dependencies) => {\n  return { api: { /** 当前模块的稳定 ID。 */ get moduleId() { return ctx.id; } } };\n});\n`,
     );
     await writeScript(
         'create-asset',
@@ -246,7 +252,7 @@ async function createView(args) {
             `// 公开参数与结果合同；需要数据时将 void 替换为明确的只读对象类型。\n/** ui.open/pushPage 的参数类型，在 onShow 中通过 show.params 读取。 */\nexport type ${className}Params = void;\n/** show.finish 提交的业务结果类型，调用方在 handle.result 的 completed 分支读取。 */\nexport type ${className}Result = void;\n`,
         [path.join(generated, `${className}Binding.ts`)]: bindingSource(manifest.id, className, [], generated),
         [path.join(code, `${className}.ts`)]:
-            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n/** 完整 UI 的渲染与输入入口；节点来自 Binding，可按复杂度把业务规则委托给 Service/Presenter。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n  // 按需重写 onCreate/onShow/onHide/onDispose，不覆盖引擎生命周期。\n  // onShow(show: ViewShowContext<本界面Params, 本界面Result>) 可异步加载。\n  // 临时资源使用 show.scope，await 后通过 show.commit 同步修改节点。\n  // 点击监听使用 show.listen；成功结束时调用 show.finish(result)。\n}\n`,
+            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n/** 完整 UI 的渲染与输入入口；节点来自 Binding，可按复杂度把业务规则委托给 Service/Presenter。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n  // 按需重写 onCreate/onShow/onHide/onDispose，不覆盖引擎生命周期。\n  // onShow(show: ViewShowContext<本界面Params, 本界面Result>) 可异步加载。\n  // 临时资源优先用 show.assets/show.config/show.audio，await 后通过 show.commit 同步修改节点。\n  // 点击监听使用 show.listen；成功用 show.finish(result)，取消用 show.dismiss()，返回用 show.back()。\n}\n`,
     };
     if (args.presenter) {
         files[path.join(code, `${className}Presenter.ts`)] =
@@ -413,7 +419,7 @@ async function listFiles(directory) {
     }
     return result;
 }
-async function previewDelete(args) {
+async function previewDelete(args, creation) {
     const { directory, manifest } = await moduleInfo(args.module, true),
         state = await exports.methods.state(),
         kind = args.kind || 'module';
@@ -422,7 +428,17 @@ async function previewDelete(args) {
     const refs = [],
         ids = [],
         targets = [];
-    if (kind === 'module') {
+    if (creation) {
+        targets.push(...creation.targets.map(inside));
+        if (creation.request.kind === 'module') {
+            ids.push(manifest.id + '/', manifest.id + '.');
+            refs.push(
+                ...state.modules
+                    .filter((module) => module.dependencies.includes(manifest.id))
+                    .map((module) => `模块 ${module.id} 依赖此模块`),
+            );
+        }
+    } else if (kind === 'module') {
         targets.push(directory);
         ids.push(manifest.id + '/', manifest.id + '.');
         refs.push(
@@ -516,6 +532,7 @@ async function previewDelete(args) {
         }
     }
     const owned = new Set(files.map((file) => file.toLowerCase()));
+    for (const file of creation?.restored ?? []) owned.add(inside(file).toLowerCase());
     const allAssets = await Editor.Message.request('asset-db', 'query-assets', { pattern: 'db://assets/game/**' });
     const assets = allAssets.filter((asset) => asset.file && owned.has(asset.file.toLowerCase()));
     const uuids = new Set(assets.map((asset) => asset.uuid));
@@ -575,7 +592,12 @@ async function previewDelete(args) {
     for (const diagnostic of state.workbookDiagnostics ?? []) refs.push('配置表无法检查：' + diagnostic.message);
     const workbookTool = await workbookTools();
     for (const item of state.workbooks) {
-        if (!item.config.enabled || (kind === 'module' && item.config.module === manifest.id)) continue;
+        if (
+            !item.config.enabled ||
+            owned.has(inside(item.source).toLowerCase()) ||
+            (kind === 'module' && item.config.module === manifest.id)
+        )
+            continue;
         const workbook = await workbookTool.readWorkbook(root(), item.source);
         for (const table of workbook.config.tables.filter((table) => table.enabled)) {
             const sheet = workbook.book.getWorksheet(table.sheet);
@@ -650,7 +672,31 @@ const recovery = require('./recovery').createRecovery({
     ensureFolder,
     workbookTools,
 });
+const creation = require('./creation').createCreationHistory({
+    inside,
+    url,
+    db: (...args) => Editor.Message.request('asset-db', ...args),
+    references: async (record, changes) => {
+        const targets = changes
+            .filter((change) => change.action === 'delete' && !change.directory && !change.path.endsWith('.meta'))
+            .map((change) => change.path);
+        if (!targets.length) return [];
+        const preview = await previewDelete(
+            { module: record.request.kind === 'module' ? record.request.id : record.request.module, kind: 'creation' },
+            {
+                request: record.request,
+                targets,
+                restored: changes.filter((change) => change.action === 'restore').map((change) => change.path),
+            },
+        );
+        return preview.references;
+    },
+});
 const actions = {
+    formulaEnvironment: () => runTool('formula-status'),
+    previewCreationRollback: (args) => creation.previewRollback(args),
+    rollbackCreation: (args) => creation.rollback(args),
+    retryCreationGeneration: (args) => creation.retryGeneration(args.id, () => actions.generate()),
     createModule,
     createBundle,
     createView,
@@ -798,6 +844,7 @@ Object.assign(
         bindingSource,
         workbookTools,
         read,
+        creation,
         actions: () => actions,
         state: () => exports.methods.state(),
     }),
@@ -942,6 +989,7 @@ exports.methods = {
             workbookDiagnostics: sources.diagnostics,
             orphans,
             history,
+            creations: await creation.list(),
             scripts,
             prefabs: prefabs.map(({ uuid, url }) => ({ uuid, url })),
             autoStatus,
@@ -970,14 +1018,17 @@ exports.methods = {
                         'updateSettings',
                         'moveAsset',
                         'migrateModule',
+                        'rollbackCreation',
                     ].includes(action)
                 ) {
                     clearTimeout(autoTimer);
                     try {
                         await actions.generate();
+                        await creation.mark(value.creationId, 'ready');
                         autoStatus = { state: 'ready', message: '动态清单与配置已同步' };
                     } catch (error) {
                         autoStatus = { state: 'error', message: error.message };
+                        await creation.mark(value.creationId, 'generation-failed', error.message);
                         return { ...value, generationError: error.message };
                     }
                 }

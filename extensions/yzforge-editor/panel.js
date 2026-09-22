@@ -38,7 +38,7 @@ exports.template = `<main id="workbench"><header><h1>YZForge <small>框架工作
     ['code', '仅代码'],
 ])}</div><div id="bundleOptions">${select('bundle', '目标资源包')}</div><div id="presenterOptions">${input('presenter', '同时创建 Presenter（复杂页面可选）', 'checkbox')}</div><div id="adoptOptions">${select('adopt', '预制体来源')}</div><p id="roleHelp"></p>${button('previewCreate', '预览所有文件')}${button('create', '创建预览内容', 'class="primary" disabled')}<pre id="createPreview">输入名称后预览，确认后创建。</pre><details><summary>当前模块结构与依赖</summary><pre id="moduleInfo"></pre>${input('moduleDisplayName', '显示名称')}${select('dependencies', '运行依赖（多选）', [], 'multiple size="4"')}${button('saveModule', '保存模块设置')}</details></article>
 <article data-page="bindings" hidden><h2>自动绑定节点引用</h2><p>节点按 btn_confirm、lbl_title 等前缀命名。生成 Binding 并自动写回引用，无需拖节点；嵌套预制体保留自己的绑定边界。</p>${select('binding', '预制体')}${button('bind', '扫描节点并更新绑定', 'class="primary"')}<p>已有通用预制体：在“创建”选择 UI 部件或普通预制体，再选择已有文件接入。场景中手动放置的 GameComponent 通过 app.bindScene 注入模块上下文。</p><pre id="bindingInfo"></pre></article>
-<article data-page="tables" hidden><h2>XLSX 配置表</h2><p>__config 是唯一导出声明；__enums 定义枚举。数据表依次为字段、类型、默认值、注释，数据从第 5 行开始。</p>${select('workbook', '工作簿')}${button('openWorkbook', '打开工作簿')}${input('workbookEnabled', '启用此工作簿', 'checkbox')}${select('workbookBundle', '工作簿默认资源包')}${select('table', '导出表')}<div class="grid">${select('sheet', '数据工作表')}${select('primaryKey', '主键字段')}${select('tableBundle', '此表的资源包')}${input('tableEnabled', '启用此表', 'checkbox')}${input('tablePublic', '公开 TS 类型合同', 'checkbox')}</div>${button('saveTable', '保存此表设置', 'class="primary"')}${button('previewTables', '预览校验')}${button('recalculate', '重新计算公式')}${button('exportTables', '校验并正式导出')}<pre id="tableInfo"></pre><p>索引、约束、分片路由和跨工作簿输入在 __config 声明；面板保留其余声明。类型行可使用 enum&lt;Quality&gt; 或 enum&lt;module.Quality&gt;。公式缓存仅供预览，正式导出需要重算快照。</p></article>
+<article data-page="tables" hidden><h2>XLSX 配置表</h2><p>__config 是唯一导出声明；__enums 定义枚举。数据表依次为字段、类型、默认值、注释，数据从第 5 行开始。</p>${select('workbook', '工作簿')}${button('openWorkbook', '打开工作簿')}${input('workbookEnabled', '启用此工作簿', 'checkbox')}${select('workbookBundle', '工作簿默认资源包')}${select('table', '导出表')}<div class="grid">${select('sheet', '数据工作表')}${select('primaryKey', '主键字段')}${select('tableBundle', '此表的资源包')}${input('tableEnabled', '启用此表', 'checkbox')}${input('tablePublic', '允许其他模块引用此表合同', 'checkbox')}</div>${button('saveTable', '保存此表设置', 'class="primary"')}${button('previewTables', '预览校验')}${button('formulaEnvironment', '检查公式环境')}${button('recalculate', '重新计算公式')}${button('exportTables', '校验并正式导出')}<pre id="tableInfo"></pre><p>索引、约束、分片路由和跨工作簿输入在 __config 声明；面板保留其余声明。类型行可使用 enum&lt;Quality&gt; 或 enum&lt;module.Quality&gt;。公式缓存仅供预览，正式导出需要重算快照。</p></article>
 <article data-page="settings" hidden><h2>项目设置</h2><h3>Bundle 公共配置</h3><p>代码配置和资源配置是 Creator 中的两份真实配置。支持分包的小游戏默认采用分包，其他平台按配置回退。</p>${button('ensurePresets', '检查并创建缺失配置')}${button('bundleSettings', '打开 Creator Bundle 配置')}<pre id="presets"></pre><h3>运行参数</h3><div class="grid">${input('appId', '应用标识')}${input('cleanupTimeout', '清理超时（毫秒）', 'number')}${input('maxVoices', '最大同时播放数量', 'number')}${input('utcOffset', '日历 UTC 偏移（分钟）', 'number')}${select(
     'weekStart',
     '每周起始日',
@@ -65,7 +65,7 @@ exports.template = `<main id="workbench"><header><h1>YZForge <small>框架工作
         ['prefab', '部件/通用预制体及脚本'],
         ['script', '手写脚本'],
     ],
-)}</div><div id="deleteItemOptions">${select('deleteItem', '内容')}</div>${button('previewDelete', '检查引用并预览')}${button('delete', '备份并删除预览内容', 'class="danger" disabled')}<pre id="deletePreview">删除前必须预览实际文件清单。</pre><hr>${select('restoreRecord', '可恢复记录')}${button('restore', '恢复并核验 UUID')}</article>
+)}</div><div id="deleteItemOptions">${select('deleteItem', '内容')}</div>${button('previewDelete', '检查引用并预览')}${button('delete', '备份并删除预览内容', 'class="danger" disabled')}<pre id="deletePreview">删除前必须预览实际文件清单。</pre><hr>${select('restoreRecord', '可恢复记录')}${button('restore', '恢复并核验 UUID')}<hr><h3>未完成的创建</h3><p>保留创建前后快照；撤销前检查外部引用与后续修改。生成失败可以单独重试。</p>${select('creationRecord', '创建记录')}${button('retryCreation', '重试生成')}${button('previewCreationRollback', '预览撤销')}${button('rollbackCreation', '撤销本次创建', 'class="danger" disabled')}<pre id="creationPreview"></pre></article>
 </section><footer><strong id="status">就绪</strong><pre id="output">操作结果与校验信息会显示在这里。</pre></footer></main>`;
 exports.style = `:host{display:block;height:100%;color:#dce5f2;background:#1b202a;font:13px/1.6 "Microsoft YaHei",sans-serif}*{box-sizing:border-box}main{height:100%;padding:18px;display:flex;flex-direction:column;gap:10px}header,.context,nav{display:flex;align-items:center;gap:10px}header h1{flex:1}h1{margin:0;font-size:23px;color:#fff}small{font-weight:400;font-size:14px;color:#9baec8}h2{margin:0 0 8px;font-size:19px}h3{font-size:14px}p{margin:4px 0 15px;color:#a0b0c7}#project{font-size:11px;margin:0}section{overflow:auto;flex:1;min-height:180px;padding:6px 8px 16px 0}.context{border-block:1px solid #344154;padding:8px 0}.context label{margin:0;min-width:170px}#summary{flex:1;font-size:12px;color:#9aadc6}nav{gap:5px;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:5px;margin:8px 0 14px;color:#afbed3}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}input,select{font:inherit;color:#e6edf8;background:#121925;border:1px solid #3b4a60;border-radius:5px;padding:7px 10px;width:100%;min-width:0}input:focus,select:focus{outline:1px solid #69aef7}input[type=checkbox]{width:auto;align-self:flex-start}button{font:inherit;border:1px solid #435570;border-radius:5px;background:#29364a;color:#e2ecfb;padding:7px 12px;cursor:pointer;margin:3px 5px 3px 0}button:hover{background:#354963}button.selected,button.primary{background:#25699c;border-color:#488bc0}button.danger{background:#713e49;border-color:#9b6070}button:disabled{opacity:.4;cursor:default}pre{font:12px/1.65 Consolas,"Microsoft YaHei",monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#121925;border:1px solid #344154;border-radius:5px;padding:12px;max-height:260px;overflow:auto;color:#bccde3}details{margin-top:15px}summary{cursor:pointer;color:#b5c9e4}footer{border-top:1px solid #344154;padding-top:8px}#status{color:#8ed7b8;font-weight:400}#output{max-height:125px;margin:5px 0 0}[hidden]{display:none!important}hr{border:0;border-top:1px solid #344154}`;
 exports.$ = { workbench: '#workbench' };
@@ -75,6 +75,7 @@ exports.ready = function () {
         val = (id) => el(id).value.trim();
     let state,
         createPlan,
+        creationRollbackPlan,
         deletePlan,
         workbookDraft,
         busy = false,
@@ -104,6 +105,27 @@ exports.ready = function () {
     const invalidateDelete = () => {
         deletePlan = null;
         el('delete').disabled = true;
+    };
+    const updateCreationActions = () => {
+        const record = state?.creations?.find((record) => record.id === val('creationRecord'));
+        el('retryCreation').disabled = busy || !['awaiting-generation', 'generation-failed'].includes(record?.stage);
+        el('previewCreationRollback').disabled = busy || !record || record.stage === 'creating';
+        el('rollbackCreation').disabled =
+            busy ||
+            !creationRollbackPlan ||
+            creationRollbackPlan.id !== record?.id ||
+            creationRollbackPlan.conflicts.length > 0 ||
+            creationRollbackPlan.references.length > 0;
+    };
+    const creationChanged = () => {
+        creationRollbackPlan = undefined;
+        const record = state?.creations?.find((record) => record.id === val('creationRecord'));
+        el('creationPreview').textContent = record
+            ? record.stage === 'creating'
+                ? '此记录没有完整完成快照，请检查残留文件并使用普通删除流程。'
+                : record.error || '请选择重试生成，或预览本次创建的撤销范围。'
+            : '没有未完成的创建。';
+        updateCreationActions();
     };
     const role = () => {
         const kind = val('kind'),
@@ -224,6 +246,14 @@ exports.ready = function () {
             'restoreRecord',
             state.history.map((r) => [r.id, `${r.original} · ${r.stage} · ${r.id}`]),
         );
+        options(
+            'creationRecord',
+            (state.creations ?? []).map((record) => [
+                record.id,
+                `${record.request.kind} · ${record.request.id} · ${record.stage}`,
+            ]),
+        );
+        creationChanged();
         el('presets').textContent = JSON.stringify(state.presets, null, 2);
         el('prefixes').textContent = JSON.stringify(state.settings.bindingPrefixes, null, 2);
         el('autoStatus').textContent = [
@@ -284,6 +314,7 @@ exports.ready = function () {
             });
             el('create').disabled = !createPlan || createPlan.conflicts.length > 0;
             el('delete').disabled = !deletePlan || deletePlan.references.length > 0;
+            updateCreationActions();
         }
     };
     const on = (id, callback, event = 'click') =>
@@ -451,7 +482,22 @@ exports.ready = function () {
         invalidateDelete();
         await run('deleteModule', plan);
     });
+    on('formulaEnvironment', () => run('formulaEnvironment', {}, false));
     on('restore', () => run('restore', { id: val('restoreRecord') }));
+    on('creationRecord', creationChanged, 'change');
+    on('retryCreation', () => run('retryCreationGeneration', { id: val('creationRecord') }));
+    on('previewCreationRollback', async () => {
+        creationRollbackPlan = await run('previewCreationRollback', { id: val('creationRecord') }, false);
+        el('creationPreview').textContent = JSON.stringify(creationRollbackPlan, null, 2);
+        updateCreationActions();
+    });
+    on('rollbackCreation', async () => {
+        const plan = creationRollbackPlan;
+        if (!plan) return;
+        creationRollbackPlan = undefined;
+        el('rollbackCreation').disabled = true;
+        await run('rollbackCreation', plan);
+    });
     role();
     refresh().catch((error) => show(error.message));
 };

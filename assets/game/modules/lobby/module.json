@@ -1,7 +1,9 @@
 {
   "id": "lobby",
   "displayName": "示例大厅",
-  "dependencies": [],
+  "dependencies": [
+    "profile"
+  ],
   "bundles": {
     "default": {
       "id": "m-lobby",
@@ -27,5 +29,12 @@
     }
   },
   "audio": {},
-  "layoutVersion": 2
+  "layoutVersion": 2,
+  "components": {
+    "wallet-part": {
+      "uuid": "76c109f2-ecfe-440d-a665-e7068c311358",
+      "className": "lobby.WalletPart",
+      "binding": "code/components/generated/WalletPartBinding.ts"
+    }
+  }
 }

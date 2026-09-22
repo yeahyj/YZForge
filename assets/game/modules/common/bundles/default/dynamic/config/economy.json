@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "tableId": "common.economy",
+  "schemaHash": "sha256:6adb2a8f2307dbd39ac436cf728bce9f29527a0cc2ed6ab5f37bb758bbccaade",
+  "dataRevision": "sha256:8f2125fbc3774ab99d31cc739e25c8877d6cecb6627fee1ed179260ae04efb52",
+  "rows": [
+    {
+      "id": 1,
+      "name": "每日体验奖励",
+      "amount": 100
+    }
+  ]
+}

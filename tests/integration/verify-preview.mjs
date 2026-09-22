@@ -5,7 +5,7 @@ import { preview, screenshot } from './preview.mjs';
 const results = [];
 async function verify(name, code) {
     const data = await preview(
-        `if(!app)throw Error('Bootstrap is not ready'); const check=(value,message)=>{if(!value)throw Error(message);}; const deadline=(pending)=>Promise.race([pending,new Promise((_,no)=>setTimeout(()=>no(Error('Integration deadline exceeded')),8000))]); ${code}`,
+        `if(!app)throw Error('Bootstrap is not ready'); if(document.hidden||cc.game.isPaused()||app.clock.background)throw Error('Game View must be visible and running for integration checks'); const check=(value,message)=>{if(!value)throw Error(message);}; const deadline=(pending)=>Promise.race([pending,new Promise((_,no)=>setTimeout(()=>no(Error('Integration deadline exceeded')),8000))]); ${code}`,
     );
     assert.equal(data.ok, true, name);
     results.push({ name, ...data });
@@ -75,7 +75,7 @@ const previous=app.ui.pages.at(-1);app.ui.definitions.set(id,{...source,id,kind:
 try {
  const handle=await deadline(previous.show.run(()=>app.ui.pushPage({id},{title:'Navigation',amount:1},owner)));
  check(previous.suspended&&!previous.interactive,'Previous page remained interactive');
- await deadline(app.ui.back());check(previous.interactive&&!previous.suspended,'Back did not resume previous page');
+ await deadline(app.ui.back().completed);check(previous.interactive&&!previous.suspended,'Back did not resume previous page');
  check((await handle.result).status==='cancelled','Back result mismatch');return{ok:true,activePages:app.ui.pages.length};
 } finally {await owner.close();app.ui.definitions.delete(id);}`,
 );
@@ -113,6 +113,52 @@ try{
  check(loaded===frame&&atlas.refCount===1&&frame.refCount===baseline+1,'Atlas/frame pins not acquired together');
  await owner.close();check(atlas.refCount===0&&frame.refCount===baseline,'Atlas/frame pins not released together');return{ok:true};
 }finally{bundle.load=saved;await owner.close();}`,
+);
+await verify(
+    'back requested inside its tracked page callback never waits on itself and duplicate requests close one page',
+    `
+const id='lobby.verification-back',source=app.ui.definitions.get('lobby.reward-popup'),owner=app.flows.child('verify-back');
+const previous=app.ui.pages.at(-1);app.ui.definitions.set(id,{...source,id,kind:'page'});
+try {
+ const handle=await app.ui.pushPage({id},{title:'Return',amount:1},owner);const page=app.ui.pages.at(-1);let completed;
+ await deadline(page.show.run(async()=>{const request=await app.ui.back();completed=request.completed;app.ui.back();}));
+ await deadline(completed);check((await handle.result).status==='cancelled','Return result mismatch');
+ check(previous.interactive&&!previous.suspended&&app.ui.inspect().pages.length===1,'Duplicate return closed the previous page');
+ return{ok:true};
+} finally {await owner.close();app.ui.definitions.delete(id);}`,
+);
+await verify(
+    'recoverable button failures leave the page open and a subsequent attempt succeeds',
+    `
+const page=[...app.ui.records.values()].find(record=>record.definition.id==='lobby.dashboard');
+const target=new cc.Node('verify-action');let attempts=0,errors=0,success=0;
+const off=page.show.listen(target,'try',async()=>{attempts++;if(attempts===1)throw Error('expected offline');success++;},()=>{errors++;});
+try{target.emit('try');await new Promise(yes=>setTimeout(yes,20));check(errors===1&&page.interactive,'Recoverable failure closed the page');target.emit('try');await new Promise(yes=>setTimeout(yes,20));check(success===1,'Retry failed');return{ok:true,attempts,errors,success};}
+finally{off();target.destroy();}`,
+);
+await verify(
+    'dynamic Part instances release independently and direct node destruction also returns their leases',
+    `
+const page=[...app.ui.records.values()].find(record=>record.definition.id==='lobby.dashboard'),show=page.show;
+const count=()=>app.assets.inspect().resources.find(item=>item.key.includes('WalletPart'))?.users??0;
+const before=count(),children=show.scope.inspect().children.length,key={id:'lobby/default/prefab/prefabs/wallet-part',type:'Prefab'};
+for(let index=0;index<6;index++){
+ const node=await show.assets.instantiate(key,page.instance.node,{active:false});check(count()===before+1,'Part lease not acquired');
+ if(index%2===0)await deadline(show.assets.destroyInstance(node));
+ else{node.destroy();for(let retry=0;retry<100&&count()!==before;retry++)await new Promise(yes=>setTimeout(yes,10));}
+ check(count()===before,'Part retained after destruction');
+}
+check(show.scope.inspect().children.length===children,'Destroyed Part scopes accumulated');
+return{ok:true,retainedOwners:before,iterations:6};`,
+);
+await verify(
+    'common configuration is available without its business factory and shared profile updates dynamic Parts',
+    `
+const diagnostics=app.inspect();check(!diagnostics.modules.some(module=>module.id==='common'),'Reading common config initialized its business factory');
+check(diagnostics.assets.resources.some(item=>item.key.includes('m-common')&&item.key.includes('economy')),'Common config not loaded');
+const owner=app.flows.child('verify-profile'),handle=await app.modules.use({id:'profile'},owner),original=handle.api.snapshot().coins;
+try{handle.api.changeCoins(1);const page=[...app.ui.records.values()].find(record=>record.definition.id==='lobby.dashboard');const Part=cc.js.getClassByName('lobby.WalletPart');const part=page.instance.node.getComponentInChildren(Part);check(part._bindLblBalance.string.includes(String(original+1)),'Shared state did not update Part');return{ok:true,commonFactoryStarted:false,coins:original+1};}
+finally{handle.api.changeCoins(original-handle.api.snapshot().coins);await owner.close();}`,
 );
 console.log(
     JSON.stringify(

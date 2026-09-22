@@ -1,0 +1,14 @@
+{
+  "id": "common",
+  "layoutVersion": 2,
+  "displayName": "公共配置示例",
+  "dependencies": [],
+  "bundles": {
+    "default": {
+      "id": "m-common",
+      "root": "bundles/default"
+    }
+  },
+  "views": {},
+  "audio": {}
+}

@@ -23,6 +23,8 @@ export const LobbyRes = {
     },
     /** prefab 资源键集合；动态目录自动编目，按需 load 时才加载内容。 */
     prefab: {
+        /** Prefab：lobby/default/prefab/prefabs/wallet-part。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        prefabsWalletPart: { id: 'lobby/default/prefab/prefabs/wallet-part', type: 'Prefab' },
         /** Prefab：lobby/default/prefab/dashboard。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         dashboard: { id: 'lobby/default/prefab/dashboard', type: 'Prefab' },
         /** Prefab：lobby/default/prefab/reward-popup。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */

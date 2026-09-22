@@ -221,7 +221,7 @@ exports.createWorkbench = function (ctx) {
                       : ['part', 'prefab'].includes(kind)
                         ? 'createPrefab'
                         : 'createView';
-        const result = await ctx.actions()[method](request);
+        const result = await ctx.creation.run(preview, () => ctx.actions()[method](request));
         return { ...result, files: preview.files };
     }
     async function createPrefab(args) {

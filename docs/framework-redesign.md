@@ -8,6 +8,8 @@
 >
 > 当前状态：正在新项目中实现。本文是目标规格，具体完成范围与验证证据见 [实施记录](implementation-status.md)。设计能力不能直接视为已实现或已通过平台验证。
 >
+> 2026-09-22 运行时复审：本次展示作用域的资源入口、类型化内部服务、返回请求、存档迁移、统一日历默认值与制作恢复已落实。现有项目迁移规则见 [优化说明](runtime-improvements.md)，可直接使用的签名和跨模块配置示例见 [API 指南](api-guide.md)。下文未标明已实现的目标能力仍以实施记录为准。
+>
 > 后续评审：面板输入、目录与自动资源清单、XLSX、通用预制体、删除恢复和分包配置的调整建议见 [工作台与制作流程重构方案](workbench-redesign-proposal.md)。主要制作流程已于 2026-09-21 落实；涉及旧规则的变更以其中的明确决定为准，实际完成范围与平台验证边界见实施记录。
 
 ## 1. 设计决定
@@ -589,18 +591,23 @@ View 注册项与音频条目继续保存各自业务选项，底层资产只引
 
 一个模块只有一个业务实例，允许实例下面有多个 UI 或业务 Session。并行对局由普通 `BattleSession` 对象表达，不创建第二种模块模式。
 
-模块对外返回一个 API 对象；内部服务直接创建和传参，不建设自动 ServiceGroup：
+模块对外返回一个 API 对象；内部服务直接创建和传参，通过类型化引用交给同模块页面，不建设自动 ServiceGroup：
 
 ```ts
-export function createBattleModule(ctx: ModuleContext, deps: BattleDeps) {
+export const BattleServices = moduleServices<{ levels: LevelRepository; rewards: RewardService }>("battle");
+export const createBattleModule = defineModule(BattleModule, {
+  services: BattleServices,
+  dependencies: { profile: ProfileModule },
+}, (ctx, deps) => {
   const levels = new LevelRepository(ctx.assets, ctx.config);
   const rewards = new RewardService(deps.profile);
   const api: BattleApi = createBattleApi(ctx, levels, rewards);
-  return { api };
-}
+  return { api, services: { levels, rewards } };
+});
+// 同模块页面的 onShow 内：this.ctx.services(BattleServices).rewards。
 ```
 
-需要清理的对象立即注册到 `ctx.scope`。如果初始化异步失败，模块管理器关闭本次 Scope，API 不发布。
+需要清理的对象立即注册到 `ctx.scope`。如果初始化异步失败，模块管理器关闭本次 Scope，API 不发布。服务引用放本模块私有 code；其他模块只使用 public API。defineModule 检查公开 API/依赖/服务的类型，module.json 仍是运行依赖声明来源；旧代 ctx 不能访问新代服务。
 
 ### 6.2 使用与持有
 
@@ -702,7 +709,7 @@ inactive 只阻止引擎激活回调，不能阻止 JS 构造器和字段初始�
 
 该路径必须在第一阶段通过 Creator 3.8.8 的真实构建验证；若某平台构建不能保留这种脚本边界，该平台配置直接报不支持 bundled，不能悄悄退回 embedded 并声称分包成功。
 
-工作台建立真实的 Creator“代码配置”“资源配置”公共预设，而非框架中的两个占位字段。代码 Bundle 必须单独进入交付表；当前生成器只汇总无代码资源包，尚不满足这条链路。公开 contracts 与私有 code Bundle 分离，共享枚举常量也遵守该边界；详情与实施检查见 [代码配置与资源配置复审](workbench-redesign-proposal.md#9-代码配置与资源配置)。
+工作台建立真实的 Creator“代码配置”“资源配置”公共预设。代码 Bundle 单独进入交付表，当前生成器和构建钩子已校验 ModuleEntry 的真实归属。公开 contracts 与私有 code Bundle 分离，共享枚举常量也遵守该边界；详情与平台验收范围见 [实施记录](implementation-status.md)。
 
 ### 7.3 公共资源与引用检查
 
@@ -972,6 +979,8 @@ App 持久 UI 根的物理层次：Page → Overlay → Popup → Toast → Load
 安全区由顶层容器统一提供；具体界面可选择忽略安全区，不能每次打开重新修改全局分辨率策略。平台返回键接入统一导航，业务按钮调用同一返回逻辑。
 
 ### 10.2 公开接口与结果
+
+页面内部通过 `show.finish(value)` 完成、`show.dismiss()` 取消、`show.back()` 返回，均只发出请求，不等待自己的任务排空。外部 `ui.back()` 返回 `{ completed: Promise<void> }`，需要等待时使用 `await ui.back().completed`；连续针对同一栈顶的请求不误关闭上一页。普通按钮回调失败通过 `show.listen` 的可选 onError 或错误报告处理，保留页面以便重试；初始化/清理故障仍按生命周期故障处理。`show.assets/config/audio/time` 的默认 Scope 统一为本次展示。
 
 ```ts
 type ViewResult<T> =
@@ -1344,17 +1353,20 @@ AssetKey 是普通 JSON 数据，不是 Cocos 序列化依赖。构建时记录�
 
 ### 11.10 框架运行时 API 与加载方式
 
-运行时对外提供以下必要能力。示意 API 均为待实现合同；表的 Row、主键和索引参数类型由传入的 TableKey 推导，不要求业务填写泛型。
+运行时对外提供以下必要能力。当前调用方式详见 API 指南；表的 Row、主键和索引参数类型由传入的 TableKey 推导，不要求业务填写泛型。
 
 | API                                                    | 输入与结果                        | 语义                                                           |
 | ------------------------------------------------------ | --------------------------------- | -------------------------------------------------------------- |
 | `app.config.load(key, scope, options?)`                | TableKey → 对应类型的 ConfigTable | 通用入口，必须提供 owner Scope；options 可指定分片 Bundle      |
+| `show.config.load(key, options?)`                      | 同上                              | 使用本次展示 Scope；跨模块公共表同样使用此入口                 |
 | `ctx.config.load(key, scope?, options?)`               | 同上                              | 默认 owner 是模块 Scope；短期 UI/关卡显式传自己的 Scope        |
 | `config.loadMany({ name: key, ... }, scope, options?)` | 名字映射 → 同名的类型化表集合     | 仅加载指定表，全部成功后返回；options 的目标包规则与 load 相同 |
 | `bundleHandle.tables.load(key)`                        | TableKey → 对应 ConfigTable       | 目标包与 Scope 来自 BundleHandle                               |
 | `bundleHandle.tables.loadMany({ name: key, ... })`     | 目标包内的多个表                  | 同一 ConfigManager，复用批量加载规则                           |
 
 `options.bundle` 和 BundleHandle 是显式目标约束：单包表必须与其唯一发布归属匹配，分片表必须包含对应分片；不匹配报 CONFIG_TARGET_MISMATCH。分片表未指定目标时报 CONFIG_TARGET_REQUIRED，不根据当前关卡或上一次加载猜测。未指定目标的普通单包表由发布路由唯一定位，包括公共表。
+
+跨模块只读配置的复用不需要启动所属模块业务工厂，也不需要增加业务依赖。数据所有者在面板允许公开合同，调用方导入 `contracts/generated/config` 的 TableKey 后正常加载；不能引用其他模块私有 code。可选 common 模块组织公共配置，仍是普通模块与 Bundle，不引入全局常驻配置系统。共享缓存与各调用方 Scope 独立，一个界面退出不影响其他使用方。内部计算结果则通过业务 API 暴露，不以“公开所有配置”代替模块边界。
 
 模块默认表与公共表：
 
@@ -1648,7 +1660,7 @@ BattleFlow 获取 battle/profile Handle
 
 对模块整目录的删除，手写代码也在明确预览清单内，不能只删除声明后留下无法识别的残余。
 
-配置权威来源已迁入 XLSX；删除模块/包时必须把受影响的 __config 启用项纳入同一预览和备份，不能只删生成路由。Creator 操作与 XLSX 写回不具备全局原子性，失败按阶段显示和恢复。现有 EPERM 尚待复现，不能将“改用 Creator API”直接记为修复；详见 [删除恢复方案](workbench-redesign-proposal.md#7-删除与恢复作为优先修复项)。
+配置权威来源已迁入 XLSX；删除模块/包时必须把受影响的 __config 启用项纳入同一预览和备份，不能只删生成路由。Creator 操作与 XLSX 写回不具备全局原子性，失败按阶段显示和恢复。已通过真实编辑器复现整目录删除失败并改为逐个叶子资源删除、读回核验，再删除空目录；UUID 恢复证据见实施记录。
 
 成功删除前，在 `.yzforge/trash/<operation-id>` 保存必要文件、meta、声明与源路径快照。恢复操作经 Creator 导入并验证 UUID，冲突时停止，不覆盖用户后来新增的同名文件。
 
@@ -1668,7 +1680,7 @@ BattleFlow 获取 battle/profile Handle
 
 生成普通文本采用临时文件/替换；Creator 资产经 AssetDB/场景适配。只维护本次操作所需的步骤和备份记录，不宣称跨文件系统与编辑器 IPC 的绝对原子性。
 
-失败时恢复已经完成且确认由本次操作修改的步骤；恢复失败记录未完成状态、保留备份，并阻止继续构建受影响内容。超时的 IPC 先查询实际结果，不能直接重试创建并留下双份资产。
+创建执行前保留文件前快照，完成或失败后保留后快照。创建失败由恢复页预览撤销已完成且确认属于本次的变化；后续编辑、外部引用或缺少完整后快照时停止自动撤销。创建完成但生成失败可单独重试生成，不能借此把未完成的创建步骤标成成功。恢复失败保留记录和备份，构建仍需通过完整检查。超时 IPC 先查询实际结果，不能直接重试创建并留下双份资产。
 
 取消在尚未写入时立即结束；进入提交后按安全检查点停止或完成恢复，不能在写 Prefab 一半时只关闭对话框。
 
@@ -1715,7 +1727,7 @@ BattleFlow 获取 battle/profile Handle
 
 ### 15.3 基础存储
 
-内建 `SettingsStore` 负责音量、画质等小数据；普通 `Storage` 提供带 namespace 的读写与错误。存档文件携带 schemaVersion，由项目传入迁移函数。
+普通 `Storage` 统一负责带应用 namespace 的小型 JSON 存档和设置，默认适配 Cocos sys.localStorage。StorageKey 声明 version、validate 与逐版本迁移函数；read 区分正常、迁移、备份恢复、缺失、无效与未来版本。迁移/恢复只在内存完成，业务明确 set 才写盘。set 先备份上一份有效数据，主档损坏不覆盖有效备份；主档或备份来自未来版本时拒绝写入。
 
 不宣称跨平台写入具有数据库事务性。重要存档可由可选文件适配采用临时文件与替换/双副本等已验证策略；微信本地存储和原生文件能力分别实现。
 
@@ -1817,7 +1829,7 @@ serverAtReceiveMs ≈ S2 + networkRttMs / 2
 3. estimatedErrorMs 包含网络路径不对称的估计预算、时间戳分辨率与随时间增长的漂移预算；它是可配置模型下的估计，不是安全保证。maxAgeMs/maxErrorMs 超限转 stale。较大的反向/正向修正先要求本轮多个有效样本一致，不因设备时钟本来错误就永久拒绝第一次正确校时。
 4. 并发 sync 合并同一轮请求，每个等待者独立取消；还有有效等待者时可以提交。全部等待者退出则废弃本轮，迟到响应不能改时。后台切换、resetSync、时间源/账号变化或时钟代次变化使本轮失效，后到旧响应不得覆盖新锚点。
 5. 样本不足或全部无效时报告 TIME_SYNC_FAILED，保留旧锚点及其真实质量，不退回设备时间并冒充新校时成功。未配置来源报 TIME_SOURCE_UNAVAILABLE；不自动创建后台网络轮询。
-6. App 可在登录、回到前台和显式重试时调用 sync，周期校时由项目配置，前台运行且采用有上限的重试与退避。服务器/账号变化时应用连接层先 resetSync；过期来源的结果不能跨会话生效。
+6. 注入 source 时，TimeService 默认前台首次校时，并在样本质量到期前刷新，失败指数退避且有上限，恢复前台重试。autoSync:false 时，包括恢复前台在内的所有请求由业务显式 sync 控制。服务器/账号变化时应用连接层先 resetSync；过期来源的结果不能跨会话生效。
 
 只有单个 serverTime 字段的旧接口可以由适配器提供低精度估计，但必须说明其生成时机和不确定性，不能伪造 receivedAtMs=sentAtMs 并走高质量路径。无法给出误差预算的样本不满足 requireNowMs；首版默认验收上述双服务端时间戳协议。
 
@@ -1902,7 +1914,7 @@ TimeHandle.cancel 同步且幂等：立即撤销未来派发并通知当前任�
 | `calendar.dayKey(epochMs, options)`                            | 同一业务日起点对应的当地 YYYY-MM-DD；与 dayStartMs 共用规则                            |
 | `calendar.formatDuration(durationMs)`                          | 非负剩余时长向上取整到秒，输出 HH:mm:ss；小时不按 24 回绕，例如 49:00:00               |
 
-UTC 和固定偏移是首版保证，例如 UTC+8 使用 offsetMinutes=480；业务日历默认 UTC，其他默认值由项目配置明确选择。offsetMinutes 是 [-840, 840] 的整数，resetMinute 是 [0, 1439] 的整数。固定偏移日历可按 24 小时计算业务日起点，不能把这个结论推广为所有有夏令时的地区。
+UTC 和固定偏移是首版保证，例如 UTC+8 使用 offsetMinutes=480。app.time、ctx.time、show.time 的 calendar 工具和周期订阅统一继承项目日历设置，显式参数可覆盖；独立导入的纯 calendar 保持 UTC 默认值。offsetMinutes 是 [-840, 840] 的整数，resetMinute 是 [0, 1439] 的整数。固定偏移日历可按 24 小时计算业务日起点，不能把这个结论推广为所有有夏令时的地区。
 
 dayStartMs/dayKey 只是 startOf/periodKey 的日粒度便捷别名，共用一份实现。计算自然周期时，先按固定时区和 resetMinute 确定业务日期，再取日/周/月/年的起点；例如 UTC+8、04:00 日切时，1 月 1 日 03:00 仍属于上一业务年，月/年边界也发生在当地 04:00。weekStartsOn 必须为 0–6 的整数，并参与计划身份。
 
@@ -1972,7 +1984,7 @@ app.time.everyPeriod({ unit: "month", count: 1 }, onBillingPeriodChanged, accoun
 });
 ```
 
-UI 中可用 show.time.onBoundary("day", handler, { emitCurrent: true }) 监听当前显示期内的日变化；异步 handler 会被框架登记，完成后写界面仍使用 show.commit。登录/恢复 Flow 负责 sync 与失败重试，界面不因查询日期反复联网。按秒刷新倒计时使用独立的 UI 刷新/调度能力，并每次重算 remainingMs；它不扩展成 TimeService.every(1000)。
+UI 中可用 show.time.onBoundary("day", handler, { emitCurrent: true }) 监听当前显示期内的日变化；异步 handler 会被框架登记，完成后写界面仍使用 show.commit。默认自动策略负责 sync 与退避；关闭自动策略的项目由登录/恢复 Flow 处理，界面不因查询日期反复联网。按秒刷新倒计时使用 UI onTick 累计 dt 等刷新能力，并每次重算 remainingMs；它不扩展成 TimeService.every(1000)。
 
 配置的活动时刻使用明确时区的 ISO 字符串，或通过明确的 int 字段存 epoch 毫秒，字段名如 endAtMs；导表校验单位/日期范围，运行时转换使用同一 calendar.parseISO 合同。剩余时间、网络误差、当前服务器时间不写回只读配置表。
 

@@ -25,6 +25,12 @@
       "active": true,
       "source": "assets/game/modules/lobby/bundles/default/dynamic/icons/status.png"
     },
+    "76c109f2-ecfe-440d-a665-e7068c311358": {
+      "id": "lobby/default/prefab/prefabs/wallet-part",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/lobby/bundles/default/dynamic/prefabs/WalletPart.prefab"
+    },
     "91b45fca-617b-4fa0-82bb-e5f2871b57fa": {
       "id": "lobby/default/prefab/dashboard",
       "type": "Prefab",

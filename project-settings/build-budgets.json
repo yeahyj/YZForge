@@ -1,0 +1,8 @@
+{
+  "default": {
+    "maxTotalBytes": null,
+    "maxLocalRootBytes": null,
+    "maxDuplicateBytes": null
+  },
+  "platforms": {}
+}

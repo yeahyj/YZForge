@@ -313,7 +313,7 @@ export function formatDuration(milliseconds: number): string {
     return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
 }
 /**
- * 纯日期工具集合，提供解析、格式化、周期运算和比较。各方法有独立默认参数；通过 show.time.calendar 访问也不会自动合并项目日历规则。
+ * 独立纯日期工具集合，默认采用 UTC；TimeService 使用 createCalendar 创建继承项目设置的入口。
  */
 export const calendar = Object.freeze({
     toISO,
@@ -341,3 +341,41 @@ export const calendar = Object.freeze({
     dayKey: (ms: number, input?: CalendarOptions) => periodKey(ms, 'day', input),
     formatDuration,
 });
+
+/**
+ * 创建继承项目规则的日期入口；显式传参仍可覆盖时区、周起始日和日切点。
+ * @param input 项目日历规则，创建时复制，不受外部后续修改影响。
+ * @returns 与纯 calendar 相同的工具及只读 rules；toISO/parseISO 始终遵循 ISO 自身的时区。
+ */
+export function createCalendar(input: CalendarOptions = {}) {
+    const rules = Object.freeze(options(input));
+    const merged = (override?: CalendarOptions) => ({ ...rules, ...override });
+    return Object.freeze({
+        ...calendar,
+        /** 本入口实际采用的默认日历规则；格式化日期不应用业务日切偏移。 */
+        rules,
+        /** 分解日期；offsetMinutes 省略时采用项目时区。 */
+        parts: (ms: number, offsetMinutes = rules.offsetMinutes) => parts(ms, offsetMinutes),
+        /** 格式化日期；省略时区使用项目设置，传 0 可明确按 UTC 显示。 */
+        format: (ms: number, style: 'date' | 'time' | 'datetime' = 'datetime', offsetMinutes = rules.offsetMinutes) =>
+            format(ms, style, offsetMinutes),
+        /** 增减日历周期；月末截断规则与纯 add 相同，默认采用项目时区。 */
+        add: (ms: number, period: CalendarPeriod, offsetMinutes = rules.offsetMinutes) =>
+            add(ms, period, offsetMinutes),
+        /** 获取业务周期起点；省略字段继承项目规则。 */
+        startOf: (ms: number, unit: CalendarUnit, override?: CalendarOptions) => startOf(ms, unit, merged(override)),
+        /** 获取下一业务周期边界；省略字段继承项目规则。 */
+        nextBoundary: (ms: number, unit: CalendarUnit, override?: CalendarOptions) =>
+            nextBoundary(ms, unit, merged(override)),
+        /** 获取业务期次键，适合保存日切去重标识。 */
+        periodKey: (ms: number, unit: CalendarUnit, override?: CalendarOptions) =>
+            periodKey(ms, unit, merged(override)),
+        /** 按项目规则判断两个时刻是否属于同一业务周期。 */
+        isSamePeriod: (a: number, b: number, unit: CalendarUnit, override?: CalendarOptions) =>
+            isSamePeriod(a, b, unit, merged(override)),
+        /** 获取业务日开始时间戳，包含项目日切规则。 */
+        dayStartMs: (ms: number, override?: CalendarOptions) => startOf(ms, 'day', merged(override)),
+        /** 获取业务日键，包含项目日切规则。 */
+        dayKey: (ms: number, override?: CalendarOptions) => periodKey(ms, 'day', merged(override)),
+    });
+}

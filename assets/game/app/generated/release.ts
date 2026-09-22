@@ -4,6 +4,11 @@ import type { ContentRelease } from '../../../framework/assets/asset-types';
 export const release: ContentRelease = {
     releaseId: 'dev-20260920',
     bundles: {
+        'm-common': {
+            id: 'm-common',
+            namespace: 'common/default',
+            dependencies: [],
+        },
         'm-lobby': {
             id: 'm-lobby',
             namespace: 'lobby/default',
@@ -11,12 +16,23 @@ export const release: ContentRelease = {
         },
     },
     namespaces: {
+        'common/default': {
+            bundle: 'm-common',
+            path: 'yz-index',
+        },
         'lobby/default': {
             bundle: 'm-lobby',
             path: 'yz-index',
         },
     },
     tables: {
+        'common.economy': [
+            {
+                bundle: 'm-common',
+                path: 'dynamic/config/economy',
+                dataRevision: 'sha256:8f2125fbc3774ab99d31cc739e25c8877d6cecb6627fee1ed179260ae04efb52',
+            },
+        ],
         'lobby.items': [
             {
                 bundle: 'm-lobby',

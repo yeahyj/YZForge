@@ -1,6 +1,30 @@
 # YZForge 实施与验证记录
 
-更新日期：2026-09-21。实现位置：`E:\study\YZForge`，Creator 3.8.8。日常用法见 [README](../README.md)，设计取舍见 [重构方案](workbench-redesign-proposal.md)。
+更新日期：2026-09-22。实现位置：`E:\study\YZForge`，Creator 3.8.8。日常用法见 [README](../README.md)，设计取舍见 [重构方案](workbench-redesign-proposal.md)。
+
+## 2026-09-22 优化与复验
+
+已实现本次展示的资源/配置/音频入口、类型化模块工厂与内部服务入口、返回请求与物理完成分离、按钮错误后重试、Part 提前销毁回收、诊断快照、显式存档迁移与备份、统一项目日历默认值、前台自动校时与退避、失败创建撤销、公式环境检测和构建预算审计。具体变化和迁移入口见 [优化说明](runtime-improvements.md)。
+
+演示增加普通 common 公共配置模块与 profile 账号服务模块，Dashboard 组合 LobbyService 和 WalletPart。公共 EconomyTable 在大厅加载，不启动 common 业务工厂；公共表和跨资源包/分片用法已补到 [API 指南](api-guide.md)。生成脚本注释同步更新生成器，不依赖手改产物。
+
+| 本轮检查        | 实际结果                                                                                                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 完整检查        | npm run verify 通过：ESLint、Prettier、运行时及类型合同两套 tsc、22 项生成产物一致性、75 项测试                                                                           |
+| Game View       | 14 项通过；新增页面内部返回与重复请求、可恢复按钮错误、6 次 Part 独立销毁、公共表及共享账号状态检查                                                                       |
+| 工作台          | 唯一测试模块 workbench-check-mub3bmhl 完整创建/绑定/XLSX 自动导出/删除恢复通过，核验 41 个 UUID；测试模块与源表已回收                                                     |
+| 失败创建        | 人为注入创建后失败，通过真实 AssetDB 验证：记录保留、后续编辑阻止撤销、原内容恢复后安全撤销、meta 删除、生成成功；记录 1789986482089-cbcaac77-711b-4cfc-9f4c-c3094a49fd5e |
+| 公式重算        | 通过 Excel COM 适配器在独立测试副本重算 SUM(2,3,4)=9，生成匹配输入摘要的快照，源文件未被重存；证据在 .yzforge/formula-validation-1789983854056                            |
+| Web Mobile 构建 | 2026-09-22 09:22（UTC+8）成功，输出 build/verify-optimization-web-mobile；构建审计通过                                                                                    |
+| Web 产物运行    | 自动绑定 9 项、3 行本地表与公共奖励配置、图片、弹窗参数/结果通过；未捕获运行错误，首屏未请求未使用弹窗/音频                                                               |
+| 微信构建        | 2026-09-22 09:23（UTC+8）成功，输出 build/verify-optimization-wechatgame；m-common、m-lobby 为两个实际 subpackages，当前三个演示模块均为 eager 代码                       |
+| Cocos 脚本诊断  | 0 个 TypeScript 错误；待恢复创建记录与孤立模块均为 0                                                                                                                      |
+
+构建审计统计的是**调试构建的未压缩磁盘输出**：Web 共 7,246,372 字节；微信共 6,587,194 字节，其中本地根目录 6,558,233、m-common 1,983、m-lobby 26,978 字节。至少 1 KiB 的完整同内容重复文件为 0。默认预算为 null，尚未替项目选择发行体积目标；这些数值不证明已满足平台压缩包限制，也不是首屏网络流量。报告在 `.yzforge/build-reports`，本轮产物不包含测试模块。
+
+含历史日志的 validate_scene 仍返回失败：扫描到旧资产删除错误及构建收尾的 debug 级 SIGTERM 记录；两次构建任务本身均 success，构建钩子报告 passed。未清空日志，也不把聚合检查宣称全绿。9 月 22 日编辑器当前为未命名空场景，本轮未改写它；示例场景运行证据来自 Game View 和明确以 Bootstrap 为入口的 Web 构建。截图为 `temp/mcp-captures/yzforge-verified-dashboard.png` 和 `yzforge-web-build.png`。
+
+以下内容保留上一阶段制作流程的实施证据，其中旧测试数量与旧构建时间不代表本轮最终状态。
 
 本轮已实现工作台和制作流程重构。运行时依然由 Module、Bundle、Scope 组织；没有新增 Extension 安装系统、ContentPack 业务对象或 Part 管理器。演示大厅可替换，框架面板不预设章节、关卡等业务概念。
 
@@ -64,9 +88,9 @@ Web 请求记录还确认：首屏未加载同 Bundle 中未使用的弹窗或�
 ## 尚需单独验证或继续开发
 
 1. **设备**：微信开发者工具/真机、Android/iOS 可执行产物未运行；平台后台、音频权限、网络与下载缓存需设备验收。其他小游戏平台尚未逐一验证。
-2. **公式引擎**：当前只有 Windows 桌面 Microsoft Excel COM 适配器。本机未安装 Excel，尚无实际重算成功的证据；ExcelJS 缓存预览和正式导出拒绝未验证/陈旧快照已测试。WPS、LibreOffice、任意网络/易变公式不在当前支持范围。
+2. **公式引擎**：当前只有 Windows 桌面 Excel COM 适配器，已完成上述简单公式实际重算；复杂外部工作簿联动仍需用真实项目验收。ExcelJS 缓存预览和正式导出拒绝未验证/陈旧快照已测试。WPS、LibreOffice、任意网络/易变公式不在当前支持范围。
 3. **图集**：图集/帧持有关系和自动名称生成有回归验证，第三方图集导入、自动图集合并及各目标平台格式仍需真实资源验收。
-4. **交付审计**：已校验独立包及代码入口，尚无完整的首包预算、重复资源、全部跨包静态依赖和下载失败恢复面板。CDN 发布、原生代码热更新、跨版本补丁系统尚未实现。
+4. **交付审计**：已校验独立包/代码入口，并增加未压缩输出预算、完整同内容文件重复与 Bundle 依赖报告；尚无实际网络首屏预算、合并 JSON/图集内部语义重复、全部跨包静态引用链和下载失败恢复面板。CDN 发布、原生代码热更新、跨版本补丁系统尚未实现。
 5. **重构和恢复**：包内移动保持身份；跨包身份迁移、完整全项目重命名和任意崩溃时刻的自动恢复仍需专用流程。已有 CSV 自动迁移；旧 XLSX 需要补充 __config。备份冲突不会被强制覆盖。
 6. **运行时边界**：时间使用固定 UTC 偏移，未实现 IANA/DST；跨重启业务回调需业务保存 anchor/deadline 和去重状态。配置输出为 JSON，未实现二进制格式。
 7. **静态检查边界**：显式导入、序列化引用、已知逻辑名与配置单元格可检查；字符串拼接、反射和动态表达式无法完整证明。
@@ -76,9 +100,10 @@ Web 请求记录还确认：首屏未加载同 Bundle 中未使用的弹窗或�
 ```text
 npm run verify
 node tests/integration/verify-workbench.mjs
+node tests/integration/verify-creation.mjs
 node tests/integration/verify-preview.mjs
 ```
 
 工作台验证需要开启本项目 Creator 和 MCP，会创建唯一名称的临时模块，成功后回收；失败时保留现场。`--keep-for-build` 可保留成功的测试模块供构建验证，之后使用工作台删除。
 
-验证 Web 构建时，运行 `node tests/integration/serve-build.mjs`，再执行 `node tests/integration/verify-build.mjs <本机URL> [测试模块ID]`。传入模块 ID 时额外验证 Part 的代码按需加载、绑定和业务宿主。测试窗口会关闭，HTTP 服务由启动者停止。
+验证 Web 构建时，运行 `node tests/integration/serve-build.mjs [构建目录]`，再执行 `node tests/integration/verify-build.mjs <本机URL> [测试模块ID]`。传入模块 ID 时额外验证 Part 的代码按需加载、绑定和业务宿主。测试窗口会关闭，HTTP 服务由启动者停止。本轮临时 HTTP 服务已停止。

@@ -126,6 +126,14 @@ export interface ViewDefinition {
      */
     readonly modal?: boolean;
 }
+/** 已发出的页面返回请求；本对象不是 Promise，页面点击回调发出请求后即可结束。 */
+export interface NavigationRequest {
+    /**
+     * 外部协调器等待关闭和恢复完成的屏障；失败时拒绝。
+     * 不在即将关闭页面自己的受跟踪任务中等待此属性，否则该页面仍会等待该任务退出。
+     */
+    readonly completed: Promise<void>;
+}
 type Instance = {
     node: Node;
     view: UIView<unknown, unknown>;
@@ -165,6 +173,26 @@ const layerOrder = { page: 0, popup: 1, overlay: 2, toast: 3, loading: 4 };
  * 通过生成的 ViewKey 打开；界面内部只重写 UIView 的框架钩子。
  */
 export class UIManager {
+    /** 读取页面栈及实例清理状态；只返回诊断值，不暴露可修改的节点或内部记录。 */
+    inspect() {
+        return Object.freeze({
+            pages: Object.freeze(this.pages.map((record) => record.definition.id)),
+            cached: Object.freeze(Array.from(this.cache.keys())),
+            views: Object.freeze(
+                Array.from(this.records.values(), (record) =>
+                    Object.freeze({
+                        instanceId: record.id,
+                        id: record.definition.id,
+                        interactive: record.interactive,
+                        suspended: record.suspended,
+                        closing: !!record.closing,
+                        cleanupPending: record.faultPending,
+                        scope: record.instance?.scope.inspect() ?? record.operation.inspect(),
+                    }),
+                ),
+            ),
+        });
+    }
     private readonly definitions = new Map<string, ViewDefinition>();
     private readonly records = new Map<number, RecordView>();
     private readonly cache = new Map<string, Instance>();
@@ -371,19 +399,30 @@ export class UIManager {
         const scopedAssets = instance.context.assets.in(scope);
         const context: ViewShowContext<unknown, unknown> = Object.freeze({
             ...taskContext(scope, isCurrent),
+            assets: scopedAssets,
+            config: instance.context.config.in(scope),
+            audio: instance.context.audio.in(scope),
             showId: this.showing,
             params: record.params,
             time: this.time.in(scope),
             run: <T>(task: (task: TaskContext) => T | Promise<T>) => runTask(scope, task, isCurrent),
-            listen: (node: Node, event: string, callback: (...args: unknown[]) => void | Promise<void>) => {
+            listen: (
+                node: Node,
+                event: string,
+                callback: (...args: unknown[]) => void | Promise<void>,
+                onError?: (error: unknown) => void,
+            ) => {
                 scope.signal.throwIfAborted();
                 const handler = (...args: unknown[]) => {
                     if (!isCurrent() || !record.interactive) return;
-                    void runTask(scope, () => callback(...args), isCurrent).catch((error) => {
-                        if (!(error instanceof OperationCancelled))
-                            void this.requestClose(record, { status: 'failed', error, cleanupPending: false }).catch(
-                                this.report,
-                            );
+                    void runTask(scope, () => callback(...args), isCurrent, `event:${event}`).catch((error) => {
+                        if (!(error instanceof OperationCancelled)) {
+                            try {
+                                (onError ?? this.report)(error);
+                            } catch (handlerError) {
+                                this.report(handlerError);
+                            }
+                        }
                     });
                 };
                 node.on(event, handler);
@@ -400,6 +439,13 @@ export class UIManager {
                 if (isCurrent() && !scope.signal.aborted)
                     void this.requestClose(record, { status: 'completed', value }).catch(this.report);
             },
+            dismiss: () => {
+                if (isCurrent() && !scope.signal.aborted)
+                    void this.requestClose(record, { status: 'cancelled' }).catch(this.report);
+            },
+            back: () => {
+                if (isCurrent() && !scope.signal.aborted && this.pages[this.pages.length - 1] === record) this.back();
+            },
         });
         record.show = context;
         record.suspended = false;
@@ -408,7 +454,10 @@ export class UIManager {
         });
         instance.node.active = true;
         this.gate(instance, false);
-        await scope.track(Promise.resolve().then(() => instance.view.__show(context)));
+        await scope.track(
+            Promise.resolve().then(() => instance.view.__show(context)),
+            'onShow',
+        );
         if (record.termination || scope.signal.aborted) return;
         record.interactive = true;
         this.gate(instance, true);
@@ -616,16 +665,21 @@ export class UIManager {
     }
     /**
      * 串行关闭当前栈顶页面，然后恢复前一页；空栈时直接完成，只有一页时会关闭最后一页。
-     * @returns 关闭及恢复完成的 Promise。
-     * @remarks 在即将关闭页面的受跟踪任务中，不要 await back，否则关闭会反过来等待该任务。
-     * 由外部导航协调器等待，或发起后结束当前回调并另行处理错误。
+     * @returns 非 Promise 的请求句柄。按钮回调调用 back() 后即可结束；外部需要等待时使用 request.completed。
+     * @example
+     * show.listen(button.node, Button.EventType.CLICK, () => { this.ctx.ui.back(); });
+     * // 外部流程：await app.ui.back().completed;
      */
-    back(): Promise<void> {
-        return this.navigate(async () => {
+    back(): NavigationRequest {
+        const requested = this.pages[this.pages.length - 1];
+        const completed = this.navigate(async () => {
             const current = this.pages[this.pages.length - 1];
+            if (current !== requested) return; // 合并同一栈顶的重复返回请求，不关闭后来打开的页面。
             if (current) await this.requestClose(current, { status: 'cancelled' });
             await this.resumeTop();
         });
+        void completed.catch(this.report);
+        return Object.freeze({ completed });
     }
     /**
      * @internal

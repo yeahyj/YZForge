@@ -1,5 +1,8 @@
 import { _decorator, Component, isValid, Node, Sprite } from 'cc';
 import type { AssetKey } from '../assets/asset-types';
+import type { ScopedAssets } from '../assets/asset-manager';
+import type { ScopedConfig } from '../config/config-manager';
+import type { ScopedAudio } from '../audio/audio-manager';
 import type { ModuleContext } from '../modules/module-manager';
 import type { ScopedTime } from '../time/time-service';
 import { invariant } from '../core/errors';
@@ -25,6 +28,12 @@ type ReadonlyParams<P> = P extends object ? Readonly<P> : P;
  * 异步任务应捕获这一次 show，不要在完成时再读取另一轮显示的上下文。
  */
 export interface ViewShowContext<Params, Result> extends TaskContext {
+    /** 本次显示使用的资源入口；load/instantiate 的资源自动随本次显示释放。 */
+    readonly assets: ScopedAssets;
+    /** 本次显示使用的配置入口；load(Table) 无需再传 show.scope。 */
+    readonly config: ScopedConfig;
+    /** 本次显示使用的音频入口；play(Key) 无需再传 show.scope。 */
+    readonly audio: ScopedAudio;
     /**
      * 本次运行中递增的显示序号，区分同一预制体实例的不同显示代次。
      */
@@ -51,11 +60,17 @@ export interface ViewShowContext<Params, Result> extends TaskContext {
      * @param target 发出事件的节点，例如 this.btnConfirm.node。
      * @param event 事件名，例如 Button.EventType.CLICK。
      * @param callback 同步或异步回调，异步写界面使用 show.commit。
+     * @param onError 可选的业务失败处理；默认只上报，不因一次按钮操作失败关闭整个页面。取消不进入此回调。
      * @returns 可提前取消监听的函数。
      * @example
      * show.listen(this.btnConfirm.node, Button.EventType.CLICK, () => show.finish({ confirmed: true }));
      */
-    listen(target: Node, event: string, callback: (...args: unknown[]) => void | Promise<void>): () => void;
+    listen(
+        target: Node,
+        event: string,
+        callback: (...args: unknown[]) => void | Promise<void>,
+        onError?: (error: unknown) => void,
+    ): () => void;
     /**
      * 异步设置本次显示的图片，管理资源持有并阻止同一 Sprite 的旧请求覆盖新请求。
      * @param target 目标 Sprite。
@@ -70,6 +85,10 @@ export interface ViewShowContext<Params, Result> extends TaskContext {
      * show.finish({ claimed: true, amount: 100 });
      */
     finish(value: Result): void;
+    /** 请求取消本次界面；按钮或 onShow 中可直接调用，由打开方等待 handle.result。旧显示上的调用被忽略。 */
+    dismiss(): void;
+    /** 当前界面仍是有效栈顶页面时请求返回；旧回调或已隐藏页面的调用被忽略，不等待自己的清理。 */
+    back(): void;
 }
 /**
  * 隐藏或结束时的清理上下文；此时原 show 已取消，不能用旧 show 提交界面更新。
@@ -123,7 +142,7 @@ export class UIView<Params = void, Result = void> extends Component {
      * @param _show 本次显示的参数、资源期限、时间与提交入口。
      * @example
      * protected async onShow(show: ViewShowContext<Params, Result>): Promise<void> {
-     *     const table = await this.ctx.config.load(ItemsTable, show.scope);
+     *     const table = await show.config.load(ItemsTable);
      *     show.commit(() => { this.lblTitle.string = table.require(1).name; });
      * }
      */

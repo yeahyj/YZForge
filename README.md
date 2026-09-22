@@ -4,7 +4,7 @@
 
 模块划分业务边界，Cocos Bundle 划分交付内容，Scope 管理使用期限。复用代码直接使用普通目录或包，不设运行时 Extension 安装系统，也不另设 ContentPack 业务对象。
 
-常用 API 的参数、返回值、生命周期与示例已写入源码中文注释，可直接在 VS Code 悬停查看。先阅读 [API 使用指南](docs/api-guide.md)，理解 `show.scope`、`show.commit`、配置加载、时间周期与模块通信。
+常用 API 的参数、返回值、生命周期与示例已写入源码中文注释，可直接在 VS Code 悬停查看。先阅读 [API 使用指南](docs/api-guide.md)，理解 `show.scope`、`show.commit`、跨模块配置、时间周期与模块通信。本轮行为变化及旧代码迁移见 [优化与迁移说明](docs/runtime-improvements.md)。
 
 ## 开始使用
 
@@ -78,9 +78,9 @@ Part 支持动态创建。动态加载的 Part 放 `dynamic/prefabs/`；仅通�
 ```ts
 // InventoryRes 来自 contracts/generated/resources-default.ts。
 // Part 与父界面的显示周期一起结束。
-const partNode = await this.ctx.assets
-    .in(show.scope)
-    .instantiate(InventoryRes.prefab.prefabsItemPart, this.node);
+const partNode = await show.assets.instantiate(InventoryRes.prefab.prefabsItemPart, this.node);
+// 创建者需要提前移除时，可等待节点和资源清理完成。
+await show.assets.destroyInstance(partNode);
 ```
 
 跨模块资源会先准备其 `requiredCodeModules`，再反序列化。通过 `ctx.assets` 创建时，注入的是调用方的业务上下文，不按资源目录猜测宿主；共享 Part 优先接收数据与回调。单纯加载代码不启动所属模块的业务工厂。场景中手动放置的 GameComponent 使用 `app.bindScene(root, moduleId, owner)` 接入，注入之前不会运行业务 `onInit`。
@@ -98,7 +98,7 @@ const partNode = await this.ctx.assets
 ## 资源寻址与通信
 
 ```ts
-const assets = ctx.assets.in(show.scope);
+const assets = show.assets;
 const address = await assets.resolve('icons/coin', 'SpriteFrame');
 const frame = await assets.load('coin', 'SpriteFrame'); // 当前包内唯一时可用短名
 await assets.setSprite(this.sprIcon, InventoryRes.sprite.iconsCoin);
@@ -110,7 +110,7 @@ const popup = await ctx.ui.open(InventoryViews.rewardPopup, params, show.scope);
 const result = await popup.result;
 if (result.status === 'completed') show.commit(() => applyResult(result.value));
 
-const sound = await ctx.audio.play(InventoryRes.audio.audioConfirm, show.scope);
+const sound = await show.audio.play(InventoryRes.audio.audioConfirm);
 await sound.ended;
 ctx.audio.setVolume('sfx', 0.5);
 ```
@@ -120,6 +120,8 @@ ctx.audio.setVolume('sfx', 0.5);
 `project-settings/generated/resource-identities.json` 保存 UUID 与稳定逻辑身份。包内移动和文件改名保持 Key，删除产生停用记录，其他 UUID 不能悄悄复用旧名；跨包身份迁移需显式处理。别名只能直接指向同命名空间的有效入口。身份与生成物所有权记录均进入 Git。
 
 模块通过 `app.modules.use(ModuleRef, owner)` 获得有期限的 API，依赖 API 注入模块工厂的第二个参数。通知使用 `eventKey<T>`、`ctx.events.on(key, handler, owner)` 和 `emit`。UI 之间优先使用参数、结果和有明确 Scope 的事件，不访问另一个界面的内部节点。
+
+模块工厂推荐用 `defineModule` 关联公开 API 和依赖类型。本模块页面通过 `ctx.services(LobbyServices)` 取得工厂显式返回的内部服务；跨模块仍使用公开 API。示例大厅通过 Profile API 修改共享余额，动态 WalletPart 只负责渲染；存档示例包含逐版本迁移和有效备份恢复。
 
 `Scope.close()` 先取消，再等待登记任务和真实清理；超时只报告并隔离实例，不能提前释放仍在使用的资源。代码注册可在同一运行会话复用，业务实例结束时不会假称已卸载 JavaScript。
 
@@ -145,10 +147,10 @@ ctx.audio.setVolume('sfx', 0.5);
 
 面板仅改写 `__config`，校验源文件摘要、保存备份，并逐项验证其他 ZIP 内容未改变；不会为了修改导出地址而重存数据页。并发框架写入互斥，旧草稿不能覆盖已变化的文件。
 
-ExcelJS 只读取公式与缓存，不计算公式。缓存可用于预览，正式导出必须有与源文件及声明输入摘要匹配的重算快照。当前重算适配器需要 **Windows 桌面 Microsoft Excel**，在独立副本中重算，不保存源工作簿；本机未安装 Excel，因此尚未验证这一适配器的实际 COM 重算。无公式 XLSX 导出已验证。
+ExcelJS 只读取公式与缓存，不计算公式。缓存可用于预览，正式导出必须有与源文件及声明输入摘要匹配的重算快照。当前重算适配器需要 **Windows 桌面 Excel COM**，在独立副本中重算，不保存源工作簿。工作台可检测环境；本机已实际验证 `SUM(2,3,4)` 重算为 9 并生成匹配快照。任意外部链接或其他公式兼容性仍需用真实工作簿验收。
 
 ```ts
-const table = await ctx.config.load(EntriesTable, show.scope);
+const table = await show.config.load(EntriesTable);
 table.get(1);       // 不存在时为 undefined
 table.require(1);   // 不存在时报错
 table.has(1);
@@ -156,12 +158,14 @@ table.all();
 table.by('category', 'normal'); // 仅限声明的索引
 
 // 多分片时明确选择 Bundle。
-const extra = await ctx.config.load(EntriesTable, show.scope, {
+const extra = await show.config.load(EntriesTable, {
     bundle: InventoryBundles.extra,
 });
 ```
 
 配置及嵌套数据只读；`loadMany` 成组加载失败会归还本次持有的资源。玩家存档、活动状态与当前时间属于运行时业务，不写回设计配置。
+
+跨模块表在面板勾选“允许其他模块引用此表合同”，从该模块 `contracts/generated/config` 导入 Table，然后同样调用 `show.config.load(Table)`。唯一发布路由会自动定位资源包，不启动数据所属模块的业务工厂；同表多分片才必须指定 Bundle。公共表放普通 `common` 模块，当前 `EconomyTable` 就是示例。公共不等于常驻：页面、模块或账号 Scope 分别决定持有期限，多个调用者共享底层只读数据。
 
 ## 删除与恢复
 
@@ -171,9 +175,13 @@ const extra = await ctx.config.load(EntriesTable, show.scope, {
 
 历史在 `.yzforge/trash` 与 `.yzforge/workbook-history`。不覆盖恢复位置的新内容；进程任意时刻崩溃仍可能需要根据记录处理。运行时拼接字符串和反射引用无法完整静态证明。
 
+创建过程另在 `.yzforge/creations` 保存前后快照。失败后可在恢复页预览撤销，后续编辑或外部引用会阻止覆盖；只差生成的记录可在修复源文件后重试。缺少完整后快照的崩溃记录不会强行自动回滚。
+
 ## 时间
 
 `app.time` 提供 `nowMs`、`nowSeconds`、`nowDate`、`snapshot`、`remainingMs`、`sync(owner)`、`resetSync()`、`requireNowMs`，以及 `calendar` 日期工具。服务器校时通过注入 `ServerTimeSource` 完成；默认只有本地估计时间，不伪称服务器时间。业务不直接覆写设备时间。
+
+时间上下文的 `calendar` 与周期通知统一继承面板时区/日切规则；显式参数可覆盖，独立导入的纯 `calendar` 保持 UTC 默认值。有服务器源时默认自动校时、提前刷新、失败退避和前台恢复重试；`autoSync: false` 改为完全由业务控制。
 
 ```ts
 show.time.onBoundary('day', onDay, { emitCurrent: true });
@@ -206,9 +214,14 @@ npm run typecheck
 npm run check
 npm run generate
 node tests/integration/verify-workbench.mjs
+node tests/integration/verify-creation.mjs
 node tests/integration/verify-preview.mjs
+node tools/yzforge/cli.mjs formula-status
+node tools/yzforge/cli.mjs audit-build --output build/wechatgame --platform wechatgame
 ```
 
 集成检查需要开启本项目 Creator 与 Funplay MCP；预览检查还需要运行示例 Game View。工作台检查会临时创建测试模块、验证恢复并移入回收区，不用于生产游戏运行。构建前钩子检查生成产物、源码规则和 TypeScript。Creator 当前构建转换下，展开 Map/Set 等迭代器前使用 `Array.from`，检查器会提示。
+
+预览验证时须保持 Game View 可见且运行。`app.inspect()` 可查看模块、UI、Scope 任务和资源/配置持有者。构建审计按真实输出统计字节、分包、同内容重复文件和 Bundle 依赖；预算见 `project-settings/build-budgets.json`，超限构建失败。统计的是未压缩磁盘输出，不是网络首屏或平台最终压缩包。
 
 详见 [实现和验证范围](docs/implementation-status.md)、[完整设计规格](docs/framework-redesign.md)。小游戏/原生的设备、后台、缓存、平台权限与网络行为必须单独验证；代码分包与原生热更新不因资源分包可用而自动成立。

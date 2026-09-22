@@ -67,6 +67,10 @@ type Playing = {
  * 每次播放绑定 Scope，避免节点或 UI 已结束却遗留声音及资源引用。
  */
 export class AudioManager {
+    /** 创建绑定使用期限的播放入口；不创建新管理器，音量设置仍由应用统一维护。 */
+    in(owner: Scope): ScopedAudio {
+        return new ScopedAudio(this, owner);
+    }
     private readonly root: Node;
     private readonly free: AudioSource[] = [];
     private readonly playing = new Set<Playing>();
@@ -340,5 +344,27 @@ export class AudioManager {
         await this.scope.close();
         this.free.length = 0;
         await destroyNode(this.root);
+    }
+}
+
+/** 本次显示或业务流程的音频入口；所有者结束时停止播放并归还资源。 */
+export class ScopedAudio {
+    /** @internal 通常通过 show.audio 或 app.audio.in(owner) 取得。 */
+    constructor(
+        private readonly manager: AudioManager,
+        private readonly owner: Scope,
+    ) {}
+    /**
+     * 播放音频，自动绑定当前期限。
+     * @param key 生成的 AudioClip 资源键。
+     * @param options 通道、循环及音量；默认 sfx、不循环、音量 1。
+     * @returns 可暂停或提前停止的句柄。
+     */
+    play(key: AssetKey<'AudioClip'>, options?: AudioOptions): Promise<PlaybackHandle> {
+        return this.manager.play(key, this.owner, options);
+    }
+    /** 在用户点击等手势内调用，尝试恢复平台允许播放的音频。 */
+    resumeFromGesture(): void {
+        this.manager.resumeFromGesture();
     }
 }

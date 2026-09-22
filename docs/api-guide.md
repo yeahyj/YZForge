@@ -15,19 +15,18 @@
 `Scope` 表示“这些工作和资源可以使用到什么时候”。加载器、事件和时间订阅会登记到它；结束时自动取消和清理。`scope.child('名称')` 创建可提前结束的子期限，父级结束时子级也结束。
 
 ```ts
-const assets = this.ctx.assets.in(show.scope);
-const items = await this.ctx.config.load(ItemsTable, show.scope);
-await assets.setSprite(this.sprIcon, LobbyRes.sprite.status);
+const items = await show.config.load(ItemsTable);
+await show.assets.setSprite(this.sprIcon, LobbyRes.sprite.status);
 ```
 
-`ctx.assets`、`ctx.config` 默认跟随模块。只为当前页面准备的东西应使用 `show.scope`，否则页面结束后可能仍由模块持有。
+`show.assets`、`show.config`、`show.audio`、`show.time` 已绑定 `show.scope`，临时加载无需反复传它。`ctx.assets`、`ctx.config` 默认跟随模块；模块服务中的长期数据可以使用它们。旧写法 `ctx.config.load(Table, show.scope)` 仍可用。
 
 `scope.close()` 先发出取消，再等待登记任务、子级及清理函数。`signal.aborted` 表示已经请求取消，`scope.closed` 表示清理流程已经结束。它不会强行终止任意 Promise，也不会保证节点同一帧就销毁。
 
 ## show.commit 和异步工作
 
 ```ts
-const items = await this.ctx.config.load(ItemsTable, show.scope);
+const items = await show.config.load(ItemsTable);
 show.commit(() => {
     this.lblItems.string = items.require(1).name;
 });
@@ -37,7 +36,17 @@ show.commit(() => {
 
 `onShow`、`show.listen` 的异步回调已被框架跟踪。其他展示异步任务可用 `show.run`，普通组件则用 `activation.run`；捕获原上下文，`await` 后通过该上下文的 `commit` 写 UI。网络适配需响应 `task.signal`。同一次展示中的多个请求仍可能先后倒置，业务自行处理顺序；图片替换可直接用 `setSprite` 的最新请求策略。
 
-不要在一个被 Scope 跟踪的任务里等待该 Scope 自己关闭。弹窗内部结束使用 `show.finish(value)`，由外部打开方等待 `handle.result`。
+不要在一个被 Scope 跟踪的任务里等待该 Scope 自己关闭。弹窗内部成功结束用 `show.finish(value)`，取消用 `show.dismiss()`，页面返回用 `show.back()`。它们发出请求后立即返回，由外部打开方等待 `handle.result`。
+
+按钮回调失败默认报告错误并保留页面，用户可以重试；可用 `show.listen` 第四个参数显示业务错误。初始化或清理失败仍走 UI 故障处理。
+
+```ts
+show.listen(this.btnReload.node, Button.EventType.CLICK, async () => {
+    await reload();
+}, error => {
+    show.commit(() => { this.lblError.string = String(error); });
+});
+```
 
 ## 生命周期
 
@@ -72,10 +81,13 @@ show.commit(() => {
 | `show.time.onChanged(...)`          | 来源、校时或质量变化通知，不是每秒回调 |
 
 ```ts
-const text = show.time.calendar.format(show.time.nowMs(), 'datetime', 480);
+const text = show.time.calendar.format(show.time.nowMs(), 'datetime');
+const utc8Text = show.time.calendar.format(show.time.nowMs(), 'datetime', 480);
 ```
 
-这里 `datetime` 表示“日期 + 时分秒”，`480` 是 **UTC+8 的分钟偏移**，不是时间误差或延迟。时间戳不因显示时区改变。当前 `calendar` 是纯工具，格式化和日期快捷函数默认 UTC+0，**不会自动继承面板偏移**；周期订阅会继承项目日历规则。
+这里 `datetime` 表示“日期 + 时分秒”，`480` 是 **UTC+8 的分钟偏移**，不是时间误差或延迟。时间戳不因显示时区改变。`app.time.calendar`、`ctx.time.calendar` 和 `show.time.calendar` **统一继承面板日历设置**；显式参数可覆盖。只有从 `framework/time/calendar` 独立导入的纯工具默认 UTC+0。
+
+注入 `TimeOptions.source` 后，框架默认在前台首次校时，并在质量到期前刷新；失败指数退避，后台停止请求，恢复时重试。`autoSync: false` 可交给登录流程完全控制。自动校时不保证网络成功；严格判断仍检查 `requireNowMs()`，不得把过期样本当作可信时间。应用查询日期不会各自发起网络请求。
 
 ```ts
 // 跨业务日：UTC+8，每日 04:00 切换；注册后先通知当前业务日。
@@ -102,7 +114,7 @@ show.time.at(deadlineMs, onDeadline);
 ## 资源与动态 Part
 
 ```ts
-const assets = this.ctx.assets.in(show.scope);
+const assets = show.assets;
 const address = await assets.resolve('status', 'SpriteFrame');
 await assets.setSprite(this.sprIcon, LobbyRes.sprite.status);
 ```
@@ -114,21 +126,23 @@ await assets.setSprite(this.sprIcon, LobbyRes.sprite.status);
 动态 Part 放在资源包的 `dynamic/prefabs` 并用生成的 Prefab 键实例化：
 
 ```ts
-const node = await this.ctx.assets.in(show.scope).instantiate(partKey, this.node, {
+const node = await show.assets.instantiate(partKey, this.node, {
     active: false,
 });
 // 在此给部件设置业务数据，再接通框架生命周期。
-this.ctx.assets.activate(node);
+show.assets.activate(node);
+// 父页面需要提前替换或移除部件时：
+await show.assets.destroyInstance(node);
 ```
 
-`ctx.assets` 会传入当前业务宿主；复用另一个模块的资源不会自动把宿主改为资源所属模块。Part 使用数据和回调组合，不进入 UI 页面栈。
+资源入口会传入当前业务宿主；复用另一个模块的资源不会自动把宿主改为资源所属模块。Part 使用数据和回调组合，不进入 UI 页面栈。`destroyInstance` 等待子任务、节点与资源持有回收；调用 `node.destroy()` 也会在实际销毁后归还托管持有。部件自己正在执行的受管任务不要等待自身销毁，可通知父级处理。游戏暂停时，实际节点销毁要等引擎恢复帧处理。
 
 ## 配置表与生成的 TS 合同
 
 `Items.types.ts` 定义行、主键和索引类型，`Items.table.ts` 提供轻量加载合同，`tables.ts` 汇总合同。`import ItemsTable` 不加载配置数据；JSON 留在目标资源包，`config.load` 才校验并加载它。
 
 ```ts
-const items = await this.ctx.config.load(ItemsTable, show.scope);
+const items = await show.config.load(ItemsTable);
 items.size;          // 当前数据分片的行数
 items.get(1);        // 无记录返回 undefined
 items.require(1);    // 无记录抛 CONFIG_ROW_NOT_FOUND
@@ -139,13 +153,72 @@ items.all();         // 只读行数组；当前导出器按主键排序
 
 数据及嵌套值只读；保存玩家状态时应创建业务数据对象。Scope 取消后，表句柄的数据查询会报取消错误。字符串主键和数字主键不互相转换。
 
-一张表有多个 Bundle 路由时，必须通过 `{ bundle: SomeBundles.extra }` 指定一份，或使用 `bundleHandle.tables.load`；框架不自动合并。`loadMany({ items: ItemsTable, ... }, owner)` 成组加载，任何一张失败都会清理本批持有。
+一张表有多个 Bundle 路由时，必须通过 `{ bundle: SomeBundles.extra }` 指定一份，或使用 `bundleHandle.tables.load`；框架不自动合并。`show.config.loadMany({ items: ItemsTable, ... })` 成组加载，任何一张失败都会清理本批持有。
 
 命名枚举从 XLSX `__enums` 导出同名 `as const` 值对象与联合类型。表格中的字段说明和枚举成员说明也会进入生成注释。`ref` 是外键值，不会自动加载另一张表；导出时做引用校验，运行时按需明确加载目标表。
 
+### 大厅读取战斗模块的表
+
+先在工作台配置页勾选该表的“允许其他模块引用此表合同”，保存并导出。生成的合同在战斗模块 `contracts/generated/config`，数据仍在原资源包。下面假设已创建公开的 `EnemiesTable`，在大厅 `code/ui` 脚本中：
+
+```ts
+import { EnemiesTable } from '../../../battle/contracts/generated/config/Enemies.table';
+
+const enemies = await show.config.load(EnemiesTable);
+show.commit(() => { this.lblName.string = enemies.require(101).name; });
+```
+
+只有一个发布路由时自动定位所属 Bundle，**不要求先进入战斗、打开战斗界面或启动 BattleModule 业务工厂**，也不需要为“仅用表数据”添加业务模块依赖。禁止直接引用另一模块的 `code/generated/config` 私有合同。若表体现战斗内部规则、外部只需要“推荐战力”等计算结果，则通过战斗的公开 API 查询更合适，避免大厅耦合内部字段。
+
+### 跨资源包与分片
+
+表所在包与调用方所在包不同不影响用法。只有同一张逻辑表导出了多个分片，或需要约束目标包时，才传 Bundle：
+
+```ts
+import { BattleBundles } from '../../../battle/contracts/generated/bundles';
+
+const enemies = await show.config.load(EnemiesTable, { bundle: BattleBundles.extra });
+// 或先持有包，再读取其中的表；两种方式共用同一缓存。
+const bundle = await show.assets.openBundle(BattleBundles.extra);
+const sameEnemies = await bundle.tables.load(EnemiesTable);
+```
+
+分片漏选报 `CONFIG_TARGET_REQUIRED`，指定了不包含该表的包报 `CONFIG_TARGET_MISMATCH`。查询只看所选分片，不搜索其他包补齐主键。远程资源包首次读取可能发生下载；小游戏分包下载粒度由平台决定，不能等同于只下载这一张 JSON。
+
+### 全局公共配置
+
+公共数据放普通 `common` 模块的资源包并导出公开合同。它是可选的内容组织约定，没有第二套全局配置管理器。当前演示可直接运行：
+
+```ts
+import { EconomyTable } from '../../../common/contracts/generated/config/Economy.table';
+
+const economy = await show.config.load(EconomyTable);
+const reward = economy.require(1);
+```
+
+“公共”表示可复用，不表示全量预加载、永不释放。页面使用 `show.config`，模块服务使用 `ctx.config`；确需整个账号会话共用时由应用流程 `app.config.load(EconomyTable, accountScope)` 持有。多个调用方共享底层只读数据，各自有独立表句柄；大厅退出不会释放战斗仍在使用的那份持有。不要为了复用把同一表复制到多个模块，也不要把账号数据、库存等可变状态存入配置表。
+
 ## 模块、UI 与事件通信
 
-模块引用放在 `public.ts`，资源键、ViewKey 等轻量合同放在 `contracts`。跨模块调用使用 `app.modules.use(ModuleRef, owner)` 返回的 `handle.api`，所需依赖也可通过模块工厂第二个参数取得。
+模块引用放在 `public.ts`，资源键、ViewKey 等轻量合同放在 `contracts`。跨模块调用使用 `app.modules.use(ModuleRef, owner)` 返回的 `handle.api`。`defineModule` 把公开合同、内部服务与依赖 API 连接起来，工厂仍显式创建普通 Service：
+
+```ts
+// LobbyServices 放在本模块 code，引用值不包含服务实例。
+export const LobbyServices = moduleServices<{ lobby: LobbyService }>('lobby');
+
+export const createLobbyModule = defineModule(
+    LobbyModule,
+    { services: LobbyServices, dependencies: { profile: ProfileModule } },
+    (ctx, deps) => ({
+        api: { moduleId: ctx.id },
+        services: { lobby: new LobbyService(ctx, deps.profile) },
+    }),
+);
+// 同模块页面在 onShow 中取本代服务：
+const service = this.ctx.services(LobbyServices).lobby;
+```
+
+真实业务依赖还须在 `module.json.dependencies` 声明，面板创建时可选择。`deps.profile` 具有 `ProfileApi` 类型，工厂返回值也受 `LobbyModule` 合同检查；不靠 `as` 强转补类型。其他模块通过 `public.ts` API 通信，不能读取这组私有服务。旧代结束后，其 ctx 不能访问新一代服务。完整示例见 `lobby/code/LobbyModule.ts`、`LobbyService.ts`、`profile/code/services/WalletService.ts`。
 
 “随应用启动加载”和“按需加载”控制的是代码何时可用。两种模式都在首次 `use` 或打开所属 UI 时按需初始化业务工厂；代码准备完成不代表业务已 ready。最后一份外部持有归还后清理该代业务实例，后续可再初始化。
 
@@ -163,6 +236,22 @@ if (result.status === 'completed') {
 }
 ```
 
-`open` 等待打开，`result` 等待结束。`completed` 来自 `show.finish`，`cancelled` 来自外部关闭，`failed` 提供错误和 `cleanupPending`；后者为 `true` 时实际清理仍未结束。页面栈用 `pushPage/back`；导航所有者应覆盖页面存活期，不能是马上挂起的上一页 `show.scope`。
+`open` 等待打开，`result` 等待结束。`completed` 来自 `show.finish`，`cancelled` 来自取消/外部关闭，`failed` 提供错误和 `cleanupPending`；后者为 `true` 时实际清理仍未结束。导航所有者应覆盖页面存活期，不能是马上挂起的上一页 `show.scope`。
+
+页面内调用 `show.back()`。外部流程使用 `await app.ui.back().completed` 等待返回完成；`back()` 本身返回非 Promise 的请求句柄，不能再用 `await app.ui.back()` 表示清理完成。连续对同一栈顶发出返回请求只关闭该页。`handle.close()` 的 Promise 也只供外部协调等待，不要在该界面自己的受管回调中等待它。
 
 事件用于广播已经发生的事实。`eventKey<T>('module/event')` 定义合同，`ctx.events.on(key, handler, owner)` 订阅，`emit` 发布。发布不等待异步订阅者完成，不提供请求结果；需要结果或严格顺序时使用明确的模块方法。音频则通过 `ctx.audio.play(key, owner)` 取得独立播放句柄，播放期限由 owner 决定。
+
+## 存档迁移与恢复
+
+普通业务通过 `ctx.storage` 或 `app.storage` 使用小型 JSON 存档。`StorageKey<T>` 声明稳定 id、当前 version、validate 和逐版本 migrations；例如 `{ 1: old => ({ coins: old.gold }) }` 表示版本 1 升级到 2。完整可运行示例见 `profile/code/services/WalletService.ts`。
+
+`read(key)` 返回 `loaded`、`migrated`、`recovered`、`missing`、`invalid` 或 `incompatible`。迁移和备份恢复只在内存中进行；业务明确接受后再 `set`，不要用默认值覆盖损坏或未来版本存档。`get` 是严格读取主存档，错误直接抛出。`set` 先保留上一份有效备份再写新数据，主数据和备份中的未来版本都拒绝覆盖；写入失败抛错。`remove` 删除指定数据及备份，不清空整个应用。它不是加密、联网校验或大文件存储系统。
+
+## 诊断与制作流程恢复
+
+`app.inspect()` 返回只读快照，包含模块使用数/清理状态、UI、Scope 树、任务标签、资源/配置持有者和时间质量。查询不会启动模块或加载资源，不返回可直接修改的内部 Node/Map。卡住时先看哪些 Scope 仍有任务、哪个持有者还没结束；快照不是完整的引擎 GPU/原生内存统计。
+
+工作台创建失败会在 `.yzforge/creations` 保留前后快照，可在“删除与恢复”预览撤销；生成失败可修复源文件后重试生成。撤销遇到后续修改或外部引用会停止，任意进程崩溃若没有完整后快照不能自动撤销。已有删除备份保留原流程。
+
+构建后报告写到 `.yzforge/build-reports`，统计真实输出的未压缩字节、分包/remote 目录、至少 1 KiB 的同内容重复文件及 Bundle 依赖。可在 `project-settings/build-budgets.json` 设置总量、本地根目录与重复文件预算，`null` 表示不限制；超限使构建失败。该数字不是平台压缩包大小或网络首屏下载量。公式环境可通过工作台“检查公式环境”或 `node tools/yzforge/cli.mjs formula-status` 检测，检测通过后仍需对具体工作簿执行重算。

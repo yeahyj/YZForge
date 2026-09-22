@@ -5,7 +5,7 @@ import { AudioManager } from '../audio/audio-manager';
 import { ConfigManager } from '../config/config-manager';
 import { ModuleDefinition, ModuleManager } from '../modules/module-manager';
 import { bundleFactoryLoader } from '../modules/module-entry';
-import { Storage } from '../platform/storage';
+import { Storage, StorageBackend } from '../platform/storage';
 import { createPlatformClock, PlatformClockOptions } from '../platform/clock';
 import { TimeOptions, TimeService } from '../time/time-service';
 import { UIManager, ViewDefinition } from '../ui/ui-manager';
@@ -18,6 +18,8 @@ import { GameComponent } from './game-component';
  * 应用启动装配参数。通常由项目设置和生成的发布清单构建，交给 AppEntry.appOptions。
  */
 export interface AppOptions {
+    /** 可选同步存储适配器；默认 Cocos sys.localStorage，用于平台接入或测试。 */
+    readonly storageBackend?: StorageBackend;
     /**
      * 稳定应用 ID，用作本地存储前缀；允许字母、数字、点、下划线和连字符，首字符须为字母或数字。
      */
@@ -73,6 +75,18 @@ export interface AppOptions {
  * 通常由 AppEntry 创建，业务组件通过 this.ctx 使用所需服务，无需各自 new 管理器。
  */
 export class App {
+    /** 获取当前运行诊断快照，适合调试面板和错误报告；不会加载模块或修改运行状态。 */
+    inspect() {
+        return Object.freeze({
+            scope: this.scope.inspect(),
+            flows: this.flows.inspect(),
+            modules: this.modules.inspect(),
+            ui: this.ui.inspect(),
+            assets: this.assets.inspect(),
+            config: this.config.inspect(),
+            time: this.time.snapshot(),
+        });
+    }
     /**
      * 应用根生命周期，覆盖所有核心服务；普通业务流程优先放到 flows 或更短的子 Scope。
      */
@@ -149,7 +163,7 @@ export class App {
     constructor(input: AppOptions) {
         if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(input.appId))
             throw new FrameworkError('APP_ID_INVALID', 'Provide a stable application ID for storage isolation');
-        this.storage = new Storage(`${input.appId}:`);
+        this.storage = new Storage(`${input.appId}:`, input.storageBackend ?? sys.localStorage);
         this.clock = input.clock ?? createPlatformClock(input.clockOptions);
         this.time = new TimeService(this.clock, this.scope, input.time);
         this.assets = new Assets(input.release, this.scope);
@@ -166,6 +180,7 @@ export class App {
                     config: this.config.in(scope),
                     time: this.time.in(scope),
                     events: this.events,
+                    storage: this.storage,
                     ui: this.ui,
                     audio: this.audio,
                     createSession,

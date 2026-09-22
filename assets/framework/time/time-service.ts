@@ -4,7 +4,7 @@ import { ErrorReporter, invariant, OperationCancelled, reportError } from '../co
 import { runTask, Scope, TaskContext } from '../core/scope';
 import {
     add,
-    calendar,
+    createCalendar,
     CalendarOptions,
     CalendarPeriod,
     CalendarUnit,
@@ -92,6 +92,8 @@ export interface TimePolicy {
  * 应用级时间配置，通常来自面板生成选项，并由项目注入服务器适配器。
  */
 export interface TimeOptions extends TimePolicy {
+    /** 自动校时策略；有 source 时默认启用，false 表示所有校时（包括恢复前台）由调用方控制。 */
+    readonly autoSync?: false | AutoSyncOptions;
     /**
      * 服务器时间适配器；不提供时仅使用设备时间，sync 会报 TIME_SOURCE_MISSING。
      */
@@ -106,9 +108,18 @@ export interface TimeOptions extends TimePolicy {
      */
     readonly requestTimeoutMs?: number;
     /**
-     * 周期通知的默认时区、周起始日和日切点；单次订阅可覆盖。当前 calendar.format 等纯工具不自动继承。
+     * 日期工具和周期通知的默认时区、周起始日和日切点；单次调用可覆盖。
      */
     readonly calendar?: CalendarOptions;
+}
+/** 有服务器适配器时的自动校时策略；后台停止请求，恢复前台立即重试。 */
+export interface AutoSyncOptions {
+    /** 正常刷新间隔，毫秒；默认有效期的 80%，设置更大时仍会在质量过期前提前刷新。 */
+    readonly intervalMs?: number;
+    /** 首次失败后的重试间隔，毫秒，默认 1000；后续指数退避。 */
+    readonly retryDelayMs?: number;
+    /** 失败重试间隔上限，毫秒，默认 60000。 */
+    readonly maxRetryDelayMs?: number;
 }
 /**
  * 某个日历周期或截止时刻已到的通知；框架只通知，由业务决定刷新、结算与持久化去重。
@@ -204,9 +215,9 @@ type Plan = {
  */
 export class TimeService {
     /**
-     * 纯日期工具集合。format/parts/add 等默认 UTC+0，不自动继承面板日历设置；需要北京时间时明确传 480。
+     * 继承项目日历规则的工具集合；显式传时区可覆盖。独立导出的 calendar 仍是默认 UTC 的纯工具。
      */
-    readonly calendar = calendar;
+    readonly calendar: ReturnType<typeof createCalendar>;
     private anchor?: Anchor;
     private revision = 0;
     private syncSerial = 0;
@@ -223,6 +234,10 @@ export class TimeService {
     private readonly plans = new Set<Plan>();
     private stopWake = () => {};
     private stopState: () => void;
+    private readonly autoSync: Required<AutoSyncOptions> | undefined;
+    private nextSyncAt = 0;
+    private autoSyncPending = false;
+    private syncFailures = 0;
     private dispatchReason: CalendarEvent['reason'] = 'due';
     /**
      * 创建应用级时间服务，一般由 App 装配。
@@ -240,7 +255,31 @@ export class TimeService {
         private readonly settings: TimeOptions = {},
         private readonly report: ErrorReporter = reportError,
     ) {
-        options(settings.calendar);
+        this.calendar = createCalendar(settings.calendar);
+        for (const [key, value] of Object.entries({
+            maxAgeMs: settings.maxAgeMs ?? 300000,
+            maxErrorMs: settings.maxErrorMs ?? 5000,
+            requestTimeoutMs: settings.requestTimeoutMs ?? 5000,
+        }))
+            invariant(
+                Number.isFinite(value) && value > 0,
+                'INVALID_TIME_OPTIONS',
+                `${key} must be positive and finite`,
+            );
+        if (settings.source && settings.autoSync !== false) {
+            const auto = settings.autoSync ?? {};
+            this.autoSync = {
+                intervalMs: auto.intervalMs ?? (settings.maxAgeMs ?? 300000) * 0.8,
+                retryDelayMs: auto.retryDelayMs ?? 1000,
+                maxRetryDelayMs: auto.maxRetryDelayMs ?? 60000,
+            };
+            invariant(
+                Object.values(this.autoSync).every((value) => Number.isFinite(value) && value > 0) &&
+                    this.autoSync.maxRetryDelayMs >= this.autoSync.retryDelayMs,
+                'INVALID_TIME_OPTIONS',
+                'Invalid automatic synchronization intervals',
+            );
+        }
         this.scope = owner.child('time');
         this.lastDevice = clock.deviceNowMs();
         this.lastMono = clock.monotonicMs();
@@ -250,7 +289,8 @@ export class TimeService {
                 this.resumeStale = !!settings.source;
                 this.dispatchReason = 'resume';
                 this.changed();
-                if (settings.source) void this.sync(this.scope).catch(report);
+                this.nextSyncAt = clock.monotonicMs();
+                this.syncFailures = 0;
             }
             this.pump();
         });
@@ -374,6 +414,8 @@ export class TimeService {
         this.anchor = undefined;
         this.resumeStale = false;
         this.revision++;
+        this.nextSyncAt = this.clock.monotonicMs();
+        this.syncFailures = 0;
         this.changed();
         this.pump();
     }
@@ -405,6 +447,7 @@ export class TimeService {
                 .finally(async () => {
                     if (this.round === captured) this.round = undefined;
                     await scope.close();
+                    this.scheduleWake();
                 });
         }
         round.waiters++;
@@ -500,8 +543,10 @@ export class TimeService {
         );
         validEpoch(Math.floor(next));
         this.anchor = selected;
+        this.nextSyncAt = this.refreshAt(selected);
         this.lastEstimate = Math.floor(next);
         this.resumeStale = false;
+        if (this.snapshot().quality === 'synced') this.syncFailures = 0;
         this.revision++;
         this.dispatchReason = 'time-adjusted';
         this.changed();
@@ -700,6 +745,7 @@ export class TimeService {
     private pump(): void {
         this.stopWake();
         if (this.closed) return;
+        this.synchronizeIfDue();
         const state = this.snapshot();
         const nowDevice = this.clock.deviceNowMs(),
             mono = this.clock.monotonicMs();
@@ -761,10 +807,50 @@ export class TimeService {
         if (this.closed || this.clock.background) return;
         const now = this.eligibleNow();
         let wait = 60000;
+        if (this.autoSync && !this.autoSyncPending && !this.round)
+            wait = Math.min(wait, Math.max(1, this.nextSyncAt - this.clock.monotonicMs()));
         if (now !== null)
             for (const plan of this.plans)
                 if (!plan.busy && plan.next !== null) wait = Math.min(wait, Math.max(1, plan.next - now));
         this.stopWake = this.clock.wake(() => this.pump(), wait);
+    }
+    private refreshAt(anchor: Anchor): number {
+        const ageLimit = this.settings.maxAgeMs ?? 300000;
+        const errorLimit = Math.max(1, ((this.settings.maxErrorMs ?? 5000) - anchor.error) / 0.00005);
+        return (
+            anchor.mono + Math.max(1, Math.min(this.autoSync?.intervalMs ?? Infinity, ageLimit * 0.8, errorLimit * 0.8))
+        );
+    }
+    private synchronizeIfDue(): void {
+        const auto = this.autoSync;
+        if (
+            !auto ||
+            this.autoSyncPending ||
+            this.round ||
+            this.clock.background ||
+            this.clock.monotonicMs() < this.nextSyncAt
+        )
+            return;
+        this.autoSyncPending = true;
+        void this.sync(this.scope)
+            .then((state) => {
+                invariant(
+                    state.quality === 'synced',
+                    'TIME_NOT_SYNCED',
+                    'Automatic synchronization did not reach the required quality',
+                );
+            })
+            .catch((error) => {
+                if (error instanceof OperationCancelled || this.closed || this.clock.background) return;
+                this.nextSyncAt =
+                    this.clock.monotonicMs() +
+                    Math.min(auto.maxRetryDelayMs, auto.retryDelayMs * 2 ** Math.min(this.syncFailures++, 20));
+                this.report(error);
+            })
+            .finally(() => {
+                this.autoSyncPending = false;
+                this.pump();
+            });
     }
     private changed(): void {
         if (this.queuedChange || this.closed) return;
@@ -802,7 +888,7 @@ export class ScopedTime {
         private readonly owner: Scope,
     ) {}
     /**
-     * 纯日期工具；format 等默认 UTC+0，不自动继承面板偏移。
+     * 继承项目日历设置的日期工具；format、dayKey 等与周期订阅使用同一默认偏移，可显式覆盖。
      * @example
      * const text = show.time.calendar.format(show.time.nowMs(), "datetime", 480);
      */

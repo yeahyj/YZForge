@@ -22,6 +22,14 @@
       "path": "dynamic/icons/status/spriteFrame",
       "type": "SpriteFrame"
     },
+    "lobby/default/prefab/prefabs/wallet-part": {
+      "bundle": "m-lobby",
+      "path": "dynamic/prefabs/WalletPart",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "lobby"
+      ]
+    },
     "lobby/default/prefab/dashboard": {
       "bundle": "m-lobby",
       "path": "dynamic/ui/Dashboard",

@@ -107,12 +107,19 @@ exports.onAfterBuild = async function (options, result) {
             hasPreloadScript: output?.config.hasPreloadScript,
         });
     }
+    const audit = await require('../../tools/yzforge/build-audit.cjs').auditProjectBuild(
+        root,
+        result.dest,
+        options.platform,
+    );
+    problems.push(...audit.problems);
     const report = {
         formatVersion: 1,
         timestamp: new Date().toISOString(),
         platform: options.platform,
         output: result.dest,
         bundles,
+        audit,
         problems,
         passed: problems.length === 0,
     };

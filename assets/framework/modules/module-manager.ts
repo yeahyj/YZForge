@@ -8,6 +8,7 @@ import type { Events } from '../core/events';
 import type { ScopedTime } from '../time/time-service';
 import type { AudioManager } from '../audio/audio-manager';
 import type { UIManager } from '../ui/ui-manager';
+import type { Storage } from '../platform/storage';
 
 /**
  * 模块的轻量公开引用，通常由模块 public.ts 导出。
@@ -25,11 +26,83 @@ export interface ModuleRef<Api> {
      */
     readonly __api?: Api;
 }
+/** 模块内部服务集合的类型引用；应放在模块私有 code 中，跨模块通信使用 ModuleRef 的公开 API。 */
+export interface ModuleServicesRef<T> {
+    /** 服务所属的业务模块 ID，用来阻止其他模块直接读取内部服务。 */
+    readonly moduleId: string;
+    /** @internal 仅供 TypeScript 关联服务集合类型。 */
+    readonly __services?: T;
+}
+/**
+ * 定义本模块内部服务集合的轻量引用，不创建服务实例。
+ * @example const InventoryServices = moduleServices<{ inventory: InventoryService }>('inventory');
+ */
+export function moduleServices<T>(moduleId: string): ModuleServicesRef<T> {
+    return Object.freeze({ moduleId });
+}
+/** 声明别名到公开模块引用的映射；所列模块还必须在 module.json 中声明依赖。 */
+export type ModuleDependencies = Readonly<Record<string, ModuleRef<unknown>>>;
+/** 从依赖引用推导完整 API 类型，业务无需将 unknown 强制转换为自己的接口。 */
+export type DependencyApis<D extends ModuleDependencies> = {
+    readonly [K in keyof D]: D[K] extends ModuleRef<infer Api> ? Api : never;
+};
+/**
+ * 将模块工厂与公开 API、内部服务及依赖类型连接起来；返回普通 ModuleFactory，不引入自动依赖注入容器。
+ * @param ref public.ts 中的公开模块引用，工厂必须满足其 API 合同。
+ * @param input 可选内部服务合同和依赖别名映射，依赖实例仍由模块管理器按声明初始化。
+ * @param factory 显式创建普通 Service 并返回 { api, services }；清理登记到 ctx.scope。
+ * @returns 可直接装配到 ModuleDefinition 或 ModuleEntry 的工厂。
+ */
+export function defineModule<Api, Services = unknown, D extends ModuleDependencies = Record<string, never>>(
+    ref: ModuleRef<Api>,
+    input: { readonly services?: ModuleServicesRef<Services>; readonly dependencies?: D },
+    factory: (
+        ctx: ModuleContext,
+        dependencies: DependencyApis<D>,
+    ) =>
+        | { api: NoInfer<Api>; services?: NoInfer<Services> }
+        | Promise<{ api: NoInfer<Api>; services?: NoInfer<Services> }>,
+): ModuleFactory<Api> {
+    invariant(
+        !input.services || input.services.moduleId === ref.id,
+        'MODULE_SERVICES_HOST',
+        'Services must belong to the factory module',
+    );
+    return async (ctx, raw) => {
+        invariant(ctx.id === ref.id, 'MODULE_FACTORY_ID', `Expected module ${ref.id}, received ${ctx.id}`);
+        const dependencies: Record<string, unknown> = {};
+        for (const [alias, dependency] of Object.entries(input.dependencies ?? {})) {
+            invariant(
+                Object.prototype.hasOwnProperty.call(raw, dependency.id),
+                'MODULE_DEPENDENCY_MISSING',
+                `Declare ${dependency.id} in ${ref.id}/module.json`,
+            );
+            dependencies[alias] = raw[dependency.id];
+        }
+        const result = await factory(ctx, Object.freeze(dependencies) as DependencyApis<D>);
+        invariant(
+            !input.services || result.services !== undefined,
+            'MODULE_SERVICES_MISSING',
+            `Factory ${ref.id} must return its declared services`,
+        );
+        return result;
+    };
+}
 /**
  * 框架注入模块工厂、UIView 和 GameComponent 的业务上下文。
  * 模块 Scope、界面展示 Scope、组件激活 Scope 长度不同，应按实际使用期选择。
  */
 export interface ModuleContext {
+    /** 应用命名空间下的小型存档与设置入口，支持逐版本迁移和有效备份恢复。 */
+    readonly storage: Storage;
+    /**
+     * 读取本模块工厂显式返回的内部服务集合，不创建服务或延长模块寿命。
+     * @param ref 本模块 code 中的 moduleServices 引用。
+     * @returns 带完整类型的同一组服务；服务状态由服务自身管理。
+     * @throws MODULE_NOT_READY 工厂尚未完成或旧代已结束；MODULE_SERVICES_HOST 引用属于其他模块。
+     * @example const { inventory } = this.ctx.services(InventoryServices);
+     */
+    services<T>(ref: ModuleServicesRef<T>): T;
     /**
      * 当前宿主业务模块 ID；共享 Part 从其他资源包加载时，仍使用调用方指定的宿主。
      */
@@ -83,7 +156,7 @@ export interface ModuleContext {
 export type ModuleFactory<Api = unknown> = (
     ctx: ModuleContext,
     dependencies: Readonly<Record<string, unknown>>,
-) => { api: Api } | Promise<{ api: Api }>;
+) => { api: Api; services?: unknown } | Promise<{ api: Api; services?: unknown }>;
 /**
  * 模块装配描述，由 module.json 生成；同时描述业务依赖与代码交付方式。
  */
@@ -141,6 +214,7 @@ type ModuleRecord = {
     cleanupPending: boolean;
     ready: Promise<unknown>;
     api?: unknown;
+    services?: unknown;
     stop?: Promise<void>;
     faultHolds: number;
     stopTimedOut: boolean;
@@ -151,6 +225,21 @@ type ModuleRecord = {
  * 业务通过 use 获得有期限的 API；prepareCode 仅用于需要先注册预制体脚本等情况。
  */
 export class ModuleManager {
+    /** 读取正在存活的业务模块、外部持有数及清理状态，不触发初始化。 */
+    inspect() {
+        return Object.freeze(
+            Array.from(this.records, ([id, record]) =>
+                Object.freeze({
+                    id,
+                    state: record.state,
+                    demand: record.demand,
+                    codeReady: record.codeReady,
+                    cleanupPending: record.cleanupPending,
+                    scope: record.scope.inspect(),
+                }),
+            ),
+        );
+    }
     private readonly definitions = new Map<string, ModuleDefinition>();
     private readonly records = new Map<string, ModuleRecord>();
     private readonly codeScope = new Scope('module-code');
@@ -187,7 +276,7 @@ export class ModuleManager {
             id: string,
             scope: Scope,
             createSession: (owner: Scope, label: string) => Scope,
-        ) => ModuleContext,
+        ) => Omit<ModuleContext, 'services'>,
         private readonly report: ErrorReporter = reportError,
         private readonly cleanupTimeoutMs = 10000,
     ) {
@@ -356,9 +445,27 @@ export class ModuleManager {
                 ready: Promise.resolve(undefined),
             };
             const current = record;
-            current.context = this.makeContext(ref.id, scope, (parent, label) =>
-                this.createSession(current, parent, label),
-            );
+            current.context = Object.freeze({
+                ...this.makeContext(ref.id, scope, (parent, label) => this.createSession(current, parent, label)),
+                services: <T>(servicesRef: ModuleServicesRef<T>): T => {
+                    invariant(
+                        servicesRef.moduleId === ref.id,
+                        'MODULE_SERVICES_HOST',
+                        'Use public module APIs for cross-module calls',
+                    );
+                    invariant(
+                        this.records.get(ref.id) === current && current.state === 'ready' && !scope.signal.aborted,
+                        'MODULE_NOT_READY',
+                        `Services are unavailable: ${ref.id}`,
+                    );
+                    invariant(
+                        current.services !== undefined,
+                        'MODULE_SERVICES_MISSING',
+                        `Module ${ref.id} did not return services`,
+                    );
+                    return current.services as T;
+                },
+            });
             this.records.set(ref.id, current);
             current.ready = Promise.resolve().then(async () => {
                 const factory = await untilCancelled(this.factoryFor(definition.id), scope.signal);
@@ -372,6 +479,7 @@ export class ModuleManager {
                 scope.signal.throwIfAborted();
                 invariant(result && 'api' in result, 'MODULE_FACTORY_INVALID', `${ref.id} factory must return { api }`);
                 current.api = result.api;
+                current.services = result.services;
                 current.state = 'ready';
                 return result.api;
             });

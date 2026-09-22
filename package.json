@@ -11,7 +11,7 @@
   },
   "scripts": {
     "test": "node --import ./tools/yzforge/register-tests.mjs --test tests/*.test.ts tests/*.test.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.contracts.json",
     "check": "node tools/yzforge/cli.mjs check",
     "generate": "node tools/yzforge/cli.mjs generate",
     "mcp": "node tools/yzforge/mcp.mjs",

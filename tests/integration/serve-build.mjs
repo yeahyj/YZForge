@@ -2,7 +2,9 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, relative, extname, isAbsolute } from 'node:path';
-const root = fileURLToPath(new URL('../../build/web-mobile/', import.meta.url)),
+const root = process.argv[2]
+        ? resolve(process.argv[2])
+        : fileURLToPath(new URL('../../build/web-mobile/', import.meta.url)),
     requests = [];
 const types = {
     '.html': 'text/html',

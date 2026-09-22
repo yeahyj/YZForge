@@ -59,6 +59,14 @@ type LoadedAsset = { asset: Asset; atlas?: SpriteAtlas };
  * 加载 Bundle 不等于加载其中全部资源，关闭 Scope 也不会卸载已注册的 JS 类。
  */
 export class Assets {
+    /** 读取当前版本、已请求 Bundle 和资源持有者；数量为条目数，不能当作字节进度或内存大小。 */
+    inspect() {
+        return Object.freeze({
+            releaseId: this.release.releaseId,
+            bundles: Object.freeze(Array.from(this.bundles.keys())),
+            resources: this.cache.inspect(),
+        });
+    }
     private readonly bundles = new Map<string, Promise<EngineAssetManager.Bundle>>();
     private readonly indices = new Map<string, Promise<NamespaceIndex>>();
     private readonly addresses = new Map<string, AssetAddress>();
@@ -368,6 +376,10 @@ export class Assets {
             // LIFO: destroy completes before the prefab lease is returned.
             instance.defer(() => destroyNode(node));
             this.instances.set(node, { scope: instance, moduleId });
+            // 业务直接销毁节点时也结束持有；正常 Scope 清理触发同一事件时 close 保持幂等。
+            node.once(Node.EventType.NODE_DESTROYED, () => {
+                void instance.close().catch(reportError);
+            });
             this.bindInstance(node, instance, moduleId, input.active ?? true);
             parent.addChild(node);
             node.active = input.active ?? true;
@@ -393,6 +405,19 @@ export class Assets {
         if (instance.moduleId) invariant(this.moduleReady(instance.moduleId), 'MODULE_NOT_READY', instance.moduleId);
         this.activateInstance(node, instance.scope);
         node.active = true;
+    }
+    /**
+     * 提前结束一个 instantiate 创建的实例，等待任务退出、销毁节点并归还预制体持有。
+     * @param node 当前资源管理器创建的节点；允许重复调用，也允许节点已被业务销毁。
+     * @returns 完整释放屏障；父页面可以 await。实例自身的任务只发起请求，不等待自己的退出屏障。
+     * @throws INSTANCE_NOT_MANAGED 节点不是当前管理器创建的实例。
+     * @example
+     * await show.assets.destroyInstance(itemNode);
+     */
+    destroyInstance(node: Node): Promise<void> {
+        const instance = this.instances.get(node);
+        invariant(instance, 'INSTANCE_NOT_MANAGED', 'Destroy only a framework-owned prefab instance');
+        return instance.scope.close();
     }
     /**
      * 异步设置图片，同一个 Sprite 总以最后一次请求为准；新图准备好前保留旧图。
@@ -487,6 +512,10 @@ export function destroyNode(node: Node): Promise<void> {
  * 资源包只决定内容位置，scope 决定加载结果何时释放。
  */
 export class ScopedAssets {
+    /** 提前销毁托管实例并归还资源；通常由创建它的父页面调用并等待。 */
+    destroyInstance(node: Node): Promise<void> {
+        return this.manager.destroyInstance(node);
+    }
     /**
      * 创建资源访问门面，一般使用 assets.in 或 ctx.assets。
      * @param manager - 应用共享资源管理器。

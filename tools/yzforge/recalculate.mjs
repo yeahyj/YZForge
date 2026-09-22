@@ -8,9 +8,42 @@ import JSZip from 'jszip';
 import { readWorkbook, formulaFingerprint } from './workbooks.mjs';
 import { safePath } from './project.mjs';
 const execute = promisify(execFile);
+/** 检查桌面 Excel COM 是否已注册；不启动 Excel，不把已注册误认为实际重算已验证。 */
+export async function formulaEnvironment() {
+    if (process.platform !== 'win32')
+        return {
+            available: false,
+            engine: 'Microsoft Excel COM',
+            message: '当前适配器需要 Windows 桌面 Excel；无公式 XLSX 可正常导出。',
+        };
+    try {
+        const { stdout } = await execute(
+            'powershell.exe',
+            [
+                '-NoProfile',
+                '-NonInteractive',
+                '-Command',
+                "if ([type]::GetTypeFromProgID('Excel.Application')) { 'registered' } else { 'missing' }",
+            ],
+            { windowsHide: true, timeout: 10000 },
+        );
+        const available = stdout.trim() === 'registered';
+        return {
+            available,
+            engine: 'Microsoft Excel COM',
+            message: available
+                ? '已检测到 Excel COM 注册；实际重算仍须成功执行并校验输入快照。'
+                : '未检测到桌面 Excel；无公式 XLSX 可导出，含公式表需在具备 Excel 的构建环境重算。',
+        };
+    } catch (error) {
+        return { available: false, engine: 'Microsoft Excel COM', message: '无法检测公式环境：' + error.message };
+    }
+}
 
 /** Recalculate owned copies with desktop Excel. Neither source workbooks nor the user's Excel session are saved. */
 export async function recalculate(root, source) {
+    const environment = await formulaEnvironment();
+    if (!environment.available) throw Error(environment.message);
     const workbook = await readWorkbook(root, source);
     if (process.platform !== 'win32') throw Error('当前公式适配器需要 Windows 桌面 Excel；普通无公式 XLSX 可直接导出');
     const sources = [...new Set([source, ...workbook.config.inputs])];
