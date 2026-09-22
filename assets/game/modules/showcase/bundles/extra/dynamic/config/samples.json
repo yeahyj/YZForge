@@ -1,0 +1,37 @@
+{
+  "formatVersion": 1,
+  "tableId": "showcase.samples",
+  "schemaHash": "sha256:3f9667eebce52db76af9379133a734030992f7f0f4c909b4bb9b8cd0558f0828",
+  "dataRevision": "sha256:d27ec5c3685d598800cd4f369f066f5ca4a81b687d907298d8f2124b57b9d336",
+  "rows": [
+    {
+      "id": 201,
+      "name": "扩展样例",
+      "pack": "extra",
+      "enabled": false,
+      "weight": 2.5,
+      "quality": "rare",
+      "tags": [
+        "extra",
+        "resource"
+      ],
+      "position": {
+        "x": 3,
+        "y": 4
+      },
+      "tint": {
+        "r": 116,
+        "g": 217,
+        "b": 171,
+        "a": 255
+      },
+      "icon": {
+        "id": "showcase/default/sprite/icons/beta/token",
+        "type": "SpriteFrame"
+      },
+      "economy": 1,
+      "note": "第二个资源包",
+      "releasedAt": "2026-09-22T08:30:00+08:00"
+    }
+  ]
+}

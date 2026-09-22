@@ -1,0 +1,14 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "e402d066-97e5-4912-9a42-40581cf8a812",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "isBundle": true,
+    "bundleName": "m-workshop",
+    "priority": 1,
+    "bundleConfigID": "yzforge-resources"
+  }
+}

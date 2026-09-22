@@ -21,6 +21,8 @@ export class Dashboard extends DashboardBinding {
      * @param show - 仅属于本次展示的上下文。资源与监听用 show.scope，await 后更新 UI 用 show.commit。
      */
     protected async onShow(show: ViewShowContext<DashboardParams, DashboardResult>): Promise<void> {
+        this.btnBack.node.active = this.ctx.ui.inspect().pages.length > 0;
+        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.back());
         const service = this.ctx.services(LobbyServices).lobby;
         const reward = await service.reward(show.scope);
         this.lblStatus.string = '共享 Profile 服务 · 公共配置 common';

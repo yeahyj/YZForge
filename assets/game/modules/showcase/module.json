@@ -1,0 +1,114 @@
+{
+  "id": "showcase",
+  "layoutVersion": 2,
+  "displayName": "功能展示",
+  "dependencies": {},
+  "bundles": {
+    "default": {
+      "id": "m-showcase",
+      "root": "bundles/default"
+    },
+    "extra": {
+      "id": "showcase-extra",
+      "root": "bundles/extra"
+    }
+  },
+  "views": {
+    "showcase-page": {
+      "prefab": "showcase/default/prefab/ui/showcase-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.ShowcasePage",
+      "binding": "code/ui/generated/ShowcasePageBinding.ts"
+    },
+    "ui-lab-page": {
+      "prefab": "showcase/default/prefab/ui/ui-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.UiLabPage",
+      "binding": "code/ui/generated/UiLabPageBinding.ts"
+    },
+    "data-lab-page": {
+      "prefab": "showcase/default/prefab/ui/data-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.DataLabPage",
+      "binding": "code/ui/generated/DataLabPageBinding.ts"
+    },
+    "time-lab-page": {
+      "prefab": "showcase/default/prefab/ui/time-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.TimeLabPage",
+      "binding": "code/ui/generated/TimeLabPageBinding.ts"
+    },
+    "async-lab-page": {
+      "prefab": "showcase/default/prefab/ui/async-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.AsyncLabPage",
+      "binding": "code/ui/generated/AsyncLabPageBinding.ts"
+    },
+    "storage-lab-page": {
+      "prefab": "showcase/default/prefab/ui/storage-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.StorageLabPage",
+      "binding": "code/ui/generated/StorageLabPageBinding.ts"
+    },
+    "guide-page": {
+      "prefab": "showcase/default/prefab/ui/guide-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.GuidePage",
+      "binding": "code/ui/generated/GuidePageBinding.ts"
+    },
+    "confirm-popup": {
+      "prefab": "showcase/default/prefab/ui/confirm-popup",
+      "kind": "popup",
+      "cache": "keep-one",
+      "duplicate": "reject",
+      "className": "showcase.ConfirmPopup",
+      "binding": "code/ui/generated/ConfirmPopupBinding.ts"
+    },
+    "inspect-overlay": {
+      "prefab": "showcase/default/prefab/ui/inspect-overlay",
+      "kind": "overlay",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.InspectOverlay",
+      "binding": "code/ui/generated/InspectOverlayBinding.ts"
+    },
+    "notice-toast": {
+      "prefab": "showcase/default/prefab/ui/notice-toast",
+      "kind": "toast",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.NoticeToast",
+      "binding": "code/ui/generated/NoticeToastBinding.ts"
+    },
+    "progress-loading": {
+      "prefab": "showcase/default/prefab/ui/progress-loading",
+      "kind": "loading",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.ProgressLoading",
+      "binding": "code/ui/generated/ProgressLoadingBinding.ts"
+    }
+  },
+  "audio": {},
+  "components": {
+    "badge-part": {
+      "uuid": "5749fee4-a52a-49eb-b411-c95cd8c19e1c",
+      "className": "showcase.BadgePart",
+      "binding": "code/components/generated/BadgePartBinding.ts"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 'use strict';
+const workflow = require('./workflow');
 const field = (id, label, type = 'text', extra = '') =>
     type === 'checkbox'
         ? `<label class="check"><input id="${id}" type="checkbox" ${extra}><span>${label}</span></label>`
@@ -21,6 +22,7 @@ const kinds = [
     ['table', '配置表 · XLSX'],
 ];
 const tabs = [
+    ['workflow', '示例工作流', '从需求到可运行页面', 'M4 6h6v6H4zM14 12h6v6h-6zM10 9h7v3'],
     ['create', '创建内容', '模块 / 界面 / 脚本', 'M12 5v14M5 12h14'],
     ['bindings', '自动绑定', '扫描并连接节点', 'M9 15l6-6M8 17H6a4 4 0 010-8h3m6-2h3a4 4 0 010 8h-3'],
     ['tables', '配置表', '工作簿与导出', 'M4 4h16v16H4zM4 10h16M10 4v16'],
@@ -32,6 +34,10 @@ module.exports = `<main id="workbench">
 <div class="workspace"><aside><div class="nav-caption">工作流程</div><nav role="tablist" aria-label="工作台页面">${tabs.map(([id, title, detail, icon]) => `<button data-tab="${id}" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg><span>${title}<small>${detail}</small></span></button>`).join('')}</nav><div class="sidebar-foot"><span id="summary"></span><span id="project" title="当前项目"></span></div></aside>
 <div class="body"><div class="context">${select('module', '当前模块')}<span id="moduleTag" class="badge subtle"></span><div class="context-actions">${button('check', '检查项目', 'class="quiet"')}${button('generate', '同步清单与配置')}</div></div><div id="autoStatus" class="notice" role="status"></div>
 <section class="pages">
+<article data-page="workflow" hidden><div class="page-head"><div><h1>示例工作流</h1><p>沿着“训练任务 → 确认领取 → 保存余额”阅读真实实现。</p></div><span class="badge subtle">可运行 · 可阅读 · 可验证</span></div>
+<div class="notice">这些业务文件属于可删除的示例。创建自己的项目时沿用职责分工，不必使用任务、训练或奖励命名。</div>
+<div class="workflow-grid">${workflow.steps.map((step) => `<div class="card"><h2>${step.title}</h2><p>${step.detail}</p><div class="card-actions">${step.sources.map(([id, label]) => `<button data-workflow-source="${id}" class="quiet">${label}</button>`).join('')}${step.jump ? `<button data-workflow-jump="${step.jump}">${step.action}</button>` : ''}</div></div>`).join('')}</div>
+<div class="card"><div class="card-heading"><h2>源码阅读</h2><span class="badge subtle">只读预览</span></div><code id="workflowPath">选择上方源码按钮</code><pre id="workflowSource" class="source-preview">页面只渲染，Presenter 协调交互，Service 管理业务规则与状态。先打开完整工作流说明，再运行 Bootstrap.scene 对照观察。</pre></div></article>
 <article data-page="create"><div class="page-head"><div><h1>创建内容</h1><p>选择职责，预览文件，然后创建。</p></div><span class="badge subtle">自动命名 · 自动登记</span></div>
 <div class="split"><div class="card"><h2>基本信息</h2><div class="grid">${select('kind', '创建类型', kinds)}${field('newName', '名称', 'text', 'placeholder="例如 Inventory 或 Reward" autocomplete="off"')}</div><div id="moduleOptions"><div class="grid">${field('displayName', '显示名称（可选）', 'text', 'placeholder="便于团队识别的名称"')}${select(
     'delivery',

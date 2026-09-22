@@ -1,0 +1,32 @@
+{
+  "formatVersion": 1,
+  "tableId": "workshop.tasks",
+  "schemaHash": "sha256:407b4de2eca1982f5fa7935a6a65e0fe8deadf5456ada20df6c2de378f6b4730",
+  "dataRevision": "sha256:f20a9e26454d58c2e41c097a1a52aa3402957cfce74659bfa92cb95fe08d477c",
+  "rows": [
+    {
+      "id": 1,
+      "name": "初次训练",
+      "goal": 1,
+      "reward": 20,
+      "quality": "normal",
+      "economy": 1
+    },
+    {
+      "id": 2,
+      "name": "持续练习",
+      "goal": 3,
+      "reward": 60,
+      "quality": "normal",
+      "economy": 1
+    },
+    {
+      "id": 3,
+      "name": "进阶挑战",
+      "goal": 5,
+      "reward": 100,
+      "quality": "rare",
+      "economy": 1
+    }
+  ]
+}

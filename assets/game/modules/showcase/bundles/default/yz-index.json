@@ -1,0 +1,142 @@
+{
+  "formatVersion": 2,
+  "namespace": "showcase/default",
+  "assets": {
+    "showcase/default/audio/audio/chime": {
+      "bundle": "m-showcase",
+      "path": "dynamic/audio/chime",
+      "type": "AudioClip"
+    },
+    "showcase/default/image/icons/alpha/token": {
+      "bundle": "m-showcase",
+      "path": "dynamic/icons/alpha/token",
+      "type": "ImageAsset"
+    },
+    "showcase/default/texture/icons/alpha/token": {
+      "bundle": "m-showcase",
+      "path": "dynamic/icons/alpha/token/texture",
+      "type": "Texture2D"
+    },
+    "showcase/default/sprite/icons/alpha/token": {
+      "bundle": "m-showcase",
+      "path": "dynamic/icons/alpha/token/spriteFrame",
+      "type": "SpriteFrame"
+    },
+    "showcase/default/image/icons/beta/token": {
+      "bundle": "m-showcase",
+      "path": "dynamic/icons/beta/token",
+      "type": "ImageAsset"
+    },
+    "showcase/default/texture/icons/beta/token": {
+      "bundle": "m-showcase",
+      "path": "dynamic/icons/beta/token/texture",
+      "type": "Texture2D"
+    },
+    "showcase/default/sprite/icons/beta/token": {
+      "bundle": "m-showcase",
+      "path": "dynamic/icons/beta/token/spriteFrame",
+      "type": "SpriteFrame"
+    },
+    "showcase/default/prefab/prefabs/badge-part": {
+      "bundle": "m-showcase",
+      "path": "dynamic/prefabs/BadgePart",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/async-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/AsyncLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/confirm-popup": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/ConfirmPopup",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/data-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/DataLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/guide-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/GuidePage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/inspect-overlay": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/InspectOverlay",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/notice-toast": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/NoticeToast",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/progress-loading": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/ProgressLoading",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/showcase-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/ShowcasePage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/storage-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/StorageLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/time-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/TimeLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/ui-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/UiLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/json/config/samples": {
+      "bundle": "m-showcase",
+      "path": "dynamic/config/samples",
+      "type": "JsonAsset"
+    }
+  }
+}

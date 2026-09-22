@@ -16,6 +16,25 @@
 * {
     box-sizing: border-box;
 }
+.workflow-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px;
+}
+.workflow-grid .card {
+    margin: 0;
+}
+.source-preview {
+    max-height: 480px;
+    overflow: auto;
+    tab-size: 4;
+}
+#workflowPath {
+    display: block;
+    overflow-wrap: anywhere;
+    color: var(--accent);
+    margin: 10px 0;
+}
 main {
     height: 100%;
     display: flex;

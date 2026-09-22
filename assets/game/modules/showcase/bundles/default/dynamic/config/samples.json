@@ -1,0 +1,37 @@
+{
+  "formatVersion": 1,
+  "tableId": "showcase.samples",
+  "schemaHash": "sha256:3f9667eebce52db76af9379133a734030992f7f0f4c909b4bb9b8cd0558f0828",
+  "dataRevision": "sha256:32cee657e8378a723736851e6790f343a40585bcf245640197ad06de55f04627",
+  "rows": [
+    {
+      "id": 101,
+      "name": "基础样例",
+      "pack": "base",
+      "enabled": true,
+      "weight": 1.5,
+      "quality": "normal",
+      "tags": [
+        "starter",
+        "ui"
+      ],
+      "position": {
+        "x": 1,
+        "y": 2
+      },
+      "tint": {
+        "r": 126,
+        "g": 198,
+        "b": 255,
+        "a": 255
+      },
+      "icon": {
+        "id": "showcase/default/sprite/icons/alpha/token",
+        "type": "SpriteFrame"
+      },
+      "economy": 1,
+      "note": null,
+      "releasedAt": "2026-09-22T00:00:00+08:00"
+    }
+  ]
+}

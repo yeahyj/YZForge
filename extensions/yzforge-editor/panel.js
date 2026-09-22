@@ -428,6 +428,38 @@ exports.ready = function () {
         }),
     );
     on('module', moduleChanged, 'change');
+    for (const button of this.$.workbench.querySelectorAll('[data-workflow-source]')) {
+        button.addEventListener('click', () => {
+            void run('readWorkflowSource', { id: button.dataset.workflowSource }, false)
+                .then((result) => {
+                    if (!result || closed) return;
+                    el('workflowPath').textContent = result.path;
+                    el('workflowSource').textContent = result.content;
+                    el('workflowPath').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                })
+                .catch(failure);
+        });
+    }
+    for (const button of this.$.workbench.querySelectorAll('[data-workflow-jump]')) {
+        button.addEventListener('click', () => {
+            if (busy || !state) return;
+            const target = button.dataset.workflowJump;
+            if (target !== 'create') {
+                if (!state.modules.some((item) => item.id === 'workshop')) {
+                    show('工作流示例已被删除；请选择自己的模块继续操作。');
+                    return;
+                }
+                el('module').value = 'workshop';
+                moduleChanged();
+                if (target === 'bindings') el('binding').value = 'view:workflow-page';
+                if (target === 'tables') {
+                    el('workbook').value = 'config-source/workshop/tasks.xlsx';
+                    loadWorkbook();
+                }
+            }
+            this.$.workbench.querySelector(`[data-tab="${target}"]`).click();
+        });
+    }
     on('kind', role, 'change');
     for (const id of ['newName', 'displayName', 'delivery', 'initial', 'bundle', 'presenter', 'adopt'])
         on(id, invalidateCreate, 'input');

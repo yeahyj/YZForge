@@ -1,11 +1,59 @@
 {
   "formatVersion": 2,
   "entries": {
+    "003008bf-7ef9-4c8a-b839-927a2675d16a": {
+      "id": "showcase/default/image/icons/alpha/token",
+      "type": "ImageAsset",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/icons/alpha/token.png"
+    },
+    "003008bf-7ef9-4c8a-b839-927a2675d16a@6c48a": {
+      "id": "showcase/default/texture/icons/alpha/token",
+      "type": "Texture2D",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/icons/alpha/token.png"
+    },
+    "003008bf-7ef9-4c8a-b839-927a2675d16a@f9941": {
+      "id": "showcase/default/sprite/icons/alpha/token",
+      "type": "SpriteFrame",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/icons/alpha/token.png"
+    },
     "0505cd73-cb77-404c-a4ec-b2f75ec5a5a2": {
       "id": "lobby/default/prefab/reward-popup",
       "type": "Prefab",
       "active": true,
       "source": "assets/game/modules/lobby/bundles/default/dynamic/ui/RewardPopup.prefab"
+    },
+    "05b72dc8-89c5-4ffc-afa2-ab7c56a991d2": {
+      "id": "showcase/default/prefab/ui/notice-toast",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/NoticeToast.prefab"
+    },
+    "0bfff9dc-4756-4c1e-b895-48ce0610ac2d": {
+      "id": "showcase/default/prefab/ui/confirm-popup",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/ConfirmPopup.prefab"
+    },
+    "2659ac62-9ff7-4bfa-afff-4fb9573832d0": {
+      "id": "showcase/default/prefab/ui/progress-loading",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/ProgressLoading.prefab"
+    },
+    "2a251395-701f-4a7d-aa29-f83593db2173": {
+      "id": "showcase/default/prefab/ui/inspect-overlay",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/InspectOverlay.prefab"
+    },
+    "36a96e58-3ed2-47a3-8252-2bd93d2c625d": {
+      "id": "workshop/default/prefab/ui/claim-popup",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/workshop/bundles/default/dynamic/ui/ClaimPopup.prefab"
     },
     "3b9d34df-706e-4cc5-905b-3837ae1dd756": {
       "id": "lobby/default/image/icons/status",
@@ -25,11 +73,53 @@
       "active": true,
       "source": "assets/game/modules/lobby/bundles/default/dynamic/icons/status.png"
     },
+    "43a42794-2e19-48a8-90de-d13471a55b56": {
+      "id": "showcase/default/audio/audio/chime",
+      "type": "AudioClip",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/audio/chime.wav"
+    },
+    "4ea13fd4-6f0d-41a3-a65e-f19f90d6b0c7": {
+      "id": "workshop/default/prefab/prefabs/task-part",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/workshop/bundles/default/dynamic/prefabs/TaskPart.prefab"
+    },
+    "4fb7e20c-d2f2-40ef-a89b-ae3aadc399b3": {
+      "id": "showcase/default/prefab/ui/data-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/DataLabPage.prefab"
+    },
+    "5749fee4-a52a-49eb-b411-c95cd8c19e1c": {
+      "id": "showcase/default/prefab/prefabs/badge-part",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/prefabs/BadgePart.prefab"
+    },
+    "70da8183-ef80-4310-a7f7-6ea7f755c201": {
+      "id": "showcase/default/prefab/ui/storage-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/StorageLabPage.prefab"
+    },
+    "71c2f9f6-5f41-4c36-8aa4-8b57172ab5fb": {
+      "id": "showcase/default/prefab/ui/guide-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/GuidePage.prefab"
+    },
     "76c109f2-ecfe-440d-a665-e7068c311358": {
       "id": "lobby/default/prefab/prefabs/wallet-part",
       "type": "Prefab",
       "active": true,
       "source": "assets/game/modules/lobby/bundles/default/dynamic/prefabs/WalletPart.prefab"
+    },
+    "8b562435-c087-4eb1-885a-b341126e8a68": {
+      "id": "workshop/default/prefab/ui/workflow-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/workshop/bundles/default/dynamic/ui/WorkflowPage.prefab"
     },
     "91b45fca-617b-4fa0-82bb-e5f2871b57fa": {
       "id": "lobby/default/prefab/dashboard",
@@ -37,11 +127,53 @@
       "active": true,
       "source": "assets/game/modules/lobby/bundles/default/dynamic/ui/Dashboard.prefab"
     },
+    "970df49b-3931-4db7-a142-41f2ac134736": {
+      "id": "showcase/default/prefab/ui/time-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/TimeLabPage.prefab"
+    },
+    "a0eec93b-b3ed-4cbb-8a1b-f6d98ec39cd9": {
+      "id": "showcase/default/prefab/ui/ui-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/UiLabPage.prefab"
+    },
     "b58a9d5b-185b-4a73-bdb3-4f27aece7a8f": {
       "id": "lobby/default/audio/confirm",
       "type": "AudioClip",
       "active": true,
       "source": "assets/game/modules/lobby/bundles/default/dynamic/audio/confirm.wav"
+    },
+    "c4a26f30-0d8d-43fb-a616-9051ca96cbb7": {
+      "id": "showcase/default/image/icons/beta/token",
+      "type": "ImageAsset",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/icons/beta/token.png"
+    },
+    "c4a26f30-0d8d-43fb-a616-9051ca96cbb7@6c48a": {
+      "id": "showcase/default/texture/icons/beta/token",
+      "type": "Texture2D",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/icons/beta/token.png"
+    },
+    "c4a26f30-0d8d-43fb-a616-9051ca96cbb7@f9941": {
+      "id": "showcase/default/sprite/icons/beta/token",
+      "type": "SpriteFrame",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/icons/beta/token.png"
+    },
+    "ec1281e5-c39e-43e6-a8b5-3c4e7ca1257e": {
+      "id": "showcase/default/prefab/ui/showcase-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/ShowcasePage.prefab"
+    },
+    "f88586bf-6b8f-4204-860c-999fcc980147": {
+      "id": "showcase/default/prefab/ui/async-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/AsyncLabPage.prefab"
     }
   },
   "aliases": {}

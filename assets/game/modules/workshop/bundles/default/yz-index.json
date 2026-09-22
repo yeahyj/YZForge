@@ -1,0 +1,35 @@
+{
+  "formatVersion": 2,
+  "namespace": "workshop/default",
+  "assets": {
+    "workshop/default/prefab/prefabs/task-part": {
+      "bundle": "m-workshop",
+      "path": "dynamic/prefabs/TaskPart",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "workshop"
+      ]
+    },
+    "workshop/default/prefab/ui/claim-popup": {
+      "bundle": "m-workshop",
+      "path": "dynamic/ui/ClaimPopup",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "workshop"
+      ]
+    },
+    "workshop/default/prefab/ui/workflow-page": {
+      "bundle": "m-workshop",
+      "path": "dynamic/ui/WorkflowPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "workshop"
+      ]
+    },
+    "workshop/default/json/config/tasks": {
+      "bundle": "m-workshop",
+      "path": "dynamic/config/tasks",
+      "type": "JsonAsset"
+    }
+  }
+}

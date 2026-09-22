@@ -7,9 +7,9 @@ process.env.YZFORGE_BUILT_RUNTIME = '1';
 const editor = async (code, args = {}) => (await call('execute_javascript', { context: 'editor', code, args })).data;
 const id = await editor(
     `
-const window=new (require('electron').BrowserWindow)({show:true,width:720,height:1050,webPreferences:{nodeIntegration:false,contextIsolation:true,backgroundThrottling:false}});
+const window=new (require('electron').BrowserWindow)({show:false,width:720,height:1050,webPreferences:{nodeIntegration:false,contextIsolation:true,backgroundThrottling:false,offscreen:true,partition:'runtime-check-'+Date.now()}});
 window.webContents.__yzforgeRuntimeCheck=true;
-try {await window.loadURL(args.url);window.focus();return window.id;}
+try {await window.loadURL(args.url);return window.id;}
 catch(error){window.destroy();throw error;}`,
     { url: url.href },
 );

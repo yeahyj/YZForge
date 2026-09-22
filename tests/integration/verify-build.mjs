@@ -15,7 +15,7 @@ const output = await call('execute_javascript', {
     await window.webContents.executeJavaScript('globalThis.__buildErrors=[];const priorError=console.error;console.error=(...args)=>{__buildErrors.push(args.map(value=>value?.stack||String(value)).join(" "));priorError(...args)};addEventListener("unhandledrejection",event=>__buildErrors.push(event.reason?.stack||String(event.reason)));');
     let state;const deadline=Date.now()+20000;
     while(Date.now()<deadline){
-      state=await window.webContents.executeJavaScript('(async()=>{if(!globalThis.System)return null;try{const cc=await System.import("cc"),root=cc.director.getScene()?.getChildByName("GameRoot"),app=root?.getComponent("game.GameRoot")?.app;if(!app)return null;const ui=[...app.ui.records.values()].find(r=>r.definition.id==="lobby.dashboard");if(!ui?.interactive)return null;globalThis.__verifyBuilt={cc,app};return{appId:app.storage.prefix,bindings:Object.keys(ui.instance.view).filter(k=>k.startsWith("_bind")).length,config:ui.instance.view._bindLblItems.string,sprite:!!ui.instance.view._bindSprIcon.spriteFrame};}catch(error){return {error:String(error)}}})()');
+      state=await window.webContents.executeJavaScript('(async()=>{if(!globalThis.System)return null;try{const cc=await System.import("cc"),root=cc.director.getScene()?.getChildByName("GameRoot"),app=root?.getComponent("game.GameRoot")?.app;if(!app)return null;if(![...app.ui.records.values()].some(r=>r.definition.id==="lobby.dashboard")&&[...app.ui.records.values()].some(r=>r.definition.id==="showcase.showcase-page"&&r.interactive))await app.ui.pushPage({id:"lobby.dashboard"},{title:"综合回归"},app.flows);const ui=[...app.ui.records.values()].find(r=>r.definition.id==="lobby.dashboard");if(!ui?.interactive)return null;globalThis.__verifyBuilt={cc,app};return{appId:app.storage.prefix,bindings:Object.keys(ui.instance.view).filter(k=>k.startsWith("_bind")).length,config:ui.instance.view._bindLblItems.string,sprite:!!ui.instance.view._bindSprIcon.spriteFrame};}catch(error){return {error:String(error)}}})()');
       if(state)break;await new Promise(resolve=>setTimeout(resolve,150));
     }
     if(!state||state.error){const diagnostics=await window.webContents.executeJavaScript('(async()=>{const cc=globalThis.System?await System.import("cc"):null;return{errors:globalThis.__buildErrors,hidden:document.hidden,ready:document.readyState,title:document.title,canvas:!!document.querySelector("canvas"),paused:cc?.game?.isPaused(),scene:cc?.director?.getScene()?.name,roots:cc?.director?.getScene()?.children.map(n=>({name:n.name,components:n.components.map(c=>c.constructor.name)}))};})()');throw Error(JSON.stringify({state,errors,diagnostics}));}
@@ -32,7 +32,7 @@ const output = await call('execute_javascript', {
 });
 const value = output.data;
 assert.equal(value.state.sprite, true);
-assert.equal(value.state.bindings, 9);
+assert.equal(value.state.bindings, 10);
 assert.equal(value.result.status, 'completed');
 assert.equal(value.result.value.amount, 321);
 assert.deepEqual(value.errors, []);

@@ -2,6 +2,14 @@
 import assert from 'node:assert/strict';
 import { preview, screenshot } from './preview.mjs';
 
+// 此组深层回归以综合大厅为独立首屏；新项目默认首页是功能展示。
+await preview(`
+if([...app.ui.records.values()].some(r=>r.definition.id==='showcase.showcase-page')) {
+    while(app.ui.inspect().pages.length) await app.ui.back().completed;
+    await app.ui.pushPage({id:'lobby.dashboard'},{title:'综合回归'},app.flows);
+}
+return true;`);
+
 const results = [];
 async function verify(name, code) {
     const data = await preview(

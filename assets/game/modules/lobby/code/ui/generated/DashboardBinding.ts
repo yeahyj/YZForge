@@ -96,6 +96,16 @@ export class DashboardBinding extends UIView<DashboardParams, DashboardResult> {
     protected get lblStatus(): Label {
         return this.requireBinding(this._bindLblStatus, 'lbl_status');
     }
+    /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
+    @property({ type: Button, visible: false })
+    private _bindBtnBack: Button | null = null;
+    /**
+     * 自动绑定节点 btn_back 的 Button；节点改名或增删后通过工作台更新绑定。
+     * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
+     */
+    protected get btnBack(): Button {
+        return this.requireBinding(this._bindBtnBack, 'btn_back');
+    }
     /** @internal 框架初始化时验证全部绑定；重新生成会更新此方法。 */
     protected validateBindings(): void {
         void this.lblTime;
@@ -107,5 +117,6 @@ export class DashboardBinding extends UIView<DashboardParams, DashboardResult> {
         void this.btnReload;
         void this.lblResult;
         void this.lblStatus;
+        void this.btnBack;
     }
 }

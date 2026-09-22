@@ -13,6 +13,10 @@ export interface ProfileApi {
     snapshot(): WalletSnapshot;
     /** 本地演示命令；正数增加、负数扣除，保存成功后发布变化。联网经济由项目服务端处理。 */
     changeCoins(delta: number): WalletSnapshot;
+    /** 按稳定业务标识领取一次奖励；记录和金币一次保存，重复请求返回 false。此实现用于本地示例。 */
+    claimReward(id: string, amount: number): boolean;
+    /** 查询指定任务是否已经领取，供业务服务推导可领取状态。 */
+    hasReward(id: string): boolean;
     /** 先收到当前状态，后续收到变化；owner 结束自动解绑，返回值可提前取消。 */
     subscribe(callback: (state: WalletSnapshot) => void, owner: Lifetime): () => void;
 }

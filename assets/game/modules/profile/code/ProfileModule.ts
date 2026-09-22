@@ -15,6 +15,8 @@ export const createProfileModule = defineModule(ProfileModule, { dependencies },
         api: {
             snapshot: () => wallet.snapshot(),
             changeCoins: (delta) => wallet.changeCoins(delta),
+            claimReward: (id, amount) => wallet.claimReward(id, amount),
+            hasReward: (id) => wallet.hasReward(id),
             subscribe: (callback, owner) => wallet.subscribe(callback, owner),
             /** 当前模块的稳定 ID。 */ get moduleId() {
                 return ctx.id;

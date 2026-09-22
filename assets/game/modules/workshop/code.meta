@@ -1,0 +1,14 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "3bc6fbd0-695c-445d-814e-5e99034b24a6",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "isBundle": true,
+    "bundleName": "code-workshop",
+    "priority": 2,
+    "bundleConfigID": "yzforge-code"
+  }
+}

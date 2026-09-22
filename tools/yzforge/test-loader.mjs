@@ -1,7 +1,8 @@
 import { access, readFile } from 'node:fs/promises';
 import ts from 'typescript';
 export async function resolve(specifier, context, next) {
-    if (/^\.{1,2}\//.test(specifier) && !/\.[a-z]+$/i.test(specifier) && context.parentURL) {
+    // Table/类型合同使用 Xxx.table.ts、Xxx.types.ts，.table 不是实际文件扩展名。
+    if (/^\.{1,2}\//.test(specifier) && !/\.(?:[cm]?js|tsx?|json|node)$/i.test(specifier) && context.parentURL) {
         const url = new URL(`${specifier}.ts`, context.parentURL);
         try {
             await access(url);

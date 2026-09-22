@@ -34,6 +34,11 @@
 4. 确认项目扩展 `yzforge-editor` 已启用，打开 **YZForge → 项目工作台**。
 5. 打开 [Bootstrap.scene](assets/game/boot/Bootstrap.scene)，运行预览。
 
+预览首先进入“功能实验室”。建议先体验“正式业务流程 · 任务奖励”，再打开工作台的“示例工作流”，对照 Service、Presenter、Page 和 Part 的真实代码。其他入口展示 UI、资源、配置、时间、音频、存档与失败恢复。
+
+- [正式开发工作流](docs/development-workflow.md)：从创建模块到业务、渲染、绑定和验证。
+- [功能展示与验证入口](docs/showcase.md)：可交互示例、编辑器步骤和自动化验证。
+
 业务启动入口是 [start-game.ts](assets/game/app/start-game.ts)，在这里接入首屏、登录或其他启动流程。`GameRoot` 负责框架装配和启动状态显示，`app/generated` 由工作台生成。
 
 项目附带 `lobby`、`profile`、`common` 三个示例模块，分别展示界面交互、共享服务和公共配置。它们可以按需清理，具体见 [示例应用说明](docs/example-app.md)。
