@@ -2,7 +2,7 @@ import type { Assets } from '../assets/asset-manager';
 import { BundleRef, bundleId } from '../assets/asset-types';
 import { LeaseCache } from '../assets/lease-cache';
 import { invariant } from '../core/errors';
-import { Scope } from '../core/scope';
+import { Scope, Lifetime } from '../core/scope';
 import { ConfigTable, parseTable, TableData } from './config-table';
 import { TableDefinition, TableKey } from './schema';
 /**
@@ -52,9 +52,7 @@ export class ConfigManager {
                 }
             },
             () => {},
-            (value) => {
-                void value.scope.close().catch(console.error);
-            },
+            (value) => value.scope.close(),
         );
     }
     /**
@@ -71,7 +69,7 @@ export class ConfigManager {
      */
     async load<R, K extends string | number, I extends object>(
         key: TableKey<R, K, I>,
-        scope: Scope,
+        scope: Lifetime,
         input: ConfigLoadOptions = {},
     ): Promise<ConfigTable<R, K, I>> {
         scope.signal.throwIfAborted();
@@ -105,7 +103,7 @@ export class ConfigManager {
      */
     async loadMany<T extends Record<string, AnyTableKey>>(
         keys: T,
-        owner: Scope,
+        owner: Lifetime,
         input?: ConfigLoadOptions,
     ): Promise<{ readonly [K in keyof T]: LoadedTable<T[K]> }> {
         const scope = owner.child('tables');
@@ -114,12 +112,13 @@ export class ConfigManager {
             const pending = Object.entries(keys).map(async ([name, key]) => {
                 result[name] = await this.load(key, scope, input);
             });
-            const outcomes = await Promise.allSettled(pending);
-            const failed = outcomes.find((value) => value.status === 'rejected') as PromiseRejectedResult | undefined;
-            if (failed) throw failed.reason;
+            // 首个失败立即结束本批等待；共享底层加载仍由租约缓存管理。
+            // Promise.all 已为每个分支登记拒绝处理，迟到失败不会成为未处理拒绝。
+            await Promise.all(pending);
             scope.signal.throwIfAborted();
             return Object.freeze(result) as { readonly [K in keyof T]: LoadedTable<T[K]> };
         } catch (error) {
+            scope.cancel();
             await scope.close();
             throw error;
         }
@@ -130,7 +129,7 @@ export class ConfigManager {
      * @param bundle - 可选默认数据包，适用于一组分包配置。
      * @returns ScopedConfig。
      */
-    in(scope: Scope, bundle?: BundleRef): ScopedConfig {
+    in(scope: Lifetime, bundle?: BundleRef): ScopedConfig {
         return new ScopedConfig(this, scope, bundle);
     }
 }
@@ -140,7 +139,7 @@ export class ConfigManager {
  */
 export class ScopedConfig {
     /** 切换表的默认使用期限，保留当前默认数据包；不加载资源。 */
-    in(scope: Scope): ScopedConfig {
+    in(scope: Lifetime): ScopedConfig {
         return this.manager.in(scope, this.bundle);
     }
     /**
@@ -154,7 +153,7 @@ export class ScopedConfig {
         /**
          * 默认配置所有者；ctx.config 通常是模块 Scope，不能代替短期展示 Scope。
          */
-        readonly scope: Scope,
+        readonly scope: Lifetime,
         private readonly bundle?: BundleRef,
     ) {}
     /**
@@ -169,22 +168,9 @@ export class ScopedConfig {
      */
     load<R, K extends string | number, I extends object>(
         key: TableKey<R, K, I>,
-        input?: ConfigLoadOptions,
-    ): Promise<ConfigTable<R, K, I>>;
-    /** 显式覆盖所有者的兼容入口；常规页面优先 show.config.load(Table, { bundle })。 */
-    load<R, K extends string | number, I extends object>(
-        key: TableKey<R, K, I>,
-        owner: Scope,
-        input?: ConfigLoadOptions,
-    ): Promise<ConfigTable<R, K, I>>;
-    load<R, K extends string | number, I extends object>(
-        key: TableKey<R, K, I>,
-        ownerOrInput: Scope | ConfigLoadOptions = this.scope,
         input: ConfigLoadOptions = {},
     ): Promise<ConfigTable<R, K, I>> {
-        const owner = ownerOrInput instanceof Scope ? ownerOrInput : this.scope;
-        const options = ownerOrInput instanceof Scope ? input : ownerOrInput;
-        return this.manager.load(key, owner, { bundle: this.bundle, ...options });
+        return this.manager.load(key, this.scope, { bundle: this.bundle, ...input });
     }
     /**
      * 并行加载一组表，全部成功才返回；失败清理本批持有。
@@ -194,21 +180,8 @@ export class ScopedConfig {
      */
     loadMany<T extends Record<string, AnyTableKey>>(
         keys: T,
-        input?: ConfigLoadOptions,
-    ): Promise<{ readonly [K in keyof T]: LoadedTable<T[K]> }>;
-    /** 显式覆盖一组表的所有者；省略时使用当前 ScopedConfig 的默认期限。 */
-    loadMany<T extends Record<string, AnyTableKey>>(
-        keys: T,
-        owner: Scope,
-        input?: ConfigLoadOptions,
-    ): Promise<{ readonly [K in keyof T]: LoadedTable<T[K]> }>;
-    loadMany<T extends Record<string, AnyTableKey>>(
-        keys: T,
-        ownerOrInput: Scope | ConfigLoadOptions = this.scope,
         input: ConfigLoadOptions = {},
-    ) {
-        const owner = ownerOrInput instanceof Scope ? ownerOrInput : this.scope;
-        const options = ownerOrInput instanceof Scope ? input : ownerOrInput;
-        return this.manager.loadMany(keys, owner, { bundle: this.bundle, ...options });
+    ): Promise<{ readonly [K in keyof T]: LoadedTable<T[K]> }> {
+        return this.manager.loadMany(keys, this.scope, { bundle: this.bundle, ...input });
     }
 }

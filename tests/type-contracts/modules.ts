@@ -15,6 +15,12 @@ defineModule(Lobby, {}, () => ({ api: { name: 123 } }));
 // @ts-expect-error 内部服务返回值必须匹配服务合同。
 defineModule(Lobby, { services: Services }, () => ({ api: { name: 'x' }, services: { title: 123 } }));
 declare const show: ViewShowContext<void, void>;
+// @ts-expect-error 展示上下文不暴露宿主关闭权限。
+void show.scope.close;
+// @ts-expect-error 展示上下文不暴露宿主取消权限。
+void show.scope.cancel;
+const localOwner = show.scope.child('explicit-owner');
+void localOwner.close();
 const Table = defineTable<{ id: number; name: string }, number, Record<string, never>>({
     id: 'common.names',
     schemaHash: 'test',

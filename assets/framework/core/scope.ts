@@ -1,6 +1,28 @@
 import { CancellationSource, CancellationSignal } from './cancellation';
 import { ErrorReporter, FrameworkError, OperationCancelled, reportError } from './errors';
 type Cleanup = () => void | Promise<void>;
+/**
+ * 借用一段使用期限：可以登记清理、创建自己拥有的子期限，但不能结束宿主。
+ * show.scope、activation.scope、ctx.scope 均使用此接口。需要提前结束一组工作时，
+ * 用 child 创建自己的 Scope；页面关闭使用 show.dismiss/finish/back。
+ */
+export interface Lifetime {
+    /** 宿主结束时发出的取消信号。 */
+    readonly signal: CancellationSignal;
+    /** 为当前使用期登记清理；返回函数只撤销登记。 */
+    defer(cleanup: Cleanup): () => void;
+    /** 创建归调用方管理的子期限，可以单独 close。 */
+    child(label: string): Scope;
+    /** 读取诊断快照，不延长使用期。 */
+    inspect(): ScopeSnapshot;
+}
+const owners = new WeakMap<Lifetime, Scope>();
+/** @internal 将框架创建的借用入口还原为所有者，仅供框架执行关闭与任务屏障。 */
+export function scopeOwner(lifetime: Lifetime): Scope {
+    const owner = owners.get(lifetime);
+    if (!owner) throw new FrameworkError('LIFETIME_INVALID', 'Use a framework lifetime');
+    return owner;
+}
 /** 使用期限的只读诊断快照，不包含任务、节点或资源对象本身。 */
 export interface ScopeSnapshot {
     /** 创建时的诊断名称。 */
@@ -23,6 +45,8 @@ export interface ScopeSnapshot {
  * try { await app.modules.use(InventoryModule, owner); } finally { await owner.close(); }
  */
 export class Scope {
+    /** 不暴露宿主关闭权限的稳定入口；同一 Scope 始终返回同一个对象。 */
+    readonly lifetime: Lifetime;
     /**
      * 本使用期限的取消信号；关闭开始时即变为 aborted，不必等清理完成。
      */
@@ -47,6 +71,14 @@ export class Scope {
     ) {
         this.source = new CancellationSource(report);
         this.signal = this.source.signal;
+        this.lifetime = Object.freeze({
+            signal: this.signal,
+            defer: (cleanup: Cleanup) => this.defer(cleanup),
+            child: (label: string) => this.child(label),
+            inspect: () => this.inspect(),
+        });
+        owners.set(this, this);
+        owners.set(this.lifetime, this);
     }
     /**
      * 是否已完成全部清理；关闭中可能为 false，而 signal.aborted 已为 true。
@@ -59,8 +91,8 @@ export class Scope {
      * 判断 other 是否为自身或后代 Scope，供模块自持有和重入检查使用。
      * @param other 待检查的使用期限。
      */
-    owns(other: Scope): boolean {
-        return this === other || Array.from(this.children).some((child) => child.owns(other));
+    owns(other: Lifetime): boolean {
+        return this === scopeOwner(other) || Array.from(this.children).some((child) => child.owns(other));
     }
     /**
      * 创建自动跟随当前 Scope 结束的子期限。
@@ -187,19 +219,19 @@ export interface TaskContext {
     /**
      * 该任务持有资源和订阅的期限，传给 config.load、assets.load 等接口。
      */
-    readonly scope: Scope;
+    readonly scope: Lifetime;
     /**
      * 该任务的取消信号；网络适配和长任务应主动响应或检查它。
      */
     readonly signal: CancellationSignal;
     /**
      * 仅在 Scope 未取消且此次上下文仍有效时执行同步更新。
-     * show.commit 还检查当前显示是否被替换、结束或挂起；同一次显示内多个请求的先后顺序需业务另行处理。
+     * show.commit 还检查当前显示是否被替换、结束或挂起；同次显示内的请求竞态可用 show.actions.latest。
      * @param action 同步赋值或节点更新，不能传 async 函数或在其中 await。
      * @returns 已执行为 true；上下文失效、跳过执行为 false。
      * @throws ASYNC_COMMIT：回调返回 Promise；回调自己的异常继续向外抛出。
      * @example
-     * const items = await ctx.config.load(ItemsTable, show.scope);
+     * const items = await show.config.load(ItemsTable);
      * show.commit(() => { label.string = items.require(1).name; });
      */
     commit(action: () => void): boolean;
@@ -210,15 +242,17 @@ export interface TaskContext {
  * @param isCurrent 可选的当前代次检查，默认只检查取消状态。
  * @returns 属性不可替换的上下文。
  */
-export function taskContext(scope: Scope, isCurrent: () => boolean = () => true): TaskContext {
+export function taskContext(scope: Lifetime, isCurrent: () => boolean = () => true): TaskContext {
     return Object.freeze({
-        scope,
+        scope: scopeOwner(scope).lifetime,
         signal: scope.signal,
         commit(action: () => void) {
             if (scope.signal.aborted || !isCurrent()) return false;
             const result: unknown = action();
-            if (result && typeof (result as Promise<unknown>).then === 'function')
+            if (result && typeof (result as Promise<unknown>).then === 'function') {
+                void Promise.resolve(result).catch(() => {});
                 throw new FrameworkError('ASYNC_COMMIT', 'commit accepts synchronous mutations only');
+            }
             return true;
         },
     });
@@ -231,14 +265,14 @@ export function taskContext(scope: Scope, isCurrent: () => boolean = () => true)
  * @returns 任务结果或错误；调用方应 await 或处理失败。
  */
 export function runTask<T>(
-    owner: Scope,
+    owner: Lifetime,
     task: (context: TaskContext) => T | Promise<T>,
     isCurrent?: () => boolean,
     label = 'task',
 ): Promise<T> {
     owner.signal.throwIfAborted();
     const context = taskContext(owner, isCurrent);
-    return owner.track(
+    return scopeOwner(owner).track(
         Promise.resolve().then(() => {
             context.signal.throwIfAborted();
             return task(context);

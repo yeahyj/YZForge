@@ -1,7 +1,7 @@
 import { untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, reportError } from '../core/errors';
-import { Scope } from '../core/scope';
+import { Scope, Lifetime } from '../core/scope';
 import type { ScopedAssets } from '../assets/asset-manager';
 import type { ScopedConfig } from '../config/config-manager';
 import type { Events } from '../core/events';
@@ -40,7 +40,7 @@ export interface ModuleServicesRef<T> {
 export function moduleServices<T>(moduleId: string): ModuleServicesRef<T> {
     return Object.freeze({ moduleId });
 }
-/** 声明别名到公开模块引用的映射；所列模块还必须在 module.json 中声明依赖。 */
+/** 别名到公开模块引用的类型映射；项目由 module.json.dependencies 生成 code/generated/dependencies.ts。 */
 export type ModuleDependencies = Readonly<Record<string, ModuleRef<unknown>>>;
 /** 从依赖引用推导完整 API 类型，业务无需将 unknown 强制转换为自己的接口。 */
 export type DependencyApis<D extends ModuleDependencies> = {
@@ -110,7 +110,7 @@ export interface ModuleContext {
     /**
      * 本次模块业务实例的生命周期，最后一个外部持有结束后清理；不是每次 UI 展示的 Scope。
      */
-    readonly scope: Scope;
+    readonly scope: Lifetime;
     /**
      * 默认使用模块 Scope、“当前模块/default”命名空间和当前宿主的资源入口。
      * 临时界面资源使用 ctx.assets.in(show.scope)。
@@ -144,7 +144,7 @@ export interface ModuleContext {
      * @throws FrameworkError 模块尚未发布 API，或 owner 属于模块内部。
      * @remarks 通过已就绪的公开模块 API 发起会话；模块工厂初始化中不要调用此方法。
      */
-    createSession(owner: Scope, label: string): Scope;
+    createSession(owner: Lifetime, label: string): Scope;
 }
 /**
  * 模块业务初始化工厂，在首次 use 的这一代业务实例中执行一次，可同步或异步返回 { api }。
@@ -275,7 +275,7 @@ export class ModuleManager {
         private readonly makeContext: (
             id: string,
             scope: Scope,
-            createSession: (owner: Scope, label: string) => Scope,
+            createSession: (owner: Lifetime, label: string) => Scope,
         ) => Omit<ModuleContext, 'services'>,
         private readonly report: ErrorReporter = reportError,
         private readonly cleanupTimeoutMs = 10000,
@@ -312,7 +312,7 @@ export class ModuleManager {
      * @param owner - 本次等待的所有者；取消本次等待不强制卸载共享代码。
      * @returns 工厂和可反序列化脚本可用后完成；业务 API 就绪请调用 use。
      */
-    async prepareCode(id: string, owner: Scope): Promise<void> {
+    async prepareCode(id: string, owner: Lifetime): Promise<void> {
         owner.signal.throwIfAborted();
         await untilCancelled(this.factoryFor(id), owner.signal);
     }
@@ -346,7 +346,7 @@ export class ModuleManager {
      * @internal
      * 判断 owner 是否为本模块业务 Scope 或其后代，避免内部 UI 再次持有自身模块。
      */
-    isInternalOwner(id: string, owner: Scope): boolean {
+    isInternalOwner(id: string, owner: Lifetime): boolean {
         return this.records.get(id)?.scope.owns(owner) ?? false;
     }
     /**
@@ -362,7 +362,7 @@ export class ModuleManager {
      * @internal
      * 检查初始化中的模块是否通过内部所有者等待自己的 UI，发现循环等待时抛 MODULE_INIT_REENTRY。
      */
-    assertCanOpen(id: string, owner: Scope): void {
+    assertCanOpen(id: string, owner: Lifetime): void {
         const record = this.records.get(id);
         invariant(
             !(record?.state === 'initializing' && record.scope.owns(owner)),
@@ -410,7 +410,7 @@ export class ModuleManager {
      * const inventory = handle.api;
      * // flowScope 结束时自动归还，也可提前 await handle.release();
      */
-    async use<Api>(ref: ModuleRef<Api>, owner: Scope, requester?: string): Promise<ModuleHandle<Api>> {
+    async use<Api>(ref: ModuleRef<Api>, owner: Lifetime, requester?: string): Promise<ModuleHandle<Api>> {
         owner.signal.throwIfAborted();
         invariant(this.accepting, 'APP_STOPPING', 'Modules are shutting down');
         const definition = this.definitions.get(ref.id);
@@ -447,6 +447,7 @@ export class ModuleManager {
             const current = record;
             current.context = Object.freeze({
                 ...this.makeContext(ref.id, scope, (parent, label) => this.createSession(current, parent, label)),
+                scope: scope.lifetime,
                 services: <T>(servicesRef: ModuleServicesRef<T>): T => {
                     invariant(
                         servicesRef.moduleId === ref.id,
@@ -522,7 +523,7 @@ export class ModuleManager {
             delivered = true;
             const check = () =>
                 invariant(
-                    !released && !owner.signal.aborted && current.state === 'ready',
+                    !released && !owner.signal.aborted && !current.scope.signal.aborted && current.state === 'ready',
                     'MODULE_HANDLE_ENDED',
                     ref.id,
                 );
@@ -535,7 +536,23 @@ export class ModuleManager {
                               return typeof value === 'function'
                                   ? (...args: unknown[]) => {
                                         check();
-                                        return Reflect.apply(value, target, args);
+                                        // 调用前登记屏障，保证方法同步部分触发关闭时也不会提前释放服务。
+                                        // 只跟踪公开方法返回的工作；内部脱离返回链的任务仍须显式登记。
+                                        let complete!: (value: unknown) => void;
+                                        let fail!: (error: unknown) => void;
+                                        const running = new Promise<unknown>((resolve, reject) => {
+                                            complete = resolve;
+                                            fail = reject;
+                                        });
+                                        void current.scope.track(running, `api:${String(property)}`);
+                                        try {
+                                            const result: unknown = Reflect.apply(value, target, args);
+                                            complete(result);
+                                            return result;
+                                        } catch (error) {
+                                            fail(error);
+                                            throw error;
+                                        }
                                     }
                                   : value;
                           },
@@ -547,7 +564,9 @@ export class ModuleManager {
                     return guarded;
                 },
                 get active() {
-                    return !released && !owner.signal.aborted && current.state === 'ready';
+                    return (
+                        !released && !owner.signal.aborted && !current.scope.signal.aborted && current.state === 'ready'
+                    );
                 },
                 release,
             });
@@ -556,7 +575,7 @@ export class ModuleManager {
             throw error;
         }
     }
-    private createSession(record: ModuleRecord, owner: Scope, label: string): Scope {
+    private createSession(record: ModuleRecord, owner: Lifetime, label: string): Scope {
         invariant(record.state === 'ready', 'MODULE_NOT_READY', 'Sessions require a published module API');
         invariant(
             !record.scope.owns(owner),

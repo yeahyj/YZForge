@@ -5,6 +5,48 @@ import { Scope } from '../assets/framework/core/scope';
 import { FakeClock, deferred, flush } from './fake-clock';
 const context = (id: string, scope: Scope, createSession: (owner: Scope, label: string) => Scope) =>
     ({ id, scope, createSession }) as any;
+
+test('public asynchronous calls retain services until physical completion during release', async () => {
+    const owner = new Scope('caller'),
+        gate = deferred();
+    let disposed = false;
+    const manager = new ModuleManager(
+        [
+            {
+                id: 'work',
+                dependencies: [],
+                factory: (ctx) => {
+                    ctx.scope.defer(() => {
+                        disposed = true;
+                    });
+                    return {
+                        api: {
+                            async read() {
+                                await gate.promise;
+                                assert.equal(disposed, false);
+                                return 7;
+                            },
+                        },
+                    };
+                },
+            },
+        ],
+        new FakeClock(),
+        context,
+    );
+    const handle = await manager.use<{ read(): Promise<number> }>({ id: 'work' }, owner);
+    const result = handle.api.read();
+    const stopping = handle.release();
+    await flush();
+    assert.equal(disposed, false);
+    assert.throws(() => handle.api.read(), { code: 'MODULE_HANDLE_ENDED' });
+    gate.resolve();
+    assert.equal(await result, 7);
+    await stopping;
+    assert.equal(disposed, true);
+    await owner.close();
+    await manager.close();
+});
 test('concurrent module users share initialization and have independent cancellation', async () => {
     const gate = deferred(),
         a = new Scope('a'),

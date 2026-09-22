@@ -1,5 +1,5 @@
 import { ErrorReporter, OperationCancelled, reportError } from './errors';
-import { runTask, Scope, TaskContext } from './scope';
+import { runTask, Lifetime, TaskContext } from './scope';
 /**
  * 事件的轻量公开合同，用同一个稳定 ID 关联发布者与订阅者，并携带载荷的 TypeScript 类型。
  * 同一 ID 即同一频道，建议带模块前缀，避免不同业务误用同名事件。
@@ -26,7 +26,7 @@ export interface EventKey<T> {
 export function eventKey<T>(id: string): EventKey<T> {
     return Object.freeze({ id });
 }
-type Subscription = { scope: Scope; invoke: (payload: unknown, task: TaskContext) => void | Promise<void> };
+type Subscription = { scope: Lifetime; invoke: (payload: unknown, task: TaskContext) => void | Promise<void> };
 /**
  * 类型化事件总线，用于广播事实，例如物品数量已变化。
  * 需要返回值、顺序保证或执行命令时直接调用模块 API，不把事件用作隐式 RPC。
@@ -39,7 +39,7 @@ export class Events {
      */
     constructor(private readonly report: ErrorReporter = reportError) {}
     /**
-     * 订阅事件并自动跟随 scope 取消；每次回调作为该 Scope 的任务被跟踪。
+     * 订阅事件并自动跟随 scope 取消；每次回调作为该 Lifetime 的任务被跟踪。
      * @param key - 共享的事件合同。
      * @param callback - 接收 payload 和 task，可异步执行；await 后改 UI 应使用 task.commit。
      * @param scope - 订阅及回调任务的所有者；取消时不再接收新事件。
@@ -53,7 +53,7 @@ export class Events {
     on<T>(
         key: EventKey<T>,
         callback: (payload: T, task: TaskContext) => void | Promise<void>,
-        scope: Scope,
+        scope: Lifetime,
     ): () => void {
         scope.signal.throwIfAborted();
         const item: Subscription = { scope, invoke: callback as Subscription['invoke'] };

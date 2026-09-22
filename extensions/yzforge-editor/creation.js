@@ -65,7 +65,8 @@ exports.createCreationHistory = function (ctx) {
     async function mark(id, stage, error) {
         if (!id) return;
         const record = await read(id);
-        await capture(record);
+        // 状态变化不认领文件内容。特别是重试生成时，文件可能已由用户修改；
+        // 原始创建完成快照必须保持不变，生成自己的修改由生成事务记录负责。
         record.stage = stage;
         record.error = error;
         await save(record);

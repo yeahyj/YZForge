@@ -7,7 +7,18 @@ import settingsTools from './settings.cjs';
 import formatting from './format.cjs';
 import { workbookSources } from './workbooks.mjs';
 import { identityFile, scanCatalog, scriptDependencies } from './catalog.mjs';
-import { digest, files, identifier, json, modules, pascal, safePath, writeBatch, withProjectLock } from './project.mjs';
+import {
+    digest,
+    files,
+    identifier,
+    json,
+    modules,
+    pascal,
+    safePath,
+    writeBatch,
+    withProjectLock,
+    pendingTransactions,
+} from './project.mjs';
 register('./test-loader.mjs', import.meta.url);
 const runtime = {
     ...(await import('../../assets/framework/assets/catalog.ts')),
@@ -61,7 +72,12 @@ async function metadata(root) {
     return lookup;
 }
 export async function generate(root, input = {}) {
-    return withProjectLock(root, () => generateLocked(root, input));
+    return withProjectLock(root, async () => {
+        const pending = await pendingTransactions(root);
+        if (pending.length)
+            throw Error('存在未完成生成，请在工作台预览并恢复：' + pending.map((item) => item.id).join(', '));
+        return generateLocked(root, input);
+    });
 }
 async function generateLocked(
     root,
@@ -221,7 +237,18 @@ async function generateLocked(
                 duplicate: view.duplicate ?? 'reject',
                 ...(view.modal !== undefined ? { modal: view.modal } : {}),
             });
-        if (module.code?.mode === 'bundled') {
+        if (module.code?.mode !== 'none') {
+            const dependencies = Object.entries(module.dependencies);
+            const imports = dependencies.map(
+                ([_alias, id], index) =>
+                    `import { ${pascal(id)}Module as dependency${index} } from '../../../${id}/public';\n`,
+            );
+            output[`${prefix}/code/generated/dependencies.ts`] =
+                `// 自动生成：依赖 ID 和别名只在 module.json 中维护。\n${imports.join('')}\n/** 本模块声明的业务依赖，工厂从中推导完整 API 类型。 */\nexport const dependencies = { ${dependencies.map(([alias], index) => `${JSON.stringify(alias)}: dependency${index}`).join(', ')} } as const;\n`;
+        }
+        if (module.code?.mode === 'none') {
+            // 只有配置或资源归属，不装配业务工厂，也不引入空代码包。
+        } else if (module.code?.mode === 'bundled') {
             const directory = await safePath(root, resolve(module.directory, module.code.root ?? 'code'));
             const actual = await json(`${directory}.meta`);
             if (!actual.userData?.isBundle || actual.userData.bundleName !== module.code.bundle)
@@ -237,7 +264,7 @@ async function generateLocked(
                 throw Error(`Code entry Prefab missing: ${module.id}`);
             bundles[module.code.bundle] = { id: module.code.bundle, dependencies: [] };
             definitions.push(
-                `{ id: ${JSON.stringify(module.id)}, dependencies: ${JSON.stringify(module.dependencies)}, codeBundle: ${JSON.stringify(module.code.bundle)}, entryPath: ${JSON.stringify(module.code.entryPath)} }`,
+                `{ id: ${JSON.stringify(module.id)}, dependencies: ${JSON.stringify(Object.values(module.dependencies))}, codeBundle: ${JSON.stringify(module.code.bundle)}, entryPath: ${JSON.stringify(module.code.entryPath)} }`,
             );
         } else {
             const factory = module.factory ?? {
@@ -250,7 +277,7 @@ async function generateLocked(
             const alias = `factory${pascal(module.id)}`;
             imports.push(`import { ${identifier(factory.export)} as ${alias} } from ${JSON.stringify(path)};`);
             definitions.push(
-                `{ id: ${JSON.stringify(module.id)}, dependencies: ${JSON.stringify(module.dependencies)}, factory: ${alias} }`,
+                `{ id: ${JSON.stringify(module.id)}, dependencies: ${JSON.stringify(Object.values(module.dependencies))}, factory: ${alias} }`,
             );
         }
     }

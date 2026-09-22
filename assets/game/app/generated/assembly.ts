@@ -1,12 +1,10 @@
 // 根据 module.json 自动生成应用装配。
 import type { ModuleDefinition } from '../../../framework/modules/module-manager';
 import type { ViewDefinition } from '../../../framework/ui/ui-manager';
-import { createCommonModule as factoryCommon } from '../../modules/common/code/CommonModule';
 import { createLobbyModule as factoryLobby } from '../../modules/lobby/code/LobbyModule';
 import { createProfileModule as factoryProfile } from '../../modules/profile/code/ProfileModule';
 /** 模块装配列表；登记或加载工厂代码不等于执行业务初始化，首次 use 才初始化。 */
 export const modules: readonly ModuleDefinition[] = [
-    { id: 'common', dependencies: [], factory: factoryCommon },
     { id: 'lobby', dependencies: ['profile'], factory: factoryLobby },
     { id: 'profile', dependencies: [], factory: factoryProfile },
 ];

@@ -8,8 +8,10 @@
   "assets/game/modules/lobby/contracts/generated/resources-default.ts": "sha256:548df67ffb041a6451e3e03efac3bb54b42063252da6b2f17fee03a214059c50",
   "assets/game/modules/lobby/contracts/generated/views.ts": "sha256:a314482ca7ec9494470f94b514965d4c68aca782e14ec9633783183392c362eb",
   "assets/game/modules/lobby/contracts/generated/bundles.ts": "sha256:0e41fe3694fc8d8f41655ffe0dbcc39b344491197d328f25d5ef8a8ca52fc78c",
+  "assets/game/modules/lobby/code/generated/dependencies.ts": "sha256:f138ade2cb855cf996f9076a454577cbe6c8561bba07777718e137c7825312be",
   "assets/game/modules/profile/contracts/generated/views.ts": "sha256:55739efe3de367433075a645faf606792933c8b51f414f37b0f75c9cd089e8ae",
   "assets/game/modules/profile/contracts/generated/bundles.ts": "sha256:0a182e1823f00cb040521955e11a90ce082e3c5f453a2c67e54bc94ab442818c",
+  "assets/game/modules/profile/code/generated/dependencies.ts": "sha256:00df891b8f7062a53588a75662b3af84a1fb27f26739ac321c3e316f25bb3aa6",
   "assets/game/modules/common/contracts/generated/config/Economy.types.ts": "sha256:41383979d1390172d19433e6268493d68b185c82f8bb51b2e5bbb7a366ee3c25",
   "assets/game/modules/common/contracts/generated/config/Economy.table.ts": "sha256:9fc8a13816cfef3c1a17351ea619d56c2691d71934ca8ba336309abb68b25bc1",
   "assets/game/modules/common/bundles/default/dynamic/config/economy.json": "sha256:b9f4fd8312b9314b37bf3c34e08cd1492fb7a8ea28452fc65c27cfc14be75315",
@@ -20,5 +22,5 @@
   "assets/game/modules/lobby/code/generated/config/tables.ts": "sha256:e47157e5924cde43260e2efbcc55a8f7c7a508e39e4c510a0dc349b400c720a8",
   "assets/game/app/generated/release.ts": "sha256:b878cf8d8084e90a050fb84b307d0664b817070186e0ece972285875e1f6953a",
   "assets/game/app/generated/options.ts": "sha256:c96c67385fc38234a2e200a79dc9904d477f9d8fc0cd656aa133200d627df608",
-  "assets/game/app/generated/assembly.ts": "sha256:0021f9cbc47a38db90f0268ad4fcb09c01afb465a9fb2931934726b2fa41711e"
+  "assets/game/app/generated/assembly.ts": "sha256:53d8894b7389fa935d75c59493964e881f371a14266447401af4338d2669301c"
 }

@@ -1,3 +1,4 @@
+import type { BootContext } from '../../framework/core/boot';
 import { _decorator, Label, Node, ResolutionPolicy, view } from 'cc';
 import { App } from '../../framework/core/app';
 import { AppEntry } from '../../framework/core/app-entry';
@@ -22,17 +23,15 @@ export class GameRoot extends AppEntry {
         return { ...runtimeOptions, root: this.node, uiRoot: this.uiRoot, release, modules, views };
     }
     /**
-     * 启动演示首屏，使用 app.flows 持有页面，使它覆盖整个导航期间。
+     * 启动演示首屏，使用 boot.scope 持有页面，使它覆盖整个导航期间。
      * @param app - 已装配的应用服务；首屏打开时才初始化对应模块业务。
      */
-    protected async onBoot(app: App): Promise<void> {
-        try {
-            await app.ui.pushPage({ id: 'lobby.dashboard' }, { title: 'YZForge' }, app.flows);
+    protected async onBoot(app: App, boot: BootContext): Promise<void> {
+        await app.ui.pushPage({ id: 'lobby.dashboard' }, { title: 'YZForge' }, boot.scope);
+        boot.commit(() => {
             if (this.bootStatus) this.bootStatus.node.active = false;
-            console.info('[YZForge] Bootstrap ready: lobby.dashboard');
-        } catch (error) {
-            this.onBootFailed(error);
-        }
+        });
+        console.info('[YZForge] Bootstrap ready: lobby.dashboard');
     }
     /**
      * 把启动错误写入日志并显示到演示启动标签。
@@ -40,7 +39,9 @@ export class GameRoot extends AppEntry {
      */
     protected onBootFailed(error: unknown): void {
         console.error('[YZForge] Bootstrap failed', error);
-        if (this.bootStatus)
+        if (this.bootStatus) {
+            this.bootStatus.node.active = true;
             this.bootStatus.string = `启动失败\n${error instanceof Error ? error.message : String(error)}`;
+        }
     }
 }

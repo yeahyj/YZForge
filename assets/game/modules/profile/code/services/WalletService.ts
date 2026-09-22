@@ -1,5 +1,5 @@
 import type { ModuleContext } from '../../../../../framework/modules/module-manager';
-import type { Scope } from '../../../../../framework/core/scope';
+import type { Lifetime } from '../../../../../framework/core/scope';
 import type { StorageKey } from '../../../../../framework/platform/storage';
 import { invariant, reportError } from '../../../../../framework/core/errors';
 import type { WalletSnapshot } from '../../public';
@@ -58,7 +58,7 @@ export class WalletService {
         return next;
     }
     /** 订阅当前状态及后续变化，所有者结束自动清理，适用于多个页面共享同一业务状态。 */
-    subscribe(callback: (state: WalletSnapshot) => void, owner: Scope): () => void {
+    subscribe(callback: (state: WalletSnapshot) => void, owner: Lifetime): () => void {
         this.ctx.scope.signal.throwIfAborted();
         owner.signal.throwIfAborted();
         const listener = (state: WalletSnapshot) => callback(state);

@@ -102,12 +102,30 @@ export function validateModules(modules) {
             throw Error(`Invalid/duplicate module id: ${module.id}`);
         map.set(module.id, module);
         if (
-            !Array.isArray(module.dependencies) ||
+            !module.dependencies ||
+            Array.isArray(module.dependencies) ||
+            typeof module.dependencies !== 'object' ||
             !module.bundles ||
             Array.isArray(module.bundles) ||
             typeof module.bundles !== 'object'
         )
             throw Error(`${module.id}: dependencies and bundles declarations are required (bundles may be empty)`);
+        for (const [alias, dependency] of Object.entries(module.dependencies)) {
+            identifier(alias);
+            if (typeof dependency !== 'string') throw Error(`${module.id}: dependency ${alias} must be a module ID`);
+        }
+        if (module.code && !['none', 'eager', 'bundled'].includes(module.code.mode))
+            throw Error(`${module.id}: code.mode must be none, eager or bundled`);
+        if (
+            module.code?.mode === 'none' &&
+            (module.factory ||
+                Object.keys(module.dependencies).length ||
+                Object.keys(module.views ?? {}).length ||
+                Object.keys(module.components ?? {}).length)
+        )
+            throw Error(
+                `${module.id}: resource-only modules cannot declare a factory, business dependencies, views or components`,
+            );
         for (const [group, bundle] of Object.entries(module.bundles)) {
             identifier(group);
             if (!/^[a-z][a-z0-9-]*$/.test(bundle.id) || bundleIds.has(bundle.id))
@@ -144,7 +162,11 @@ export function validateModules(modules) {
         if (!map.has(id) || stack.has(id))
             throw Error(`Missing/cyclic module dependency: ${[...stack, id].join(' -> ')}`);
         stack.add(id);
-        for (const dep of map.get(id).dependencies) visit(dep);
+        for (const dep of Object.values(map.get(id).dependencies)) {
+            if (map.get(dep)?.code?.mode === 'none')
+                throw Error(`${id}: ${dep} has no business runtime; import public data contracts directly`);
+            visit(dep);
+        }
         stack.delete(id);
         done.add(id);
     };

@@ -23,7 +23,7 @@ import type { AssetManager as EngineAssetManager } from 'cc';
 import type { ConfigManager, ScopedConfig } from '../config/config-manager';
 import { untilCancelled } from '../core/cancellation';
 import { FrameworkError, invariant, reportError } from '../core/errors';
-import { Scope } from '../core/scope';
+import { Scope, Lifetime } from '../core/scope';
 import {
     AssetAddress,
     AssetKey,
@@ -89,7 +89,7 @@ export class Assets {
      * @internal
      * App 注入的代码准备器，确保预制体反序列化所需脚本已注册，不启动业务工厂。
      */
-    prepareCode: (id: string, owner: Scope) => Promise<void> = async () => {};
+    prepareCode: (id: string, owner: Lifetime) => Promise<void> = async () => {};
     /**
      * @internal
      * App 注入的代码注册状态查询。
@@ -111,7 +111,7 @@ export class Assets {
          * 本次运行选择的内容发布清单；业务可读路由信息，不应直接改写。
          */
         readonly release: ContentRelease,
-        owner: Scope,
+        owner: Lifetime,
     ) {
         invariant(
             !selectedRelease || selectedRelease === release.releaseId,
@@ -147,7 +147,7 @@ export class Assets {
      * @param moduleId - 可选实例宿主业务模块，通常由 ctx.assets 自动提供。
      * @returns ScopedAssets。
      */
-    in(scope: Scope, namespace?: string, moduleId?: string): ScopedAssets {
+    in(scope: Lifetime, namespace?: string, moduleId?: string): ScopedAssets {
         return new ScopedAssets(this, scope, namespace, moduleId);
     }
     /**
@@ -160,7 +160,7 @@ export class Assets {
      * @throws FrameworkError 未登记、名称有歧义、种类不匹配或索引无效。
      * @throws OperationCancelled 所有者已取消或等待期间取消。
      */
-    async resolve<K extends AssetKind>(key: AssetKey<K>, scope: Scope): Promise<AssetAddress<K>>;
+    async resolve<K extends AssetKind>(key: AssetKey<K>, scope: Lifetime): Promise<AssetAddress<K>>;
     /**
      * 将资源键解析为 Bundle 地址；可能加载 Bundle 和索引 JSON，但不加载目标资源。
      * AssetKey 传完整 ID；字符串形式须另传 type、scope，可用 namespace 指定“模块/资源包”。
@@ -173,7 +173,7 @@ export class Assets {
      * @throws FrameworkError 未登记、名称有歧义、种类不匹配或索引无效。
      * @throws OperationCancelled 所有者已取消或等待期间取消。
      */
-    async resolve(name: string, type: AssetKind, scope: Scope, namespace?: string): Promise<AssetAddress>;
+    async resolve(name: string, type: AssetKind, scope: Lifetime, namespace?: string): Promise<AssetAddress>;
     /**
      * 将资源键解析为 Bundle 地址；可能加载 Bundle 和索引 JSON，但不加载目标资源。
      * AssetKey 传完整 ID；字符串形式须另传 type、scope，可用 namespace 指定“模块/资源包”。
@@ -188,15 +188,15 @@ export class Assets {
      */
     async resolve(
         keyOrName: AssetKey | string,
-        typeOrScope: AssetKind | Scope,
-        explicitScope?: Scope,
+        typeOrScope: AssetKind | Lifetime,
+        explicitScope?: Lifetime,
         namespace?: string,
     ): Promise<AssetAddress> {
         const key =
             typeof keyOrName === 'string'
                 ? logicalKey(keyOrName, typeOrScope as AssetKind, namespace)
                 : logicalKey(keyOrName.id, keyOrName.type);
-        const owner = typeof keyOrName === 'string' ? explicitScope! : (typeOrScope as Scope);
+        const owner = typeof keyOrName === 'string' ? explicitScope! : (typeOrScope as Lifetime);
         owner.signal.throwIfAborted();
         const ns = key.id.split('/').slice(0, 2).join('/');
         let pending = this.indices.get(ns);
@@ -225,7 +225,7 @@ export class Assets {
      * @remarks 不要对返回的共享资源自行 decRef 或 releaseAll；优先使用较短的展示或会话 Scope。
      * @throws OperationCancelled 所有者取消；清单或加载错误原样传播。
      */
-    async load<K extends AssetKind>(key: AssetKey<K>, scope: Scope): Promise<AssetTypes[K]> {
+    async load<K extends AssetKind>(key: AssetKey<K>, scope: Lifetime): Promise<AssetTypes[K]> {
         const address = await this.resolve(key, scope);
         return this.loadAddress(address, scope);
     }
@@ -243,7 +243,7 @@ export class Assets {
         bundle: BundleRef,
         path: string,
         type: K,
-        scope: Scope,
+        scope: Lifetime,
     ): Promise<AssetTypes[K]> {
         invariant(
             path.length > 0 && !path.split('/').includes('..') && !path.startsWith('/'),
@@ -259,7 +259,7 @@ export class Assets {
      * @returns 类型与 address.type 一致的资源。
      * @remarks 只准备代码，不执行模块业务工厂；图集单帧会同时持有图集和精灵帧。
      */
-    async loadAddress<K extends AssetKind>(address: AssetAddress<K>, scope: Scope): Promise<AssetTypes[K]> {
+    async loadAddress<K extends AssetKind>(address: AssetAddress<K>, scope: Lifetime): Promise<AssetTypes[K]> {
         scope.signal.throwIfAborted();
         for (const id of address.requiredCodeModules ?? (address.codeModule ? [address.codeModule] : [])) {
             if (!this.codeReady(id)) await this.prepareCode(id, scope);
@@ -281,7 +281,7 @@ export class Assets {
      * @returns BundleHandle；它的 assets 和 tables 仍然按需加载，不会下载全包所有资源。
      * @throws OperationCancelled scope 取消；Bundle 未登记或引擎加载失败时拒绝。
      */
-    async openBundle(ref: BundleRef, scope: Scope, moduleId?: string): Promise<BundleHandle> {
+    async openBundle(ref: BundleRef, scope: Lifetime, moduleId?: string): Promise<BundleHandle> {
         await untilCancelled(this.prepareBundle(bundleId(ref)), scope.signal);
         invariant(this.config, 'APP_NOT_READY', 'Configuration service is not attached');
         return new BundleHandle(this, this.config, bundleId(ref), scope, moduleId);
@@ -347,7 +347,7 @@ export class Assets {
     async instantiate(
         key: AssetKey<'Prefab'>,
         parent: Node,
-        scope: Scope,
+        scope: Lifetime,
         input: {
             /**
              * 是否立即激活，默认 true；false 时先完成数据设置，再通过 assets.activate 接通业务生命周期。
@@ -433,7 +433,7 @@ export class Assets {
     async setSprite(
         target: Sprite,
         key: AssetKey<'SpriteFrame'> | string,
-        owner: Scope,
+        owner: Lifetime,
         namespace?: string,
     ): Promise<void> {
         owner.signal.throwIfAborted();
@@ -531,7 +531,7 @@ export class ScopedAssets {
         /**
          * 默认资源所有者。ctx.assets 默认跟随模块；临时 UI 资源应改用 in(show.scope)。
          */
-        readonly scope: Scope,
+        readonly scope: Lifetime,
         /**
          * 相对资源名使用的默认“模块/资源包”；完整 AssetKey 不依赖它。
          */
@@ -549,7 +549,7 @@ export class ScopedAssets {
      * const assets = this.ctx.assets.in(show.scope);
      * await assets.setSprite(this.sprIcon, iconKey);
      */
-    in(scope: Scope): ScopedAssets {
+    in(scope: Lifetime): ScopedAssets {
         return new ScopedAssets(this.manager, scope, this.namespace, this.moduleId);
     }
     /**
@@ -703,7 +703,7 @@ export class BundleHandle {
         /**
          * 通过该句柄加载资源和配置的默认所有者；关闭后已有表查询会拒绝。
          */
-        readonly scope: Scope,
+        readonly scope: Lifetime,
         moduleId?: string,
     ) {
         this.assets = manager.in(scope, manager.release.bundles[id]?.namespace, moduleId);

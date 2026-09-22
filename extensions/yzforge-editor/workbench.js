@@ -33,11 +33,16 @@ exports.createWorkbench = function (ctx) {
             request.id = naming.slug(request.id);
             const prefix = `assets/game/modules/${request.id}`,
                 type = naming.named(request.id, 'component').className.replace(/Component$/, '');
-            folders.push(prefix, `${prefix}/code`, `${prefix}/code/generated`, `${prefix}/contracts`);
+            folders.push(prefix, `${prefix}/contracts`);
+            if (request.delivery === 'none') request.codeOnly = false;
+            else folders.push(`${prefix}/code`, `${prefix}/code/generated`);
             add(`${prefix}/module.json`);
-            add(`${prefix}/public.ts`);
-            add(`${prefix}/code/${type}Module.ts`);
-            if (request.delivery !== 'eager') {
+            if (request.delivery !== 'none') {
+                add(`${prefix}/public.ts`);
+                add(`${prefix}/code/${type}Module.ts`);
+                add(`${prefix}/code/generated/dependencies.ts`);
+            }
+            if (!['eager', 'none'].includes(request.delivery)) {
                 add(`${prefix}/code/${type}ModuleEntry.ts`);
                 add(`${prefix}/code/entry.prefab`);
             }
@@ -56,6 +61,8 @@ exports.createWorkbench = function (ctx) {
             );
         } else {
             ({ manifest } = await moduleInfo(request.module));
+            if (manifest.code?.mode === 'none' && !['bundle', 'table'].includes(kind))
+                throw Error('当前模块只有资源与配置，请选择带业务代码的模块来创建脚本或界面');
             const prefix = `assets/game/modules/${manifest.id}`;
             if (kind === 'bundle') {
                 request.id = request.id === 'default' ? 'default' : naming.slug(request.id);
@@ -129,6 +136,8 @@ exports.createWorkbench = function (ctx) {
         const generatedRoot =
             prefix + '/' + (kind === 'module' || manifest.layoutVersion === 2 ? 'contracts/' : '') + 'generated';
         for (const name of ['views.ts', 'bundles.ts']) generated.add(generatedRoot + '/' + name);
+        if ((kind === 'module' && request.delivery !== 'none') || (kind !== 'module' && manifest.code?.mode !== 'none'))
+            generated.add(prefix + '/code/generated/dependencies.ts');
         const groups =
             kind === 'module' ? (request.codeOnly ? [] : ['default']) : kind === 'bundle' ? [request.id] : [];
         for (const group of groups) {
@@ -209,6 +218,11 @@ exports.createWorkbench = function (ctx) {
         if (preview.conflicts.length) throw Error('文件已存在：\n' + preview.conflicts.join('\n'));
         const request = preview.request,
             kind = request.kind;
+        if (!['module', 'bundle', 'table'].includes(kind)) {
+            const { manifest } = await moduleInfo(request.module);
+            if (manifest.code?.mode === 'none')
+                throw Error('当前模块只有资源与配置，请选择带业务代码的模块来创建脚本或界面');
+        }
         const method =
             kind === 'module'
                 ? 'createModule'

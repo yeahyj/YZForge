@@ -1,5 +1,5 @@
 import { invariant } from '../core/errors';
-import { Scope } from '../core/scope';
+import { Lifetime } from '../core/scope';
 import { DeepReadonly, freeze, TableDefinition, validateRow } from './schema';
 /**
  * 配置数据 JSON 的文件结构，由 XLSX 导出器生成；运行时校验版本头之后才接收数据行。
@@ -138,7 +138,7 @@ export class ConfigTable<Row, Key extends string | number = number, Indexes exte
      */
     constructor(
         private readonly data: TableData,
-        private readonly owner: Scope,
+        private readonly owner: Lifetime,
     ) {}
     /**
      * 配置表的稳定 ID；诊断元信息，所有者取消后仍可读取。

@@ -7,7 +7,8 @@ import type { ModuleContext } from '../modules/module-manager';
 import type { ScopedTime } from '../time/time-service';
 import { invariant } from '../core/errors';
 import { assertLifecycle, synchronous } from '../core/lifecycle';
-import { Scope, TaskContext } from '../core/scope';
+import { Lifetime, TaskContext } from '../core/scope';
+import type { Actions } from '../core/actions';
 const { ccclass } = _decorator;
 /**
  * UI 实例创建上下文。同一缓存实例可经历多次显示，instance.scope 通常长于 show.scope。
@@ -16,7 +17,7 @@ export interface ViewInstanceContext {
     /**
      * 整个 UI 实例的期限；缓存隐藏时可以保留，最终销毁时清理。
      */
-    readonly scope: Scope;
+    readonly scope: Lifetime;
     /**
      * 界面所属模块的上下文，包含资源、配置、时间和事件等入口。
      */
@@ -28,6 +29,8 @@ type ReadonlyParams<P> = P extends object ? Readonly<P> : P;
  * 异步任务应捕获这一次 show，不要在完成时再读取另一轮显示的上下文。
  */
 export interface ViewShowContext<Params, Result> extends TaskContext {
+    /** 本次展示的命名操作：latest 查询、exclusive 防重复、serial 顺序执行。 */
+    readonly actions: Actions;
     /** 本次显示使用的资源入口；load/instantiate 的资源自动随本次显示释放。 */
     readonly assets: ScopedAssets;
     /** 本次显示使用的配置入口；load(Table) 无需再传 show.scope。 */
@@ -101,7 +104,7 @@ export interface ViewHideContext {
     /**
      * 此次 onHide 阶段的期限，用于短暂清理工作；钩子完成后关闭。
      */
-    readonly scope: Scope;
+    readonly scope: Lifetime;
 }
 /**
  * UIManager 管理的界面基类，业务通常继承自动生成的 XxxBinding。

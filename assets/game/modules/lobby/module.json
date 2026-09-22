@@ -1,9 +1,9 @@
 {
   "id": "lobby",
   "displayName": "示例大厅",
-  "dependencies": [
-    "profile"
-  ],
+  "dependencies": {
+    "profile": "profile"
+  },
   "bundles": {
     "default": {
       "id": "m-lobby",

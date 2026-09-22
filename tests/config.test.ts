@@ -4,6 +4,7 @@ import { defineTable, validateValue } from '../assets/framework/config/schema';
 import { parseTable, ConfigTable } from '../assets/framework/config/config-table';
 import { Scope } from '../assets/framework/core/scope';
 import { ConfigManager } from '../assets/framework/config/config-manager';
+import { deferred, flush } from './fake-clock';
 const key = defineTable({
     id: 'lobby.items',
     schemaHash: 'schema',
@@ -102,4 +103,35 @@ test('sharded tables require a selected bundle and scoped options preserve its r
     await config.loadMany({ items: key }, { bundle: 'battle-a' });
     assert.deepEqual(selected, ['battle-b', 'battle-a']);
     await owner.close();
+});
+
+test('a batch failure cancels its pending wait while another owner keeps the shared table', async () => {
+    const gate = deferred(),
+        batchOwner = new Scope('batch'),
+        other = new Scope('other');
+    const missing = defineTable({ ...key, id: 'missing' });
+    let released = false,
+        loads = 0;
+    const manager = new ConfigManager({
+        release: { tables: { [key.id]: [{ bundle: 'data', path: 'items', dataRevision: 'data' }] } },
+        async loadPath(_bundle: string, _path: string, _type: string, owner: Scope) {
+            loads++;
+            owner.defer(() => {
+                released = true;
+            });
+            await gate.promise;
+            return { json: data() };
+        },
+    } as any);
+    const shared = manager.load(key, other);
+    await flush();
+    await assert.rejects(manager.loadMany({ items: key, missing }, batchOwner), { code: 'CONFIG_ROUTE_MISSING' });
+    assert.equal(released, false);
+    assert.equal(loads, 1);
+    gate.resolve();
+    assert.equal((await shared).size, 2);
+    await batchOwner.close();
+    await other.close();
+    await flush();
+    assert.equal(released, true);
 });

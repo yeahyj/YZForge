@@ -1,3 +1,4 @@
+import { dependencies } from './generated/dependencies';
 import { defineModule } from '../../../../framework/modules/module-manager';
 import { ProfileModule } from '../public';
 import { WalletService } from './services/WalletService';
@@ -8,7 +9,7 @@ import { WalletService } from './services/WalletService';
  * 需要内部服务时，在 code 中定义 moduleServices 合同，传入 services 选项并返回 services 对象。
  * UI 通过 this.ctx.services(服务合同) 读取；清理登记到 ctx.scope。
  */
-export const createProfileModule = defineModule(ProfileModule, { dependencies: {} }, (ctx, _dependencies) => {
+export const createProfileModule = defineModule(ProfileModule, { dependencies }, (ctx, _dependencies) => {
     const wallet = new WalletService(ctx);
     return {
         api: {

@@ -39,9 +39,21 @@ export class Storage {
         private readonly prefix: string,
         private readonly backend: StorageBackend,
     ) {}
+    /**
+     * 创建子命名空间，不创建账号或复制数据。例如 storage.in('player').in(playerId)。
+     * 原入口及其他玩家的数据不变；项目自己决定会话、玩家或存档槽的归属。
+     */
+    in(namespace: string): Storage {
+        invariant(
+            typeof namespace === 'string' && namespace.length > 0 && namespace.length <= 256,
+            'STORAGE_NAMESPACE_INVALID',
+            'Provide a non-empty namespace of at most 256 characters',
+        );
+        return new Storage(`${this.prefix}@namespace/${encodeURIComponent(namespace)}/`, this.backend);
+    }
     private paths<T>(key: StorageKey<T>) {
         invariant(
-            key.id.length > 0 && !key.id.startsWith('@backup/') && Number.isSafeInteger(key.version) && key.version > 0,
+            key.id.length > 0 && !key.id.startsWith('@') && Number.isSafeInteger(key.version) && key.version > 0,
             'STORAGE_INVALID',
             'Invalid storage key or version',
         );

@@ -5,10 +5,11 @@ import { untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, OperationCancelled, reportError } from '../core/errors';
 import { GameComponent } from '../core/game-component';
-import { runTask, Scope, taskContext, TaskContext } from '../core/scope';
+import { runTask, Scope, taskContext, TaskContext, Lifetime, scopeOwner } from '../core/scope';
 import { ModuleContext, ModuleManager } from '../modules/module-manager';
 import { TimeService } from '../time/time-service';
 import { UIView, ViewShowContext } from './ui-view';
+import { Actions } from '../core/actions';
 
 /**
  * 界面的公开类型合同，通常使用生成的 ModuleViews 常量；不直接导入界面私有组件或预制体。
@@ -146,7 +147,7 @@ type Instance = {
 type RecordView = {
     id: number;
     definition: ViewDefinition;
-    owner: Scope;
+    owner: Lifetime;
     operation: Scope;
     params: unknown;
     instance?: Instance;
@@ -222,6 +223,7 @@ export class UIManager {
         private readonly time: TimeService,
         private readonly clock: ClockDriver,
         definitions: readonly ViewDefinition[],
+        layerOwner: Lifetime,
         private readonly report: ErrorReporter = reportError,
         private readonly cleanupTimeoutMs = 10000,
     ) {
@@ -231,6 +233,7 @@ export class UIManager {
         }
         for (const kind of Object.keys(layerOrder) as ViewDefinition['kind'][]) {
             const node = new Node(kind);
+            layerOwner.defer(() => destroyNode(node));
             node.layer = root.layer;
             root.addChild(node);
             node.addComponent(UITransform);
@@ -257,7 +260,7 @@ export class UIManager {
      *     show.commit(() => this.renderReward(result.value));
      * }
      */
-    async open<P, R>(key: ViewKey<P, R>, params: P, owner: Scope): Promise<ViewHandle<R>> {
+    async open<P, R>(key: ViewKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
         owner.signal.throwIfAborted();
         invariant(this.accepting, 'APP_STOPPING', 'UI is shutting down');
         const definition = this.definitions.get(key.id);
@@ -351,7 +354,7 @@ export class UIManager {
                     node.active = true;
                     this.gate(instance, false);
                     // Cocos activates the whole subtree synchronously before this call returns.
-                    await view.__create({ scope, ctx: context });
+                    await view.__create({ scope: scope.lifetime, ctx: context });
                 } catch (error) {
                     if (!record.instance) await scope.close();
                     throw error;
@@ -399,6 +402,7 @@ export class UIManager {
         const scopedAssets = instance.context.assets.in(scope);
         const context: ViewShowContext<unknown, unknown> = Object.freeze({
             ...taskContext(scope, isCurrent),
+            actions: new Actions(scope.lifetime, isCurrent),
             assets: scopedAssets,
             config: instance.context.config.in(scope),
             audio: instance.context.audio.in(scope),
@@ -475,7 +479,7 @@ export class UIManager {
             record.instance.view.__interactive(undefined);
             for (const component of record.instance.components) component.__allow(undefined);
         }
-        record.show?.scope.cancel();
+        if (record.show) scopeOwner(record.show.scope).cancel();
         // Cancels an in-flight module wait without destroying an already delivered module API.
         record.operation.cancel();
         const stop = foregroundDeadline(this.clock, this.cleanupTimeoutMs, () => {
@@ -549,8 +553,8 @@ export class UIManager {
         instance.view.__interactive(undefined);
         for (const component of instance.components) component.__allow(undefined);
         if (!show) return;
-        show.scope.cancel();
-        const results = await show.scope.drainTasks();
+        scopeOwner(show.scope).cancel();
+        const results = await scopeOwner(show.scope).drainTasks();
         const fault = results.find(
             (result) => result.status === 'rejected' && !(result.reason instanceof OperationCancelled),
         ) as PromiseRejectedResult | undefined;
@@ -558,10 +562,10 @@ export class UIManager {
         await Promise.all(instance.components.map((component) => component.__deactivate()));
         const hiding = instance.scope.child('hide');
         try {
-            await instance.view.__hide({ reason, scope: hiding });
+            await instance.view.__hide({ reason, scope: hiding.lifetime });
         } finally {
             await hiding.close();
-            await show.scope.close();
+            await scopeOwner(show.scope).close();
             record.show = undefined;
         }
     }
@@ -635,10 +639,10 @@ export class UIManager {
      * @remarks 上一页暂停时结束旧 show.scope；返回后重新执行 onShow，并提供新的展示上下文。
      * @throws FrameworkError 目标不是页面或打开失败；取消错误与 open 一致。
      */
-    pushPage<P, R>(key: ViewKey<P, R>, params: P, owner: Scope): Promise<ViewHandle<R>> {
+    pushPage<P, R>(key: ViewKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
         return this.navigate(() => this.pushPageNow(key, params, owner));
     }
-    private async pushPageNow<P, R>(key: ViewKey<P, R>, params: P, owner: Scope): Promise<ViewHandle<R>> {
+    private async pushPageNow<P, R>(key: ViewKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
         invariant(this.definitions.get(key.id)?.kind === 'page', 'UI_NOT_PAGE', key.id);
         const previous = this.pages[this.pages.length - 1];
         const handle = await this.open(key, params, owner);
@@ -649,7 +653,7 @@ export class UIManager {
             previous.interactive = false;
             this.gate(previous.instance!, false);
             previous.instance!.view.__interactive(undefined);
-            previous.show?.scope.cancel();
+            if (previous.show) scopeOwner(previous.show.scope).cancel();
             // Do not wait here: the previous page's tracked click may itself be awaiting pushPage.
             previous.preparing = previous.preparing.then(async () => {
                 await this.hide(previous, 'suspended');

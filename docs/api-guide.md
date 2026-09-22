@@ -12,16 +12,16 @@
 | `show.scope`       | 界面本次展示               | 配置、图片、按钮、子弹窗 |
 | `activation.scope` | 组件/Part 本次激活         | 激活期间的任务和监听     |
 
-`Scope` 表示“这些工作和资源可以使用到什么时候”。加载器、事件和时间订阅会登记到它；结束时自动取消和清理。`scope.child('名称')` 创建可提前结束的子期限，父级结束时子级也结束。
+`Scope` 表示“这些工作和资源可以使用到什么时候”。加载器、事件和时间订阅会登记到它；结束时自动取消和清理。业务上下文给出的是 `Lifetime`：可以查看取消信号、登记清理、创建子 Scope，但不能关闭或取消框架拥有的宿主。`scope.child('名称')` 返回由调用方拥有、可提前 `close()` 的子 Scope；父级结束时子级也结束。
 
 ```ts
 const items = await show.config.load(ItemsTable);
 await show.assets.setSprite(this.sprIcon, LobbyRes.sprite.status);
 ```
 
-`show.assets`、`show.config`、`show.audio`、`show.time` 已绑定 `show.scope`，临时加载无需反复传它。`ctx.assets`、`ctx.config` 默认跟随模块；模块服务中的长期数据可以使用它们。旧写法 `ctx.config.load(Table, show.scope)` 仍可用。
+`show.assets`、`show.config`、`show.audio`、`show.time` 已绑定本次展示，Part 的 `activation` 提供同样的入口。`ctx.assets`、`ctx.config` 默认跟随模块。切换配置表所有者使用 `ctx.config.in(owner).load(Table)`；已移除 `ctx.config.load(Table, owner)` 重载。应用级入口仍为 `app.config.load(Table, owner, options)`。
 
-`scope.close()` 先发出取消，再等待登记任务、子级及清理函数。`signal.aborted` 表示已经请求取消，`scope.closed` 表示清理流程已经结束。它不会强行终止任意 Promise，也不会保证节点同一帧就销毁。
+自己拥有的 `scope.close()` 先发出取消，再等待登记任务、子级及清理函数。`signal.aborted` 表示已经请求取消，`scope.closed` 表示清理流程已经结束。它不会强行终止任意 Promise，也不会保证节点同一帧就销毁。结束 UI 使用 `show.finish/dismiss/back`，不要关闭 `show.scope`。
 
 ## show.commit 和异步工作
 
@@ -34,7 +34,7 @@ show.commit(() => {
 
 `show.commit` 检查本次展示仍有效后执行同步更新：执行了返回 `true`，界面已结束或挂起则跳过并返回 `false`。它不提交网络事务，不创建额外线程，也不能传 `async` 回调。
 
-`onShow`、`show.listen` 的异步回调已被框架跟踪。其他展示异步任务可用 `show.run`，普通组件则用 `activation.run`；捕获原上下文，`await` 后通过该上下文的 `commit` 写 UI。网络适配需响应 `task.signal`。同一次展示中的多个请求仍可能先后倒置，业务自行处理顺序；图片替换可直接用 `setSprite` 的最新请求策略。
+`onShow`、`show.listen` 的异步回调已被框架跟踪。其他展示异步任务可用 `show.run`，普通组件则用 `activation.run`；捕获原上下文，`await` 后通过该上下文的 `commit` 写 UI。网络适配需响应 `task.signal`。同次展示内的查询竞态使用 `show.actions.latest`；图片替换可直接用 `setSprite` 的最新请求策略。Actions 用法见下方。
 
 不要在一个被 Scope 跟踪的任务里等待该 Scope 自己关闭。弹窗内部成功结束用 `show.finish(value)`，取消用 `show.dismiss()`，页面返回用 `show.back()`。它们发出请求后立即返回，由外部打开方等待 `handle.result`。
 
@@ -49,6 +49,40 @@ show.listen(this.btnReload.node, Button.EventType.CLICK, async () => {
 ```
 
 ## 生命周期
+
+### 命名操作 Actions
+
+| 入口                                         | 同名操作行为                                   | 用途                 |
+| -------------------------------------------- | ---------------------------------------------- | -------------------- |
+| `show.actions.latest(key, work)`             | 新请求取消旧等待；旧 `task.commit` 不再执行    | 搜索、筛选、刷新查询 |
+| `show.actions.exclusive(key, work)`          | 运行期间忽略重复触发，重复调用返回 `undefined` | 打开弹窗、确认提交   |
+| `show.actions.serial(key, work, maxPending)` | 顺序执行，默认最多 32 项，包含运行项；超限报错 | 必须保序的本地操作   |
+| `show.actions.busy(key)`                     | 查询是否在执行或排队                           | 控制按钮状态         |
+
+```ts
+await show.actions.latest('search', async task => {
+    const result = await searchService.query(keyword, task.signal);
+    task.commit(() => { this.render(result); });
+});
+```
+
+Part 使用 `activation.actions`。同一个 key 固定一种策略。这些入口不保证服务端幂等，不撤销业务变更，也不自动重试支付或领奖。旧任务若不响应取消，仍需等待其物理结束后才回收资源。`task.scope` 只覆盖单次操作；显示到页面结束的图片、Part 应使用 `show.assets` 持有。操作完成后不要保留 `task` 用于后续更新。
+
+### 启动与失败重试
+
+`AppEntry` 自动调用异步的 `App.create(options)`，核心构造失败时清理已创建的引擎节点与服务。业务启动使用下面的钩子：
+
+```ts
+protected async onBoot(app: App, boot: BootContext): Promise<void> {
+    await app.ui.pushPage(StartViews.home, {}, boot.scope);
+}
+```
+
+首屏和会话持有放在 `boot.scope`。失败必须抛出，不能在钩子中吞掉错误后假装成功；框架会先回收本次尝试，再交给 `onBootFailed` 展示错误。业务入口可在用户重试按钮中调用并处理 `this.retryBoot()`。并发重试共享当前尝试，已经启动成功不会再次执行。`app.inspect().boot` 给出状态与尝试次数。
+
+自己装配 App 时使用 `await App.create(options)` 和 `app.boot.start(boot => ...)`。核心服务失败与业务启动失败分开处理；后者保留 App 核心用于错误界面和重试。不要在启动钩子里等待关闭、重试它自己。
+
+### 框架钩子
 
 | 对象                   | 钩子                                   | 使用规则                                                  |
 | ---------------------- | -------------------------------------- | --------------------------------------------------------- |
@@ -65,6 +99,8 @@ show.listen(this.btnReload.node, Button.EventType.CLICK, async () => {
 | `GameComponent` / Part | `onDispose`                            | 已初始化实例最终销毁时同步执行                            |
 
 `onTick(dt)` 的 `dt` 是**秒**，60 FPS 时约为 `0.0167`。它是逐帧更新接口，与跨日、跨月通知无关。业务不覆盖引擎的 `onLoad`、`start`、`update` 等保留入口。自动绑定 getter 直接给出对应节点或组件；无需手动拖引用，节点变化后通过工作台更新绑定。
+
+可选的存档隔离使用 `const accountStorage = ctx.storage.in(accountId)`。同一账户可复用已有 StorageKey，其他账户的主存档及备份各自独立；不会自动迁移应用级旧存档。调用方决定账号会话何时开始与结束，框架不新增账号管理器。
 
 ## 时间、偏移和周期
 
@@ -153,7 +189,7 @@ items.all();         // 只读行数组；当前导出器按主键排序
 
 数据及嵌套值只读；保存玩家状态时应创建业务数据对象。Scope 取消后，表句柄的数据查询会报取消错误。字符串主键和数字主键不互相转换。
 
-一张表有多个 Bundle 路由时，必须通过 `{ bundle: SomeBundles.extra }` 指定一份，或使用 `bundleHandle.tables.load`；框架不自动合并。`show.config.loadMany({ items: ItemsTable, ... })` 成组加载，任何一张失败都会清理本批持有。
+一张表有多个 Bundle 路由时，必须通过 `{ bundle: SomeBundles.extra }` 指定一份，或使用 `bundleHandle.tables.load`；框架不自动合并。`show.config.loadMany({ items: ItemsTable, ... })` 成组加载，首个失败立即取消本批等待并清理持有，不被另一张未完成的表拖住。其他所有者共享的加载继续；最后一个已交付的持有归还时会等待异步清理。
 
 命名枚举从 XLSX `__enums` 导出同名 `as const` 值对象与联合类型。表格中的字段说明和枚举成员说明也会进入生成注释。`ref` 是外键值，不会自动加载另一张表；导出时做引用校验，运行时按需明确加载目标表。
 
@@ -206,9 +242,12 @@ const reward = economy.require(1);
 // LobbyServices 放在本模块 code，引用值不包含服务实例。
 export const LobbyServices = moduleServices<{ lobby: LobbyService }>('lobby');
 
+// 来自 module.json 的 "dependencies": { "profile": "profile" }。
+import { dependencies } from './generated/dependencies';
+
 export const createLobbyModule = defineModule(
     LobbyModule,
-    { services: LobbyServices, dependencies: { profile: ProfileModule } },
+    { services: LobbyServices, dependencies },
     (ctx, deps) => ({
         api: { moduleId: ctx.id },
         services: { lobby: new LobbyService(ctx, deps.profile) },
@@ -218,7 +257,11 @@ export const createLobbyModule = defineModule(
 const service = this.ctx.services(LobbyServices).lobby;
 ```
 
-真实业务依赖还须在 `module.json.dependencies` 声明，面板创建时可选择。`deps.profile` 具有 `ProfileApi` 类型，工厂返回值也受 `LobbyModule` 合同检查；不靠 `as` 强转补类型。其他模块通过 `public.ts` API 通信，不能读取这组私有服务。旧代结束后，其 ctx 不能访问新一代服务。完整示例见 `lobby/code/LobbyModule.ts`、`LobbyService.ts`、`profile/code/services/WalletService.ts`。
+业务依赖仅在 `module.json.dependencies` 维护“别名 → 模块 ID”，面板可选择目标，生成器产生带类型的 `dependencies.ts`。`deps.profile` 具有 `ProfileApi` 类型，工厂返回值也受 `LobbyModule` 合同检查。其他模块通过 `public.ts` API 通信，不能读取私有服务。旧代结束后，其 ctx 不能访问新一代服务。完整示例见 `lobby/code/LobbyModule.ts`、`LobbyService.ts`、`profile/code/services/WalletService.ts`。
+
+公开 API 方法开始前会登记调用，最后一份模块持有归还时等待这些方法返回的 Promise 结束，再销毁服务。方法内部脱离返回链的任务仍需显式登记；API 应优先返回只读数据，嵌套逃逸对象不自动代理。不要在方法里等待结束承载自己的模块。
+
+只有资源与配置的模块设置 `"code": { "mode": "none" }`，无需 `public.ts` 或空业务工厂。common 示例已采用此模式。引用公开表与资源合同无需业务依赖；资源模块不能声明业务服务、UI 或 Part 脚本。
 
 “随应用启动加载”和“按需加载”控制的是代码何时可用。两种模式都在首次 `use` 或打开所属 UI 时按需初始化业务工厂；代码准备完成不代表业务已 ready。最后一份外部持有归还后清理该代业务实例，后续可再初始化。
 

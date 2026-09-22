@@ -13,6 +13,10 @@ const workbookTools = () => {
     const file = path.join(root(), 'tools/yzforge/workbooks.mjs');
     return import(pathToFileURL(file).href + '?v=' + syncFs.statSync(file).mtimeMs);
 };
+const projectTools = () => {
+    const file = path.join(root(), 'tools/yzforge/project.mjs');
+    return import(pathToFileURL(file).href + '?v=' + syncFs.statSync(file).mtimeMs);
+};
 const name = 'yzforge-editor';
 let queue = Promise.resolve();
 let autoTimer;
@@ -123,12 +127,14 @@ async function bundleFolder(directory, definition, kind = 'resources') {
     if (check?.userData?.bundleName !== definition.id || !check.userData.isBundle) throw Error('资源包属性保存失败');
 }
 async function createModule(args) {
+    if (args.delivery === 'none') args = { ...args, codeOnly: false, dependencies: {} };
     const id = validId(naming.slug(args.id)),
         directory = inside(`assets/game/modules/${id}`);
     if (await Editor.Message.request('asset-db', 'query-asset-info', url(directory))) throw Error(`模块已存在：${id}`);
     await ensureFolder(directory);
-    await ensureFolder(path.join(directory, 'code'));
-    await ensureFolder(path.join(directory, 'code/generated'));
+    if (args.delivery !== 'none') {
+        await ensureFolder(path.join(directory, 'code/generated'));
+    }
     const manifest = {
         id,
         layoutVersion: 2,
@@ -138,6 +144,7 @@ async function createModule(args) {
             id,
             args.dependencies ?? [],
         ),
+        ...(args.delivery === 'none' ? { code: { mode: 'none' } } : {}),
         bundles: args.codeOnly ? {} : { default: { id: `m-${id}`, root: 'bundles/default' } },
         views: {},
         audio: {},
@@ -148,18 +155,28 @@ async function createModule(args) {
         await ensureFolder(path.join(directory, 'bundles/default/dynamic'));
         await ensureFolder(path.join(directory, 'bundles/default/static'));
     }
+    await ensureFolder(path.join(directory, 'contracts'));
+    if (args.delivery === 'none') return { id, directory: rel(directory) };
     const type = pascal(id),
         framework = path.relative(path.join(directory, 'code'), inside('assets/framework')).replaceAll('\\', '/');
-    const dependencyImports = manifest.dependencies
-        .map((dependency) => `import { ${pascal(dependency)}Module } from '../../${dependency}/public';`)
+    const dependencyImports = Object.entries(manifest.dependencies)
+        .map(
+            ([, dependency], index) =>
+                `import { ${pascal(dependency)}Module as dependency${index} } from '../../../${dependency}/public';`,
+        )
         .join('\n');
-    const dependencyRefs = manifest.dependencies
-        .map((dependency) => `'${dependency}': ${pascal(dependency)}Module`)
+    const dependencyRefs = Object.entries(manifest.dependencies)
+        .map(([alias], index) => `'${alias}': dependency${index}`)
         .join(', ');
     await writeScript(
         'create-asset',
+        path.join(directory, 'code/generated/dependencies.ts'),
+        `// 自动生成：依赖只在 module.json 维护。\n${dependencyImports}\nexport const dependencies = { ${dependencyRefs} } as const;\n`,
+    );
+    await writeScript(
+        'create-asset',
         path.join(directory, `code/${type}Module.ts`),
-        `import { defineModule } from '${framework}/modules/module-manager';\nimport { ${type}Module } from '../public';\n${dependencyImports}\n/**\n * 显式装配模块服务，返回值在编译期匹配 public.ts 的 API 合同。\n * dependencies 按 module.json 的声明提供完整类型；无需 unknown 强制转换。\n * 需要内部服务时，在 code 中定义 moduleServices 合同，传入 services 选项并返回 services 对象。\n * UI 通过 this.ctx.services(服务合同) 读取；清理登记到 ctx.scope。\n */\nexport const create${type}Module = defineModule(${type}Module, { dependencies: { ${dependencyRefs} } }, (ctx, _dependencies) => {\n  return { api: { /** 当前模块的稳定 ID。 */ get moduleId() { return ctx.id; } } };\n});\n`,
+        `import { defineModule } from '${framework}/modules/module-manager';\nimport { ${type}Module } from '../public';\nimport { dependencies } from './generated/dependencies';\n/**\n * 显式装配模块服务，返回值在编译期匹配 public.ts 的 API 合同。\n * dependencies 按 module.json 的声明提供完整类型；无需 unknown 强制转换。\n * 需要内部服务时，在 code 中定义 moduleServices 合同，传入 services 选项并返回 services 对象。\n * UI 通过 this.ctx.services(服务合同) 读取；清理登记到 ctx.scope。\n */\nexport const create${type}Module = defineModule(${type}Module, { dependencies }, (ctx, _dependencies) => {\n  return { api: { /** 当前模块的稳定 ID。 */ get moduleId() { return ctx.id; } } };\n});\n`,
     );
     await writeScript(
         'create-asset',
@@ -434,7 +451,7 @@ async function previewDelete(args, creation) {
             ids.push(manifest.id + '/', manifest.id + '.');
             refs.push(
                 ...state.modules
-                    .filter((module) => module.dependencies.includes(manifest.id))
+                    .filter((module) => Object.values(module.dependencies).includes(manifest.id))
                     .map((module) => `模块 ${module.id} 依赖此模块`),
             );
         }
@@ -443,7 +460,7 @@ async function previewDelete(args, creation) {
         ids.push(manifest.id + '/', manifest.id + '.');
         refs.push(
             ...state.modules
-                .filter((module) => module.dependencies.includes(manifest.id))
+                .filter((module) => Object.values(module.dependencies).includes(manifest.id))
                 .map((module) => `模块 ${module.id} 依赖此模块`),
         );
         for (const workbook of state.workbooks ?? [])
@@ -697,6 +714,12 @@ const actions = {
     previewCreationRollback: (args) => creation.previewRollback(args),
     rollbackCreation: (args) => creation.rollback(args),
     retryCreationGeneration: (args) => creation.retryGeneration(args.id, () => actions.generate()),
+    previewGenerationRecovery: async (args) => (await projectTools()).previewTransaction(root(), args.id),
+    recoverGeneration: async (args) => {
+        const result = await (await projectTools()).recoverTransaction(root(), args);
+        await Editor.Message.request('asset-db', 'refresh-asset', 'db://assets/game');
+        return result;
+    },
     createModule,
     createBundle,
     createView,
@@ -990,6 +1013,7 @@ exports.methods = {
             orphans,
             history,
             creations: await creation.list(),
+            generations: await (await projectTools()).pendingTransactions(root()),
             scripts,
             prefabs: prefabs.map(({ uuid, url }) => ({ uuid, url })),
             autoStatus,

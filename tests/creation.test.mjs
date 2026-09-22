@@ -39,6 +39,29 @@ async function fixture(run) {
         await rm(root, { recursive: true, force: true });
     }
 }
+test('failed generation retry never absorbs user edits into creation ownership', () =>
+    fixture(async ({ inside, history }) => {
+        await writeFile(inside('source.txt'), 'original');
+        const result = await history.run(
+            { request: { kind: 'service' }, files: [{ path: 'source.txt' }] },
+            async () => {
+                await writeFile(inside('source.txt'), 'created');
+                return {};
+            },
+        );
+        await history.mark(result.creationId, 'generation-failed', 'first failure');
+        await writeFile(inside('source.txt'), 'user edits');
+        await assert.rejects(
+            history.retryGeneration(result.creationId, async () => {
+                throw Error('retry failed');
+            }),
+        );
+        const preview = await history.previewRollback({ id: result.creationId });
+        assert.equal(preview.conflicts.length, 1);
+        await assert.rejects(history.rollback(preview), /修改/);
+        assert.equal(await readFile(inside('source.txt'), 'utf8'), 'user edits');
+    }));
+
 test('failed creation can restore existing content and remove only its newly created assets', () =>
     fixture(async ({ inside, history }) => {
         await mkdir(inside('assets/code'), { recursive: true });

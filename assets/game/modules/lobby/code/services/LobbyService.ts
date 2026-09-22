@@ -1,5 +1,5 @@
 import type { ModuleContext } from '../../../../../framework/modules/module-manager';
-import type { Scope } from '../../../../../framework/core/scope';
+import type { Lifetime } from '../../../../../framework/core/scope';
 import type { ProfileApi, WalletSnapshot } from '../../../profile/public';
 import { EconomyTable } from '../../../common/contracts/generated/config/Economy.table';
 
@@ -11,9 +11,9 @@ export class LobbyService {
         private readonly profile: ProfileApi,
     ) {}
     /** 读取公共资源包中的奖励配置，不启动 common 模块工厂。 */
-    async reward(owner: Scope): Promise<{ title: string; amount: number }> {
+    async reward(owner: Lifetime): Promise<{ title: string; amount: number }> {
         this.ctx.scope.signal.throwIfAborted();
-        const table = await this.ctx.config.load(EconomyTable, owner);
+        const table = await this.ctx.config.in(owner).load(EconomyTable);
         const row = table.require(1);
         return { title: row.name, amount: row.amount };
     }
@@ -27,7 +27,7 @@ export class LobbyService {
         return this.profile.snapshot();
     }
     /** 共享账号状态随当前页面使用期限自动解绑。 */
-    subscribe(callback: (state: WalletSnapshot) => void, owner: Scope): () => void {
+    subscribe(callback: (state: WalletSnapshot) => void, owner: Lifetime): () => void {
         return this.profile.subscribe(callback, owner);
     }
 }

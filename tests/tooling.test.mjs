@@ -22,7 +22,7 @@ async function fixture(callback) {
         const module = {
             id: 'lobby',
             directory: join(root, 'assets/game/modules/lobby'),
-            dependencies: [],
+            dependencies: {},
             bundles: {
                 default: { id: 'm-lobby', root: 'res' },
                 forest: { id: 'lobby-forest', root: 'bundles/forest' },
@@ -185,7 +185,7 @@ test('dynamic asset fields produce typed logical keys without loading engine ass
 test('module validation rejects cycles and duplicate physical bundle names', () => {
     const make = (id, dependencies = [], bundle = id) => ({
         id,
-        dependencies,
+        dependencies: Object.fromEntries(dependencies.map((id) => [id, id])),
         bundles: { default: { id: bundle, root: 'res' } },
         assets: {},
         views: {},
@@ -195,8 +195,19 @@ test('module validation rejects cycles and duplicate physical bundle names', () 
 });
 test('code-only modules do not require a resource bundle or a particular business name', () => {
     assert.doesNotThrow(() =>
-        validateModules([{ id: 'metrics', dependencies: [], bundles: {}, assets: {}, views: {} }]),
+        validateModules([{ id: 'metrics', dependencies: {}, bundles: {}, assets: {}, views: {} }]),
     );
+});
+test('resource-only modules have no runtime dependencies and invalid delivery modes fail early', () => {
+    const data = { id: 'data', dependencies: {}, code: { mode: 'none' }, bundles: {}, views: {} };
+    const consumer = { id: 'consumer', dependencies: { data: 'data' }, bundles: {}, views: {} };
+    assert.doesNotThrow(() => validateModules([data]));
+    assert.throws(() => validateModules([data, consumer]), /no business runtime/);
+    assert.throws(
+        () => validateModules([{ ...data, factory: { file: 'factory.ts', export: 'factory' } }]),
+        /resource-only/,
+    );
+    assert.throws(() => validateModules([{ ...data, code: { mode: 'typo' } }]), /code.mode/);
 });
 test('project settings isolate applications and allow arbitrary audio groups and calendar rules', () => {
     const settings = {

@@ -311,7 +311,7 @@ modules/battle/
 {
   "id": "battle",
   "displayName": "战斗",
-  "dependencies": ["profile"],
+  "dependencies": { "profile": "profile" },
   "bundles": {
     "default": { "id": "m-battle", "root": "bundles/default" },
     "forest": { "id": "battle-forest", "root": "bundles/forest" }
@@ -1046,7 +1046,7 @@ onCreate 期间打开请求取消时，管理器取消 instance 的准备任务�
 
 ```ts
 protected async onShow(show: ViewShowContext<RewardParams, RewardResult>): Promise<void> {
-  const items = await this.ctx.config.load(SharedTables.items, show.scope);
+  const items = await show.config.load(SharedTables.items);
   show.signal.throwIfAborted();
   const item = items.require(show.params.itemId);
   show.commit(() => { this.lblTitle.string = item.name; });
@@ -1401,7 +1401,7 @@ const sameLevels = await app.config.load(BattleTables.levels, levelScope, {
 UI 读取道具定义后显示图片：
 
 ```ts
-const items = await this.ctx.config.load(SharedTables.items, show.scope);
+const items = await show.config.load(SharedTables.items);
 show.signal.throwIfAborted();
 const item = items.require(show.params.itemId);
 show.commit(() => { this.lblName.string = item.name; });

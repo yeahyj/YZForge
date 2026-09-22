@@ -173,6 +173,31 @@ test('shared assets stay pinned until every owner releases and reuse owner lease
     await b.close();
     assert.equal(pins, 0);
 });
+test('the last delivered lease waits for asynchronous resource cleanup', async () => {
+    let finish!: () => void,
+        released = false;
+    const gate = new Promise<void>((resolve) => {
+        finish = resolve;
+    });
+    const pool = new LeaseCache(
+        async () => ({}),
+        () => {},
+        async () => {
+            await gate;
+            released = true;
+        },
+    );
+    const owner = new Scope('async-release');
+    await pool.acquire('table', owner);
+    assert.equal(await pool.acquire('table', owner.lifetime), await pool.acquire('table', owner));
+    const closing = owner.close();
+    await Promise.resolve();
+    assert.equal(owner.closed, false);
+    finish();
+    await closing;
+    assert.equal(released, true);
+    assert.equal(pool.retainedCount, 0);
+});
 test('resource short names are resolved only in the selected namespace and kind', () => {
     assert.deepEqual(logicalKey('coin', 'SpriteFrame', 'battle/forest'), {
         id: 'battle/forest/sprite/coin',

@@ -12,9 +12,9 @@
       "type": "dockable",
       "main": "panel.js",
       "size": {
-        "width": 880,
-        "height": 740,
-        "min-width": 620,
+        "width": 1100,
+        "height": 810,
+        "min-width": 600,
         "min-height": 480
       }
     }

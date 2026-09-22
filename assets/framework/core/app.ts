@@ -11,9 +11,10 @@ import { TimeOptions, TimeService } from '../time/time-service';
 import { UIManager, ViewDefinition } from '../ui/ui-manager';
 import { ClockDriver, SystemClockDriver } from './clock-driver';
 import { Events } from './events';
-import { Scope } from './scope';
+import { Scope, Lifetime } from './scope';
 import { FrameworkError } from './errors';
 import { GameComponent } from './game-component';
+import { BootFlow } from './boot';
 /**
  * 应用启动装配参数。通常由项目设置和生成的发布清单构建，交给 AppEntry.appOptions。
  */
@@ -85,6 +86,7 @@ export class App {
             assets: this.assets.inspect(),
             config: this.config.inspect(),
             time: this.time.snapshot(),
+            boot: this.boot.inspect(),
         });
     }
     /**
@@ -96,6 +98,8 @@ export class App {
      * 可以 child 创建独立会话，并在会话结束时 close。
      */
     readonly flows = this.scope.child('flows');
+    /** 失败时回收本次业务启动，保留核心服务以展示错误和允许显式重试。 */
+    readonly boot = new BootFlow(this.flows.lifetime);
     /**
      * 全应用共享的类型化事件总线，用于广播已发生的事实；命令和查询优先用模块 API。
      */
@@ -154,13 +158,36 @@ export class App {
      */
     readonly audio: AudioManager;
     private closing?: Promise<void>;
-    private readonly unbind: () => void;
+    private readonly unbind: () => void = () => {};
+    /**
+     * 构建应用核心；任何一步失败都会等待已创建部分清理后才拒绝。
+     * 初始业务通过 app.boot.start 启动，使用 BootContext.scope 持有首屏和会话。
+     */
+    static async create(input: AppOptions): Promise<App> {
+        let partial: App | undefined;
+        try {
+            return new App(input, (value) => {
+                partial = value;
+            });
+        } catch (error) {
+            try {
+                await partial?.close();
+            } catch (cleanup) {
+                throw new FrameworkError('APP_STARTUP_FAILED', 'App construction and cleanup failed', {
+                    error,
+                    cleanup,
+                });
+            }
+            throw error;
+        }
+    }
     /**
      * 创建核心服务并接通引擎前后台事件，尚未执行所有模块业务工厂。
      * @param input - 应用装配参数，通常使用生成清单与项目设置。
      * @throws FrameworkError appId、发布路由、模块依赖或服务配置不合法。
      */
-    constructor(input: AppOptions) {
+    private constructor(input: AppOptions, capture: (partial: App) => void) {
+        capture(this);
         if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(input.appId))
             throw new FrameworkError('APP_ID_INVALID', 'Provide a stable application ID for storage isolation');
         this.storage = new Storage(`${input.appId}:`, input.storageBackend ?? sys.localStorage);
@@ -215,6 +242,7 @@ export class App {
             this.time,
             this.clock,
             input.views,
+            this.scope.lifetime,
             undefined,
             input.cleanupTimeoutMs,
         );
@@ -248,7 +276,7 @@ export class App {
      * @remarks 不负责创建或销毁传入的场景节点；UI 预制体和 assets.instantiate 已自动绑定，无需重复调用。
      * @throws 模块初始化、组件绑定或取消错误；失败时清理本次绑定持有。
      */
-    async bindScene(root: Node, moduleId: string, owner: Scope): Promise<Scope> {
+    async bindScene(root: Node, moduleId: string, owner: Lifetime): Promise<Scope> {
         const scope = owner.child(`scene-host:${moduleId}`);
         try {
             await this.modules.use({ id: moduleId }, scope);
@@ -277,10 +305,10 @@ export class App {
                     }
                 };
                 this.flows.cancel();
-                await attempt(() => this.ui.close());
+                await attempt(() => this.ui?.close() ?? Promise.resolve());
                 await attempt(() => this.flows.close());
-                await attempt(() => this.audio.close());
-                await attempt(() => this.modules.close());
+                await attempt(() => this.audio?.close() ?? Promise.resolve());
+                await attempt(() => this.modules?.close() ?? Promise.resolve());
                 await attempt(() => this.scope.close());
                 this.unbind();
                 if (failures.length)

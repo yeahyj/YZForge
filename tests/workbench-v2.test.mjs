@@ -19,13 +19,29 @@ import { logicalKey, validateIndex, resolveIndex } from '../assets/framework/ass
 import { validateValue } from '../assets/framework/config/schema.ts';
 import { parseTable } from '../assets/framework/config/config-table.ts';
 const runtime = { logicalKey, validateValue, parseTable };
+test('dependency previews round-trip alias maps without losing explicit names', () => {
+    const modules = [
+        { id: 'lobby', dependencies: { account: 'player-profile' } },
+        { id: 'player-profile', dependencies: {} },
+    ];
+    const expected = { account: 'player-profile' };
+    assert.deepEqual(naming.dependencies(modules, 'lobby', ['player-profile']), expected);
+    assert.deepEqual(naming.dependencies(modules, 'lobby', expected), expected);
+    assert.throws(
+        () =>
+            naming.dependencies([...modules, { id: 'data', code: { mode: 'none' }, dependencies: {} }], 'lobby', [
+                'data',
+            ]),
+        /无业务 API/,
+    );
+});
 async function fixture(fn) {
     const root = await mkdtemp(join(tmpdir(), 'yzforge-workbench-'));
     assert.ok(root.startsWith(resolve(tmpdir()) + sep));
     const module = {
         id: 'inventory',
         layoutVersion: 2,
-        dependencies: [],
+        dependencies: {},
         directory: resolve(root, 'assets/game/modules/inventory'),
         bundles: { default: { id: 'm-inventory', root: 'bundles/default' } },
         views: {},
@@ -53,14 +69,14 @@ test('role suffixes are idempotent and missing or cyclic dependencies fail befor
     assert.throws(() =>
         naming.dependencies(
             [
-                { id: 'a', dependencies: ['b'] },
-                { id: 'b', dependencies: [] },
+                { id: 'a', dependencies: { b: 'b' } },
+                { id: 'b', dependencies: {} },
             ],
             'b',
             ['a'],
         ),
     );
-    assert.throws(() => naming.dependencies([{ id: 'a', dependencies: [] }], 'a', ['missing']));
+    assert.throws(() => naming.dependencies([{ id: 'a', dependencies: {} }], 'a', ['missing']));
 });
 test('v2 paths disambiguate basenames and v1 cannot accept hierarchical IDs', () => {
     const address = { type: 'SpriteFrame', bundle: 'm-inventory', path: 'dynamic/a/icon/spriteFrame' };

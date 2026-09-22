@@ -16,13 +16,11 @@ const { ccclass } = _decorator;
 @ccclass('lobby.Dashboard')
 export class Dashboard extends DashboardBinding {
     private elapsed = 0;
-    private popupBusy = false;
     /**
      * 每次展示时加载数据、注册输入和日切通知；框架等待此方法完成后才允许交互。
      * @param show - 仅属于本次展示的上下文。资源与监听用 show.scope，await 后更新 UI 用 show.commit。
      */
     protected async onShow(show: ViewShowContext<DashboardParams, DashboardResult>): Promise<void> {
-        this.popupBusy = false;
         const service = this.ctx.services(LobbyServices).lobby;
         const reward = await service.reward(show.scope);
         this.lblStatus.string = '共享 Profile 服务 · 公共配置 common';
@@ -62,43 +60,33 @@ export class Dashboard extends DashboardBinding {
             { emitCurrent: true },
         );
         show.listen(this.btnReward.node, Button.EventType.CLICK, async () => {
-            if (this.popupBusy) return;
-            this.popupBusy = true;
-            try {
+            // 防止重复打开和重复提交；页面结束会取消等待，不自动重试领取奖励。
+            await show.actions.exclusive('claim-reward', async (task) => {
                 // 子弹窗属于当前页面展示；页面结束时会同时关闭它。
-                const popup = await this.ctx.ui.open(LobbyViews.rewardPopup, reward, show.scope);
+                const popup = await this.ctx.ui.open(LobbyViews.rewardPopup, reward, task.scope);
                 // open 等待打开完成，result 另行等待玩家选择或外部关闭。
                 const result = await popup.result;
-                show.signal.throwIfAborted();
+                task.signal.throwIfAborted();
                 if (result.status === 'completed' && result.value.claimed) service.claim(reward.amount);
-                show.commit(() => {
+                task.commit(() => {
                     this.lblResult.string =
                         result.status === 'completed' && result.value.claimed
                             ? `已领取 ${reward.amount} 金币。\n账号服务已保存，动态 Part 同步更新。`
                             : '本次未领取奖励，可以再次打开。';
                 });
-            } finally {
-                show.commit(() => {
-                    this.popupBusy = false;
-                });
-            }
+            });
         });
-        let reloading = false;
         show.listen(
             this.btnReload.node,
             Button.EventType.CLICK,
             async () => {
-                if (reloading) return;
-                reloading = true;
-                try {
+                await show.actions.exclusive('reload-content', async (task) => {
                     await this.readItems(show);
                     await replaceWallet();
-                    show.commit(() => {
+                    task.commit(() => {
                         this.lblResult.string = '配置读取完成。\n旧 Part 已释放，新 Part 读取共享余额。';
                     });
-                } finally {
-                    reloading = false;
-                }
+                });
             },
             (error) => {
                 show.commit(() => {

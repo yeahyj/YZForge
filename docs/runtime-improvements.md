@@ -22,12 +22,12 @@
 ## 已有调用如何迁移
 
 1. **返回导航**：页面内部改用 `show.back()`。外部原来 `await ui.back()` 若需要等物理完成，改为 `await ui.back().completed`。不要在当前页的受管任务里等待 `.completed`，否则又会等待自己。
-2. **配置与资源**：UI 中推荐 `show.config.load(Table)`、`show.assets.load(Key)`、`show.audio.play(Key)`。`ctx.config.load(Table, show.scope, options)` 仍兼容。模块级长期持有继续使用 ctx。
+2. **配置与资源**：UI 中推荐 `show.config.load(Table)`、`show.assets.load(Key)`、`show.audio.play(Key)`。显式切换使用期改用 `ctx.config.in(show.scope).load(Table, options)`。模块级长期持有继续使用 ctx。
 3. **日历默认值**：`time.calendar.format(now, 'datetime')` 现在继承项目时区。旧代码若必须固定 UTC，传 `0`；直接导入纯日历工具的调用不受影响。
 4. **校时策略**：注入 source 后默认自动同步；已有登录流程必须完全控制请求时，设置 `autoSync: false`。resetSync 仍负责使上一会话样本失效。
 5. **按钮错误**：`show.listen` 的普通操作错误不再自动结束 UI。需要告知用户可传第四参数；不能把这个回调当业务事务回滚。
 6. **存储构造**：业务继续用 ctx.storage/app.storage；直接 `new Storage` 的平台/测试代码需传入 `StorageBackend`，App 默认注入 Cocos sys.localStorage。
-7. **模块工厂**：已有普通工厂仍可装配；新工厂推荐 `defineModule(公开引用, { dependencies, services }, factory)`，依赖还须声明在 module.json。声明服务合同后须返回对应 services，工厂未就绪时不可反过来读取自己。
+7. **模块工厂**：已有普通工厂仍可装配；新工厂推荐 `defineModule(公开引用, { dependencies, services }, factory)`，依赖只在 module.json 中维护，由生成的 dependencies.ts 提供类型入口。声明服务合同后须返回对应 services，工厂未就绪时不可反过来读取自己。
 
 ## 示例链路
 

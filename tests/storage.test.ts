@@ -22,6 +22,22 @@ const key: StorageKey<{ coins: number }> = {
     validate: (value): value is { coins: number } =>
         !!value && typeof value === 'object' && Number.isSafeInteger((value as { coins: number }).coins),
 };
+test('optional namespaces isolate users, backups and separator-containing IDs', () => {
+    const backend = new MemoryStorage(),
+        storage = new Storage('game:', backend);
+    const first = storage.in('user/A'),
+        second = storage.in('user').in('A');
+    first.set(key, { coins: 1 });
+    first.set(key, { coins: 2 });
+    second.set(key, { coins: 9 });
+    assert.equal(storage.in('user/A').get(key)?.coins, 2);
+    assert.equal(second.get(key)?.coins, 9);
+    assert.equal(storage.get(key), undefined);
+    first.remove(key);
+    assert.equal(second.get(key)?.coins, 9);
+    assert.throws(() => storage.in(''), { code: 'STORAGE_NAMESPACE_INVALID' });
+    assert.throws(() => storage.set({ ...key, id: '@namespace/user' }, { coins: 0 }));
+});
 test('save migration does not overwrite source until explicitly saved', () => {
     const backend = new MemoryStorage(),
         storage = new Storage('game:', backend);

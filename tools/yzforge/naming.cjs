@@ -36,8 +36,12 @@ function named(input, kind) {
     return { id: slug(type), className: type, suffix };
 }
 function dependencies(modules, id, values) {
-    const map = new Map(modules.map((item) => [item.id, item.dependencies ?? []]));
-    map.set(id, [...new Set(values)]);
+    const map = new Map(modules.map((item) => [item.id, Object.values(item.dependencies ?? {})]));
+    const selected = [...new Set(Array.isArray(values) ? values : Object.values(values))];
+    for (const target of selected)
+        if (modules.find((item) => item.id === target)?.code?.mode === 'none')
+            throw Error(`资源模块 ${target} 无业务 API，请直接引用其公开数据合同`);
+    map.set(id, selected);
     const active = new Set(),
         done = new Set();
     function visit(current) {
@@ -50,6 +54,14 @@ function dependencies(modules, id, values) {
         done.add(current);
     }
     for (const key of map.keys()) visit(key);
-    return map.get(id);
+    const previous = Array.isArray(values) ? (modules.find((item) => item.id === id)?.dependencies ?? {}) : values;
+    const entries = selected.map((value) => [
+        Object.entries(previous).find(([, target]) => target === value)?.[0] ??
+            value.replace(/-([a-z])/g, (_, char) => char.toUpperCase()),
+        value,
+    ]);
+    if (new Set(entries.map(([alias]) => alias)).size !== entries.length)
+        throw Error('依赖别名重复，请检查 module.json');
+    return Object.fromEntries(entries);
 }
 module.exports = { suffixes, slug, named, dependencies };

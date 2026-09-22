@@ -1,14 +1,26 @@
-import { _decorator, Component } from 'cc';
+import { _decorator, Component, isValid, Node } from 'cc';
+import type { ScopedAssets } from '../assets/asset-manager';
+import type { ScopedConfig } from '../config/config-manager';
+import type { ScopedAudio } from '../audio/audio-manager';
+import { Actions } from './actions';
 import type { ModuleContext } from '../modules/module-manager';
 import type { ScopedTime, TimeService } from '../time/time-service';
 import { invariant, reportError } from './errors';
 import { assertLifecycle, synchronous } from './lifecycle';
-import { runTask, Scope, taskContext, TaskContext } from './scope';
+import { runTask, Scope, taskContext, TaskContext, scopeOwner } from './scope';
 const { ccclass } = _decorator;
 /**
  * 组件或 Part 的一次业务激活上下文；禁用或宿主结束时取消，重新激活得到新上下文。
  */
 export interface ActivationContext extends TaskContext {
+    /** 本次激活的资源入口；禁用后归还，重新激活使用新的入口。 */
+    readonly assets: ScopedAssets;
+    /** 本次激活的配置入口，跨模块公开表同样按合同加载。 */
+    readonly config: ScopedConfig;
+    /** 本次激活的音频入口，停用时自动结束持有。 */
+    readonly audio: ScopedAudio;
+    /** 最新查询、防重复触发和顺序执行入口。 */
+    readonly actions: Actions;
     /**
      * 跟随此次激活的时间接口，取消激活后自动移除日历订阅。
      */
@@ -41,14 +53,14 @@ export class GameComponent extends Component {
     private allowed = false;
     private engineLoaded = false;
     /**
-     * 读取生成 Binding 中的必需引用，当前实现进行非空检查。
+     * 读取生成 Binding 中的必需引用，同时检查非空与 Cocos 对象有效性。
      * @param value - 由 Creator 自动写入的引用。
      * @param nodeName - 原节点名，用于错误定位。
-     * @returns 非空引用；若业务会主动销毁节点，使用前仍需确认其引擎有效性。
-     * @throws FrameworkError 引用缺失时抛 BINDING_MISSING。
+     * @returns 当前仍有效、未请求销毁的节点或组件引用。
+     * @throws FrameworkError 引用缺失、已销毁或已请求销毁时抛 BINDING_MISSING。
      */
-    protected requireBinding<T>(value: T | null, nodeName: string): T {
-        invariant(value, 'BINDING_MISSING', `${this.name}: ${nodeName}`);
+    protected requireBinding<T extends Component | Node>(value: T | null, nodeName: string): T {
+        invariant(value && isValid(value, true), 'BINDING_MISSING', `${this.name}: ${nodeName}`);
         return value;
     }
     /**
@@ -202,6 +214,10 @@ export class GameComponent extends Component {
         const current = () => this.activation === activation;
         const activation: ActivationContext = Object.freeze({
             ...taskContext(scope, current),
+            assets: this.ctx.assets.in(scope.lifetime),
+            config: this.ctx.config.in(scope.lifetime),
+            audio: this.ctx.audio.in(scope.lifetime),
+            actions: new Actions(scope.lifetime, current),
             time: this.time!.in(scope),
             run: <T>(task: (context: TaskContext) => T | Promise<T>) => runTask(scope, task, current),
         });
@@ -223,16 +239,18 @@ export class GameComponent extends Component {
         const activation = this.activation;
         if (!activation) return Promise.resolve();
         this.activation = undefined;
-        activation.scope.cancel();
+        scopeOwner(activation.scope).cancel();
         let error: unknown;
         try {
             synchronous(this.onDeactivate(), 'onDeactivate');
         } catch (failure) {
             error = failure;
         }
-        this.draining = activation.scope.close().finally(() => {
-            this.draining = undefined;
-        });
+        this.draining = scopeOwner(activation.scope)
+            .close()
+            .finally(() => {
+                this.draining = undefined;
+            });
         return this.draining.then(() => {
             if (error) throw error;
             if (this.allowed && this.enabledInHierarchy) this.activate();

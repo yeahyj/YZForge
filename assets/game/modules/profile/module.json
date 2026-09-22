@@ -2,7 +2,7 @@
   "id": "profile",
   "layoutVersion": 2,
   "displayName": "示例账号服务",
-  "dependencies": [],
+  "dependencies": {},
   "bundles": {},
   "views": {},
   "audio": {}

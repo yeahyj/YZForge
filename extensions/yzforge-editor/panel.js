@@ -1,73 +1,6 @@
 'use strict';
-const input = (id, label, type = 'text') => `<label>${label}<input id="${id}" type="${type}"></label>`;
-const select = (id, label, values = [], extra = '') =>
-    `<label>${label}<select id="${id}" ${extra}>${values.map(([key, text]) => `<option value="${key}">${text}</option>`).join('')}</select></label>`;
-const button = (id, text, extra = '') => `<button id="${id}" ${extra}>${text}</button>`;
-const kinds = [
-    ['module', '模块'],
-    ['bundle', '资源包'],
-    ['page', '页面 · Page'],
-    ['popup', '弹窗 · Popup'],
-    ['overlay', '覆盖层 · Overlay'],
-    ['toast', '提示 · Toast'],
-    ['loading', '加载界面 · Loading'],
-    ['part', 'UI 部件 · Part'],
-    ['prefab', '通用预制体 · Prefab + Component'],
-    ['component', '节点脚本 · Component'],
-    ['service', '业务服务 · Service'],
-    ['table', '配置表 · XLSX'],
-];
-exports.template = `<main id="workbench"><header><h1>YZForge <small>框架工作台</small></h1>${button('refresh', '刷新')}</header><p id="project"></p><div class="context">${select('module', '当前模块')}<span id="summary"></span>${button('check', '检查')}${button('generate', '生成清单与配置')}</div><nav>${[
-    ['create', '创建'],
-    ['bindings', '自动绑定'],
-    ['tables', '配置表'],
-    ['settings', '项目设置'],
-    ['recovery', '删除与恢复'],
-]
-    .map(([id, text]) => `<button data-tab="${id}">${text}</button>`)
-    .join('')}</nav><p id="autoStatus"></p><section>
-<article data-page="create"><h2>选择要创建的内容</h2><p>名称自动添加角色后缀。Bundle 根目录统一包含 dynamic 与 static；动态清单自动生成。</p><div class="grid">${select('kind', '类型', kinds)}${input('newName', '名称（例如 Inventory）')}</div><div id="moduleOptions" class="grid">${input('displayName', '显示名称（可选）')}${select(
-    'delivery',
-    '代码加载',
-    [
-        ['bundled', '按需加载代码包'],
-        ['eager', '随应用启动加载'],
-    ],
-)}${select('initial', '初始资源', [
-    ['resources', '创建默认资源包'],
-    ['code', '仅代码'],
-])}</div><div id="bundleOptions">${select('bundle', '目标资源包')}</div><div id="presenterOptions">${input('presenter', '同时创建 Presenter（复杂页面可选）', 'checkbox')}</div><div id="adoptOptions">${select('adopt', '预制体来源')}</div><p id="roleHelp"></p>${button('previewCreate', '预览所有文件')}${button('create', '创建预览内容', 'class="primary" disabled')}<pre id="createPreview">输入名称后预览，确认后创建。</pre><details><summary>当前模块结构与依赖</summary><pre id="moduleInfo"></pre>${input('moduleDisplayName', '显示名称')}${select('dependencies', '运行依赖（多选）', [], 'multiple size="4"')}${button('saveModule', '保存模块设置')}</details></article>
-<article data-page="bindings" hidden><h2>自动绑定节点引用</h2><p>节点按 btn_confirm、lbl_title 等前缀命名。生成 Binding 并自动写回引用，无需拖节点；嵌套预制体保留自己的绑定边界。</p>${select('binding', '预制体')}${button('bind', '扫描节点并更新绑定', 'class="primary"')}<p>已有通用预制体：在“创建”选择 UI 部件或普通预制体，再选择已有文件接入。场景中手动放置的 GameComponent 通过 app.bindScene 注入模块上下文。</p><pre id="bindingInfo"></pre></article>
-<article data-page="tables" hidden><h2>XLSX 配置表</h2><p>__config 是唯一导出声明；__enums 定义枚举。数据表依次为字段、类型、默认值、注释，数据从第 5 行开始。</p>${select('workbook', '工作簿')}${button('openWorkbook', '打开工作簿')}${input('workbookEnabled', '启用此工作簿', 'checkbox')}${select('workbookBundle', '工作簿默认资源包')}${select('table', '导出表')}<div class="grid">${select('sheet', '数据工作表')}${select('primaryKey', '主键字段')}${select('tableBundle', '此表的资源包')}${input('tableEnabled', '启用此表', 'checkbox')}${input('tablePublic', '允许其他模块引用此表合同', 'checkbox')}</div>${button('saveTable', '保存此表设置', 'class="primary"')}${button('previewTables', '预览校验')}${button('formulaEnvironment', '检查公式环境')}${button('recalculate', '重新计算公式')}${button('exportTables', '校验并正式导出')}<pre id="tableInfo"></pre><p>索引、约束、分片路由和跨工作簿输入在 __config 声明；面板保留其余声明。类型行可使用 enum&lt;Quality&gt; 或 enum&lt;module.Quality&gt;。公式缓存仅供预览，正式导出需要重算快照。</p></article>
-<article data-page="settings" hidden><h2>项目设置</h2><h3>Bundle 公共配置</h3><p>代码配置和资源配置是 Creator 中的两份真实配置。支持分包的小游戏默认采用分包，其他平台按配置回退。</p>${button('ensurePresets', '检查并创建缺失配置')}${button('bundleSettings', '打开 Creator Bundle 配置')}<pre id="presets"></pre><h3>运行参数</h3><div class="grid">${input('appId', '应用标识')}${input('cleanupTimeout', '清理超时（毫秒）', 'number')}${input('maxVoices', '最大同时播放数量', 'number')}${input('utcOffset', '日历 UTC 偏移（分钟）', 'number')}${select(
-    'weekStart',
-    '每周起始日',
-    [
-        [1, '星期一'],
-        [0, '星期日'],
-        [2, '星期二'],
-        [3, '星期三'],
-        [4, '星期四'],
-        [5, '星期五'],
-        [6, '星期六'],
-    ],
-)}${input('dayBoundary', '日历边界（当天第几分钟）', 'number')}${select('wechatClockUnit', '微信性能计时单位', [
-    ['microseconds', '微秒'],
-    ['milliseconds', '毫秒'],
-])}</div><div id="audioChannels"></div>${button('saveSettings', '保存设置', 'class="primary"')}<details><summary>节点命名前缀</summary><pre id="prefixes"></pre></details></article>
-<article data-page="recovery" hidden><h2>检查、备份、删除</h2><p>默认包适用同一流程。外部引用会阻止删除；完整备份后由 Creator 删除，恢复前检查冲突，恢复后核验 UUID。</p><div class="grid">${select('deleteModule', '模块或残留目录')}${select(
-    'deleteKind',
-    '范围',
-    [
-        ['module', '整个模块'],
-        ['bundle', '资源包'],
-        ['view', '界面及配套脚本'],
-        ['prefab', '部件/通用预制体及脚本'],
-        ['script', '手写脚本'],
-    ],
-)}</div><div id="deleteItemOptions">${select('deleteItem', '内容')}</div>${button('previewDelete', '检查引用并预览')}${button('delete', '备份并删除预览内容', 'class="danger" disabled')}<pre id="deletePreview">删除前必须预览实际文件清单。</pre><hr>${select('restoreRecord', '可恢复记录')}${button('restore', '恢复并核验 UUID')}<hr><h3>未完成的创建</h3><p>保留创建前后快照；撤销前检查外部引用与后续修改。生成失败可以单独重试。</p>${select('creationRecord', '创建记录')}${button('retryCreation', '重试生成')}${button('previewCreationRollback', '预览撤销')}${button('rollbackCreation', '撤销本次创建', 'class="danger" disabled')}<pre id="creationPreview"></pre></article>
-</section><footer><strong id="status">就绪</strong><pre id="output">操作结果与校验信息会显示在这里。</pre></footer></main>`;
-exports.style = `:host{display:block;height:100%;color:#dce5f2;background:#1b202a;font:13px/1.6 "Microsoft YaHei",sans-serif}*{box-sizing:border-box}main{height:100%;padding:18px;display:flex;flex-direction:column;gap:10px}header,.context,nav{display:flex;align-items:center;gap:10px}header h1{flex:1}h1{margin:0;font-size:23px;color:#fff}small{font-weight:400;font-size:14px;color:#9baec8}h2{margin:0 0 8px;font-size:19px}h3{font-size:14px}p{margin:4px 0 15px;color:#a0b0c7}#project{font-size:11px;margin:0}section{overflow:auto;flex:1;min-height:180px;padding:6px 8px 16px 0}.context{border-block:1px solid #344154;padding:8px 0}.context label{margin:0;min-width:170px}#summary{flex:1;font-size:12px;color:#9aadc6}nav{gap:5px;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:5px;margin:8px 0 14px;color:#afbed3}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}input,select{font:inherit;color:#e6edf8;background:#121925;border:1px solid #3b4a60;border-radius:5px;padding:7px 10px;width:100%;min-width:0}input:focus,select:focus{outline:1px solid #69aef7}input[type=checkbox]{width:auto;align-self:flex-start}button{font:inherit;border:1px solid #435570;border-radius:5px;background:#29364a;color:#e2ecfb;padding:7px 12px;cursor:pointer;margin:3px 5px 3px 0}button:hover{background:#354963}button.selected,button.primary{background:#25699c;border-color:#488bc0}button.danger{background:#713e49;border-color:#9b6070}button:disabled{opacity:.4;cursor:default}pre{font:12px/1.65 Consolas,"Microsoft YaHei",monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#121925;border:1px solid #344154;border-radius:5px;padding:12px;max-height:260px;overflow:auto;color:#bccde3}details{margin-top:15px}summary{cursor:pointer;color:#b5c9e4}footer{border-top:1px solid #344154;padding-top:8px}#status{color:#8ed7b8;font-weight:400}#output{max-height:125px;margin:5px 0 0}[hidden]{display:none!important}hr{border:0;border-top:1px solid #344154}`;
+exports.template = require('./panel-template');
+exports.style = require('fs').readFileSync(require('path').join(__dirname, 'panel.css'), 'utf8');
 exports.$ = { workbench: '#workbench' };
 exports.methods = {};
 exports.ready = function () {
@@ -78,6 +11,10 @@ exports.ready = function () {
         creationRollbackPlan,
         deletePlan,
         workbookDraft,
+        generationPlan,
+        previewTimer,
+        previewSequence = 0,
+        closed = false,
         busy = false,
         settingsLoaded = false;
     const workbookDrafts = new Map(),
@@ -86,11 +23,63 @@ exports.ready = function () {
         el('output').textContent = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
     };
     const current = () => state?.modules.find((module) => module.id === val('module'));
+    const renderFiles = (id, files, empty) => {
+        const target = el(id);
+        const labels = {
+            create: '新建',
+            'create-directory': '目录',
+            Creator: '元数据',
+            existing: '保留',
+            update: '更新',
+            generate: '生成',
+            'regenerate-if-changed': '按需更新',
+            conflict: '冲突',
+            delete: '删除',
+            restore: '恢复',
+            reference: '被引用',
+        };
+        target.replaceChildren();
+        target.classList.toggle('empty', !files.length);
+        if (!files.length) {
+            target.textContent = empty;
+            return;
+        }
+        for (const file of files) {
+            const row = document.createElement('div'),
+                operation = document.createElement('span'),
+                code = document.createElement('code');
+            row.className = 'file-row';
+            row.dataset.operation = file.operation ?? file.action;
+            operation.className = 'operation';
+            operation.textContent = labels[row.dataset.operation] ?? row.dataset.operation;
+            const name = document.createElement('span'),
+                directory = document.createElement('small');
+            const boundary = file.path.lastIndexOf('/');
+            name.className = 'file-name';
+            name.textContent = file.path.slice(boundary + 1);
+            directory.className = 'file-directory';
+            directory.textContent = boundary >= 0 ? file.path.slice(0, boundary + 1) : '';
+            code.title = file.path;
+            code.append(name, directory);
+            row.append(operation, code);
+            target.appendChild(row);
+        }
+    };
+    const renderRecovery = (id, plan) =>
+        renderFiles(
+            id,
+            [
+                ...(plan.changes ?? []),
+                ...(plan.conflicts ?? []).map((path) => ({ path, operation: 'conflict' })),
+                ...(plan.references ?? []).map((path) => ({ path, operation: 'reference' })),
+            ],
+            '文件已处于原始状态，可以完成恢复记录。',
+        );
     const options = (id, items) => {
         const select = el(id),
             old = select.value;
         select.textContent = '';
-        for (const [key, title] of items) {
+        for (const [key, title] of items.length ? items : [['', '暂无可选内容']]) {
             const option = document.createElement('option');
             option.value = key;
             option.textContent = title;
@@ -99,12 +88,23 @@ exports.ready = function () {
         if (items.some(([key]) => key === old)) select.value = old;
     };
     const invalidateCreate = () => {
+        clearTimeout(previewTimer);
+        previewSequence++;
         createPlan = null;
         el('create').disabled = true;
+        el('createIssue').hidden = true;
+        el('fileCount').textContent = val('newName') ? '等待校验' : '等待名称';
+        renderFiles(
+            'createPreview',
+            [],
+            val('newName') ? '正在准备文件预览…' : '填写名称，即可查看所有文件的名字和位置。',
+        );
+        if (!closed && state && val('newName')) previewTimer = setTimeout(() => void previewCreate(), 450);
     };
     const invalidateDelete = () => {
         deletePlan = null;
         el('delete').disabled = true;
+        renderFiles('deletePreview', [], '预览后显示实际文件和外部引用。');
     };
     const updateCreationActions = () => {
         const record = state?.creations?.find((record) => record.id === val('creationRecord'));
@@ -116,6 +116,25 @@ exports.ready = function () {
             creationRollbackPlan.id !== record?.id ||
             creationRollbackPlan.conflicts.length > 0 ||
             creationRollbackPlan.references.length > 0;
+        el('create').disabled = busy || !createPlan || createPlan.conflicts.length > 0;
+        el('previewCreate').disabled = busy || !state || !val('newName');
+        el('delete').disabled = busy || !deletePlan || deletePlan.references.length > 0;
+        el('previewDelete').disabled =
+            busy || !val('deleteModule') || (val('deleteKind') !== 'module' && !val('deleteItem'));
+        el('saveModule').disabled = busy || !current();
+        el('dependencies').disabled = busy || !current() || current().code?.mode === 'none';
+        el('initial').disabled = busy || val('delivery') === 'none';
+        el('bind').disabled = busy || !val('binding');
+        for (const id of ['openWorkbook', 'saveTable', 'recalculate']) el(id).disabled = busy || !workbookDraft;
+        el('restore').disabled = busy || !val('restoreRecord');
+        el('previewGeneration').disabled = busy || !val('generationRecord');
+        el('recoverGeneration').disabled =
+            busy ||
+            !generationPlan ||
+            generationPlan.id !== val('generationRecord') ||
+            generationPlan.conflicts.length > 0;
+        el('moduleDirty').textContent = moduleDrafts.has(val('module')) ? '未保存' : '';
+        el('tableDirty').textContent = workbookDrafts.has(val('workbook')) ? '未保存' : '';
     };
     const creationChanged = () => {
         creationRollbackPlan = undefined;
@@ -135,12 +154,14 @@ exports.ready = function () {
         el('bundleOptions').hidden = !(ui || generic || kind === 'table');
         el('presenterOptions').hidden = !ui;
         el('adoptOptions').hidden = !generic;
+        if (val('delivery') === 'none') el('initial').value = 'resources';
         el('roleHelp').textContent = ui
             ? 'View 负责渲染与输入；Presenter 组织显示逻辑；跨界面状态放在模块 Service。'
             : generic
               ? '通用组件继承 GameComponent，通过创建实例或场景注入获得上下文。'
               : '';
         invalidateCreate();
+        updateCreationActions();
     };
     const fields = () =>
         options(
@@ -157,6 +178,9 @@ exports.ready = function () {
             el('tableBundle').value = t.bundle ?? '';
             el('tableEnabled').checked = t.enabled;
             el('tablePublic').checked = t.public;
+        } else {
+            el('tableEnabled').checked = false;
+            el('tablePublic').checked = false;
         }
         el('tableInfo').textContent = JSON.stringify({ enums: workbookDraft?.enums ?? [], table: t ?? null }, null, 2);
     };
@@ -168,10 +192,20 @@ exports.ready = function () {
         el('workbookBundle').value = workbookDraft?.config.bundle ?? '';
         options('table', workbookDraft?.config.tables.map((t) => [t.id, t.id]) ?? []);
         loadTable();
+        el('tableEmpty').textContent = workbookDraft ? '' : '此模块还没有工作簿。前往“创建内容”，选择“配置表 · XLSX”。';
+        updateCreationActions();
     };
     const moduleChanged = () => {
         const m = current(),
             bundles = Object.entries(m?.bundles ?? {}).map(([g, b]) => [g, `${g} · ${b.id}`]);
+        el('moduleTag').textContent =
+            m?.code?.mode === 'none'
+                ? '资源模块'
+                : m?.code?.mode === 'bundled'
+                  ? '按需加载'
+                  : m
+                    ? '启动加载'
+                    : '无模块';
         options('bundle', bundles);
         options('workbookBundle', bundles);
         options('tableBundle', [['', '使用工作簿默认资源包'], ...bundles]);
@@ -194,17 +228,22 @@ exports.ready = function () {
             null,
             2,
         );
+        el('bindingEmpty').textContent = val('binding')
+            ? '修改预制体后，扫描以更新生成的 Binding 脚本。'
+            : '暂无可绑定内容。可创建界面、Part，或接入已有预制体。';
         el('moduleInfo').textContent = JSON.stringify(m ?? {}, null, 2);
         const moduleDraft = moduleDrafts.get(m?.id);
         el('moduleDisplayName').value = moduleDraft?.displayName ?? m?.displayName ?? '';
         options(
             'dependencies',
             state.modules
-                .filter((other) => other.id !== m?.id)
+                .filter((other) => other.id !== m?.id && other.code?.mode !== 'none')
                 .map((other) => [other.id, other.displayName || other.id]),
         );
         for (const option of el('dependencies').options)
-            option.selected = (moduleDraft?.dependencies ?? m?.dependencies ?? []).includes(option.value);
+            option.selected = (moduleDraft?.dependencies ?? Object.values(m?.dependencies ?? {})).includes(
+                option.value,
+            );
         options(
             'workbook',
             state.workbooks.filter((w) => w.config.module === m?.id).map((w) => [w.source, w.source]),
@@ -225,13 +264,18 @@ exports.ready = function () {
                   : kind === 'prefab'
                     ? Object.entries(m?.components ?? {}).map(([id, value]) => [id, value.className])
                     : (state?.scripts ?? [])
-                          .filter((f) => f.startsWith(`assets/game/modules/${m?.id}/code/`))
+                          .filter(
+                              (f) => f.startsWith(`assets/game/modules/${m?.id}/code/`) && !f.includes('/generated/'),
+                          )
                           .map((f) => [f, f.replace(`assets/game/modules/${m?.id}/`, '')]),
         );
         invalidateDelete();
+        updateCreationActions();
     };
     const refresh = async () => {
-        state = await Editor.Message.request('yzforge-editor', 'state');
+        const next = await Editor.Message.request('yzforge-editor', 'state');
+        if (closed) return;
+        state = next;
         el('project').textContent = state.project;
         el('summary').textContent = `${state.modules.length} 个模块 · ${state.tables.tables.length} 张表`;
         options(
@@ -254,6 +298,14 @@ exports.ready = function () {
             ]),
         );
         creationChanged();
+        options(
+            'generationRecord',
+            (state.generations ?? []).map((r) => [
+                r.id,
+                `${new Date(Number(r.id.split('-')[0])).toLocaleString()} · ${r.files} 个文件`,
+            ]),
+        );
+        generationChanged();
         el('presets').textContent = JSON.stringify(state.presets, null, 2);
         el('prefixes').textContent = JSON.stringify(state.settings.bindingPrefixes, null, 2);
         el('autoStatus').textContent = [
@@ -264,16 +316,27 @@ exports.ready = function () {
             .join('；');
         if (!settingsLoaded) {
             const s = state.settings;
+            const offsets = new Set([s.calendar.offsetMinutes, ...Array.from({ length: 105 }, (_, i) => i * 15 - 720)]);
+            options(
+                'utcOffset',
+                [...offsets]
+                    .sort((a, b) => a - b)
+                    .map((n) => [
+                        String(n),
+                        `UTC${n < 0 ? '−' : '+'}${String(Math.floor(Math.abs(n) / 60)).padStart(2, '0')}:${String(Math.abs(n) % 60).padStart(2, '0')}${n === 480 ? ' · 中国标准时间' : ''}`,
+                    ]),
+            );
             for (const [id, v] of Object.entries({
                 appId: s.appId,
                 cleanupTimeout: s.cleanupTimeoutMs,
                 maxVoices: s.maxAudioVoices,
                 utcOffset: s.calendar.offsetMinutes,
                 weekStart: s.calendar.weekStartsOn,
-                dayBoundary: s.calendar.resetMinute,
+                dayBoundary: `${String(Math.floor(s.calendar.resetMinute / 60)).padStart(2, '0')}:${String(s.calendar.resetMinute % 60).padStart(2, '0')}`,
                 wechatClockUnit: s.wechatPerformanceUnit,
             }))
                 el(id).value = v;
+            el('audioChannels').replaceChildren();
             for (const [name, volume] of Object.entries(s.audioChannels)) {
                 const label = document.createElement('label'),
                     input = document.createElement('input');
@@ -288,49 +351,77 @@ exports.ready = function () {
                 el('audioChannels').appendChild(label);
             }
             settingsLoaded = true;
+            el('settingsDirty').textContent = '';
         }
         moduleChanged();
         deletion();
     };
     const run = async (action, args = {}, reload = true) => {
-        if (busy) return;
+        if (busy || closed) return;
         busy = true;
+        clearTimeout(previewTimer);
+        previewSequence++;
+        this.$.workbench.dataset.busy = 'true';
+        this.$.workbench.setAttribute('aria-busy', 'true');
+        el('health').textContent = '处理中';
+        el('health').dataset.state = 'busy';
         el('status').textContent = '正在执行…';
-        this.$.workbench.querySelectorAll('button').forEach((b) => {
-            b.disabled = true;
-        });
+        const controls = Array.from(this.$.workbench.querySelectorAll('button,input,select'), (control) => [
+            control,
+            control.disabled,
+        ]);
+        for (const [control] of controls) control.disabled = true;
         try {
-            const result = await Editor.Message.request('yzforge-editor', 'dispatch', action, args);
-            show(result);
+            const result =
+                action === 'refresh'
+                    ? await refresh()
+                    : await Editor.Message.request('yzforge-editor', 'dispatch', action, args);
+            if (closed) return result;
+            if (result !== undefined) show(result);
             if (action === 'saveWorkbook') workbookDrafts.delete(args.source);
             if (action === 'updateModule') moduleDrafts.delete(args.module);
-            if (reload) await refresh();
+            if (action === 'updateSettings') settingsLoaded = false;
+            if (reload && action !== 'refresh') await refresh();
             el('status').textContent = result?.generationError ? '操作已保存，但生成失败；请修复后重新生成' : '已完成';
+            el('health').textContent = result?.generationError ? '需要处理' : '已连接';
+            el('health').dataset.state = result?.generationError ? 'error' : 'ready';
+            if (result?.generationError) el('logDetails').open = true;
             return result;
         } finally {
             busy = false;
-            this.$.workbench.querySelectorAll('button').forEach((b) => {
-                b.disabled = false;
-            });
-            el('create').disabled = !createPlan || createPlan.conflicts.length > 0;
-            el('delete').disabled = !deletePlan || deletePlan.references.length > 0;
-            updateCreationActions();
+            if (!closed) {
+                this.$.workbench.dataset.busy = 'false';
+                this.$.workbench.setAttribute('aria-busy', 'false');
+                for (const [control, disabled] of controls) control.disabled = disabled;
+                updateCreationActions();
+                if (!createPlan && val('newName')) previewTimer = setTimeout(() => void previewCreate(), 450);
+            }
         }
     };
+    const failure = (error) => {
+        if (closed) return;
+        show(error.message);
+        el('status').textContent = '操作未完成，请查看原因';
+        el('health').textContent = '需要处理';
+        el('health').dataset.state = 'error';
+        el('logDetails').open = true;
+    };
     const on = (id, callback, event = 'click') =>
-        el(id).addEventListener(event, () =>
-            Promise.resolve()
-                .then(callback)
-                .catch((error) => {
-                    show(error.message);
-                    el('status').textContent = '操作未完成，请查看原因';
-                }),
-        );
+        el(id).addEventListener(event, () => {
+            if (closed || busy) return;
+            // Capture the current form synchronously before the next selection can replace it.
+            try {
+                Promise.resolve(callback()).catch(failure);
+            } catch (error) {
+                failure(error);
+            }
+        });
     this.$.workbench.querySelectorAll('[data-tab]').forEach((button) =>
         button.addEventListener('click', () => {
-            this.$.workbench
-                .querySelectorAll('[data-tab]')
-                .forEach((b) => b.classList.toggle('selected', b === button));
+            this.$.workbench.querySelectorAll('[data-tab]').forEach((b) => {
+                b.classList.toggle('selected', b === button);
+                b.setAttribute('aria-selected', String(b === button));
+            });
             this.$.workbench.querySelectorAll('[data-page]').forEach((page) => {
                 page.hidden = page.dataset.page !== button.dataset.tab;
             });
@@ -340,13 +431,19 @@ exports.ready = function () {
     on('kind', role, 'change');
     for (const id of ['newName', 'displayName', 'delivery', 'initial', 'bundle', 'presenter', 'adopt'])
         on(id, invalidateCreate, 'input');
-    on('refresh', refresh);
+    on('delivery', role, 'change');
+    on('refresh', () => run('refresh'));
     on('check', () => run('check'));
     on('generate', () => run('generate'));
-    on('previewCreate', async () => {
-        createPlan = await run(
-            'previewCreate',
-            {
+    const previewCreate = async () => {
+        if (closed || busy || !state || !val('newName')) return;
+        clearTimeout(previewTimer);
+        const sequence = ++previewSequence;
+        createPlan = null;
+        el('create').disabled = true;
+        el('fileCount').textContent = '校验中…';
+        try {
+            const plan = await Editor.Message.request('yzforge-editor', 'dispatch', 'previewCreate', {
                 kind: val('kind'),
                 id: val('newName'),
                 module: val('module'),
@@ -356,14 +453,29 @@ exports.ready = function () {
                 codeOnly: val('initial') === 'code',
                 presenter: el('presenter').checked,
                 prefabUUID: ['part', 'prefab'].includes(val('kind')) ? val('adopt') : undefined,
-            },
-            false,
-        );
-        el('createPreview').textContent = createPlan.files.map((f) => `${f.operation.padEnd(16)} ${f.path}`).join('\n');
-        el('create').disabled = createPlan.conflicts.length > 0;
-    });
+            });
+            if (closed || sequence !== previewSequence) return;
+            createPlan = plan;
+            renderFiles('createPreview', plan.files, '没有需要创建的文件。');
+            el('fileCount').textContent = `${plan.files.length} 项`;
+            el('createIssue').hidden = !plan.conflicts.length;
+            el('createIssue').textContent = plan.conflicts.length
+                ? '以下文件已存在，请调整名称：\n' + plan.conflicts.join('\n')
+                : '';
+        } catch (error) {
+            if (closed || sequence !== previewSequence) return;
+            el('createIssue').textContent = error.message;
+            el('createIssue').hidden = false;
+            el('fileCount').textContent = '需要调整';
+            renderFiles('createPreview', [], '调整输入后自动重新预览。');
+        } finally {
+            if (!closed && sequence === previewSequence) updateCreationActions();
+        }
+    };
+    on('previewCreate', previewCreate);
     on('create', async () => {
         const plan = createPlan;
+        if (!plan) return;
         invalidateCreate();
         await run('create', { request: plan.request, signature: plan.signature });
     });
@@ -371,7 +483,7 @@ exports.ready = function () {
         run('updateModule', {
             module: val('module'),
             displayName: val('moduleDisplayName'),
-            dependencies: Array.from(el('dependencies').selectedOptions, (o) => o.value),
+            dependencies: Array.from(el('dependencies').selectedOptions, (o) => o.value).filter(Boolean),
         }),
     );
     on('bind', () => {
@@ -384,8 +496,11 @@ exports.ready = function () {
             () => {
                 moduleDrafts.set(val('module'), {
                     displayName: val('moduleDisplayName'),
-                    dependencies: Array.from(el('dependencies').selectedOptions, (option) => option.value),
+                    dependencies: Array.from(el('dependencies').selectedOptions, (option) => option.value).filter(
+                        Boolean,
+                    ),
                 });
+                updateCreationActions();
             },
             'input',
         );
@@ -406,6 +521,7 @@ exports.ready = function () {
                         public: el('tablePublic').checked,
                     });
                 workbookDrafts.set(workbookDraft.source, workbookDraft);
+                updateCreationActions();
             },
             'input',
         );
@@ -421,6 +537,7 @@ exports.ready = function () {
                     table.sheet = val('sheet');
                     table.primaryKey = val('primaryKey');
                     workbookDrafts.set(workbookDraft.source, workbookDraft);
+                    updateCreationActions();
                 }
             }
         },
@@ -448,8 +565,13 @@ exports.ready = function () {
     on('recalculate', () => run('recalculate', { source: val('workbook') }, false));
     on('ensurePresets', () => run('ensurePresets'));
     on('bundleSettings', () => run('openBundleSettings', {}, false));
-    on('saveSettings', () =>
-        run('updateSettings', {
+    this.$.workbench.querySelector('[data-page="settings"]').addEventListener('input', () => {
+        el('settingsDirty').textContent = '未保存';
+    });
+    on('saveSettings', () => {
+        const [hour, minute] = val('dayBoundary').split(':').map(Number);
+        if (!Number.isInteger(hour) || !Number.isInteger(minute)) throw Error('请选择每日刷新时间');
+        return run('updateSettings', {
             appId: val('appId'),
             cleanupTimeoutMs: Number(val('cleanupTimeout')),
             maxAudioVoices: Number(val('maxVoices')),
@@ -458,13 +580,13 @@ exports.ready = function () {
                 ...state.settings.calendar,
                 offsetMinutes: Number(val('utcOffset')),
                 weekStartsOn: Number(val('weekStart')),
-                resetMinute: Number(val('dayBoundary')),
+                resetMinute: hour * 60 + minute,
             },
             audioChannels: Object.fromEntries(
                 Array.from(el('audioChannels').querySelectorAll('input'), (i) => [i.dataset.channel, Number(i.value)]),
             ),
-        }),
-    );
+        });
+    });
     on('deleteModule', deletion, 'change');
     on('deleteKind', deletion, 'change');
     on('deleteItem', invalidateDelete, 'change');
@@ -474,11 +596,23 @@ exports.ready = function () {
             { module: val('deleteModule'), kind: val('deleteKind'), id: val('deleteItem'), path: val('deleteItem') },
             false,
         );
-        el('deletePreview').textContent = JSON.stringify(deletePlan, null, 2);
-        el('delete').disabled = deletePlan.references.length > 0;
+        if (!deletePlan) return;
+        renderFiles(
+            'deletePreview',
+            [
+                ...(deletePlan.files ?? deletePlan.targets ?? []).map((file) => ({
+                    path: typeof file === 'string' ? file : file.path,
+                    operation: 'delete',
+                })),
+                ...deletePlan.references.map((path) => ({ path, operation: 'reference' })),
+            ],
+            '检查完成；操作详情包含完整范围。',
+        );
+        updateCreationActions();
     });
     on('delete', async () => {
         const plan = deletePlan;
+        if (!plan) return;
         invalidateDelete();
         await run('deleteModule', plan);
     });
@@ -488,7 +622,7 @@ exports.ready = function () {
     on('retryCreation', () => run('retryCreationGeneration', { id: val('creationRecord') }));
     on('previewCreationRollback', async () => {
         creationRollbackPlan = await run('previewCreationRollback', { id: val('creationRecord') }, false);
-        el('creationPreview').textContent = JSON.stringify(creationRollbackPlan, null, 2);
+        if (creationRollbackPlan) renderRecovery('creationPreview', creationRollbackPlan);
         updateCreationActions();
     });
     on('rollbackCreation', async () => {
@@ -498,7 +632,42 @@ exports.ready = function () {
         el('rollbackCreation').disabled = true;
         await run('rollbackCreation', plan);
     });
+    const generationChanged = () => {
+        generationPlan = undefined;
+        renderFiles(
+            'generationPreview',
+            [],
+            val('generationRecord') ? '预览后恢复工具修改的文件；用户后续编辑会作为冲突保留。' : '没有需要恢复的生成。',
+        );
+        updateCreationActions();
+    };
+    on('generationRecord', generationChanged, 'change');
+    on('previewGeneration', async () => {
+        generationPlan = await run('previewGenerationRecovery', { id: val('generationRecord') }, false);
+        if (generationPlan) renderRecovery('generationPreview', generationPlan);
+        updateCreationActions();
+    });
+    on('recoverGeneration', async () => {
+        const plan = generationPlan;
+        generationPlan = undefined;
+        if (plan) await run('recoverGeneration', plan);
+    });
+    this.disposeWorkbench = () => {
+        closed = true;
+        previewSequence++;
+        clearTimeout(previewTimer);
+    };
+    this.$.workbench.querySelector('[data-tab="create"]').click();
     role();
-    refresh().catch((error) => show(error.message));
+    void run('refresh').catch((error) => {
+        if (!closed) {
+            show(error.message);
+            el('logDetails').open = true;
+            el('health').textContent = '连接失败';
+            el('health').dataset.state = 'error';
+        }
+    });
 };
-exports.close = function () {};
+exports.close = function () {
+    this.disposeWorkbench?.();
+};

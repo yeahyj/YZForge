@@ -1,7 +1,7 @@
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { untilCancelled } from '../core/cancellation';
 import { ErrorReporter, invariant, OperationCancelled, reportError } from '../core/errors';
-import { runTask, Scope, TaskContext } from '../core/scope';
+import { runTask, Scope, TaskContext, Lifetime } from '../core/scope';
 import {
     add,
     createCalendar,
@@ -230,7 +230,7 @@ export class TimeService {
     private queuedChange = false;
     private closed = false;
     private readonly scope: Scope;
-    private readonly listeners = new Set<{ scope: Scope; callback: (value: TimeSnapshot) => void }>();
+    private readonly listeners = new Set<{ scope: Lifetime; callback: (value: TimeSnapshot) => void }>();
     private readonly plans = new Set<Plan>();
     private stopWake = () => {};
     private stopState: () => void;
@@ -251,7 +251,7 @@ export class TimeService {
          * 时间服务使用的底层设备/单调时钟驱动；业务日期通常通过 nowMs 等入口读取。
          */
         readonly clock: ClockDriver,
-        owner: Scope,
+        owner: Lifetime,
         private readonly settings: TimeOptions = {},
         private readonly report: ErrorReporter = reportError,
     ) {
@@ -392,7 +392,7 @@ export class TimeService {
      * @param scope 订阅期限，取消时自动解绑。
      * @returns 可手动解绑的函数。
      */
-    onChanged(callback: (value: TimeSnapshot) => void, scope: Scope): () => void {
+    onChanged(callback: (value: TimeSnapshot) => void, scope: Lifetime): () => void {
         scope.signal.throwIfAborted();
         const item = { scope, callback };
         this.listeners.add(item);
@@ -425,7 +425,7 @@ export class TimeService {
      * @returns 更新后的 TimeSnapshot；不会修改系统时钟。
      * @throws TIME_SOURCE_MISSING、TIME_BACKGROUND 或采样失败/取消错误。
      */
-    async sync(owner: Scope): Promise<TimeSnapshot> {
+    async sync(owner: Lifetime): Promise<TimeSnapshot> {
         owner.signal.throwIfAborted();
         this.scope.signal.throwIfAborted();
         invariant(this.settings.source, 'TIME_SOURCE_MISSING', 'Install a ServerTimeSource for server synchronization');
@@ -558,7 +558,7 @@ export class TimeService {
      * @param scope 订阅和校时等待的期限，例如 show.scope。
      * @returns ScopedTime，不会创建另一套时钟。
      */
-    in(scope: Scope): ScopedTime {
+    in(scope: Lifetime): ScopedTime {
         return new ScopedTime(this, scope);
     }
     private eligibleNow(): number | null {
@@ -578,7 +578,7 @@ export class TimeService {
      * @param owner 计划期限，结束后取消。
      * @returns 可提前取消的句柄；跨重启恢复由业务保存目标时间。
      */
-    at(epochMs: number, callback: CalendarCallback, owner: Scope): TimeHandle {
+    at(epochMs: number, callback: CalendarCallback, owner: Lifetime): TimeHandle {
         validEpoch(epochMs);
         return this.plan(owner, callback, false, () => ({ cursor: 0, at: epochMs, key: `at:${epochMs}`, next: null }));
     }
@@ -594,7 +594,7 @@ export class TimeService {
     afterPeriod(
         period: CalendarPeriod,
         callback: CalendarCallback,
-        owner: Scope,
+        owner: Lifetime,
         input: Pick<RepeatOptions, 'offsetMinutes'> = {},
     ): TimeHandle {
         validPeriod(period, true);
@@ -615,7 +615,12 @@ export class TimeService {
      * @example
      * app.time.onBoundary('day', onDayChanged, accountScope, { offsetMinutes: 480, resetMinute: 240, emitCurrent: true });
      */
-    onBoundary(unit: CalendarUnit, callback: CalendarCallback, owner: Scope, input: BoundaryOptions = {}): TimeHandle {
+    onBoundary(
+        unit: CalendarUnit,
+        callback: CalendarCallback,
+        owner: Lifetime,
+        input: BoundaryOptions = {},
+    ): TimeHandle {
         const o = options({ ...this.settings.calendar, ...input });
         validPeriod({ unit, count: 1 });
         return this.plan(
@@ -650,7 +655,7 @@ export class TimeService {
     everyPeriod(
         period: CalendarPeriod,
         callback: CalendarCallback,
-        owner: Scope,
+        owner: Lifetime,
         input: RepeatOptions = {},
     ): TimeHandle {
         validPeriod(period, true);
@@ -685,7 +690,7 @@ export class TimeService {
         );
     }
     private plan(
-        owner: Scope,
+        owner: Lifetime,
         callback: CalendarCallback,
         initial: boolean,
         candidate: Plan['candidate'],
@@ -885,7 +890,7 @@ export class ScopedTime {
      */
     constructor(
         private readonly service: TimeService,
-        private readonly owner: Scope,
+        private readonly owner: Lifetime,
     ) {}
     /**
      * 继承项目日历设置的日期工具；format、dayKey 等与周期订阅使用同一默认偏移，可显式覆盖。

@@ -3,7 +3,7 @@ import { Assets, destroyNode } from '../assets/asset-manager';
 import { AssetKey } from '../assets/asset-types';
 import { ClockDriver } from '../core/clock-driver';
 import { invariant, OperationCancelled, reportError } from '../core/errors';
-import { Scope } from '../core/scope';
+import { Scope, Lifetime } from '../core/scope';
 /**
  * 音频通道名：内置 bgm 背景音乐、sfx 音效、voice 语音，也可使用 AppOptions.audioChannels 中声明的通道。
  */
@@ -68,7 +68,7 @@ type Playing = {
  */
 export class AudioManager {
     /** 创建绑定使用期限的播放入口；不创建新管理器，音量设置仍由应用统一维护。 */
-    in(owner: Scope): ScopedAudio {
+    in(owner: Lifetime): ScopedAudio {
         return new ScopedAudio(this, owner);
     }
     private readonly root: Node;
@@ -97,7 +97,7 @@ export class AudioManager {
         parent: Node,
         private readonly assets: Assets,
         private readonly clock: ClockDriver,
-        owner: Scope,
+        owner: Lifetime,
         private readonly maxVoices = 16,
         channels: Readonly<Record<string, number>> = {},
     ) {
@@ -142,7 +142,7 @@ export class AudioManager {
      * const sound = await this.ctx.audio.play(clickAudioKey, show.scope);
      * // 需要提前停止时：await sound.stop();
      */
-    async play(key: AssetKey<'AudioClip'>, owner: Scope, input: AudioOptions = {}): Promise<PlaybackHandle> {
+    async play(key: AssetKey<'AudioClip'>, owner: Lifetime, input: AudioOptions = {}): Promise<PlaybackHandle> {
         owner.signal.throwIfAborted();
         invariant(this.accepting, 'APP_STOPPING', 'Audio is shutting down');
         const channel = input.channel ?? 'sfx';
@@ -267,7 +267,7 @@ export class AudioManager {
      */
     playBgm(
         key: AssetKey<'AudioClip'>,
-        owner: Scope,
+        owner: Lifetime,
         input: Omit<AudioOptions, 'channel'> = {},
     ): Promise<PlaybackHandle> {
         return this.play(key, owner, { ...input, channel: 'bgm' });
@@ -352,7 +352,7 @@ export class ScopedAudio {
     /** @internal 通常通过 show.audio 或 app.audio.in(owner) 取得。 */
     constructor(
         private readonly manager: AudioManager,
-        private readonly owner: Scope,
+        private readonly owner: Lifetime,
     ) {}
     /**
      * 播放音频，自动绑定当前期限。
