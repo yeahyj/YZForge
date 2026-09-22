@@ -5,6 +5,8 @@ import { Actions } from '../../assets/framework/core/actions';
 import { Events } from '../../assets/framework/core/events';
 import { TimeService } from '../../assets/framework/time/time-service';
 import { Storage } from '../../assets/framework/platform/storage';
+import type { App } from '../../assets/framework/core/app';
+import { ShowcaseNavigation } from '../../assets/game/app/showcase-navigation';
 import { WalletService } from '../../assets/game/modules/profile/code/services/WalletService';
 import { TaskService } from '../../assets/game/modules/workshop/code/services/TaskService';
 import { WorkflowPagePresenter } from '../../assets/game/modules/workshop/code/ui/WorkflowPagePresenter';
@@ -45,6 +47,64 @@ async function setup() {
     await tasks.load(scope);
     return { scope, backend, storage, ctx, wallet, tasks };
 }
+
+test('navigation keeps the first destination during a slow open and uses the application owner', async () => {
+    const owner = new Scope('navigation');
+    const previousPage = owner.child('previous-page');
+    const opened = deferred();
+    const calls: string[] = [];
+    const app = {
+        ui: {
+            pushPage: async (key: { id: string }, _params: unknown, lifetime: unknown) => {
+                assert.equal(lifetime, owner.lifetime);
+                calls.push(key.id);
+                if (calls.length === 1) await opened.promise;
+            },
+        },
+    } as unknown as App;
+    const navigation = new ShowcaseNavigation(app, owner.lifetime);
+    try {
+        const first = navigation.open('data');
+        const repeated = navigation.open('time');
+        await flush();
+        assert.deepEqual(calls, ['showcase.data-lab-page']);
+        await previousPage.close();
+        assert.equal(owner.signal.aborted, false, 'new page must outlive the previous show');
+        opened.resolve();
+        await Promise.all([first, repeated]);
+        await navigation.open('workflow');
+        assert.deepEqual(calls, ['showcase.data-lab-page', 'workshop.workflow-page']);
+    } finally {
+        opened.resolve();
+        await owner.close();
+    }
+});
+
+test('failed navigation reports the same failure to joined callers and allows an explicit retry', async () => {
+    const owner = new Scope('navigation-retry');
+    let calls = 0;
+    const failure = Error('Page preparation failed');
+    const app = {
+        ui: {
+            pushPage: async () => {
+                if (++calls === 1) throw failure;
+            },
+        },
+    } as unknown as App;
+    const navigation = new ShowcaseNavigation(app, owner.lifetime);
+    try {
+        const results = await Promise.allSettled([navigation.open('data'), navigation.open('time')]);
+        assert.equal(calls, 1);
+        for (const result of results) {
+            assert.equal(result.status, 'rejected');
+            if (result.status === 'rejected') assert.equal(result.reason, failure);
+        }
+        await navigation.open('data');
+        assert.equal(calls, 2);
+    } finally {
+        await owner.close();
+    }
+});
 
 test('task domain rejects incomplete commands and persists reward deduplication across service recreation', async () => {
     const s = await setup();
@@ -140,6 +200,75 @@ test('Presenter waits for confirmation, ignores duplicate clicks, and renders th
         s.tasks.train();
         await flush();
         assert.equal(renders, count, 'ended show must not receive business event rendering');
+    } finally {
+        await s.scope.close();
+    }
+});
+
+test('Presenter observes external wallet and claim changes and stops both subscriptions with its show', async () => {
+    const s = await setup();
+    const showScope = s.scope.child('observed-show');
+    const show = { ...taskContext(showScope), actions: new Actions(showScope) } as ViewShowContext<
+        WorkflowPageParams,
+        void
+    >;
+    let summary = '',
+        cardState = '',
+        renders = 0;
+    const presenter = new WorkflowPagePresenter(s.tasks, {} as UIManager, show, {
+        mount: async () => {},
+        render: (cards, text) => {
+            summary = text;
+            cardState = cards[0].state;
+            renders++;
+        },
+    });
+    try {
+        await presenter.start();
+        s.tasks.train();
+        await flush();
+        assert.equal(cardState, 'ready');
+        s.wallet.changeCoins(7);
+        await flush();
+        assert.match(summary, /余额 7 金币/);
+        s.wallet.claimReward('workshop/task/1', 20);
+        await flush();
+        assert.match(summary, /余额 27 金币/);
+        assert.equal(cardState, 'claimed');
+        await showScope.close();
+        const before = renders;
+        s.wallet.changeCoins(3);
+        s.tasks.train();
+        await flush();
+        assert.equal(renders, before);
+    } finally {
+        await s.scope.close();
+    }
+});
+
+test('task observer removes both sources on unsubscribe or initial callback failure', async () => {
+    const s = await setup();
+    try {
+        let failedCalls = 0;
+        assert.throws(() =>
+            s.tasks.subscribe(() => {
+                failedCalls++;
+                throw Error('Initial render failed');
+            }, s.scope),
+        );
+        s.tasks.train();
+        s.wallet.changeCoins(1);
+        await flush();
+        assert.equal(failedCalls, 1, 'failed registration must not leave either source subscribed');
+        let calls = 0;
+        const off = s.tasks.subscribe(() => calls++, s.scope);
+        assert.equal(calls, 1, 'deliver current state immediately');
+        s.tasks.train(); // Event delivery has been queued but has not run yet.
+        off();
+        off();
+        s.wallet.changeCoins(1);
+        await flush();
+        assert.equal(calls, 1, 'unsubscribe must also suppress queued notifications');
     } finally {
         await s.scope.close();
     }

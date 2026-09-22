@@ -91,9 +91,30 @@ export class TaskService {
     snapshot() {
         return { progress: this.progress, coins: this.profile.snapshot().coins };
     }
-    /** 页面订阅本模块业务变化；所有者结束时自动解绑。 */
+    /**
+     * 立即通知当前状态，并同时观察训练和账号余额/领取记录的变化。
+     * owner 结束或调用返回的取消函数时解绑两种来源，不把账号变化伪装成任务事件。
+     */
     subscribe(callback: () => void, owner: Lifetime): () => void {
-        return this.ctx.events.on(WorkshopChanged, callback, owner);
+        this.ctx.scope.signal.throwIfAborted();
+        let active = true;
+        const notify = () => {
+            if (active && !owner.signal.aborted) callback();
+        };
+        const offTasks = this.ctx.events.on(WorkshopChanged, notify, owner);
+        try {
+            const offProfile = this.profile.subscribe(notify, owner);
+            return () => {
+                active = false;
+                offTasks();
+                offProfile();
+            };
+        } catch (error) {
+            // 账号订阅或首次回调失败时，不能留下半份订阅。
+            active = false;
+            offTasks();
+            throw error;
+        }
     }
     private rewardId(id: number): string {
         return `workshop/task/${id}`;

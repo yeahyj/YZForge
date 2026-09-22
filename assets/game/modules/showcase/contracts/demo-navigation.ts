@@ -3,7 +3,7 @@ export type DemoPage = 'home' | 'workflow' | 'ui' | 'data' | 'time' | 'async' | 
 
 /** 页面只接收导航能力；导航会话在启动层持有，页面挂起不会关闭下一页。 */
 export interface DemoNavigation {
-    /** 压入目标页面，完成打开后返回；页面内部返回使用 show.back()。 */
+    /** 压入目标页面；打开期间保留首次目标，后续调用等待同一次导航。页面内部返回用 show.back()。 */
     open(page: DemoPage): Promise<void>;
     /** 读取演示需要的诊断值，不暴露管理器内部节点和集合。 */
     inspect(): {

@@ -64,11 +64,16 @@ export class DataLabPage extends DataLabPageBinding {
             );
         });
         bind(this.btnMany, async () => {
-            const tables = await show.config.loadMany({ tasks: TasksTable, economy: EconomyTable });
-            const state = show.params.navigation.inspect();
-            output(
-                `跨模块批量加载：任务 ${tables.tasks.size} · 公共 ${tables.economy.size}\n外键任务 1 → 公共表 ${tables.tasks.require(1).economy}\n任务代码 ${state.workshopCodeReady} · 业务 ${state.workshopBusinessReady}\n两张表的资源持有都随本页结束。`,
-            );
+            await show.actions.exclusive('read-tables', async (task) => {
+                // 本按钮只显示字符串快照，表句柄只需活到本次读取完成。
+                const tables = await show.config.in(task.scope).loadMany({ tasks: TasksTable, economy: EconomyTable });
+                task.commit(() => {
+                    const state = show.params.navigation.inspect();
+                    output(
+                        `跨模块批量加载：任务 ${tables.tasks.size} · 公共 ${tables.economy.size}\n外键任务 1 → 公共表 ${tables.tasks.require(1).economy}\n任务代码 ${state.workshopCodeReady} · 业务 ${state.workshopBusinessReady}\n本次读取结束后归还两张表的持有，可反复读取。`,
+                    );
+                });
+            });
         });
         bind(this.btnAudio, async () => {
             await show.actions.exclusive('audio', async () => {

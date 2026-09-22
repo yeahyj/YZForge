@@ -7,14 +7,27 @@ import { LobbyViews } from '../modules/lobby/contracts/generated/views';
 
 /** 示例应用的导航组合层。页面依赖能力接口，业务模块互相不导入界面实现。 */
 export class ShowcaseNavigation implements DemoNavigation {
+    private opening?: Promise<void>;
+
     /** @param owner 应用启动会话，覆盖所有页面的导航期限。 */
     constructor(
         private readonly app: App,
         private readonly owner: Lifetime,
     ) {}
 
-    /** 选择类型化路由并压栈，不用上一页即将结束的 show.scope 持有下一页。 */
-    async open(page: DemoPage): Promise<void> {
+    /**
+     * 首次点击决定目标；打开期间的其他请求等待同一次导航，不额外压栈。
+     * 完成或失败后允许再次导航，新页面始终由启动会话持有。
+     */
+    open(page: DemoPage): Promise<void> {
+        if (this.opening) return this.opening;
+        this.opening = this.push(page).finally(() => {
+            this.opening = undefined;
+        });
+        return this.opening;
+    }
+
+    private async push(page: DemoPage): Promise<void> {
         const params: LabParams = { navigation: this };
         if (page === 'legacy') {
             await this.app.ui.pushPage(LobbyViews.dashboard, { title: '综合示例' }, this.owner);

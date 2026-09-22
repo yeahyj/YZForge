@@ -27,8 +27,8 @@
 
 ## 可控失败与自动验证
 
-- `npm run test:showcase`：业务规则、写入失败一致性、领取去重、Presenter 确认/取消与重复点击、结束后的事件解绑、模拟时间回收、存档故障。
-- `tests/integration/verify-showcase.mjs`：构建后真实 Cocos 运行时，通过实际页面绑定的输入触发功能，并检查结果、缓存、分包、资源持有及多屏截图。
+- `npm run test:showcase`：业务规则、写入失败一致性、领取去重、导航合并与失败重试、Presenter 确认/取消、跨模块状态刷新、订阅失败与结束后的解绑、模拟时间回收、存档故障。
+- `tests/integration/verify-showcase.mjs`：构建后真实 Cocos 运行时，检查结果、缓存、分包、资源持有及多屏截图；用真实鼠标验证慢加载下的导航与 Part 连点，检查同页重复读取配置的持有者数量，以及 Part 失败重试和等待期间退出。文字断言在本次操作及其子任务结束后执行，并要求产生本次输出。
 - `tests/integration/verify-showcase-editor.mjs`：真实 Creator 工作台的步骤、源码读取和表格/绑定跳转。
 - `npm run verify`：通用框架的静态检查、生成一致性与回归测试；与可删除的示例业务测试分开。
 

@@ -79,6 +79,8 @@ const samples = await show.config.load(SamplesTable, { bundle: ShowcaseBundles.e
 
 `WorkflowPagePresenter` 每次展示重新创建，负责加载、生成展示模型、等待确认、调用命令和渲染。它只依赖 `WorkflowPagePort`，业务测试不需要启动 Cocos。模块状态持续时间由 Service 的模块期限决定，不由 Presenter 的字段决定。
 
+页面显示的数据来自多个模块时，订阅也要覆盖这些来源。`TaskService.subscribe()` 立即通知当前状态，并同时订阅任务事件和 Profile 状态；其他模块改变余额或领取记录，当前任务页也会更新。主动取消或结束 show 会解绑两种来源，订阅初始化失败也会回收已登记的监听。
+
 ## 5. 预制体与渲染
 
 在 Creator 编辑预制体，命名节点：`btn_train`、`lbl_output`、`node_items`；在工作台“自动绑定”选择对应界面并扫描。生成文件可覆盖，手写 Page / Part 不会被生成覆盖。
@@ -86,6 +88,8 @@ const samples = await show.config.load(SamplesTable, { bundle: ShowcaseBundles.e
 页面用框架 `onShow(show)`、`onHide()` 等钩子；Part 用 `onActivate(activation)` 等钩子。业务不覆盖 `onLoad/start/update/onDestroy`。动态 Part 先用 `{ active: false }` 创建，传入模型和回调后调用 `show.assets.activate(node)`。
 
 `render()` 只同步写节点。异步取数后通过捕获的 `show.commit()` / `task.commit()` 提交，阻止旧展示覆盖新展示。一次 show 的资源、监听和任务都使用它自己的 Scope；长期账号任务才由账号会话持有。
+
+资源使用期还要区分“操作期间”和“显示期间”。资源页的批量读取只生成文字快照，用 `show.config.in(task.scope).loadMany(...)`，操作结束就归还本批持有；反复点击不会在页面内堆积配置 Scope。动态 Part 则要在创建操作完成后继续显示，仍用 `show.assets.instantiate(...)`；创建与销毁共用 `exclusive('part-toggle')`，避免慢加载时连点创建多份实例。
 
 ## 6. UI 与模块怎样通信
 
@@ -99,6 +103,8 @@ const samples = await show.config.load(SamplesTable, { bundle: ShowcaseBundles.e
 | 页面切换             | 应用导航能力 + `pushPage` / `show.back` | 启动会话持有新页面，不用即将挂起的旧 show |
 
 不把事件当作需要返回值的隐式 RPC，也不通过查找另一个页面节点进行通信。Popup 默认阻挡下层输入；Overlay/Toast 的策略独立；Part 不进入 UI 页面栈。缓存只复用节点，每次显示仍有新的 showId 和 Scope。
+
+应用导航采用首次点击优先：一个页面尚在打开时，其他入口等待这次导航，不继续排入新目标。打开成功或失败后才能发起下一次导航；失败可明确重试。该限制放在 `ShowcaseNavigation`，所有页面共用，导航所有者仍是启动会话。
 
 ## 7. 验证与发布
 

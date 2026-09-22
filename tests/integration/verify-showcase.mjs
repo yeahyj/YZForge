@@ -21,8 +21,9 @@ const run = (code, args = {}) =>
 const check=(value,message)=>{if(!value)throw Error(message);};
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const record=id=>[...app.ui.records.values()].find(r=>r.definition.id===id&&!r.termination);
-const click=(id,field)=>{const r=record(id);check(r?.interactive,'UI not interactive: '+id);r.instance.view[field].node.emit(cc.Button.EventType.CLICK);};
+const click=(id,field)=>{const r=record(id);check(r?.interactive,'UI not interactive: '+id);const button=r.instance.view[field];check(button.interactable&&button.node.activeInHierarchy,'Button unavailable: '+field);button.node.emit(cc.Button.EventType.CLICK);};
 const until=async(fn)=>{const end=Date.now()+8000;while(Date.now()<end){if(fn())return;await wait(20);}throw Error('Runtime timeout: '+app.ui.inspect().views.map(v=>v.id).join(','));};
+const idle=scope=>scope.state==='active'&&scope.tasks.length===0&&scope.children.every(idle);
 ${code}`,
         args,
     );
@@ -35,7 +36,10 @@ const back = () =>
     run("await app.ui.back().completed;await until(()=>record('showcase.showcase-page')?.interactive);return true;");
 const press = async (page, button, expected) =>
     run(
-        `click(args.page,args.button);await until(()=>record(args.page).instance.view._bindLblOutput.string.includes(args.expected));return record(args.page).instance.view._bindLblOutput.string;`,
+        `const r=record(args.page),scope=r.show.scope,label=r.instance.view._bindLblOutput,before=label.string;
+click(args.page,args.button);await until(()=>idle(scope.inspect()));
+check(label.string!==before,'Operation left only the previous output: '+args.button);
+check(label.string.includes(args.expected),'Unexpected output for '+args.button+': '+label.string);return label.string;`,
         { page, button, expected },
     );
 async function stage(name, work) {
@@ -110,6 +114,50 @@ try {
         await back();
         return outputs;
     });
+    await stage('repeated table reads release owners without closing the page', async () => {
+        await go('_bindBtnData', 'showcase.data-lab-page');
+        // Keep one independent public-table lease: batch cleanup must preserve it.
+        await press('showcase.data-lab-page', '_bindBtnPublic', '公共表');
+        const state = await run(`
+const scope=record('showcase.data-lab-page').show.scope;
+const snapshot=()=>app.config.inspect().map(entry=>({key:entry.key,users:entry.users})).sort((a,b)=>a.key.localeCompare(b.key));
+const before=snapshot(),children=scope.inspect().children.length;
+for(let i=0;i<3;i++){
+ click('showcase.data-lab-page','_bindBtnMany');await until(()=>idle(scope.inspect()));
+ check(JSON.stringify(snapshot())===JSON.stringify(before),'Repeated batch retained extra table owners');
+ check(scope.inspect().children.length===children,'Completed batch left a child Scope');
+}
+return {rounds:3,owners:snapshot(),scopeChildren:children};`);
+        await back();
+        return state;
+    });
+    await stage('real pointer input coalesces navigation while resources are pending', async () => {
+        await run(`
+const original=app.assets.load;
+let release;const pending=new Promise(resolve=>{release=resolve;});
+const gate={loads:0,clicks:0,release,restore:()=>{}};
+const nodes=['_bindBtnData','_bindBtnTime'].map(field=>record('showcase.showcase-page').instance.view[field].node);
+const clicked=()=>{gate.clicks++;};for(const node of nodes)node.on(cc.Button.EventType.CLICK,clicked);
+app.assets.load=function(...params){
+ if(params[0].id==='showcase/default/prefab/ui/data-lab-page'){gate.loads++;return pending.then(()=>original.apply(this,params));}
+ return original.apply(this,params);
+};
+gate.restore=()=>{release();app.assets.load=original;for(const node of nodes)node.off(cc.Button.EventType.CLICK,clicked);};
+globalThis.__showcaseGate=gate;return true;`);
+        try {
+            await pointerClick('showcase.showcase-page', '_bindBtnData');
+            await run('await until(()=>globalThis.__showcaseGate.loads===1);return true;');
+            await pointerClick('showcase.showcase-page', '_bindBtnTime');
+            const state = await run(`
+const gate=globalThis.__showcaseGate;await until(()=>gate.clicks===2);gate.release();await app.ui.navigation;
+check(JSON.stringify(app.ui.inspect().pages)===JSON.stringify(['showcase.showcase-page','showcase.data-lab-page']),'Second navigation unexpectedly queued a page');
+return {physicalClicks:gate.clicks,pages:app.ui.inspect().pages};`);
+            await back();
+            return state;
+        } finally {
+            await run('globalThis.__showcaseGate.restore();delete globalThis.__showcaseGate;return true;');
+        }
+    });
     await stage('domain workflow, failure, confirmation and state after page recreation', async () => {
         await go('_bindBtnWorkflow', 'workshop.workflow-page');
         await run(
@@ -139,6 +187,23 @@ try {
         await back();
         return output;
     });
+    await stage('external profile changes update the visible workflow', async () => {
+        await go('_bindBtnWorkflow', 'workshop.workflow-page');
+        const state = await run(`
+const owner=app.flows.child('verify-external-profile');
+try{
+ const profile=await app.modules.use({id:'profile'},owner);
+ const view=record('workshop.workflow-page').instance.view,before=profile.api.snapshot().coins;
+ profile.api.changeCoins(7);
+ await until(()=>view._bindLblOutput.string.includes('余额 '+(before+7)+' 金币'));
+ const updated=view._bindLblOutput.string;
+ profile.api.changeCoins(-7);
+ await until(()=>view._bindLblOutput.string.includes('余额 '+before+' 金币'));
+ return {updated,restored:profile.api.snapshot().coins};
+}finally{await owner.close();}`);
+        await back();
+        return state;
+    });
     await stage('UI results, instance cache, duplicate policy, layers and Part', async () => {
         await go('_bindBtnUi', 'showcase.ui-lab-page');
         const info = await run(`
@@ -159,6 +224,69 @@ click('showcase.ui-lab-page','_bindBtnPage');await until(()=>record('showcase.gu
 return {cacheReused:true,partReleased:true,pageResumed:true};`);
         await back();
         return info;
+    });
+    await stage('real double-click creates one Part and one removal releases it', async () => {
+        await go('_bindBtnUi', 'showcase.ui-lab-page');
+        await run(`
+const original=app.assets.instantiate;
+let release;const pending=new Promise(resolve=>{release=resolve;});
+const gate={loads:0,clicks:0,release,restore:()=>{}};
+const node=record('showcase.ui-lab-page').instance.view._bindBtnPart.node;
+const clicked=()=>{gate.clicks++;};node.on(cc.Button.EventType.CLICK,clicked);
+app.assets.instantiate=function(...params){
+ if(params[0].id==='showcase/default/prefab/prefabs/badge-part'){gate.loads++;return pending.then(()=>original.apply(this,params));}
+ return original.apply(this,params);
+};
+gate.restore=()=>{release();app.assets.instantiate=original;node.off(cc.Button.EventType.CLICK,clicked);};
+globalThis.__showcaseGate=gate;return true;`);
+        try {
+            await pointerClick('showcase.ui-lab-page', '_bindBtnPart');
+            await run('await until(()=>globalThis.__showcaseGate.loads===1);return true;');
+            await pointerClick('showcase.ui-lab-page', '_bindBtnPart');
+            await run(`
+const gate=globalThis.__showcaseGate;await until(()=>gate.clicks===2);
+check(gate.loads===1,'Duplicate Part creation started');gate.release();
+const view=record('showcase.ui-lab-page').instance.view;
+await until(()=>idle(record('showcase.ui-lab-page').show.scope.inspect()));
+check(view._bindNodeContent.children.filter(node=>node.getComponent('showcase.BadgePart')).length===1,'Expected one live Part');return true;`);
+            await pointerClick('showcase.ui-lab-page', '_bindBtnPart');
+            const state = await run(`
+await until(()=>globalThis.__showcaseGate.clicks===3);
+await until(()=>idle(record('showcase.ui-lab-page').show.scope.inspect()));
+const remaining=record('showcase.ui-lab-page').instance.view._bindNodeContent.children.filter(node=>node.getComponent('showcase.BadgePart')).length;
+check(remaining===0,'Part remained after removal');
+return {physicalClicks:globalThis.__showcaseGate.clicks,creations:globalThis.__showcaseGate.loads,remaining};`);
+            return state;
+        } finally {
+            await run('globalThis.__showcaseGate.restore();delete globalThis.__showcaseGate;return true;');
+            await back();
+        }
+    });
+    await stage('Part creation failure permits retry and leaving cancels a pending creation', async () => {
+        await go('_bindBtnUi', 'showcase.ui-lab-page');
+        const state = await run(`
+const original=app.assets.instantiate;
+try{
+ let failed=false;
+ app.assets.instantiate=function(...params){
+  if(params[0].id==='showcase/default/prefab/prefabs/badge-part'&&!failed){failed=true;return Promise.reject(Error('Injected Part load failure'));}
+  return original.apply(this,params);
+ };
+ click('showcase.ui-lab-page','_bindBtnPart');await until(()=>idle(record('showcase.ui-lab-page').show.scope.inspect()));
+ check(record('showcase.ui-lab-page').instance.view._bindLblOutput.string.includes('Injected Part load failure'),'Part error was not reported');
+ click('showcase.ui-lab-page','_bindBtnPart');await until(()=>idle(record('showcase.ui-lab-page').show.scope.inspect()));
+ check(record('showcase.ui-lab-page').instance.view._bindNodeContent.children.filter(n=>n.getComponent('showcase.BadgePart')).length===1,'Part retry failed');
+ click('showcase.ui-lab-page','_bindBtnPart');await until(()=>idle(record('showcase.ui-lab-page').show.scope.inspect()));
+ let release;const pending=new Promise(resolve=>{release=resolve;});let started=false;
+ app.assets.instantiate=function(...params){started=true;return pending.then(()=>original.apply(this,params));};
+ click('showcase.ui-lab-page','_bindBtnPart');await until(()=>started);
+ const returning=app.ui.back();
+ try{await until(()=>record('showcase.ui-lab-page')?.termination||!record('showcase.ui-lab-page'));}finally{release();}
+ await returning.completed;await until(()=>record('showcase.showcase-page')?.interactive);
+ check(!app.ui.inspect().views.some(view=>view.id==='showcase.ui-lab-page'),'Old page survived cancellation');
+ return {retried:true,pendingCreationCancelled:true};
+}finally{app.assets.instantiate=original;}`);
+        return state;
     });
     await stage('time simulation and callback cleanup', async () => {
         await go('_bindBtnTime', 'showcase.time-lab-page');

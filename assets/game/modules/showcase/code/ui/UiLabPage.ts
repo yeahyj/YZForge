@@ -67,23 +67,35 @@ export class UiLabPage extends UiLabPageBinding {
             output(`加载层已结束：${result.status}\n这里是手动控制的准备实验，不假装发起网络请求。`);
         });
         bind(this.btnPart, async () => {
-            if (part) {
-                const previous = part;
-                part = undefined;
-                await show.assets.destroyInstance(previous);
-                output('动态 Part 已销毁；引用和激活期监听一起清理。');
-            } else {
+            // 创建和销毁共用同一互斥操作，慢加载期间连点不会产生未记录的实例。
+            await show.actions.exclusive('part-toggle', async (task) => {
+                if (part) {
+                    const previous = part;
+                    part = undefined;
+                    await show.assets.destroyInstance(previous);
+                    output('动态 Part 已销毁；引用和激活期监听一起清理。');
+                    return;
+                }
+                // Part 要在操作结束后继续显示，因此归 show 持有，而非短期 task.scope。
                 const node = await show.assets.instantiate(ShowcaseRes.prefab.prefabsBadgePart, this.nodeContent, {
                     active: false,
                 });
-                show.commit(() => {
-                    part = node;
-                    node.setSiblingIndex(0);
-                    node.getComponent(BadgePart)!.render('父页面传入数据 · 独立 Part · 点击按钮移除');
-                    show.assets.activate(node);
-                });
-                output('Part 已插入列表顶部；有独立激活期，不进入页面栈。');
-            }
+                let attached = false;
+                try {
+                    attached = task.commit(() => {
+                        const badge = node.getComponent(BadgePart);
+                        if (!badge) throw Error('BadgePart 组件缺失，请重新生成绑定');
+                        node.setSiblingIndex(0);
+                        badge.render('父页面传入数据 · 独立 Part · 点击按钮移除');
+                        show.assets.activate(node);
+                        part = node;
+                        output('Part 已插入列表顶部；有独立激活期，不进入页面栈。');
+                    });
+                } finally {
+                    // 展示已结束或绑定失败时立即归还本次实例。
+                    if (!attached) await show.assets.destroyInstance(node);
+                }
+            });
         });
         bind(this.btnDuplicate, async () => {
             const first = await this.ctx.ui.open(

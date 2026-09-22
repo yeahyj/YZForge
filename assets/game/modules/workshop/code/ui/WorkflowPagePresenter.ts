@@ -32,8 +32,8 @@ export class WorkflowPagePresenter {
         this.rows = await this.service.load(this.show.scope);
         this.show.signal.throwIfAborted();
         await this.view.mount(this.service.cards(this.rows), (id) => this.claim(id));
+        // subscribe 立即推送当前状态，随后同时观察训练和账号变化。
         this.service.subscribe(() => this.refresh(), this.show.scope);
-        this.refresh();
     }
 
     /** 转发输入为领域命令，不通过修改 Label 来修改训练次数。 */
