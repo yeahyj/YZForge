@@ -157,6 +157,17 @@ export const views: readonly ViewDefinition[] = [
         duplicate: 'reject',
     },
     {
+        id: 'showcase.virtual-list-lab-page',
+        module: 'showcase',
+        prefab: {
+            id: 'showcase/default/prefab/ui/virtual-list-lab-page',
+            type: 'Prefab',
+        },
+        kind: 'page',
+        cache: 'none',
+        duplicate: 'reject',
+    },
+    {
         id: 'workshop.workflow-page',
         module: 'workshop',
         prefab: {

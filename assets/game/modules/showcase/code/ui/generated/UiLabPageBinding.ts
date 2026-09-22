@@ -28,6 +28,16 @@ export class UiLabPageBinding extends UIView<UiLabPageParams, UiLabPageResult> {
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Button, visible: false })
+    private _bindBtnVirtualList: Button | null = null;
+    /**
+     * 自动绑定节点 btn_virtual_list 的 Button；节点改名或增删后通过工作台更新绑定。
+     * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
+     */
+    protected get btnVirtualList(): Button {
+        return this.requireBinding(this._bindBtnVirtualList, 'btn_virtual_list');
+    }
+    /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
+    @property({ type: Button, visible: false })
     private _bindBtnPopup: Button | null = null;
     /**
      * 自动绑定节点 btn_popup 的 Button；节点改名或增删后通过工作台更新绑定。
@@ -140,6 +150,7 @@ export class UiLabPageBinding extends UIView<UiLabPageParams, UiLabPageResult> {
     protected validateBindings(): void {
         void this.btnBack;
         void this.nodeContent;
+        void this.btnVirtualList;
         void this.btnPopup;
         void this.btnOverlay;
         void this.btnToast;

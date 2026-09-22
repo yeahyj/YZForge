@@ -112,6 +112,15 @@
       "className": "showcase.ProgressLoading",
       "binding": "code/ui/generated/ProgressLoadingBinding.ts",
       "visibility": "internal"
+    },
+    "virtual-list-lab-page": {
+      "visibility": "internal",
+      "prefab": "showcase/default/prefab/ui/virtual-list-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.VirtualListLabPage",
+      "binding": "code/ui/generated/VirtualListLabPageBinding.ts"
     }
   },
   "audio": {},
@@ -120,6 +129,11 @@
       "uuid": "5749fee4-a52a-49eb-b411-c95cd8c19e1c",
       "className": "showcase.BadgePart",
       "binding": "code/components/generated/BadgePartBinding.ts"
+    },
+    "virtual-list-item-part": {
+      "uuid": "721bf3d6-8cd8-487d-b70d-2bd2f7f5ff95",
+      "className": "showcase.VirtualListItemPart",
+      "binding": "code/components/generated/VirtualListItemPartBinding.ts"
     }
   }
 }

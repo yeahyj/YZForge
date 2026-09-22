@@ -17,6 +17,9 @@ export class UiLabPage extends UiLabPageBinding {
         const bind = (button: Button, work: () => void | Promise<void>) =>
             show.listen(button.node, Button.EventType.CLICK, work, (error) => output(String(error)));
         bind(this.btnBack, () => show.ui.back());
+        bind(this.btnVirtualList, async () => {
+            await show.ui.pushPage(ShowcaseViews.virtualListLabPage, undefined);
+        });
         const confirm = async (cached: boolean) => {
             const handle = await show.ui.open(ShowcaseViews.confirmPopup, {
                 title: cached ? '实例缓存实验' : '类型化弹窗',

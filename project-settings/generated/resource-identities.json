@@ -73,6 +73,12 @@
       "active": true,
       "source": "assets/game/modules/lobby/bundles/default/dynamic/icons/status.png"
     },
+    "3c70358c-8a45-4ee7-8829-7fe9b388aece": {
+      "id": "showcase/default/prefab/ui/virtual-list-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/VirtualListLabPage.prefab"
+    },
     "43a42794-2e19-48a8-90de-d13471a55b56": {
       "id": "showcase/default/audio/audio/chime",
       "type": "AudioClip",
@@ -108,6 +114,12 @@
       "type": "Prefab",
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/GuidePage.prefab"
+    },
+    "721bf3d6-8cd8-487d-b70d-2bd2f7f5ff95": {
+      "id": "showcase/default/prefab/prefabs/virtual-list-item-part",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/prefabs/VirtualListItemPart.prefab"
     },
     "76c109f2-ecfe-440d-a665-e7068c311358": {
       "id": "lobby/default/prefab/prefabs/wallet-part",

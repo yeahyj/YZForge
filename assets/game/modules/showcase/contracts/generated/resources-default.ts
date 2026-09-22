@@ -31,6 +31,8 @@ export const ShowcaseRes = {
     prefab: {
         /** Prefab：showcase/default/prefab/prefabs/badge-part。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         prefabsBadgePart: { id: 'showcase/default/prefab/prefabs/badge-part', type: 'Prefab' },
+        /** Prefab：showcase/default/prefab/prefabs/virtual-list-item-part。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        prefabsVirtualListItemPart: { id: 'showcase/default/prefab/prefabs/virtual-list-item-part', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/async-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiAsyncLabPage: { id: 'showcase/default/prefab/ui/async-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/confirm-popup。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
@@ -53,6 +55,8 @@ export const ShowcaseRes = {
         uiTimeLabPage: { id: 'showcase/default/prefab/ui/time-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/ui-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiUiLabPage: { id: 'showcase/default/prefab/ui/ui-lab-page', type: 'Prefab' },
+        /** Prefab：showcase/default/prefab/ui/virtual-list-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        uiVirtualListLabPage: { id: 'showcase/default/prefab/ui/virtual-list-lab-page', type: 'Prefab' },
     },
     /** json 资源键集合；动态目录自动编目，按需 load 时才加载内容。 */
     json: {
