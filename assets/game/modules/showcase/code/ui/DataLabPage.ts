@@ -1,7 +1,6 @@
 import { _decorator, Button } from 'cc';
 import type { PlaybackHandle } from '../../../../../framework/audio/audio-manager';
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
-import type { LabParams } from '../../contracts/demo-navigation';
 import { ShowcaseRes } from '../../contracts/generated/resources-default';
 import { ShowcaseBundles } from '../../contracts/generated/bundles';
 import { SamplesTable } from '../../contracts/generated/config/Samples.table';
@@ -13,7 +12,7 @@ const { ccclass } = _decorator;
 /** 静态引用、动态索引、配置路由、跨模块合同与音频的可操作示例。 */
 @ccclass('showcase.DataLabPage')
 export class DataLabPage extends DataLabPageBinding {
-    protected onShow(show: ViewShowContext<LabParams, void>): void {
+    protected onShow(show: ViewShowContext<void, void>): void {
         let audio: PlaybackHandle | undefined;
         let audioState = 0;
         const previousVolume = this.ctx.audio.getVolume('sfx');
@@ -24,7 +23,7 @@ export class DataLabPage extends DataLabPageBinding {
             });
         const bind = (button: Button, work: () => void | Promise<void>) =>
             show.listen(button.node, Button.EventType.CLICK, work, (error) => output(String(error)));
-        bind(this.btnBack, () => show.back());
+        bind(this.btnBack, () => show.ui.back());
         bind(this.btnResource, async () => {
             const address = await show.assets.resolve(ShowcaseRes.sprite.iconsAlphaToken);
             await show.setSprite(this.sprPreview, ShowcaseRes.sprite.iconsAlphaToken);
@@ -68,9 +67,9 @@ export class DataLabPage extends DataLabPageBinding {
                 // 本按钮只显示字符串快照，表句柄只需活到本次读取完成。
                 const tables = await show.config.in(task.scope).loadMany({ tasks: TasksTable, economy: EconomyTable });
                 task.commit(() => {
-                    const state = show.params.navigation.inspect();
+                    const state = this.ctx.diagnostics.module('workshop');
                     output(
-                        `跨模块批量加载：任务 ${tables.tasks.size} · 公共 ${tables.economy.size}\n外键任务 1 → 公共表 ${tables.tasks.require(1).economy}\n任务代码 ${state.workshopCodeReady} · 业务 ${state.workshopBusinessReady}\n本次读取结束后归还两张表的持有，可反复读取。`,
+                        `跨模块批量加载：任务 ${tables.tasks.size} · 公共 ${tables.economy.size}\n外键任务 1 → 公共表 ${tables.tasks.require(1).economy}\n任务代码 ${state.codeReady} · 业务 ${state.businessReady}\n本次读取结束后归还两张表的持有，可反复读取。`,
                     );
                 });
             });

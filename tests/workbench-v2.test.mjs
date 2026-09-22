@@ -248,6 +248,16 @@ test('value imports cannot pull private code into the main program; type-only im
             "import type { Service } from '../modules/inventory/code/Service'; export type Value = Service;",
         );
         await codeBoundaryCheck(root, [module]);
+        await mkdir(resolve(module.directory, 'code/generated'), { recursive: true });
+        await writeFile(
+            resolve(module.directory, 'code/generated/views.ts'),
+            "export const Views = { secret: { id: 'inventory.secret', kind: 'page' } }; ",
+        );
+        await writeFile(
+            boot,
+            "import { Views } from '../modules/inventory/code/generated/views'; export const value = Views.secret;",
+        );
+        await assert.rejects(codeBoundaryCheck(root, [module]), /私有模块实现/);
     }));
 
 test('cyclic nested prefab references retain every required code module regardless of scan order', () =>

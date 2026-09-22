@@ -3,7 +3,7 @@ import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
 import type { DashboardParams, DashboardResult } from './Dashboard.types';
 import { ItemsTable } from '../generated/config/Items.table';
 import { LobbyRes } from '../../contracts/generated/resources-default';
-import { LobbyViews } from '../../contracts/generated/views';
+import { LobbyViews } from '../generated/views';
 import { DashboardBinding } from './generated/DashboardBinding';
 import { LobbyServices } from '../LobbyServices';
 import { WalletPart } from '../components/WalletPart';
@@ -22,7 +22,7 @@ export class Dashboard extends DashboardBinding {
      */
     protected async onShow(show: ViewShowContext<DashboardParams, DashboardResult>): Promise<void> {
         this.btnBack.node.active = this.ctx.ui.inspect().pages.length > 0;
-        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.back());
+        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.ui.back());
         const service = this.ctx.services(LobbyServices).lobby;
         const reward = await service.reward(show.scope);
         this.lblStatus.string = '共享 Profile 服务 · 公共配置 common';
@@ -65,7 +65,7 @@ export class Dashboard extends DashboardBinding {
             // 防止重复打开和重复提交；页面结束会取消等待，不自动重试领取奖励。
             await show.actions.exclusive('claim-reward', async (task) => {
                 // 子弹窗属于当前页面展示；页面结束时会同时关闭它。
-                const popup = await this.ctx.ui.open(LobbyViews.rewardPopup, reward, task.scope);
+                const popup = await show.ui.open(LobbyViews.rewardPopup, reward, { owner: task.scope });
                 // open 等待打开完成，result 另行等待玩家选择或外部关闭。
                 const result = await popup.result;
                 task.signal.throwIfAborted();

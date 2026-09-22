@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { call } from '../../tools/yzforge/mcp.mjs';
 import { preview, screenshot } from './preview.mjs';
+import { verifyNavigation } from './verify-navigation.mjs';
 const url = new URL(process.argv[2]);
 assert.equal(url.hostname, '127.0.0.1');
 process.env.YZFORGE_BUILT_RUNTIME = '1';
@@ -10,8 +11,8 @@ const id = await editor(
     `
 const window=new (require('electron').BrowserWindow)({show:false,width:720,height:1280,webPreferences:{nodeIntegration:false,contextIsolation:true,backgroundThrottling:false,offscreen:true,partition:'showcase-'+Date.now()}});
 window.webContents.__yzforgeRuntimeCheck=true;window.__showcaseErrors=[];
-window.webContents.on('console-message',(_,level,message)=>{if(level>=3)window.__showcaseErrors.push(message);});
-try{await window.loadURL(args.url);return window.id;}catch(error){window.destroy();throw error;}`,
+window.webContents.on('console-message',(_,level,message)=>{if(level>=3&&window.__showcaseErrors.length<20)window.__showcaseErrors.push(message);});
+try{await window.loadURL(args.url);await window.webContents.executeJavaScript("globalThis.__showcaseStacks=[];window.addEventListener('error',e=>{if(globalThis.__showcaseStacks.length<3)globalThis.__showcaseStacks.push(e.error?.stack||e.message);});");return window.id;}catch(error){window.destroy();throw error;}`,
     { url: url.href },
 );
 const results = [];
@@ -44,6 +45,9 @@ check(label.string.includes(args.expected),'Unexpected output for '+args.button+
     );
 async function stage(name, work) {
     const data = await work();
+    await preview('await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return true;');
+    const errors = await editor("return require('electron').BrowserWindow.fromId(args.id).__showcaseErrors;", { id });
+    assert.deepEqual(errors, [], 'Runtime console errors at ' + name);
     results.push({ name, data });
     console.log(JSON.stringify({ name, data }));
 }
@@ -88,6 +92,7 @@ try {
         await capture('showcase-home.png');
         return { modules: state.modules, bundles: state.assets.bundles };
     });
+    await verifyNavigation({ run, stage, back });
     await stage('configuration, resource ambiguity, shards and audio', async () => {
         await pointerClick('showcase.showcase-page', '_bindBtnData');
         await run("await until(()=>record('showcase.data-lab-page')?.interactive);return true;");
@@ -207,10 +212,11 @@ try{
     await stage('UI results, instance cache, duplicate policy, layers and Part', async () => {
         await go('_bindBtnUi', 'showcase.ui-lab-page');
         const info = await run(`
+const beforeOpens=app.ui.cache.get('showcase.confirm-popup')?.view.opens??0;let cachedInstance;
 for(let i=0;i<2;i++){
  click('showcase.ui-lab-page',i?'_bindBtnCached':'_bindBtnPopup');await until(()=>record('showcase.confirm-popup')?.interactive);
- const r=record('showcase.confirm-popup');if(!i)globalThis.__cachedInstance=r.instance.node.uuid;else check(r.instance.node.uuid===globalThis.__cachedInstance,'cache did not reuse node');
- check(r.instance.view._bindLblDetail.string.includes('实例展示次数 '+(i+1)),'cached show did not refresh');
+ const r=record('showcase.confirm-popup');if(!i)cachedInstance=r.instance.node.uuid;else check(r.instance.node.uuid===cachedInstance,'cache did not reuse node');
+ check(r.instance.view._bindLblDetail.string.includes('实例展示次数 '+(beforeOpens+i+1)),'cached show did not refresh');
  click('showcase.confirm-popup',i?'_bindBtnCancel':'_bindBtnConfirm');await until(()=>!record('showcase.confirm-popup'));await wait(50);
 }
 click('showcase.ui-lab-page','_bindBtnDuplicate');await until(()=>record('showcase.confirm-popup')?.interactive);await until(()=>record('showcase.ui-lab-page').instance.view._bindLblOutput.string.includes('预期拒绝'));click('showcase.confirm-popup','_bindBtnCancel');await until(()=>!record('showcase.confirm-popup'));await wait(50);
@@ -425,7 +431,7 @@ try{
     console.error(
         JSON.stringify(
             await preview(
-                'return {ui:app?.ui.inspect(),errors:document.body.textContent,output:[...app.ui.records.values()].map(r=>({id:r.definition.id,text:r.instance?.view?._bindLblOutput?.string}))};',
+                'return {ui:app?.ui.inspect(),stacks:globalThis.__showcaseStacks,output:[...app.ui.records.values()].map(r=>({id:r.definition.id,text:r.instance?.view?._bindLblOutput?.string}))};',
             ).catch(() => null),
         ),
     );

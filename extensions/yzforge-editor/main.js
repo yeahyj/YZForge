@@ -255,6 +255,8 @@ async function createView(args) {
     const { directory, manifest } = await moduleInfo(args.module),
         { id, className } = naming.named(args.id, args.kind || 'popup');
     if (manifest.views[id]) throw Error('界面已存在');
+    if (args.visibility !== undefined && !['public', 'internal'].includes(args.visibility))
+        throw Error('请选择正确的界面公开范围');
     const group = args.bundle || 'default',
         bundle = manifest.bundles[group];
     if (!bundle) throw Error('请先创建目标资源包，再创建界面');
@@ -267,10 +269,10 @@ async function createView(args) {
     await ensureFolder(path.join(directory, bundle.root, uiFolder));
     const files = {
         [path.join(code, `${className}.types.ts`)]:
-            `// 公开参数与结果合同；需要数据时将 void 替换为明确的只读对象类型。\n/** ui.open/pushPage 的参数类型，在 onShow 中通过 show.params 读取。 */\nexport type ${className}Params = void;\n/** show.finish 提交的业务结果类型，调用方在 handle.result 的 completed 分支读取。 */\nexport type ${className}Result = void;\n`,
+            `// 界面参数与结果合同；公开范围由 module.json 的 visibility 决定。需要数据时将 void 替换为明确的只读对象类型。\n/** ui.open/pushPage 的参数类型，在 onShow 中通过 show.params 读取。 */\nexport type ${className}Params = void;\n/** show.finish 提交的业务结果类型，调用方在 handle.result 的 completed 分支读取。 */\nexport type ${className}Result = void;\n`,
         [path.join(generated, `${className}Binding.ts`)]: bindingSource(manifest.id, className, [], generated),
         [path.join(code, `${className}.ts`)]:
-            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n/** 完整 UI 的渲染与输入入口；节点来自 Binding，可按复杂度把业务规则委托给 Service/Presenter。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n  // 按需重写 onCreate/onShow/onHide/onDispose，不覆盖引擎生命周期。\n  // onShow(show: ViewShowContext<本界面Params, 本界面Result>) 可异步加载。\n  // 临时资源优先用 show.assets/show.config/show.audio，await 后通过 show.commit 同步修改节点。\n  // 点击监听使用 show.listen；成功用 show.finish(result)，取消用 show.dismiss()，返回用 show.back()。\n}\n`,
+            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n/** 完整 UI 的渲染与输入入口；节点来自 Binding，可按复杂度把业务规则委托给 Service/Presenter。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n  // 按需重写 onCreate/onShow/onHide/onDispose，不覆盖引擎生命周期。\n  // onShow(show: ViewShowContext<本界面Params, 本界面Result>) 可异步加载。\n  // 临时资源优先用 show.assets/show.config/show.audio，await 后通过 show.commit 同步修改节点。\n  // 点击监听使用 show.listen；成功用 show.finish(result)，取消用 show.dismiss()，返回用 show.ui.back()。\n}\n`,
     };
     if (args.presenter) {
         files[path.join(code, `${className}Presenter.ts`)] =
@@ -293,6 +295,7 @@ async function createView(args) {
     const assetId = `${manifest.id}/${group}/prefab/${manifest.layoutVersion === 2 ? 'ui/' : ''}${id}`;
     if (manifest.layoutVersion !== 2) (manifest.assets ??= {})[assetId] = { type: 'Prefab', uuid: prefab.uuid };
     manifest.views[id] = {
+        visibility: args.visibility ?? 'internal',
         prefab: assetId,
         kind: args.kind || 'popup',
         cache: 'none',

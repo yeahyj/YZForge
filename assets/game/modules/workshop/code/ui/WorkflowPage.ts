@@ -19,18 +19,19 @@ export class WorkflowPage extends WorkflowPageBinding implements WorkflowPagePor
     protected async onShow(show: ViewShowContext<WorkflowPageParams, void>): Promise<void> {
         this.display = show;
         this.parts.clear();
-        const presenter = new WorkflowPagePresenter(this.ctx.services(WorkshopServices).tasks, this.ctx.ui, show, this);
+        const presenter = new WorkflowPagePresenter(this.ctx.services(WorkshopServices).tasks, show, this);
         const error = (cause: unknown) =>
             show.commit(() => {
                 this.lblOutput.string = String(cause);
             });
-        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.back());
+        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.ui.back());
         show.listen(this.btnTrain.node, Button.EventType.CLICK, () => presenter.train(), error);
         show.listen(this.btnFailure.node, Button.EventType.CLICK, () => presenter.failNext());
         show.listen(this.btnReload.node, Button.EventType.CLICK, () => presenter.reload(), error);
         show.listen(this.btnInspect.node, Button.EventType.CLICK, () => {
-            const state = show.params.inspect();
-            this.lblOutput.string = `任务代码已加载：${state.workshopCodeReady}\n业务实例存活：${state.workshopBusinessReady}\n页面栈：${state.pages.join(' → ')}\n配置持有 ${state.configCount} · 资源持有 ${state.resourceCount}`;
+            const state = this.ctx.diagnostics.snapshot();
+            const module = this.ctx.diagnostics.module('workshop');
+            this.lblOutput.string = `任务代码已加载：${module.codeReady}\n业务实例存活：${module.businessReady}\n页面栈：${state.pages.join(' → ')}\n配置持有 ${state.configCount} · 资源持有 ${state.resourceCount}`;
         });
         await presenter.start();
     }

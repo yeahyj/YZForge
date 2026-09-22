@@ -6,7 +6,7 @@ import { preview, screenshot } from './preview.mjs';
 await preview(`
 if([...app.ui.records.values()].some(r=>r.definition.id==='showcase.showcase-page')) {
     while(app.ui.inspect().pages.length) await app.ui.back().completed;
-    await app.ui.pushPage({id:'lobby.dashboard'},{title:'综合回归'},app.flows);
+    await app.ui.pushPage({id:'lobby.dashboard',kind:'page'},{title:'综合回归'},app.flows);
 }
 return true;`);
 
@@ -31,7 +31,7 @@ await verify(
     'popup params/result and physical resource release',
     `
 const owner=app.flows.child('verify-popup'), baseline=app.assets.cache.retainedCount;
-const handle=await app.ui.open({id:'lobby.reward-popup'},{title:'集成验证',amount:123},owner);
+const handle=await app.ui.open({id:'lobby.reward-popup',kind:'popup'},{title:'集成验证',amount:123},owner);
 const record=[...app.ui.records.values()].find(r=>r.handle===handle);
 check(record.instance.view._bindLblAmount.string.includes('123'),'Popup params not displayed');
 record.instance.view._bindBtnConfirm.node.emit(cc.Button.EventType.CLICK);
@@ -44,7 +44,7 @@ await verify(
     `
 const C=cc.js.getClassByName('lobby.RewardPopup'), saved=C.prototype.onShow, owner=app.flows.child('verify-early');let showed=false;
 try { C.prototype.onShow=function(show){show.finish({claimed:true,amount:7});};
- const handle=await deadline(app.ui.open({id:'lobby.reward-popup'},{title:'Early',amount:7},owner));const result=await handle.result;
+ const handle=await deadline(app.ui.open({id:'lobby.reward-popup',kind:'popup'},{title:'Early',amount:7},owner));const result=await handle.result;
  check(result.status==='completed'&&result.value.amount===7,'Early result failed');check(![...app.ui.records.values()].some(r=>r.handle===handle),'Early view leaked');return {ok:true,result};
 } finally {C.prototype.onShow=saved;await owner.close();}`,
 );
@@ -52,8 +52,8 @@ await verify(
     'duplicate open rejected and one caller cancellation preserves existing UI',
     `
 const a=app.flows.child('verify-first'),b=app.flows.child('verify-second');
-try {const first=await app.ui.open({id:'lobby.reward-popup'},{title:'Existing',amount:1},a);let code;
-try{await app.ui.open({id:'lobby.reward-popup'},{title:'Duplicate',amount:2},b);}catch(e){code=e.code;}
+try {const first=await app.ui.open({id:'lobby.reward-popup',kind:'popup'},{title:'Existing',amount:1},a);let code;
+try{await app.ui.open({id:'lobby.reward-popup',kind:'popup'},{title:'Duplicate',amount:2},b);}catch(e){code=e.code;}
 check(code==='UI_ALREADY_OPEN','Duplicate was not rejected');await b.close();check([...app.ui.records.values()].some(r=>r.handle===first&&r.interactive),'Second owner closed the first UI');
 await first.close();return{ok:true,code};}finally{await a.close();await b.close();}`,
 );
@@ -72,7 +72,7 @@ const parent=[...app.ui.records.values()].find(r=>r.definition.id==='lobby.dashb
 parent.instance.view._bindBtnReward.node.emit(cc.Button.EventType.CLICK);
 await new Promise(resolve=>setTimeout(resolve,150));check([...app.ui.records.values()].some(r=>r.definition.id==='lobby.reward-popup'),'Child popup did not open');
 await deadline(parent.handle.close());check(app.ui.records.size===0,'Nested UI records survived');
-const reopened=await app.ui.pushPage({id:'lobby.dashboard'},{title:'YZForge'},app.flows);check(!!reopened,'Dashboard failed to reopen');
+const reopened=await app.ui.pushPage({id:'lobby.dashboard',kind:'page'},{title:'YZForge'},app.flows);check(!!reopened,'Dashboard failed to reopen');
 return{ok:true,activeViews:app.ui.records.size};`,
 );
 await verify(
@@ -81,7 +81,7 @@ await verify(
 const id='lobby.verification-page',source=app.ui.definitions.get('lobby.reward-popup'),owner=app.flows.child('verify-pages');
 const previous=app.ui.pages.at(-1);app.ui.definitions.set(id,{...source,id,kind:'page'});
 try {
- const handle=await deadline(previous.show.run(()=>app.ui.pushPage({id},{title:'Navigation',amount:1},owner)));
+ const handle=await deadline(previous.show.run(()=>app.ui.pushPage({id,kind:'page'},{title:'Navigation',amount:1},owner)));
  check(previous.suspended&&!previous.interactive,'Previous page remained interactive');
  await deadline(app.ui.back().completed);check(previous.interactive&&!previous.suspended,'Back did not resume previous page');
  check((await handle.result).status==='cancelled','Back result mismatch');return{ok:true,activePages:app.ui.pages.length};
@@ -94,7 +94,7 @@ const C=cc.js.getClassByName('lobby.RewardPopup'),saved=C.prototype.onHide,timeo
 let release,closing;const gate=new Promise(resolve=>release=resolve);const baseline=app.assets.cache.retainedCount;
 try{
  C.prototype.onHide=async()=>{await gate;};app.ui.cleanupTimeoutMs=30;
- const handle=await app.ui.open({id:'lobby.reward-popup'},{title:'Timeout',amount:1},owner);closing=handle.close();
+ const handle=await app.ui.open({id:'lobby.reward-popup',kind:'popup'},{title:'Timeout',amount:1},owner);closing=handle.close();
  const result=await deadline(handle.result);check(result.status==='failed'&&result.cleanupPending,'Logical timeout missing');
  check(app.assets.cache.retainedCount>baseline,'Assets released while onHide still running');
  let code;try{await app.modules.use({id:'lobby'},owner);}catch(e){code=e.code;}
@@ -106,7 +106,7 @@ await verify(
     'repeated popup closure unregisters long-lived owner cleanup callbacks',
     `
 const baseline=app.flows.cleanups.size;
-for(let index=0;index<5;index++){const handle=await app.ui.open({id:'lobby.reward-popup'},{title:'Repeat',amount:index},app.flows);await handle.close();}
+for(let index=0;index<5;index++){const handle=await app.ui.open({id:'lobby.reward-popup',kind:'popup'},{title:'Repeat',amount:index},app.flows);await handle.close();}
 check(app.flows.cleanups.size===baseline,'Closed popups retained by app owner');return{ok:true,ownerCleanups:baseline};`,
 );
 await verify(
@@ -128,7 +128,7 @@ await verify(
 const id='lobby.verification-back',source=app.ui.definitions.get('lobby.reward-popup'),owner=app.flows.child('verify-back');
 const previous=app.ui.pages.at(-1);app.ui.definitions.set(id,{...source,id,kind:'page'});
 try {
- const handle=await app.ui.pushPage({id},{title:'Return',amount:1},owner);const page=app.ui.pages.at(-1);let completed;
+ const handle=await app.ui.pushPage({id,kind:'page'},{title:'Return',amount:1},owner);const page=app.ui.pages.at(-1);let completed;
  await deadline(page.show.run(async()=>{const request=await app.ui.back();completed=request.completed;app.ui.back();}));
  await deadline(completed);check((await handle.result).status==='cancelled','Return result mismatch');
  check(previous.interactive&&!previous.suspended&&app.ui.inspect().pages.length===1,'Duplicate return closed the previous page');

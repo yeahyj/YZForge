@@ -200,7 +200,9 @@ assets/
     platform/
   game/
     boot/                          # 启动场景、GameRoot、本地恢复 UI
-    app/                           # 手写组合入口与跨模块业务流程
+    app/                           # 启动接入与应用装配
+      start-game.ts                # 选择首屏或接入业务流程
+      generated/                   # 工具生成的装配与运行参数
     shared/
       contracts/                   # 少量跨模块 DTO、事件定义
       code/                        # 确实公共的组件与工具
@@ -980,37 +982,30 @@ App 持久 UI 根的物理层次：Page → Overlay → Popup → Toast → Load
 
 ### 10.2 公开接口与结果
 
-页面内部通过 `show.finish(value)` 完成、`show.dismiss()` 取消、`show.back()` 返回，均只发出请求，不等待自己的任务排空。外部 `ui.back()` 返回 `{ completed: Promise<void> }`，需要等待时使用 `await ui.back().completed`；连续针对同一栈顶的请求不误关闭上一页。普通按钮回调失败通过 `show.listen` 的可选 onError 或错误报告处理，保留页面以便重试；初始化/清理故障仍按生命周期故障处理。`show.assets/config/audio/time` 的默认 Scope 统一为本次展示。
+页面内部通过 `show.finish(value)` 完成、`show.dismiss()` 取消、`show.ui.back()` 返回，均只发出请求，不等待自己的任务排空。外部 `ui.back()` 返回 `{ completed: Promise<void> }`，需要等待时使用 `await ui.back().completed`；连续针对同一栈顶的请求不误关闭上一页。普通按钮回调失败通过 `show.listen` 的可选 onError 或错误报告处理，保留页面以便重试；初始化/清理故障仍按生命周期故障处理。`show.assets/config/audio/time` 的默认 Scope 统一为本次展示。
 
 ```ts
 type ViewResult<T> =
-  | { status: "completed"; value: T }
-  | { status: "cancelled"; reason: "back" | "mask" | "owner-closed" | "replaced" | "caller" }
-  | { status: "failed"; error: UiError };
+    | { status: 'completed'; value: T }
+    | { status: 'cancelled' }
+    | { status: 'failed'; error: unknown; cleanupPending: boolean };
 
-interface ViewHandle<T> {
-  readonly result: Promise<ViewResult<T>>;
-  close(reason?: "caller"): Promise<void>;
-}
-
-const popup = await app.ui.open(Views.confirm, { message: "是否退出？" }, {
-  scope: flowScope,
-});
+const popup = await show.ui.open(Views.confirm, { message: '是否退出？' });
 const answer = await popup.result;
-if (answer.status === "completed" && answer.value.accepted) {
-  await leaveBattle();
+if (answer.status === 'completed' && answer.value.accepted) {
+    await leaveBattle();
 }
 ```
 
-`open` 返回 Promise<ViewHandle>，正常路径在进入可交互状态后 resolve；另有一种成功路径：onShow 在显示前调用 show.finish，完整收尾后返回 result 已经 completed 的 Handle，不闪现界面。调用方通过 result 判断业务结果，不能把获得 Handle 无条件等同于“界面当前仍可见”。加载或钩子失败在尚未交付 Handle 时 reject 为 UiError。
+`ViewKey<Params, Result, Kind>` 含 id 与 kind，不引用组件实现。Page 通过 `show.ui.pushPage`，局部界面通过 `show.ui.open`；类型与运行时均检查层级。默认内部界面输出到模块 `code/generated/views.ts`；明确 `visibility: public` 的项目才输出到 `contracts/generated/views.ts`。工具禁止跨模块导入私有代码，公开不是运行时鉴权。
 
-尚未交付 Handle 的普通取消，以可识别的 OperationCancelled 结束 open Promise；交付后的关闭通过 result 表达。完成与普通取消采用管理器先接受的终结意图，真实钩子/清理故障可以把正常结果改为 failed。所有终结操作幂等，result 最多落定一次，不吞掉迟到的实际故障。
+`show.ui.open` 默认归当前 show，也可显式指定其子 Lifetime；不接受祖先或其他会话所有者。`open` 等到准备完成再交付 Handle，`handle.result` 等待最终结果。onShow 中提前 finish 会在收尾后返回已完成的 Handle；准备失败保留原始错误，未交付时取消抛 OperationCancelled。清理超时以 failed/cleanupPending 报告，底层仍继续收尾；外部 `handle.close()` 等待实际关闭，界面自己的受管任务不能等待自身关闭。
 
-正常 result 在退场和显示清理完成后落定；发生清理超时则在实例被隔离、输入已解除后以 failed 落定，并记录 cleanupPending，不能宣称物理资源已全部释放。外部 Handle.close 等待同一次逻辑关闭，清理故障时 reject。待清理对象的后续释放由管理器继续追踪，不重复修改已落定的 result。
+`show.ui.pushPage` 只返回 `{ status: 'opened' }` 或 `{ status: 'ignored', reason: 'busy' }`，不提供新页结束句柄；忙碌时不排队，也不共享另一个目标的结果。新页面继承导航所有者，不由旧 show 持有。目标在 onShow 与同步子组件激活完成前不可见、不可交互；完成后重新核验来源 show 和栈顶，才同步挂起旧页并提交新页。准备失败保留原页，旧实例清理中拒绝同 Key 重试；加载期间返回只撤销该次前进。来源 show 取消或导航所有者结束时，即使加载稍后完成也不提交。
 
-外部通过参数和结果使用 View，不拿内部 Component。生成的 View 引用只有模块 id、ViewId、类型化 Prefab 逻辑引用和轻量选项，不 import 业务 View 类。UIManager 为外部打开请求/导航条目持有模块使用权；闲置缓存不持有外部 ModuleHandle，转换和驱逐遵守第 6.2 节。
+初始化 onShow、非 Page 和非可交互栈顶不能导航；必须在页面准备完成后的交互回调中调用。过期 show 的 open/pushPage 拒绝，back 无操作。首屏和需要等待页面最终结果的外部会话使用 `app.ui.pushPage(key, params, owner)`，必须选择覆盖页面存活期的 owner；并发准备报 UI_NAVIGATION_BUSY。
 
-模块内部需要服务的 View 在模块工厂中用一个小型 View 工厂映射注入，例如 `reward → { rewards }`；外部参数不携带全局服务对象。映射随模块代码加载，主包不导入它。
+调试页通过 `ctx.diagnostics` 读取只读摘要，与导航分离；普通业务数据由模块公开 API 提供。
 
 ### 10.3 生命周期
 
@@ -1024,7 +1019,7 @@ if (answer.status === "completed" && answer.value.accepted) {
      → 关闭显示 Scope → 闲置缓存或销毁实例 → result
 ```
 
-**激活屏障。** 准备容器位于有效 Canvas/场景树中，保证 activeInHierarchy=true，同时由框架的渲染与输入闸门保证不可见、不可交互；不能仅设 opacity=0 就宣称输入已禁用。激活完成、当前活动子树的同步 onLoad/框架 onInit 都执行后，管理器才调用根 View 的 onCreate/onShow，不能在根组件自己的 onLoad 中抢先调用它们。框架记录子组件初始化失败，不能仅凭 node.active 赋值成功就放行业务。准备阶段屏蔽受管子组件的 onActivate/onReady 与帧更新；引擎 start 若已发生，仅记录调度条件，显示提交后才开放业务活动。
+**激活屏障。** 准备容器位于有效 Canvas/场景树中，保证 activeInHierarchy=true，同时由框架的渲染与输入闸门保证不可见、不可交互；不能仅设 opacity=0 就宣称输入已禁用。激活完成、当前活动子树的同步 onLoad/框架 onInit 都执行后，管理器才调用根 View 的 onCreate/onShow，不能在根组件自己的 onLoad 中抢先调用它们。框架记录子组件初始化失败，不能仅凭 node.active 赋值成功就放行业务。onShow 准备期间先屏蔽预制体内受管子组件的业务活动；准备结束后，在渲染与输入仍关闭的状态同步执行子组件 onActivate，任一失败都回收目标并保留原页。全部通过后才提交显示；引擎 start 若已发生仅记录调度条件，onReady 与帧更新从提交后的有效业务帧开始。
 
 inactive 子节点、后续动态添加的子节点不包含在这次屏障中；业务访问其方法前通过明确的激活/准备流程处理。屏障不承诺所有子组件的 start/onReady 已执行，公共方法所需的同步局部准备应放到 onInit，异步就绪通过显式方法等待。内置/第三方组件若依赖后续帧才能计算布局，由适配器显式等待其就绪，不能硬编码“等一帧必然可用”。根 View 禁止业务更改 active/enabled 或自行 destroy，统一走管理器。
 
@@ -1579,7 +1574,9 @@ events.emit(InventoryChanged, { revision: 12, changedItemIds: [3, 8] });
 
 ### 13.4 跨模块流程
 
-`game/app/flows` 放跨模块编排，例如登录、进入战斗、结算回大厅。Flow 是普通函数/类，创建自己的 Scope，通过 ModuleHandle 持有所需模块。
+业务协调代码属于发起业务的模块，放在 `modules/<id>/code`，使用模块公开 API 和合同。`game/app` 只保留启动接入点与生成的应用装配。单纯页面跳转直接调用框架 `show.ui`，不建立额外的导航 Service、路由表或顶层业务目录。复杂流程才按需拆分普通函数、Presenter 或协调类。
+
+模块中的协调代码通过公开 API 调用其他模块，长期服务由启动或账号会话显式持有 ModuleHandle。`ctx.time` 的订阅属于模块业务期限；`show.time` 的订阅属于当前显示，两者不能混用。跨天重置需要业务自行保存周期标记、幂等更新状态并在成功后通知 UI；初始化也检查周期，不能只依赖在线时收到回调。
 
 ```text
 BattleFlow 获取 battle/profile Handle

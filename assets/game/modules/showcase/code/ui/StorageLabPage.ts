@@ -1,13 +1,12 @@
 import { _decorator, Button } from 'cc';
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
-import type { LabParams } from '../../contracts/demo-navigation';
 import { StorageLab, LabWallet } from '../services/StorageLab';
 import { StorageLabPageBinding } from './generated/StorageLabPageBinding';
 const { ccclass } = _decorator;
 /** 存档故障只作用于独立内存后端；任务奖励页另行展示平台真实持久化。 */
 @ccclass('showcase.StorageLabPage')
 export class StorageLabPage extends StorageLabPageBinding {
-    protected onShow(show: ViewShowContext<LabParams, void>): void {
+    protected onShow(show: ViewShowContext<void, void>): void {
         const lab = new StorageLab();
         const output = (text: string) =>
             show.commit(() => {
@@ -22,7 +21,7 @@ export class StorageLabPage extends StorageLabPageBinding {
                 },
                 (error) => output(String(error)),
             );
-        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.back());
+        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.ui.back());
         bind(this.btnSave, () => {
             const value = lab.storage.get(LabWallet)?.coins ?? 0;
             lab.storage.set(LabWallet, { coins: value + 10 });

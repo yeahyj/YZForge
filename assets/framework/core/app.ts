@@ -15,6 +15,7 @@ import { Scope, Lifetime } from './scope';
 import { FrameworkError } from './errors';
 import { GameComponent } from './game-component';
 import { BootFlow } from './boot';
+import type { RuntimeDiagnostics } from './diagnostics';
 /**
  * 应用启动装配参数。通常由项目设置和生成的发布清单构建，交给 AppEntry.appOptions。
  */
@@ -89,6 +90,26 @@ export class App {
             boot: this.boot.inspect(),
         });
     }
+    /** 只读诊断能力；模块接收此接口，不需要获得整个 App。 */
+    readonly diagnostics: RuntimeDiagnostics = Object.freeze({
+        snapshot: () => {
+            const assets = this.assets.inspect();
+            const config = this.config.inspect();
+            return Object.freeze({
+                pages: this.ui.inspect().pages,
+                modules: Object.freeze(this.modules.inspect().map((module) => module.id)),
+                bundles: Object.freeze([...assets.bundles]),
+                resourceCount: assets.resources.filter((entry) => entry.users > 0).length,
+                configCount: config.filter((entry) => entry.users > 0).length,
+                configDrainingCount: config.filter((entry) => entry.users === 0).length,
+            });
+        },
+        module: (id: string) =>
+            Object.freeze({
+                codeReady: this.modules.isCodeReady(id),
+                businessReady: this.modules.isReady(id),
+            }),
+    });
     /**
      * 应用根生命周期，覆盖所有核心服务；普通业务流程优先放到 flows 或更短的子 Scope。
      */
@@ -208,6 +229,7 @@ export class App {
                     time: this.time.in(scope),
                     events: this.events,
                     storage: this.storage,
+                    diagnostics: this.diagnostics,
                     ui: this.ui,
                     audio: this.audio,
                     createSession,

@@ -4,7 +4,7 @@
 
 ## 启动与模块
 
-`Bootstrap.scene → GameRoot → start-game.ts → ShowcaseNavigation → ShowcasePage`。`GameRoot` 装配通用服务；`start-game.ts` 和 `showcase-navigation.ts` 组合示例。`app/generated` 继续由工具维护。
+`Bootstrap.scene → GameRoot → start-game.ts → ShowcasePage`。`GameRoot` 装配通用服务，`app/start-game.ts` 打开首屏；后续跳转由模块内的页面调用 `show.ui`。任务奖励等业务规则由所属模块的 Service 管理，复杂交互由模块内的 Presenter 协调。`app/generated` 继续由工具维护。
 
 | 模块     | 职责                                                              | 关系                                               |
 | -------- | ----------------------------------------------------------------- | -------------------------------------------------- |
@@ -24,7 +24,7 @@ XLSX 源表为 `common/economy.xlsx`、`lobby/items.xlsx`、`workshop/tasks.xlsx
 | ---------------------------------------------------------- | ------------------------------------------ | ------------------------- |
 | npm run verify                                             | 通用格式、类型、生成一致性、框架与工具回归 | 清理示例后仍可执行        |
 | npm run test:showcase                                      | 规则、去重、Presenter、注入时钟与存档故障  | 需要新示例                |
-| verify-showcase.mjs                                        | 构建后真实运行时的九组检查与截图           | 需要全部示例              |
+| verify-showcase.mjs                                        | 构建后真实运行时检查与截图                 | 需要全部示例              |
 | verify-showcase-editor.mjs                                 | 真实工作台步骤、源码读取与表/绑定跳转      | 需要 workshop 示例        |
 | verify-template.mjs                                        | 独立空副本的启动与关闭                     | 要求副本已清空示例        |
 | verify-workbench.mjs                                       | 真实 Creator 创建、绑定、删除与恢复        | 使用自己的临时模块        |
@@ -33,4 +33,4 @@ XLSX 源表为 `common/economy.xlsx`、`lobby/items.xlsx`、`workshop/tasks.xlsx
 
 集成脚本位于 `tests/integration`，不参与游戏构建。使用当前项目自己的 MCP 连接；不要在副本复用原项目的本机连接配置。制作资源应通过 Creator/MCP，不手改预制体和场景序列化文件。
 
-清理示例需先解除应用组合层导入，再按依赖顺序通过工作台处理，详见 [复制项目与清理示例](copy-project.md)。
+清理示例需先解除启动入口中的示例调用，再按依赖顺序通过工作台处理模块，详见 [复制项目与清理示例](copy-project.md)。

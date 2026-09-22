@@ -2,6 +2,7 @@ import { untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, reportError } from '../core/errors';
 import { Scope, Lifetime } from '../core/scope';
+import type { RuntimeDiagnostics } from '../core/diagnostics';
 import type { ScopedAssets } from '../assets/asset-manager';
 import type { ScopedConfig } from '../config/config-manager';
 import type { Events } from '../core/events';
@@ -93,6 +94,8 @@ export function defineModule<Api, Services = unknown, D extends ModuleDependenci
  * 模块 Scope、界面展示 Scope、组件激活 Scope 长度不同，应按实际使用期选择。
  */
 export interface ModuleContext {
+    /** 按需查询只读运行状态；用于诊断展示，不作为业务规则或模块持有方式。 */
+    readonly diagnostics: RuntimeDiagnostics;
     /** 应用命名空间下的小型存档与设置入口，支持逐版本迁移和有效备份恢复。 */
     readonly storage: Storage;
     /**

@@ -97,7 +97,12 @@ exports.createWorkbench = function (ctx) {
                             : named.className;
                     add(`${code}/${className}.ts`);
                     add(`${code}/generated/${className}Binding.ts`);
-                    if (!generic) add(`${code}/${className}.types.ts`);
+                    if (!generic) {
+                        request.visibility ??= 'internal';
+                        if (!['public', 'internal'].includes(request.visibility))
+                            throw Error('请选择正确的界面公开范围');
+                        add(`${code}/${className}.types.ts`);
+                    }
                     if (!generic && request.presenter) add(`${code}/${className}Presenter.ts`);
                     if (request.prefabUUID) {
                         const info = await Editor.Message.request('asset-db', 'query-asset-info', request.prefabUUID);
@@ -136,6 +141,8 @@ exports.createWorkbench = function (ctx) {
         const generatedRoot =
             prefix + '/' + (kind === 'module' || manifest.layoutVersion === 2 ? 'contracts/' : '') + 'generated';
         for (const name of ['views.ts', 'bundles.ts']) generated.add(generatedRoot + '/' + name);
+        if ((kind === 'module' && request.delivery !== 'none') || (kind !== 'module' && manifest.code?.mode !== 'none'))
+            generated.add(prefix + '/code/generated/views.ts');
         if ((kind === 'module' && request.delivery !== 'none') || (kind !== 'module' && manifest.code?.mode !== 'none'))
             generated.add(prefix + '/code/generated/dependencies.ts');
         const groups =

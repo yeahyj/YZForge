@@ -24,6 +24,30 @@ exports.onBeforeBuild = async function (options) {
             (error, stdout, stderr) => (error ? reject(Error(stderr || stdout)) : resolve()),
         ),
     );
+    // TS 编译通过并不代表 Creator 已完成脚本导入；缺类的 Prefab 可能被序列化为 null 组件。
+    const fs = require('fs/promises');
+    const moduleRoot = path.join(Editor.Project.path, 'assets/game/modules');
+    for (const entry of await fs.readdir(moduleRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const manifest = await fs
+            .readFile(path.join(moduleRoot, entry.name, 'module.json'), 'utf8')
+            .then(JSON.parse, (error) => {
+                if (error.code === 'ENOENT') return null;
+                throw error;
+            });
+        for (const view of Object.values(manifest?.views ?? {})) {
+            if (!view.className) continue;
+            const ready = await Editor.Message.request('scene', 'execute-scene-script', {
+                name: 'yzforge-editor',
+                method: 'classReady',
+                args: [view.className],
+            });
+            if (!ready)
+                throw Error(
+                    `Creator 尚未注册界面脚本 ${view.className}。请等待导入完成；若曾有缺失导入，刷新该脚本并检查编辑器错误后重新构建。`,
+                );
+        }
+    }
 };
 
 /** Verify actual Creator output; a hand-written 'verified' flag is never a substitute. */

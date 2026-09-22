@@ -9,6 +9,7 @@ import { invariant } from '../core/errors';
 import { assertLifecycle, synchronous } from '../core/lifecycle';
 import { Lifetime, TaskContext } from '../core/scope';
 import type { Actions } from '../core/actions';
+import type { ViewUI } from './ui-manager';
 const { ccclass } = _decorator;
 /**
  * UI 实例创建上下文。同一缓存实例可经历多次显示，instance.scope 通常长于 show.scope。
@@ -29,6 +30,8 @@ type ReadonlyParams<P> = P extends object ? Readonly<P> : P;
  * 异步任务应捕获这一次 show，不要在完成时再读取另一轮显示的上下文。
  */
 export interface ViewShowContext<Params, Result> extends TaskContext {
+    /** 当前显示的 UI 入口：局部弹窗跟随 show，页面导航继承外部会话；旧显示不能再次使用。 */
+    readonly ui: ViewUI;
     /** 本次展示的命名操作：latest 查询、exclusive 防重复、serial 顺序执行。 */
     readonly actions: Actions;
     /** 本次显示使用的资源入口；load/instantiate 的资源自动随本次显示释放。 */
@@ -90,8 +93,6 @@ export interface ViewShowContext<Params, Result> extends TaskContext {
     finish(value: Result): void;
     /** 请求取消本次界面；按钮或 onShow 中可直接调用，由打开方等待 handle.result。旧显示上的调用被忽略。 */
     dismiss(): void;
-    /** 当前界面仍是有效栈顶页面时请求返回；旧回调或已隐藏页面的调用被忽略，不等待自己的清理。 */
-    back(): void;
 }
 /**
  * 隐藏或结束时的清理上下文；此时原 show 已取消，不能用旧 show 提交界面更新。

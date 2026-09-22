@@ -1,6 +1,5 @@
 import { _decorator, Button } from 'cc';
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
-import type { LabParams } from '../../contracts/demo-navigation';
 import { OperationCancelled } from '../../../../../framework/core/errors';
 import { runTask } from '../../../../../framework/core/scope';
 import { BootFlow } from '../../../../../framework/core/boot';
@@ -13,7 +12,7 @@ const request = (ms: number): Promise<void> => new Promise((resolve) => setTimeo
 /** 用真实 Actions、Scope、BootFlow 和配置批量加载演示可控失败。 */
 @ccclass('showcase.AsyncLabPage')
 export class AsyncLabPage extends AsyncLabPageBinding {
-    protected onShow(show: ViewShowContext<LabParams, void>): void {
+    protected onShow(show: ViewShowContext<void, void>): void {
         let attempts = 0;
         const output = (text: string) =>
             show.commit(() => {
@@ -23,7 +22,7 @@ export class AsyncLabPage extends AsyncLabPageBinding {
             show.listen(button.node, Button.EventType.CLICK, work, (error) =>
                 output(`失败已接住，可重试：${String(error)}`),
             );
-        bind(this.btnBack, () => show.back());
+        bind(this.btnBack, () => show.ui.back());
         bind(this.btnLatest, async () => {
             await show.actions.exclusive('latest-demo', async () => {
                 const accepted: string[] = [];
@@ -98,14 +97,14 @@ export class AsyncLabPage extends AsyncLabPageBinding {
             output(`取消后实际工作结束：${finished}\n旧提交接受：${accepted}\nclose 等待真实退出，再完成资源回收。`);
         });
         bind(this.btnBatch, async () => {
-            const before = show.params.navigation.inspect().configCount;
+            const before = this.ctx.diagnostics.snapshot().configCount;
             try {
                 await show.config.loadMany({
                     valid: EconomyTable,
                     missing: { ...EconomyTable, id: 'showcase.missing-table' },
                 });
             } catch (error) {
-                const after = show.params.navigation.inspect();
+                const after = this.ctx.diagnostics.snapshot();
                 output(
                     `预期批量失败：${String(error)}\n持有表条目：${before} → ${after.configCount}\n无持有的底层收尾：${after.configDrainingCount} 条\n共享 I/O 完成后回收，不把逻辑取消当成物理中断。`,
                 );
@@ -137,7 +136,7 @@ export class AsyncLabPage extends AsyncLabPageBinding {
         bind(this.btnLeave, async () => {
             const service = this.ctx.services(ShowcaseServices).showcase;
             const physical = request(250);
-            show.back(); // 发出返回请求，不能等待自己关闭。
+            show.ui.back(); // 发出返回请求，不能等待自己关闭。
             await physical;
             if (
                 !show.commit(() => {

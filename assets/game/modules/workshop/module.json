@@ -18,7 +18,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "workshop.WorkflowPage",
-      "binding": "code/ui/generated/WorkflowPageBinding.ts"
+      "binding": "code/ui/generated/WorkflowPageBinding.ts",
+      "visibility": "public"
     },
     "claim-popup": {
       "prefab": "workshop/default/prefab/ui/claim-popup",
@@ -26,7 +27,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "workshop.ClaimPopup",
-      "binding": "code/ui/generated/ClaimPopupBinding.ts"
+      "binding": "code/ui/generated/ClaimPopupBinding.ts",
+      "visibility": "internal"
     }
   },
   "audio": {},

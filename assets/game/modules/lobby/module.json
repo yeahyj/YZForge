@@ -17,7 +17,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "lobby.Dashboard",
-      "binding": "code/ui/generated/DashboardBinding.ts"
+      "binding": "code/ui/generated/DashboardBinding.ts",
+      "visibility": "public"
     },
     "reward-popup": {
       "prefab": "lobby/default/prefab/reward-popup",
@@ -25,7 +26,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "lobby.RewardPopup",
-      "binding": "code/ui/generated/RewardPopupBinding.ts"
+      "binding": "code/ui/generated/RewardPopupBinding.ts",
+      "visibility": "internal"
     }
   },
   "audio": {},

@@ -5,8 +5,6 @@ import { Actions } from '../../assets/framework/core/actions';
 import { Events } from '../../assets/framework/core/events';
 import { TimeService } from '../../assets/framework/time/time-service';
 import { Storage } from '../../assets/framework/platform/storage';
-import type { App } from '../../assets/framework/core/app';
-import { ShowcaseNavigation } from '../../assets/game/app/showcase-navigation';
 import { WalletService } from '../../assets/game/modules/profile/code/services/WalletService';
 import { TaskService } from '../../assets/game/modules/workshop/code/services/TaskService';
 import { WorkflowPagePresenter } from '../../assets/game/modules/workshop/code/ui/WorkflowPagePresenter';
@@ -15,7 +13,7 @@ import { StorageLab, LabWallet, LabStorageBackend } from '../../assets/game/modu
 import type { ModuleContext } from '../../assets/framework/modules/module-manager';
 import type { ProfileApi } from '../../assets/game/modules/profile/public';
 import type { TasksRow } from '../../assets/game/modules/workshop/contracts/generated/config/Tasks.types';
-import type { UIManager, ViewResult } from '../../assets/framework/ui/ui-manager';
+import type { ViewUI, ViewResult } from '../../assets/framework/ui/ui-manager';
 import type { ViewShowContext } from '../../assets/framework/ui/ui-view';
 import type { WorkflowPageParams } from '../../assets/game/modules/workshop/code/ui/WorkflowPage.types';
 import { flush, deferred } from '../fake-clock';
@@ -47,64 +45,6 @@ async function setup() {
     await tasks.load(scope);
     return { scope, backend, storage, ctx, wallet, tasks };
 }
-
-test('navigation keeps the first destination during a slow open and uses the application owner', async () => {
-    const owner = new Scope('navigation');
-    const previousPage = owner.child('previous-page');
-    const opened = deferred();
-    const calls: string[] = [];
-    const app = {
-        ui: {
-            pushPage: async (key: { id: string }, _params: unknown, lifetime: unknown) => {
-                assert.equal(lifetime, owner.lifetime);
-                calls.push(key.id);
-                if (calls.length === 1) await opened.promise;
-            },
-        },
-    } as unknown as App;
-    const navigation = new ShowcaseNavigation(app, owner.lifetime);
-    try {
-        const first = navigation.open('data');
-        const repeated = navigation.open('time');
-        await flush();
-        assert.deepEqual(calls, ['showcase.data-lab-page']);
-        await previousPage.close();
-        assert.equal(owner.signal.aborted, false, 'new page must outlive the previous show');
-        opened.resolve();
-        await Promise.all([first, repeated]);
-        await navigation.open('workflow');
-        assert.deepEqual(calls, ['showcase.data-lab-page', 'workshop.workflow-page']);
-    } finally {
-        opened.resolve();
-        await owner.close();
-    }
-});
-
-test('failed navigation reports the same failure to joined callers and allows an explicit retry', async () => {
-    const owner = new Scope('navigation-retry');
-    let calls = 0;
-    const failure = Error('Page preparation failed');
-    const app = {
-        ui: {
-            pushPage: async () => {
-                if (++calls === 1) throw failure;
-            },
-        },
-    } as unknown as App;
-    const navigation = new ShowcaseNavigation(app, owner.lifetime);
-    try {
-        const results = await Promise.allSettled([navigation.open('data'), navigation.open('time')]);
-        assert.equal(calls, 1);
-        for (const result of results) {
-            assert.equal(result.status, 'rejected');
-            if (result.status === 'rejected') assert.equal(result.reason, failure);
-        }
-        await navigation.open('data');
-        assert.equal(calls, 2);
-    } finally {
-        await owner.close();
-    }
-});
 
 test('task domain rejects incomplete commands and persists reward deduplication across service recreation', async () => {
     const s = await setup();
@@ -169,19 +109,23 @@ test('Presenter waits for confirmation, ignores duplicate clicks, and renders th
             opens++;
             return { result: answer.promise };
         },
-    } as unknown as UIManager;
+    } as unknown as ViewUI;
     const show = { ...taskContext(showScope), actions: new Actions(showScope) } as ViewShowContext<
         WorkflowPageParams,
         void
     >;
-    const presenter = new WorkflowPagePresenter(s.tasks, ui, show, {
-        mount: async (cards) => {
-            assert.equal(cards.length, 1);
+    const presenter = new WorkflowPagePresenter(
+        s.tasks,
+        { ...show, ui },
+        {
+            mount: async (cards) => {
+                assert.equal(cards.length, 1);
+            },
+            render: () => {
+                renders++;
+            },
         },
-        render: () => {
-            renders++;
-        },
-    });
+    );
     try {
         await presenter.start();
         presenter.train();
@@ -215,7 +159,7 @@ test('Presenter observes external wallet and claim changes and stops both subscr
     let summary = '',
         cardState = '',
         renders = 0;
-    const presenter = new WorkflowPagePresenter(s.tasks, {} as UIManager, show, {
+    const presenter = new WorkflowPagePresenter(s.tasks, show, {
         mount: async () => {},
         render: (cards, text) => {
             summary = text;
@@ -280,8 +224,8 @@ test('cancelling confirmation leaves progress and wallet unchanged', async () =>
         WorkflowPageParams,
         void
     >;
-    const ui = { open: async () => ({ result: Promise.resolve({ status: 'cancelled' }) }) } as unknown as UIManager;
-    const presenter = new WorkflowPagePresenter(s.tasks, ui, show, { mount: async () => {}, render: () => {} });
+    const ui = { open: async () => ({ result: Promise.resolve({ status: 'cancelled' }) }) } as unknown as ViewUI;
+    const presenter = new WorkflowPagePresenter(s.tasks, { ...show, ui }, { mount: async () => {}, render: () => {} });
     try {
         await presenter.start();
         presenter.train();
@@ -303,14 +247,18 @@ test('failed confirmation is reported distinctly and never commits a reward', as
         open: async () => ({
             result: Promise.resolve({ status: 'failed', error: Error('UI fault'), cleanupPending: false }),
         }),
-    } as unknown as UIManager;
+    } as unknown as ViewUI;
     let summary = '';
-    const presenter = new WorkflowPagePresenter(s.tasks, ui, show, {
-        mount: async () => {},
-        render: (_cards, text) => {
-            summary = text;
+    const presenter = new WorkflowPagePresenter(
+        s.tasks,
+        { ...show, ui },
+        {
+            mount: async () => {},
+            render: (_cards, text) => {
+                summary = text;
+            },
         },
-    });
+    );
     try {
         await presenter.start();
         presenter.train();

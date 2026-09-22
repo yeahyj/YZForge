@@ -11,12 +11,24 @@ import { TimeService } from '../time/time-service';
 import { UIView, ViewShowContext } from './ui-view';
 import { Actions } from '../core/actions';
 
+/** 框架支持的完整界面类别；Part 不属于 UI 页面栈。 */
+export type ViewKind = 'page' | 'popup' | 'overlay' | 'toast' | 'loading';
+/** 不参与页面返回栈的界面类别。 */
+export type LocalViewKind = Exclude<ViewKind, 'page'>;
+/** 页面引用，只能通过页面导航打开。 */
+export type PageKey<P = void, R = void> = ViewKey<P, R, 'page'>;
+/** 弹窗、覆盖层、提示或加载层引用。 */
+export type LocalViewKey<P = void, R = void> = ViewKey<P, R, LocalViewKind>;
+
 /**
- * 界面的公开类型合同，通常使用生成的 ModuleViews 常量；不直接导入界面私有组件或预制体。
- * @typeParam Params - 打开参数类型，默认 void。
- * @typeParam Result - show.finish 返回的业务结果类型，默认 void。
+ * 生成的类型化界面引用；公开项与内部项由工作台分别输出，import 不加载实现或预制体。
+ * @typeParam Params - 打开参数，默认 void。
+ * @typeParam Result - show.finish 返回的业务结果，默认 void。
+ * @typeParam Kind - 界面层级，限定适用的 open 或 pushPage 接口。
  */
-export interface ViewKey<Params = void, Result = void> {
+export interface ViewKey<Params = void, Result = void, Kind extends ViewKind = ViewKind> {
+    /** 生成时写入界面类别；运行时仍以登记定义校验，防止错误强制转换。 */
+    readonly kind: Kind;
     /**
      * 全局界面 ID，必须在生成的 ViewDefinition 中登记。
      */
@@ -91,6 +103,27 @@ export interface ViewHandle<T> {
      */
     close(): Promise<void>;
 }
+/** 页面内导航只返回切换状态，不提供可在旧 show 中等待的新页面结束句柄。 */
+export type PageNavigationResult =
+    { readonly status: 'opened' } | { readonly status: 'ignored'; readonly reason: 'busy' };
+
+/** 一次有效显示的 UI 能力；不要在 Service 中长期保存此对象。 */
+export interface ViewUI {
+    /**
+     * 打开局部界面，默认随当前 show 结束。owner 只允许是当前 show 或其子期限。
+     * 任务内的确认弹窗可传 { owner: task.scope }，取消任务会关闭弹窗。
+     * 返回时界面已打开；handle.result 才是最终选择。旧 show 调用会取消。
+     */
+    open<P, R>(key: LocalViewKey<P, R>, params: P, options?: { readonly owner?: Lifetime }): Promise<ViewHandle<R>>;
+    /**
+     * 从当前可交互栈顶页面前进；新页面继承导航所有者，不归旧 show 持有。
+     * 完成表示新页面已经入栈；忙碌时明确返回 ignored，不排队、不借用其他目标的结果。
+     * 初始化中、非页面或非栈顶不能调用；失效显示取消，准备失败保留原页。
+     */
+    pushPage<P, R>(key: PageKey<P, R>, params: P): Promise<PageNavigationResult>;
+    /** 请求返回，不等待当前 show 自己的清理；加载中先撤销尚未提交的前进并停留原页。 */
+    back(): void;
+}
 /**
  * 工作台生成的界面装配描述，定义模块归属、预制体和 UI 策略；业务通过 ViewKey 使用。
  */
@@ -111,7 +144,7 @@ export interface ViewDefinition {
      * 界面层级，由低到高为 page 页面、popup 弹窗、overlay 覆盖层、toast 提示、loading 加载层。
      * Part 使用 GameComponent，由父对象组合，不登记为完整界面。
      */
-    readonly kind: 'page' | 'popup' | 'overlay' | 'toast' | 'loading';
+    readonly kind: ViewKind;
     /**
      * 实例缓存策略，默认 none；keep-one 最多保留一个已结束展示的闲置实例。
      * 缓存只复用节点，下一次展示仍有新的 show.scope；模块结束时缓存也会驱逐。
@@ -167,6 +200,15 @@ type RecordView = {
     instanceDrained: Promise<void>;
     resolveDrained: () => void;
     unown: () => void;
+    pagePending: boolean;
+};
+type PendingPage = {
+    source?: RecordView;
+    sourceShow?: ViewShowContext<unknown, unknown>;
+    target?: RecordView;
+    cancelled: boolean;
+    committed: boolean;
+    detach: () => void;
 };
 const layerOrder = { page: 0, popup: 1, overlay: 2, toast: 3, loading: 4 };
 /**
@@ -201,6 +243,7 @@ export class UIManager {
     private readonly layers = new Map<ViewDefinition['kind'], Node>();
     private readonly pages: RecordView[] = [];
     private navigation: Promise<unknown> = Promise.resolve();
+    private pendingPage?: PendingPage;
     private sequence = 0;
     private showing = 0;
     private accepting = true;
@@ -246,7 +289,7 @@ export class UIManager {
         modules.evictIdleViews = (id) => this.evictModule(id);
     }
     /**
-     * 加载并显示一个界面，等待 onCreate/onShow 就绪后返回句柄，不等待玩家关闭。
+     * 加载并显示非 Page 界面，等待 onCreate/onShow 就绪后返回句柄，不等待玩家关闭。
      * @param key - 生成的 ViewKey，决定参数及返回结果类型。
      * @param params - 打开参数；普通对象及数组递归复制、冻结，函数和类服务实例保留身份；不要传循环结构。
      * @param owner - 界面所有者，取消时关闭。子弹窗通常使用父界面的 show.scope。
@@ -254,19 +297,35 @@ export class UIManager {
      * @throws FrameworkError 未登记、重复打开被禁止、绑定/初始化失败或上一实例仍异常清理；打开前取消会抛 OperationCancelled。
      * @remarks open 不自动维护页面返回栈，页面导航请用 pushPage。
      * @example
-     * const popup = await this.ctx.ui.open(RewardViews.rewardPopup, params, show.scope);
+     * const popup = await show.ui.open(RewardViews.rewardPopup, params);
      * const result = await popup.result;
      * if (result.status === "completed") {
      *     show.commit(() => this.renderReward(result.value));
      * }
      */
-    async open<P, R>(key: ViewKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
+    async open<P, R>(key: LocalViewKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
+        invariant(this.definitions.get(key.id)?.kind !== 'page', 'UI_PAGE_REQUIRES_NAVIGATION', key.id);
+        return this.openView(key, params, owner);
+    }
+
+    private async openView<P, R>(
+        key: ViewKey<P, R>,
+        params: P,
+        owner: Lifetime,
+        pending?: PendingPage,
+    ): Promise<ViewHandle<R>> {
         owner.signal.throwIfAborted();
         invariant(this.accepting, 'APP_STOPPING', 'UI is shutting down');
         const definition = this.definitions.get(key.id);
         invariant(definition, 'UI_NOT_REGISTERED', key.id);
+        invariant(key.kind === definition.kind, 'UI_KIND_MISMATCH', key.id);
         this.modules.assertCanOpen(definition.module, owner);
         invariant(!this.blocked.has(key.id), 'UI_CLEANUP_PENDING', `A previous instance is still draining: ${key.id}`);
+        invariant(
+            !Array.from(this.records.values()).some((record) => record.definition.id === key.id && record.termination),
+            'UI_CLEANUP_PENDING',
+            `A previous instance is still draining: ${key.id}`,
+        );
         invariant(
             definition.duplicate === 'allow' ||
                 !Array.from(this.records.values()).some((record) => record.definition.id === key.id),
@@ -301,7 +360,9 @@ export class UIManager {
             instanceDrained,
             resolveDrained,
             unown: () => {},
+            pagePending: !!pending,
         };
+        if (pending) pending.target = record;
         record.handle = Object.freeze({
             id: key.id,
             result,
@@ -368,15 +429,21 @@ export class UIManager {
             void this.requestClose(record, { status: 'failed', error, cleanupPending: false }).catch(this.report);
         });
         try {
-            await untilCancelled(
-                Promise.race([
-                    record.preparing,
-                    result.then((value) => {
-                        if (value.status === 'failed') throw value.error;
-                    }),
-                ]),
-                owner.signal,
-            );
+            try {
+                await untilCancelled(
+                    Promise.race([
+                        record.preparing,
+                        result.then((value) => {
+                            if (value.status === 'failed') throw value.error;
+                        }),
+                    ]),
+                    operation.signal,
+                );
+            } catch (error) {
+                // onShow 可以直接 finish：operation 随收尾取消，但业务结果仍是成功。
+                // 普通取消/失败不等非协作准备退出，继续立即拒绝打开请求。
+                if (record.termination?.status !== 'completed') throw error;
+            }
             if (record.termination) {
                 await result;
                 if (record.termination.status === 'cancelled')
@@ -392,7 +459,8 @@ export class UIManager {
                     error,
                     cleanupPending: false,
                 } as ViewResult<unknown>).catch(this.report);
-            throw error;
+            // 失败关闭会取消 operation；仍向打开方交付真实准备错误，而非把失败伪装成取消。
+            throw record.termination?.status === 'failed' ? record.termination.error : error;
         }
     }
     private async show(record: RecordView): Promise<void> {
@@ -406,6 +474,7 @@ export class UIManager {
             assets: scopedAssets,
             config: instance.context.config.in(scope),
             audio: instance.context.audio.in(scope),
+            ui: this.viewUI(record, scope.lifetime, isCurrent),
             showId: this.showing,
             params: record.params,
             time: this.time.in(scope),
@@ -447,9 +516,6 @@ export class UIManager {
                 if (isCurrent() && !scope.signal.aborted)
                     void this.requestClose(record, { status: 'cancelled' }).catch(this.report);
             },
-            back: () => {
-                if (isCurrent() && !scope.signal.aborted && this.pages[this.pages.length - 1] === record) this.back();
-            },
         });
         record.show = context;
         record.suspended = false;
@@ -462,12 +528,59 @@ export class UIManager {
             Promise.resolve().then(() => instance.view.__show(context)),
             'onShow',
         );
-        if (record.termination || scope.signal.aborted) return;
+        if (record.termination || scope.signal.aborted || record.pagePending) return;
+        this.prepareActivation(record);
+        this.activateShow(record);
+    }
+    private prepareActivation(record: RecordView): void {
+        const scope = scopeOwner(record.show!.scope);
+        for (const component of record.instance!.components) {
+            scope.signal.throwIfAborted();
+            component.__allow(scope);
+        }
+        scope.signal.throwIfAborted();
+    }
+    private activateShow(record: RecordView): void {
+        const instance = record.instance!;
         record.interactive = true;
         this.gate(instance, true);
-        instance.view.__interactive(context);
-        for (const component of instance.components) component.__allow(scope);
+        instance.view.__interactive(record.show);
         this.updateInput();
+    }
+
+    private viewUI(record: RecordView, scope: Lifetime, isCurrent: () => boolean): ViewUI {
+        const check = () => {
+            scope.signal.throwIfAborted();
+            if (!isCurrent()) throw new OperationCancelled('The originating display has ended');
+        };
+        const checkPage = () => {
+            check();
+            invariant(record.definition.kind === 'page', 'UI_NOT_PAGE', 'Navigation belongs to a page');
+            invariant(
+                record.interactive && this.pages[this.pages.length - 1] === record,
+                'UI_NAVIGATION_NOT_READY',
+                'Navigate from the interactive top page, after onShow completes',
+            );
+        };
+        return Object.freeze({
+            open: async <P, R>(key: LocalViewKey<P, R>, params: P, options?: { readonly owner?: Lifetime }) => {
+                check();
+                const owner = options?.owner ?? scope;
+                invariant(scopeOwner(scope).owns(owner), 'UI_OWNER_OUTSIDE_SHOW', 'Local UI cannot outlive its show');
+                return this.open(key, params, owner);
+            },
+            pushPage: async <P, R>(key: PageKey<P, R>, params: P): Promise<PageNavigationResult> => {
+                checkPage();
+                if (this.pendingPage) return { status: 'ignored', reason: 'busy' };
+                await this.pushPage(key, params, record.owner);
+                return { status: 'opened' };
+            },
+            back: () => {
+                if (scope.signal.aborted || !isCurrent()) return;
+                checkPage();
+                this.back();
+            },
+        });
     }
     private requestClose(record: RecordView, outcome: ViewResult<unknown>): Promise<void> {
         if (record.settled) return record.closing ?? Promise.resolve();
@@ -631,23 +744,88 @@ export class UIManager {
         }
     }
     /**
-     * 串行导航到 page 层界面，并把它压入页面栈；新页面打开后暂停前一页的展示。
+     * 外部会话导航：先准备 Page，成功后压栈并暂停前一页；页面内部优先用 show.ui.pushPage。
      * @param key - kind 必须为 page 的 ViewKey。
      * @param params - 页面打开参数，快照规则与 open 相同。
      * @param owner - 页面所属导航会话；应覆盖该页的存活期，避免使用即将被暂停的上一页 show.scope。
      * @returns 新页面句柄，不等待页面结束或前一页全部清理完成。
      * @remarks 上一页暂停时结束旧 show.scope；返回后重新执行 onShow，并提供新的展示上下文。
-     * @throws FrameworkError 目标不是页面或打开失败；取消错误与 open 一致。
+     * @throws FrameworkError 目标不是页面、已有导航准备中（UI_NAVIGATION_BUSY）或打开失败；取消错误与 open 一致。
      */
-    pushPage<P, R>(key: ViewKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
-        return this.navigate(() => this.pushPageNow(key, params, owner));
+    async pushPage<P, R>(key: PageKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
+        owner.signal.throwIfAborted();
+        invariant(this.accepting, 'APP_STOPPING', 'UI is shutting down');
+        invariant(!this.pendingPage, 'UI_NAVIGATION_BUSY', 'A page navigation is already in progress');
+        const source = this.pages[this.pages.length - 1];
+        const pending: PendingPage = {
+            source,
+            sourceShow: source?.show,
+            cancelled: false,
+            committed: false,
+            detach: () => {},
+        };
+        this.pendingPage = pending;
+        const offOwner = owner.signal.onAbort(() => this.cancelNavigation(pending));
+        const offSource = source?.show?.signal.onAbort(() => this.cancelNavigation(pending)) ?? (() => {});
+        pending.detach = () => {
+            offOwner();
+            offSource();
+        };
+        try {
+            return await this.navigate(() => this.pushPageNow(key, params, owner, pending));
+        } finally {
+            pending.detach();
+            if (this.pendingPage === pending) this.pendingPage = undefined;
+        }
     }
-    private async pushPageNow<P, R>(key: ViewKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
+
+    private cancelNavigation(pending: PendingPage): void {
+        if (pending.committed || pending.cancelled) return;
+        pending.cancelled = true;
+        if (pending.target) void this.requestClose(pending.target, { status: 'cancelled' }).catch(this.report);
+    }
+
+    private async pushPageNow<P, R>(
+        key: PageKey<P, R>,
+        params: P,
+        owner: Lifetime,
+        pending: PendingPage,
+    ): Promise<ViewHandle<R>> {
         invariant(this.definitions.get(key.id)?.kind === 'page', 'UI_NOT_PAGE', key.id);
-        const previous = this.pages[this.pages.length - 1];
-        const handle = await this.open(key, params, owner);
-        const current = Array.from(this.records.values()).find((record) => record.handle === handle);
-        if (!current || current.termination) return handle;
+        const previous = pending.source;
+        const check = () => {
+            owner.signal.throwIfAborted();
+            if (
+                pending.cancelled ||
+                !this.accepting ||
+                this.pages[this.pages.length - 1] !== previous ||
+                (previous &&
+                    (previous.termination || previous.show !== pending.sourceShow || previous.show?.signal.aborted))
+            )
+                throw new OperationCancelled('The navigation source has ended');
+        };
+        check();
+        let handle: ViewHandle<R>;
+        try {
+            handle = await this.openView(key, params, owner, pending);
+            check();
+            if (!pending.target || pending.target.termination)
+                throw new OperationCancelled('The target page ended before navigation committed');
+            // 子组件的同步激活也可能失败，必须在暂停旧页面之前验证完成。
+            this.prepareActivation(pending.target);
+            check();
+        } catch (error) {
+            if (pending.target && !pending.target.termination && !(error instanceof OperationCancelled))
+                void this.requestClose(pending.target, { status: 'failed', error, cleanupPending: false }).catch(
+                    this.report,
+                );
+            this.cancelNavigation(pending);
+            throw error;
+        }
+        const current = pending.target;
+        // 提交后解除来源取消监听；挂起旧 show 不能再取消已就绪的新页面。
+        pending.committed = true;
+        pending.detach();
         if (previous && !previous.termination) {
             previous.suspended = true;
             previous.interactive = false;
@@ -663,18 +841,25 @@ export class UIManager {
                 void this.requestClose(previous, { status: 'failed', error, cleanupPending: false }).catch(this.report);
             });
         }
+        current.pagePending = false;
         this.pages.push(current);
-        this.updateInput();
+        this.activateShow(current);
         return handle;
     }
     /**
      * 串行关闭当前栈顶页面，然后恢复前一页；空栈时直接完成，只有一页时会关闭最后一页。
      * @returns 非 Promise 的请求句柄。按钮回调调用 back() 后即可结束；外部需要等待时使用 request.completed。
      * @example
-     * show.listen(button.node, Button.EventType.CLICK, () => { this.ctx.ui.back(); });
+     * show.listen(button.node, Button.EventType.CLICK, () => { show.ui.back(); });
      * // 外部流程：await app.ui.back().completed;
      */
     back(): NavigationRequest {
+        const pending = this.pendingPage;
+        if (pending && !pending.committed) {
+            this.cancelNavigation(pending);
+            // 本次返回只撤销尚未提交的前进，不顺带弹出来源页面。
+            return Object.freeze({ completed: this.navigation.then(() => {}) });
+        }
         const requested = this.pages[this.pages.length - 1];
         const completed = this.navigate(async () => {
             const current = this.pages[this.pages.length - 1];
@@ -692,6 +877,7 @@ export class UIManager {
      */
     async close(): Promise<void> {
         this.accepting = false;
+        if (this.pendingPage) this.cancelNavigation(this.pendingPage);
         await Promise.all(
             Array.from(this.records.values()).map((record) => this.requestClose(record, { status: 'cancelled' })),
         );

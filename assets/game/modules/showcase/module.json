@@ -20,7 +20,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.ShowcasePage",
-      "binding": "code/ui/generated/ShowcasePageBinding.ts"
+      "binding": "code/ui/generated/ShowcasePageBinding.ts",
+      "visibility": "public"
     },
     "ui-lab-page": {
       "prefab": "showcase/default/prefab/ui/ui-lab-page",
@@ -28,7 +29,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.UiLabPage",
-      "binding": "code/ui/generated/UiLabPageBinding.ts"
+      "binding": "code/ui/generated/UiLabPageBinding.ts",
+      "visibility": "internal"
     },
     "data-lab-page": {
       "prefab": "showcase/default/prefab/ui/data-lab-page",
@@ -36,7 +38,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.DataLabPage",
-      "binding": "code/ui/generated/DataLabPageBinding.ts"
+      "binding": "code/ui/generated/DataLabPageBinding.ts",
+      "visibility": "internal"
     },
     "time-lab-page": {
       "prefab": "showcase/default/prefab/ui/time-lab-page",
@@ -44,7 +47,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.TimeLabPage",
-      "binding": "code/ui/generated/TimeLabPageBinding.ts"
+      "binding": "code/ui/generated/TimeLabPageBinding.ts",
+      "visibility": "internal"
     },
     "async-lab-page": {
       "prefab": "showcase/default/prefab/ui/async-lab-page",
@@ -52,7 +56,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.AsyncLabPage",
-      "binding": "code/ui/generated/AsyncLabPageBinding.ts"
+      "binding": "code/ui/generated/AsyncLabPageBinding.ts",
+      "visibility": "internal"
     },
     "storage-lab-page": {
       "prefab": "showcase/default/prefab/ui/storage-lab-page",
@@ -60,7 +65,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.StorageLabPage",
-      "binding": "code/ui/generated/StorageLabPageBinding.ts"
+      "binding": "code/ui/generated/StorageLabPageBinding.ts",
+      "visibility": "internal"
     },
     "guide-page": {
       "prefab": "showcase/default/prefab/ui/guide-page",
@@ -68,7 +74,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.GuidePage",
-      "binding": "code/ui/generated/GuidePageBinding.ts"
+      "binding": "code/ui/generated/GuidePageBinding.ts",
+      "visibility": "internal"
     },
     "confirm-popup": {
       "prefab": "showcase/default/prefab/ui/confirm-popup",
@@ -76,7 +83,8 @@
       "cache": "keep-one",
       "duplicate": "reject",
       "className": "showcase.ConfirmPopup",
-      "binding": "code/ui/generated/ConfirmPopupBinding.ts"
+      "binding": "code/ui/generated/ConfirmPopupBinding.ts",
+      "visibility": "internal"
     },
     "inspect-overlay": {
       "prefab": "showcase/default/prefab/ui/inspect-overlay",
@@ -84,7 +92,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.InspectOverlay",
-      "binding": "code/ui/generated/InspectOverlayBinding.ts"
+      "binding": "code/ui/generated/InspectOverlayBinding.ts",
+      "visibility": "internal"
     },
     "notice-toast": {
       "prefab": "showcase/default/prefab/ui/notice-toast",
@@ -92,7 +101,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.NoticeToast",
-      "binding": "code/ui/generated/NoticeToastBinding.ts"
+      "binding": "code/ui/generated/NoticeToastBinding.ts",
+      "visibility": "internal"
     },
     "progress-loading": {
       "prefab": "showcase/default/prefab/ui/progress-loading",
@@ -100,7 +110,8 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.ProgressLoading",
-      "binding": "code/ui/generated/ProgressLoadingBinding.ts"
+      "binding": "code/ui/generated/ProgressLoadingBinding.ts",
+      "visibility": "internal"
     }
   },
   "audio": {},

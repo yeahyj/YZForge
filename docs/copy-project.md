@@ -62,9 +62,9 @@ npm install --package-lock-only --ignore-scripts
 
 ## 3. 清理示例，得到空框架
 
-示例边界是 `showcase`、`workshop`、`lobby`、`profile`、`common` 五个模块及其 XLSX 源表。它们各自的职责见 [示例应用说明](example-app.md)。建议在新副本执行以下步骤。
+示例边界是 `showcase`、`workshop`、`lobby`、`profile`、`common` 五个模块及其 XLSX 源表，以及启动入口中的首屏调用。它们各自的职责见 [示例应用说明](example-app.md)。建议在新副本执行以下步骤。
 
-1. 将 `assets/game/app/start-game.ts` 替换为下面的空入口，移除所有示例合同导入。再通过 Creator 资源管理器删除 `assets/game/app/showcase-navigation.ts` 及其元数据；它是示例导航组合，不是框架核心。
+1. 将 `assets/game/app/start-game.ts` 替换为下面的空入口，移除所有示例导入。
 2. 等待脚本导入完成。在工作台“删除与恢复”中，依次预览并删除 `showcase`、`workshop`、`lobby`、`profile`、`common`。每次处理引用提示，确认备份成功；不要跳过检查强删目录。
 3. 模块删除会停用关联 XLSX 导出，并保留源表。确认这些表没有自己的新增数据后，将 `config-source/showcase/`、`config-source/workshop/`、`config-source/lobby/`、`config-source/common/` 移到项目外归档，或删除。不要只改文件夹名字留在 `config-source` 内，该目录会递归扫描。
 4. 保留根目录的 `config-source/tables.json`。模板里它的 `tables` 为空；自行接入过旧表时，也要处理其中的引用。
@@ -78,13 +78,13 @@ npm install --package-lock-only --ignore-scripts
 import type { App } from '../../framework/core/app';
 import type { BootContext } from '../../framework/core/boot';
 
-/** 项目的业务启动入口；创建自己的模块和首屏后在这里接入。 */
+/** 项目的启动接入点；创建自己的模块和首屏后在这里接入。 */
 export function startGame(_app: App, _boot: BootContext): void {}
 ```
 
-保留 `assets/framework`、`assets/game/boot`、`assets/game/app` 以及对应 `.meta`。`GameRoot` 负责框架装配和启动状态，普通业务只需要修改 `start-game.ts`；`app/generated` 继续由工具维护。
+保留 `assets/framework`、`assets/game/boot`、`assets/game/app` 以及对应 `.meta`。`GameRoot` 负责框架装配和启动状态；`start-game.ts` 是手写的启动接入点，`app/generated` 继续由工具维护。自己的业务写在模块中，跨模块协调也归属具体的业务模块。
 
-工作台备份位于**副本自己的** `.yzforge/trash`。恢复示例时先按依赖恢复 `profile`、`common`，再恢复 `lobby`、`workshop` 和 `showcase`，最后恢复应用导航文件和业务入口；已移到项目外的 XLSX 也需要归还到原路径。工作台会检查当前文件冲突，不应覆盖后续业务修改。
+工作台备份位于**副本自己的** `.yzforge/trash`。恢复示例时先按依赖恢复 `profile`、`common`，再恢复 `lobby`、`workshop` 和 `showcase`，最后接回 `start-game.ts` 的首屏调用。已移到项目外的 XLSX 也需要归还到原路径。工作台会检查当前文件冲突，不应覆盖后续业务修改。
 
 `tests/examples/` 是可选的示例业务测试，可随示例一起归档；`npm run test:showcase` 需要示例存在。通用 `npm run verify` 不导入这些业务文件。工作台的“示例工作流”源码阅读在示例移除后会提示文件不存在，不影响创建、配置、绑定和恢复。
 
@@ -92,7 +92,7 @@ export function startGame(_app: App, _boot: BootContext): void {}
 
 1. 工作台创建模块，按需选择随应用加载或按需代码；只有配置/资源时使用纯资源模块。
 2. 创建 Page、Part、Service 或 XLSX，确认文件预览；预制体通过 Creator 编辑，命名节点通过工作台自动绑定。
-3. 在 `start-game.ts` 导入新模块生成的 `ViewKey`，用 `app.ui.pushPage(页面Key, 参数, boot.scope)` 打开首屏。登录等异步流程也放在这个入口，异常抛给框架处理。
+3. 在 `start-game.ts` 导入新模块公开的 `ViewKey`，用 `app.ui.pushPage(页面Key, 参数, boot.scope)` 打开首屏。后续页面通过 `show.ui` 跳转；需要多步业务协调时放在所属模块，通过公开 API 调用依赖。
 4. 构建发布时选择 `Bootstrap.scene` 作为启动场景。新副本没有旧构建任务，需要重新选择平台、场景和平台标识。
 
 通用框架的模块、Scope、UI、音频、资源、配置和时间 API 见 [API 使用指南](api-guide.md)。示例清理后 `npm run verify` 仍应通过；专门操作大厅按钮的集成测试依赖示例，不属于空项目的运行要求。

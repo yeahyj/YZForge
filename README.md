@@ -39,9 +39,9 @@
 - [正式开发工作流](docs/development-workflow.md)：从创建模块到业务、渲染、绑定和验证。
 - [功能展示与验证入口](docs/showcase.md)：可交互示例、编辑器步骤和自动化验证。
 
-业务启动入口是 [start-game.ts](assets/game/app/start-game.ts)，在这里接入首屏、登录或其他启动流程。`GameRoot` 负责框架装配和启动状态显示，`app/generated` 由工作台生成。
+启动接入点是 [start-game.ts](assets/game/app/start-game.ts)，在这里选择首屏。`GameRoot` 负责框架装配和启动状态显示，`app/generated` 由工作台生成。业务规则、状态、页面以及多步业务协调都放在所属模块的 `code` 中。页面通过 `show.ui` 打开其他界面和返回；单纯跳转不需要再写一个导航类。
 
-项目附带 `lobby`、`profile`、`common` 三个示例模块，分别展示界面交互、共享服务和公共配置。它们可以按需清理，具体见 [示例应用说明](docs/example-app.md)。
+项目附带 `showcase`、`workshop`、`lobby`、`profile`、`common` 五个示例模块，展示功能实验、任务流程、界面交互、共享服务和公共配置。示例模块可以按需清理，具体见 [示例应用说明](docs/example-app.md)。
 
 ## 项目结构
 
@@ -50,8 +50,8 @@ assets/
 ├─ framework/                    # 框架运行时
 └─ game/
    ├─ boot/                      # Bootstrap 场景和 GameRoot
-   ├─ app/
-   │  ├─ start-game.ts           # 业务启动入口
+   ├─ app/                       # 启动接入与应用装配
+   │  ├─ start-game.ts           # 选择首屏或接入业务流程
    │  └─ generated/              # 模块装配、资源路由和运行参数
    └─ modules/                   # 业务模块
 extensions/yzforge-editor/        # Creator 工作台
@@ -69,7 +69,7 @@ docs/                            # 使用文档
 assets/game/modules/inventory/
 ├─ module.json                   # 模块声明、依赖、资源包及界面登记
 ├─ public.ts                     # 对外提供的模块引用和 API 类型
-├─ contracts/generated/          # 资源 Key、界面引用和公开配置类型
+├─ contracts/generated/          # 资源 Key、明确公开的界面和配置合同
 ├─ code/
 │  ├─ InventoryModule.ts         # 模块服务装配
 │  ├─ ui/                        # 界面脚本及可选 Presenter

@@ -21,7 +21,7 @@ await show.assets.setSprite(this.sprIcon, LobbyRes.sprite.status);
 
 `show.assets`、`show.config`、`show.audio`、`show.time` 已绑定本次展示，Part 的 `activation` 提供同样的入口。`ctx.assets`、`ctx.config` 默认跟随模块。切换配置表所有者使用 `ctx.config.in(owner).load(Table)`；已移除 `ctx.config.load(Table, owner)` 重载。应用级入口仍为 `app.config.load(Table, owner, options)`。
 
-自己拥有的 `scope.close()` 先发出取消，再等待登记任务、子级及清理函数。`signal.aborted` 表示已经请求取消，`scope.closed` 表示清理流程已经结束。它不会强行终止任意 Promise，也不会保证节点同一帧就销毁。结束 UI 使用 `show.finish/dismiss/back`，不要关闭 `show.scope`。
+自己拥有的 `scope.close()` 先发出取消，再等待登记任务、子级及清理函数。`signal.aborted` 表示已经请求取消，`scope.closed` 表示清理流程已经结束。它不会强行终止任意 Promise，也不会保证节点同一帧就销毁。结束 UI 使用 `show.finish / show.dismiss / show.ui.back`，不要关闭 `show.scope`。
 
 ## show.commit 和异步工作
 
@@ -36,7 +36,7 @@ show.commit(() => {
 
 `onShow`、`show.listen` 的异步回调已被框架跟踪。其他展示异步任务可用 `show.run`，普通组件则用 `activation.run`；捕获原上下文，`await` 后通过该上下文的 `commit` 写 UI。网络适配需响应 `task.signal`。同次展示内的查询竞态使用 `show.actions.latest`；图片替换可直接用 `setSprite` 的最新请求策略。Actions 用法见下方。
 
-不要在一个被 Scope 跟踪的任务里等待该 Scope 自己关闭。弹窗内部成功结束用 `show.finish(value)`，取消用 `show.dismiss()`，页面返回用 `show.back()`。它们发出请求后立即返回，由外部打开方等待 `handle.result`。
+不要在一个被 Scope 跟踪的任务里等待该 Scope 自己关闭。弹窗内部成功结束用 `show.finish(value)`，取消用 `show.dismiss()`，页面返回用 `show.ui.back()`。它们发出请求后立即返回，由外部打开方等待 `handle.result`。
 
 按钮回调失败默认报告错误并保留页面，用户可以重试；可用 `show.listen` 第四个参数显示业务错误。初始化或清理失败仍走 UI 故障处理。
 
@@ -268,9 +268,10 @@ const service = this.ctx.services(LobbyServices).lobby;
 UI 之间传参数、返回结果，不访问对方内部节点：
 
 ```ts
-const popup = await this.ctx.ui.open(LobbyViews.rewardPopup, {
+// 同模块从 code/generated/views.ts 导入内部 Key。
+const popup = await show.ui.open(LobbyViews.rewardPopup, {
     title: '奖励', amount: 100,
-}, show.scope);
+});
 const result = await popup.result;
 if (result.status === 'completed') {
     show.commit(() => {
@@ -279,9 +280,28 @@ if (result.status === 'completed') {
 }
 ```
 
-`open` 等待打开，`result` 等待结束。`completed` 来自 `show.finish`，`cancelled` 来自取消/外部关闭，`failed` 提供错误和 `cleanupPending`；后者为 `true` 时实际清理仍未结束。导航所有者应覆盖页面存活期，不能是马上挂起的上一页 `show.scope`。
+`show.ui.open` 等待局部界面打开，`handle.result` 等待结束。默认持有期为当前 show，也可传 `{ owner: task.scope }` 缩短到任务，不能传入其他会话或祖先 Scope。`completed` 来自 `show.finish`，`cancelled` 来自取消/外部关闭，`failed` 提供错误和 `cleanupPending`；后者为 `true` 时实际清理仍未结束。
 
-页面内调用 `show.back()`。外部流程使用 `await app.ui.back().completed` 等待返回完成；`back()` 本身返回非 Promise 的请求句柄，不能再用 `await app.ui.back()` 表示清理完成。连续对同一栈顶发出返回请求只关闭该页。`handle.close()` 的 Promise 也只供外部协调等待，不要在该界面自己的受管回调中等待它。
+页面内调用 `show.ui.back()`。外部流程使用 `await app.ui.back().completed` 等待返回完成；`back()` 本身返回非 Promise 的请求句柄，不能再用 `await app.ui.back()` 表示清理完成。连续对同一栈顶发出返回请求只关闭该页。`handle.close()` 的 Promise 也只供外部协调等待，不要在该界面自己的受管回调中等待它。
+
+页面前进使用 `show.ui.pushPage(PageKey, 参数)`，返回 `opened` 或 `ignored/busy`，只等待切换，不提供下一页关闭结果。新页面继承页面栈的外部所有者；旧页面 show 被挂起取消时，新页面继续存在。下一页准备完成并再次核验来源后才入栈；慢加载期间返回会取消本次前进，源页面关闭也会撤销准备。失败保留原页；失败实例收尾中，同 Key 再次打开会报 `UI_CLEANUP_PENDING`，需等待收尾完成。
+
+`onShow`、非页面、非栈顶或不可交互状态不能发起导航；失效的 `show.ui.pushPage/open` 会拒绝，失效的 `back` 无操作。每次返回恢复页面都会取得全新的 show。避免在 Service 保存 `show.ui`。
+
+```ts
+// 页面可交互后的按钮回调中：
+const navigation = await show.ui.pushPage(WorkshopViews.workflowPage, undefined);
+if (navigation.status === 'ignored') return;
+// 不在旧 show 内等待新页面关闭，也不再写旧页面节点。
+```
+
+启动和外部会话使用 `app.ui.pushPage(PageKey, 参数, owner)`，返回 `ViewHandle`，可以在这个外部所有者中等待页面结果。它要求显式所有者，并发准备时抛 `UI_NAVIGATION_BUSY`；页面业务优先使用 `show.ui`。`app.ui.open` 仅接受非 Page 的 Key。
+
+工作台新建界面默认内部；勾选“公开界面合同”才输出到 `contracts/generated/views.ts`，供启动入口或其他模块使用。同模块使用 `code/generated/views.ts` 的全部 Key。已有界面的 `module.json.views.<id>.visibility` 可设置 `public` / `internal` 后重新生成。Key 包含 `kind`，类型检查和运行时都校验层级；跨模块导入私有 Key 会被源码边界检查拒绝。界面公开合同的 import 不加载预制体，也不启动业务模块。
+
+长期业务由模块 Service 持有。启动入口或账号会话显式 `app.modules.use(ModuleRef, owner)`，持续保留这份 Handle；Service 用 `ctx.time.onBoundary`、UI 用模块 API/事件订阅状态，关闭界面不影响仍被持有的 Service。`code.mode: eager` 只代表代码可用，不会自动保活模块。`app.flows` 是现有的运行时 Scope 名称，不要求项目有同名业务目录。
+
+跨天重置属于业务规则：初始化和登录时也要用持久化的周期标记检查是否跨天；重置及标记保存成功后再发布变化，保持幂等，并明确失败后的重试。时间订阅不会替业务自动重试抛错的回调。框架提供时间与持有能力，不内置每日重置或玩家数据规则。
 
 事件用于广播已经发生的事实。`eventKey<T>('module/event')` 定义合同，`ctx.events.on(key, handler, owner)` 订阅，`emit` 发布。发布不等待异步订阅者完成，不提供请求结果；需要结果或严格顺序时使用明确的模块方法。音频则通过 `ctx.audio.play(key, owner)` 取得独立播放句柄，播放期限由 owner 决定。
 
@@ -293,7 +313,7 @@ if (result.status === 'completed') {
 
 ## 诊断与制作流程恢复
 
-`app.inspect()` 返回只读快照，包含模块使用数/清理状态、UI、Scope 树、任务标签、资源/配置持有者和时间质量。查询不会启动模块或加载资源，不返回可直接修改的内部 Node/Map。卡住时先看哪些 Scope 仍有任务、哪个持有者还没结束；快照不是完整的引擎 GPU/原生内存统计。
+模块中的诊断页面可用 `ctx.diagnostics.snapshot()` 获取页面、模块、资源包和持有计数摘要，用 `.module(id)` 区分代码可用与业务就绪。它没有 UI 操作或模块启动能力，不承担业务状态查询。外部工具使用 `app.inspect()` 返回只读快照，包含模块使用数/清理状态、UI、Scope 树、任务标签、资源/配置持有者和时间质量。查询不会启动模块或加载资源，不返回可直接修改的内部 Node/Map。卡住时先看哪些 Scope 仍有任务、哪个持有者还没结束；快照不是完整的引擎 GPU/原生内存统计。
 
 工作台创建失败会在 `.yzforge/creations` 保留前后快照，可在“删除与恢复”预览撤销；生成失败可修复源文件后重试生成。撤销遇到后续修改或外部引用会停止，任意进程崩溃若没有完整后快照不能自动撤销。已有删除备份保留原流程。
 

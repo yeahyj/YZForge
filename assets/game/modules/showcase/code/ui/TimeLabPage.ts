@@ -1,6 +1,5 @@
 import { _decorator, Button } from 'cc';
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
-import type { LabParams } from '../../contracts/demo-navigation';
 import type { CalendarUnit } from '../../../../../framework/time/calendar';
 import type { Scope } from '../../../../../framework/core/scope';
 import { TimeService } from '../../../../../framework/time/time-service';
@@ -12,7 +11,7 @@ const { ccclass } = _decorator;
 export class TimeLabPage extends TimeLabPageBinding {
     private renderLive?: () => void;
     private elapsed = 0;
-    protected onShow(show: ViewShowContext<LabParams, void>): void {
+    protected onShow(show: ViewShowContext<void, void>): void {
         let owner: Scope | undefined;
         let clock: LabClock;
         let service: TimeService;
@@ -83,7 +82,7 @@ export class TimeLabPage extends TimeLabPageBinding {
             clock.advance(service.calendar.add(now, { unit, count: 1 }) - now);
             render();
         };
-        bind(this.btnBack, () => show.back());
+        bind(this.btnBack, () => show.ui.back());
         bind(this.btnDay, () => advance('day'));
         bind(this.btnWeek, () => advance('week'));
         bind(this.btnMonth, () => advance('month'));

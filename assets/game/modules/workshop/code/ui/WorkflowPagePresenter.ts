@@ -1,10 +1,9 @@
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
-import type { UIManager } from '../../../../../framework/ui/ui-manager';
 import type { TasksRow } from '../../contracts/generated/config/Tasks.types';
 import type { TaskCardModel } from '../../contracts/workflow';
 import type { WorkflowPageParams } from './WorkflowPage.types';
 import type { TaskService } from '../services/TaskService';
-import { WorkshopViews } from '../../contracts/generated/views';
+import { WorkshopViews } from '../generated/views';
 
 /** Presenter 只持有渲染能力，不接触 Cocos 节点。 */
 export interface WorkflowPagePort {
@@ -19,10 +18,9 @@ export class WorkflowPagePresenter {
     private rows: readonly TasksRow[] = [];
     private note = '点击完成训练，再点击卡片领取奖励。';
 
-    /** UI 管理器只承担弹窗交互；任务状态由模块 Service 持有。 */
+    /** 本次 show.ui 提供弹窗交互，渲染由 view 承担；任务状态由模块 Service 持有。 */
     constructor(
         private readonly service: TaskService,
-        private readonly ui: UIManager,
         private readonly show: ViewShowContext<WorkflowPageParams, void>,
         private readonly view: WorkflowPagePort,
     ) {}
@@ -67,13 +65,13 @@ export class WorkflowPagePresenter {
         await this.show.actions.exclusive('claim', async (task) => {
             const row = this.rows.find((item) => item.id === id);
             if (!row) throw Error(`任务不存在：${id}`);
-            const popup = await this.ui.open(
+            const popup = await this.show.ui.open(
                 WorkshopViews.claimPopup,
                 {
                     title: `领取「${row.name}」`,
                     detail: `奖励 ${row.reward} 金币。\n取消不会修改状态；重复命令不会重复发放。`,
                 },
-                task.scope,
+                { owner: task.scope },
             );
             const result = await popup.result;
             task.signal.throwIfAborted();

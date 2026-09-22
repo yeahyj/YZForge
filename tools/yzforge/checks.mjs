@@ -148,6 +148,8 @@ export function validateModules(modules) {
                 throw Error(`${id}: prefab must reference a registered Prefab logical id`);
             if (!['page', 'popup', 'overlay', 'toast', 'loading'].includes(view.kind))
                 throw Error(`${id}: invalid view kind`);
+            if (view.visibility !== undefined && !['public', 'internal'].includes(view.visibility))
+                throw Error(`${id}: invalid view visibility`);
         }
         if (module.code?.mode === 'bundled') {
             if (!/^[a-z][a-z0-9-]*$/.test(module.code.bundle) || bundleIds.has(module.code.bundle))

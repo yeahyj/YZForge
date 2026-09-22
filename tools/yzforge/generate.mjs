@@ -196,28 +196,41 @@ async function generateLocked(
             output[`${generatedRoot}/resources-${group}.ts`] =
                 `// 根据 Creator 资源和稳定逻辑身份自动生成，请勿手动修改。\n/** ${module.id}/${group} 的类型化资源键；import 不加载资源，实际内容由 assets API 按 Scope 持有。 */\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${resourceKeysSource(keys)} as const;\n`;
         }
-        const viewImports = [],
-            viewKeys = [];
-        const frameworkPath = forward(relative(resolve(root, generatedRoot), resolve(root, 'assets/framework')));
-        for (const [name, view] of Object.entries(module.views ?? {})) {
-            let types = 'unknown, unknown';
-            if (view.binding && view.className) {
-                const type = identifier(view.className.split('.').pop());
-                const file = forward(view.binding)
-                    .replace('/generated/', '/')
-                    .replace(/Binding\.ts$/, '.types.ts');
-                const source = forward(
-                    relative(resolve(root, generatedRoot), await safePath(root, resolve(module.directory, file))),
-                ).replace(/\.ts$/, '');
-                viewImports.push(`import type { ${type}Params, ${type}Result } from ${JSON.stringify(source)};`);
-                types = `${type}Params, ${type}Result`;
+        const viewTargets = [{ directory: generatedRoot, publicOnly: true }];
+        if (module.code?.mode !== 'none')
+            viewTargets.push({ directory: `${prefix}/${module.code?.root ?? 'code'}/generated`, publicOnly: false });
+        for (const target of viewTargets) {
+            const viewImports = [],
+                viewKeys = [];
+            const frameworkPath = forward(relative(resolve(root, target.directory), resolve(root, 'assets/framework')));
+            for (const [name, view] of Object.entries(module.views ?? {})) {
+                if (target.publicOnly && view.visibility !== 'public') continue;
+                let types = 'unknown, unknown';
+                if (view.binding && view.className) {
+                    const type = identifier(view.className.split('.').pop());
+                    const file = forward(view.binding)
+                        .replace('/generated/', '/')
+                        .replace(/Binding\.ts$/, '.types.ts');
+                    const source = forward(
+                        relative(
+                            resolve(root, target.directory),
+                            await safePath(root, resolve(module.directory, file)),
+                        ),
+                    ).replace(/\.ts$/, '');
+                    viewImports.push(`import type { ${type}Params, ${type}Result } from ${JSON.stringify(source)};`);
+                    types = `${type}Params, ${type}Result`;
+                }
+                const usage =
+                    view.kind === 'page'
+                        ? 'show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。'
+                        : 'show.ui.open 等待打开，handle.result 等待最终结果。';
+                viewKeys.push(
+                    `  /** ${commentText(`${module.id}.${name}`)}；${usage} */\n  ${identifier(name)}: { id: ${JSON.stringify(`${module.id}.${name}`)}, kind: ${JSON.stringify(view.kind)} } as ViewKey<${types}, ${JSON.stringify(view.kind)}>,`,
+                );
             }
-            viewKeys.push(
-                `  /** ${commentText(`${module.id}.${name}`)} 的 ${commentText(view.kind)} 界面合同；${view.kind === 'page' ? '页面导航使用 ui.pushPage' : '使用 ui.open'}，通过返回句柄 result 等待结果。 */\n  ${identifier(name)}: { id: ${JSON.stringify(`${module.id}.${name}`)} } as ViewKey<${types}>,`,
-            );
+            output[`${target.directory}/views.ts`] =
+                `// 自动生成的${target.publicOnly ? '公开' : '模块内部'}界面合同；import 不加载实现或资源。\nimport type { ViewKey } from '${frameworkPath}/ui/ui-manager';\n${viewImports.join('\n')}\n/** ${module.id} 的${target.publicOnly ? '明确公开' : '模块内全部'}界面引用。 */\nexport const ${pascal(module.id)}Views = {\n${viewKeys.join('\n')}\n} as const;\n`;
         }
-        output[`${generatedRoot}/views.ts`] =
-            `// 自动生成的类型化 UI 引用，不导入预制体、组件实现或配置数据。\nimport type { ViewKey } from '${frameworkPath}/ui/ui-manager';\n${viewImports.join('\n')}\n/** ${module.id} 的 UI 公开合同；参数与结果类型由各界面 .types.ts 声明，打开时才加载界面。 */\nexport const ${pascal(module.id)}Views = {\n${viewKeys.join('\n')}\n} as const;\n`;
         output[`${generatedRoot}/bundles.ts`] =
             `// 自动生成的 Bundle 引用。\n/** ${module.id} 的资源包引用；openBundle 只准备包，内部资源和配置仍按需加载。 */\nexport const ${pascal(module.id)}Bundles = {\n${Object.entries(
                 module.bundles,

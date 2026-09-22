@@ -1,12 +1,12 @@
 import { _decorator, Button } from 'cc';
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
-import type { LabParams } from '../../contracts/demo-navigation';
 import { GuidePageBinding } from './generated/GuidePageBinding';
+import { WorkshopViews } from '../../../workshop/contracts/generated/views';
 const { ccclass } = _decorator;
 /** 运行时说明与真实源码一一对应；详细编辑流程见工作台“示例工作流”。 */
 @ccclass('showcase.GuidePage')
 export class GuidePage extends GuidePageBinding {
-    protected onShow(show: ViewShowContext<LabParams, void>): void {
+    protected onShow(show: ViewShowContext<void, void>): void {
         const entries: readonly [Button, string][] = [
             [
                 this.btnStructure,
@@ -37,7 +37,7 @@ export class GuidePage extends GuidePageBinding {
                 '⑦ 验证：npm run verify + Cocos 实际预览\n业务测试、资源检查、脚本诊断和构建检查\n实验页可观察取消、失败、恢复和回收\n发布前还需目标小游戏 / 原生设备真机验证。',
             ],
         ];
-        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.back());
+        show.listen(this.btnBack.node, Button.EventType.CLICK, () => show.ui.back());
         for (const [button, text] of entries)
             show.listen(button.node, Button.EventType.CLICK, () => {
                 this.lblOutput.string = text;
@@ -46,7 +46,7 @@ export class GuidePage extends GuidePageBinding {
             this.btnWorkflow.node,
             Button.EventType.CLICK,
             async () => {
-                await show.params.navigation.open('workflow');
+                await show.ui.pushPage(WorkshopViews.workflowPage, undefined);
             },
             (error) =>
                 show.commit(() => {

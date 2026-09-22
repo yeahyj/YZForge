@@ -461,7 +461,7 @@ exports.ready = function () {
         });
     }
     on('kind', role, 'change');
-    for (const id of ['newName', 'displayName', 'delivery', 'initial', 'bundle', 'presenter', 'adopt'])
+    for (const id of ['newName', 'displayName', 'delivery', 'initial', 'bundle', 'presenter', 'publicView', 'adopt'])
         on(id, invalidateCreate, 'input');
     on('delivery', role, 'change');
     on('refresh', () => run('refresh'));
@@ -484,6 +484,7 @@ exports.ready = function () {
                 displayName: val('displayName'),
                 codeOnly: val('initial') === 'code',
                 presenter: el('presenter').checked,
+                visibility: el('publicView').checked ? 'public' : 'internal',
                 prefabUUID: ['part', 'prefab'].includes(val('kind')) ? val('adopt') : undefined,
             });
             if (closed || sequence !== previewSequence) return;

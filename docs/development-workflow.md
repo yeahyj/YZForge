@@ -6,16 +6,18 @@
 
 这个示例把任务规则放在 `workshop`，账号余额放在 `profile`，公共配置放在 `common`。`showcase` 负责功能导航和实验。不要按每一个按钮拆模块；共享状态与发布边界才是拆分依据。
 
-| 层         | 真实文件                                                                                           | 负责什么                                              |
-| ---------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| 应用组合   | [showcase-navigation.ts](../assets/game/app/showcase-navigation.ts)                                | 用生成的 ViewKey 选择页面，持有覆盖页面导航的启动会话 |
-| 模块装配   | [WorkshopModule.ts](../assets/game/modules/workshop/code/WorkshopModule.ts)                        | 注入声明的 Profile API，创建 TaskService              |
-| 业务规则   | [TaskService.ts](../assets/game/modules/workshop/code/services/TaskService.ts)                     | 训练进度、配置查询、领取条件、业务事件                |
-| 账号状态   | [WalletService.ts](../assets/game/modules/profile/code/services/WalletService.ts)                  | 余额、领取去重记录、存档和订阅                        |
-| 展示流程   | [WorkflowPagePresenter.ts](../assets/game/modules/workshop/code/ui/WorkflowPagePresenter.ts)       | 取数、确认、命令、反馈；定义最小渲染 Port             |
-| 页面显示   | [WorkflowPage.ts](../assets/game/modules/workshop/code/ui/WorkflowPage.ts)                         | 按钮绑定、动态 Part 创建、同步更新节点                |
-| 可复用部件 | [TaskPart.ts](../assets/game/modules/workshop/code/components/TaskPart.ts)                         | 接收卡片模型，通过任务 ID 回传点击                    |
-| 自动绑定   | [WorkflowPageBinding.ts](../assets/game/modules/workshop/code/ui/generated/WorkflowPageBinding.ts) | 节点引用和类型化 getter，由工作台生成                 |
+| 层         | 真实文件                                                                                           | 负责什么                                      |
+| ---------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| 示例入口   | [ShowcasePage.ts](../assets/game/modules/showcase/code/ui/ShowcasePage.ts)                         | 通过 show.ui 调用类型化页面 Key，不传导航对象 |
+| 模块装配   | [WorkshopModule.ts](../assets/game/modules/workshop/code/WorkshopModule.ts)                        | 注入声明的 Profile API，创建 TaskService      |
+| 业务规则   | [TaskService.ts](../assets/game/modules/workshop/code/services/TaskService.ts)                     | 训练进度、配置查询、领取条件、业务事件        |
+| 账号状态   | [WalletService.ts](../assets/game/modules/profile/code/services/WalletService.ts)                  | 余额、领取去重记录、存档和订阅                |
+| 展示流程   | [WorkflowPagePresenter.ts](../assets/game/modules/workshop/code/ui/WorkflowPagePresenter.ts)       | 取数、确认、命令、反馈；定义最小渲染 Port     |
+| 页面显示   | [WorkflowPage.ts](../assets/game/modules/workshop/code/ui/WorkflowPage.ts)                         | 按钮绑定、动态 Part 创建、同步更新节点        |
+| 可复用部件 | [TaskPart.ts](../assets/game/modules/workshop/code/components/TaskPart.ts)                         | 接收卡片模型，通过任务 ID 回传点击            |
+| 自动绑定   | [WorkflowPageBinding.ts](../assets/game/modules/workshop/code/ui/generated/WorkflowPageBinding.ts) | 节点引用和类型化 getter，由工作台生成         |
+
+`game/app` 负责启动接入和应用装配，`start-game.ts` 只选择首屏及需要启动持有的模块。业务代码都留在所属模块：Service 管规则和状态，Page / Part 管显示，Presenter 按需协调复杂交互。跨模块使用公开合同和 API；需要多步业务协调时，普通函数或类也放在发起业务的模块内。
 
 ```mermaid
 sequenceDiagram
@@ -25,7 +27,7 @@ sequenceDiagram
     participant S as TaskService
     participant W as Profile API / WalletService
     P->>C: 点击领取，传入任务 ID
-    C->>U: open(ClaimPopup, 参数, task.scope)
+    C->>U: show.ui.open(ClaimPopup, 参数, { owner: task.scope })
     U-->>C: completed / cancelled / failed
     alt 确认领取
         C->>S: claim(任务 ID)
@@ -45,7 +47,7 @@ sequenceDiagram
 ## 2. 在工作台创建内容
 
 1. 创建自己的模块，选择代码交付方式和默认资源包。示例 `workshop` 使用按需代码，`profile` 使用启动代码，`common` 仅有配置和资源。
-2. 创建 Page，复杂页面勾选 Presenter；创建 Part 和 Service。先检查全部文件预览，脚本和预制体后缀自动补齐。
+2. 创建 Page，复杂页面勾选 Presenter；创建 Part 和 Service。首屏或需要跨模块打开的界面勾选“公开界面合同”，其余默认内部。先检查全部文件预览，脚本和预制体后缀自动补齐。
 3. 在模块设置声明业务依赖。示例声明 `profile`，生成的依赖合同让模块工厂获得完整类型。
 4. 通过生成的公开合同访问其他模块；不导入其他模块 `code` 里的具体服务或组件。
 
@@ -93,18 +95,22 @@ const samples = await show.config.load(SamplesTable, { bundle: ShowcaseBundles.e
 
 ## 6. UI 与模块怎样通信
 
-| 需求                 | 采用方式                                | 示例                                      |
-| -------------------- | --------------------------------------- | ----------------------------------------- |
-| 页面给弹窗传信息     | ViewKey 的类型化参数                    | 标题、奖励说明                            |
-| 弹窗返回选择         | `handle.result` 的状态联合              | 确认才执行命令；取消没有成功值            |
-| Part 通知父对象      | 明确的回调与 ID                         | `claim(taskId)`                           |
-| 跨模块命令和查询     | 声明依赖 + 公开 API                     | TaskService 调用 ProfileApi               |
-| 多处观察已发生的事实 | 类型化事件 + 所有者                     | `WorkshopChanged` 更新首页观察记录        |
-| 页面切换             | 应用导航能力 + `pushPage` / `show.back` | 启动会话持有新页面，不用即将挂起的旧 show |
+| 需求                 | 采用方式                            | 示例                                      |
+| -------------------- | ----------------------------------- | ----------------------------------------- |
+| 页面给弹窗传信息     | ViewKey 的类型化参数                | 标题、奖励说明                            |
+| 弹窗返回选择         | `handle.result` 的状态联合          | 确认才执行命令；取消没有成功值            |
+| Part 通知父对象      | 明确的回调与 ID                     | `claim(taskId)`                           |
+| 跨模块命令和查询     | 声明依赖 + 公开 API                 | TaskService 调用 ProfileApi               |
+| 多处观察已发生的事实 | 类型化事件 + 所有者                 | `WorkshopChanged` 更新首页观察记录        |
+| 页面切换             | `show.ui.pushPage` / `show.ui.back` | 启动会话持有新页面，不用即将挂起的旧 show |
 
 不把事件当作需要返回值的隐式 RPC，也不通过查找另一个页面节点进行通信。Popup 默认阻挡下层输入；Overlay/Toast 的策略独立；Part 不进入 UI 页面栈。缓存只复用节点，每次显示仍有新的 showId 和 Scope。
 
-应用导航采用首次点击优先：一个页面尚在打开时，其他入口等待这次导航，不继续排入新目标。打开成功或失败后才能发起下一次导航；失败可明确重试。该限制放在 `ShowcaseNavigation`，所有页面共用，导航所有者仍是启动会话。
+页面调用 `await show.ui.pushPage(Key, 参数)` 只等本次切换，成功返回 `{ status: 'opened' }`；已有导航准备中时返回 `{ status: 'ignored', reason: 'busy' }`。原页面在目标就绪前保持显示；准备失败不改变页面栈，可以重试。准备期间返回只撤销该次前进；旧 show 结束后不能继续发起跳转。`onShow` 负责准备界面，导航从页面可交互后的回调发起。
+
+同模块的完整界面 Key 从 `code/generated/views.ts` 导入；其他模块和启动入口只导入 `contracts/generated/views.ts` 的明确公开项。`ViewKey` 同时携带参数、结果和层级类型；Page 走 `pushPage`，Popup / Overlay / Toast / Loading 走 `open`。模块边界检查拒绝跨模块导入私有代码；这是源码约束，不是安全鉴权机制。
+
+调试数据显示通过 `this.ctx.diagnostics.snapshot()` / `.module(id)` 读取，只返回只读摘要，不负责导航，不启动业务模块。
 
 ## 7. 验证与发布
 
@@ -112,6 +118,8 @@ const samples = await show.config.load(SamplesTable, { bundle: ShowcaseBundles.e
 npm run verify
 npm run test:showcase
 ```
+
+构建前除 TypeScript 和生成一致性检查外，还检查 Creator 是否已注册每个 UI 的组件类；有缺失导入时先修复、刷新脚本并等编辑器完成编译，不能仅凭 tsc 通过就发布。
 
 在 Creator 中运行 Bootstrap，逐个操作实验按钮。构建 Web 后可运行真实运行时集成检查：
 
