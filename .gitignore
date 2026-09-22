@@ -13,6 +13,8 @@ native
 #//////////////////////////
 node_modules/
 .yzforge/
+# Local editor endpoint and machine-specific MCP client configuration.
+funplay-cocos-mcp.config.json
 
 #//////////////////////////
 # VSCode

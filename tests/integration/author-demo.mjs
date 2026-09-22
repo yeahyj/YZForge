@@ -3,12 +3,12 @@ import { call } from '../../tools/yzforge/mcp.mjs';
 // Run only against the initial empty example prefabs. All serialized writes go through MCP/Creator.
 const definitions = [
     {
-        target: 'db://assets/game/modules/lobby/res/ui/Dashboard.prefab',
+        target: 'db://assets/game/modules/lobby/bundles/default/dynamic/ui/Dashboard.prefab',
         uuid: '91b45fca-617b-4fa0-82bb-e5f2871b57fa',
         kind: 'dashboard',
     },
     {
-        target: 'db://assets/game/modules/lobby/res/ui/RewardPopup.prefab',
+        target: 'db://assets/game/modules/lobby/bundles/default/dynamic/ui/RewardPopup.prefab',
         uuid: '0505cd73-cb77-404c-a4ec-b2f75ec5a5a2',
         kind: 'reward',
     },

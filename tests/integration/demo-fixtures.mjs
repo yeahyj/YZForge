@@ -60,12 +60,18 @@ const result = await call('execute_javascript', {
     context: 'editor',
     args: {
         assets: [
-            { path: 'assets/game/modules/lobby/res/icons/status.png', data: png.toString('base64') },
-            { path: 'assets/game/modules/lobby/res/audio/confirm.wav', data: wav.toString('base64') },
+            {
+                path: 'assets/game/modules/lobby/bundles/default/dynamic/icons/status.png',
+                data: png.toString('base64'),
+            },
+            {
+                path: 'assets/game/modules/lobby/bundles/default/dynamic/audio/confirm.wav',
+                data: wav.toString('base64'),
+            },
         ],
     },
     code: `return await (async()=>{const io=require('fs/promises'), p=require('path'); const saved=[]; for(const asset of args.assets){
-  if(!asset.path.startsWith('assets/game/modules/lobby/res/'))throw Error('Unexpected fixture target');
+  if(!asset.path.startsWith('assets/game/modules/lobby/bundles/default/dynamic/'))throw Error('Unexpected fixture target');
   const target=p.join(Editor.Project.path,asset.path);await io.mkdir(p.dirname(target),{recursive:true});await io.writeFile(target,Buffer.from(asset.data,'base64'),{flag:'wx'});
   await Editor.Message.request('asset-db','refresh-asset','db://'+asset.path); saved.push(await Editor.Message.request('asset-db','query-asset-info','db://'+asset.path));
 }return saved.map(info=>({uuid:info.uuid,url:info.url,subAssets:info.subAssets}));})();`,
