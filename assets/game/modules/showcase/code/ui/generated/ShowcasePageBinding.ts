@@ -37,6 +37,16 @@ export class ShowcasePageBinding extends UIView<ShowcasePageParams, ShowcasePage
         return this.requireBinding(this._bindBtnWorkflow, 'btn_workflow');
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
+    @property({ type: Node, visible: false })
+    private _bindNodeBadge: Node | null = null;
+    /**
+     * 自动绑定节点 node_badge 的 Node；节点改名或增删后通过工作台更新绑定。
+     * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
+     */
+    protected get nodeBadge(): Node {
+        return this.requireBinding(this._bindNodeBadge, 'node_badge');
+    }
+    /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Button, visible: false })
     private _bindBtnUi: Button | null = null;
     /**
@@ -141,6 +151,7 @@ export class ShowcasePageBinding extends UIView<ShowcasePageParams, ShowcasePage
         void this.btnBack;
         void this.nodeContent;
         void this.btnWorkflow;
+        void this.nodeBadge;
         void this.btnUi;
         void this.btnData;
         void this.btnTime;

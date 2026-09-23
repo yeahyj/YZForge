@@ -15,11 +15,16 @@ import { Scope, Lifetime } from './scope';
 import { FrameworkError } from './errors';
 import { GameComponent } from './game-component';
 import { BootFlow } from './boot';
+import { BadgeStore } from '../badges/badge-store';
+import { HttpClient, type HttpClientOptions, type HttpTransport } from '../network/http-client';
+import { createPlatformHttpTransport } from '../network/transports';
 import type { RuntimeDiagnostics } from './diagnostics';
 /**
  * 应用启动装配参数。通常由项目设置和生成的发布清单构建，交给 AppEntry.appOptions。
  */
 export interface AppOptions {
+    /** HTTP 默认配置；省略 transport 时自动选择 wx.request 或 XMLHttpRequest，构造时不会联网。 */
+    readonly http?: Omit<HttpClientOptions, 'transport'> & { readonly transport?: HttpTransport };
     /** 可选同步存储适配器；默认 Cocos sys.localStorage，用于平台接入或测试。 */
     readonly storageBackend?: StorageBackend;
     /**
@@ -125,6 +130,10 @@ export class App {
      * 全应用共享的类型化事件总线，用于广播已发生的事实；命令和查询优先用模块 API。
      */
     readonly events = new Events();
+    /** 应用红点状态域；业务来源和 UI 订阅仍须传入各自的 Scope。 */
+    readonly badges = new BadgeStore(this.scope);
+    /** 通用 HTTP 客户端；每次请求必须显式传入生命周期。 */
+    readonly http: HttpClient;
     /**
      * 以 appId 隔离的小型本地存储入口，提供版本和类型校验。
      */
@@ -212,6 +221,10 @@ export class App {
         if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(input.appId))
             throw new FrameworkError('APP_ID_INVALID', 'Provide a stable application ID for storage isolation');
         this.storage = new Storage(`${input.appId}:`, input.storageBackend ?? sys.localStorage);
+        this.http = new HttpClient({
+            ...input.http,
+            transport: input.http?.transport ?? createPlatformHttpTransport(),
+        });
         this.clock = input.clock ?? createPlatformClock(input.clockOptions);
         this.time = new TimeService(this.clock, this.scope, input.time);
         this.assets = new Assets(input.release, this.scope);
@@ -228,6 +241,8 @@ export class App {
                     config: this.config.in(scope),
                     time: this.time.in(scope),
                     events: this.events,
+                    badges: this.badges,
+                    http: this.http,
                     storage: this.storage,
                     diagnostics: this.diagnostics,
                     ui: this.ui,

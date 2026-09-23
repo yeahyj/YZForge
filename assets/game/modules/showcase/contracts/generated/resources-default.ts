@@ -43,6 +43,8 @@ export const ShowcaseRes = {
         uiGuidePage: { id: 'showcase/default/prefab/ui/guide-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/inspect-overlay。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiInspectOverlay: { id: 'showcase/default/prefab/ui/inspect-overlay', type: 'Prefab' },
+        /** Prefab：showcase/default/prefab/ui/network-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        uiNetworkLabPage: { id: 'showcase/default/prefab/ui/network-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/notice-toast。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiNoticeToast: { id: 'showcase/default/prefab/ui/notice-toast', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/progress-loading。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
@@ -53,6 +55,8 @@ export const ShowcaseRes = {
         uiStorageLabPage: { id: 'showcase/default/prefab/ui/storage-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/time-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiTimeLabPage: { id: 'showcase/default/prefab/ui/time-lab-page', type: 'Prefab' },
+        /** Prefab：showcase/default/prefab/ui/tutorial-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        uiTutorialLabPage: { id: 'showcase/default/prefab/ui/tutorial-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/ui-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiUiLabPage: { id: 'showcase/default/prefab/ui/ui-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/virtual-list-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */

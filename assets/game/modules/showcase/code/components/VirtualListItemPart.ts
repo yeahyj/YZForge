@@ -3,6 +3,8 @@ import { eventKey } from '../../../../../framework/core/events';
 import { OperationCancelled, reportError } from '../../../../../framework/core/errors';
 import type { VirtualListItemContext } from '../../../../../framework/ui/components/virtual-list';
 import { VirtualListItemPartBinding } from './generated/VirtualListItemPartBinding';
+import { badgeKey } from '../../../../../framework/badges/badge-store';
+import { Badge } from '../../../../../framework/ui/components/badge/badge';
 const { ccclass } = _decorator;
 
 /** 示例业务模型，与通用虚拟列表无关。 */
@@ -16,6 +18,10 @@ export interface VirtualListDemoRow {
 }
 /** 示例广播：每个当前绑定应只收到一次，移出窗口即退订。 */
 export const VirtualListDemoPulse = eventKey<number>('showcase/virtual-list-pulse');
+/** 示例行红点使用稳定业务 ID；排序和节点复用不改变 Key。 */
+export const virtualRowBadge = (id: number) => badgeKey(`showcase/list/${id}`);
+/** 示例列表的红点汇总入口。 */
+export const VirtualListBadges = badgeKey('showcase/list');
 
 /** 业务条目继承现有自动 Binding；每次数据绑定持有独立订阅和异步任务。 */
 @ccclass('showcase.VirtualListItemPart')
@@ -25,6 +31,7 @@ export class VirtualListItemPart extends VirtualListItemPartBinding {
      * @param item 本次业务模型、索引和期限，由 VirtualList.mount 的 render 转交。
      */
     render(item: VirtualListItemContext<VirtualListDemoRow>): void {
+        this.nodeBadge.getComponent(Badge)!.bind(this.ctx.badges, virtualRowBadge(item.data.id), item.scope);
         this.lblTitle.string = `${item.data.title} · v${item.data.revision}`;
         this.lblDetail.string = '等待异步详情…';
         this.ctx.events.on(

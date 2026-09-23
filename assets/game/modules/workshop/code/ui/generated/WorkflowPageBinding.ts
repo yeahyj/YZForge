@@ -77,6 +77,16 @@ export class WorkflowPageBinding extends UIView<WorkflowPageParams, WorkflowPage
         return this.requireBinding(this._bindBtnInspect, 'btn_inspect');
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
+    @property({ type: Node, visible: false })
+    private _bindNodeBadge: Node | null = null;
+    /**
+     * 自动绑定节点 node_badge 的 Node；节点改名或增删后通过工作台更新绑定。
+     * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
+     */
+    protected get nodeBadge(): Node {
+        return this.requireBinding(this._bindNodeBadge, 'node_badge');
+    }
+    /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Label, visible: false })
     private _bindLblOutput: Label | null = null;
     /**
@@ -115,6 +125,7 @@ export class WorkflowPageBinding extends UIView<WorkflowPageParams, WorkflowPage
         void this.btnFailure;
         void this.btnReload;
         void this.btnInspect;
+        void this.nodeBadge;
         void this.lblOutput;
         void this.nodePreview;
         void this.sprPreview;

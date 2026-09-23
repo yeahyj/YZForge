@@ -8,6 +8,8 @@ import { TasksTable } from '../../contracts/generated/config/Tasks.table';
 import { EconomyTable } from '../../../common/contracts/generated/config/Economy.table';
 import { WorkshopChanged } from '../../contracts/workflow';
 import { invariant } from '../../../../../framework/core/errors';
+import type { BadgeSource } from '../../../../../framework/badges';
+import { TaskBadges, taskBadge } from '../../contracts/badges';
 
 const ProgressSave: StorageKey<{ progress: number }> = {
     id: 'workshop.progress',
@@ -24,6 +26,7 @@ export class TaskService {
     private progress: number;
     private failNext = false;
     private definitions = new Map<number, TasksRow>();
+    private readonly badges = new Map<number, BadgeSource>();
     /** 依赖由模块工厂按 module.json 注入；账号状态通过公开 API 访问。 */
     constructor(
         private readonly ctx: ModuleContext,
@@ -36,6 +39,8 @@ export class TaskService {
             '训练存档需要恢复',
         );
         this.progress = saved.value?.progress ?? 0;
+        ctx.badges.group(TaskBadges, 'sum', ctx.scope);
+        profile.subscribe(() => this.updateBadges(), ctx.scope);
     }
     /** 并行加载本模块任务表与公共表，期限由调用页面决定。 */
     async load(owner: Lifetime): Promise<readonly TasksRow[]> {
@@ -43,6 +48,17 @@ export class TaskService {
         for (const row of tables.tasks.all()) tables.economy.require(row.economy);
         // 只接收配置管线校验过的规则，领取命令不接受 UI 传来的金额或完成条件。
         this.definitions = new Map(tables.tasks.all().map((row) => [row.id, row]));
+        this.ctx.badges.batch(() => {
+            for (const [id, source] of this.badges)
+                if (!this.definitions.has(id)) {
+                    source.dispose();
+                    this.badges.delete(id);
+                }
+            for (const row of this.definitions.values())
+                if (!this.badges.has(row.id))
+                    this.badges.set(row.id, this.ctx.badges.source(taskBadge(row.id), this.ctx.scope, TaskBadges));
+            this.updateBadges();
+        });
         return tables.tasks.all();
     }
     /** 完成训练：保存成功后更新状态并发出业务事件。 */
@@ -120,6 +136,16 @@ export class TaskService {
         return `workshop/task/${id}`;
     }
     private publish(reason: string): void {
+        this.updateBadges();
         this.ctx.events.emit(WorkshopChanged, { reason, ...this.snapshot() });
+    }
+    private updateBadges(): void {
+        if (this.ctx.scope.signal.aborted) return;
+        this.ctx.badges.batch(() => {
+            for (const row of this.definitions.values())
+                this.badges
+                    .get(row.id)
+                    ?.set(Number(this.progress >= row.goal && !this.profile.hasReward(this.rewardId(row.id))));
+        });
     }
 }

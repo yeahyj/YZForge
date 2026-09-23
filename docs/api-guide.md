@@ -307,6 +307,14 @@ if (navigation.status === 'ignored') return;
 
 事件用于广播已经发生的事实。`eventKey<T>('module/event')` 定义合同，`ctx.events.on(key, handler, owner)` 订阅，`emit` 发布。发布不等待异步订阅者完成，不提供请求结果；需要结果或严格顺序时使用明确的模块方法。音频则通过 `ctx.audio.play(key, owner)` 取得独立播放句柄，播放期限由 owner 决定。
 
+## 红点、HTTP 与引导
+
+`ctx.badges` / `app.badges` 提供数量来源、sum/any 分组和 Scope 订阅，业务在状态保存成功后更新来源；UI 的 `Badge.bind` 使用 show、Part activation 或虚拟条目 item 的期限。见 [红点 API 与示例](badges.md)。
+
+`ctx.http` / `app.http` 提供 HTTP 文本请求和经过业务 decode 验证的 JSON，请求显式传 owner，默认不重试。`AppOptions.http` 可注入服务地址、传输与超时；查询界面结合 Actions.latest / task.commit 拦截旧响应。见 [HTTP API、平台适配和本机演示](network.md)。
+
+业务使用 `GuideRunner` 执行步骤，`GuideTargets` 以稳定业务 ID 注册页面或虚拟条目目标，`StorageGuideProgress` 保存检查点。`GuideFocusOverlay.begin` 创建整次引导共用的视觉使用期，每步只移动和变形镂空，结束时统一 close。见 [引导 API、动画设计及 Creator 配置](guide.md)。
+
 ## 存档迁移与恢复
 
 普通业务通过 `ctx.storage` 或 `app.storage` 使用小型 JSON 存档。`StorageKey<T>` 声明稳定 id、当前 version、validate 和逐版本 migrations；例如 `{ 1: old => ({ coins: old.gold }) }` 表示版本 1 升级到 2。完整可运行示例见 `profile/code/services/WalletService.ts`。

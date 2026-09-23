@@ -121,6 +121,24 @@
       "duplicate": "reject",
       "className": "showcase.VirtualListLabPage",
       "binding": "code/ui/generated/VirtualListLabPageBinding.ts"
+    },
+    "network-lab-page": {
+      "visibility": "internal",
+      "prefab": "showcase/default/prefab/ui/network-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.NetworkLabPage",
+      "binding": "code/ui/generated/NetworkLabPageBinding.ts"
+    },
+    "tutorial-lab-page": {
+      "visibility": "internal",
+      "prefab": "showcase/default/prefab/ui/tutorial-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.TutorialLabPage",
+      "binding": "code/ui/generated/TutorialLabPageBinding.ts"
     }
   },
   "audio": {},

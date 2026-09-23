@@ -1,6 +1,12 @@
 # YZForge 实施与验证记录
 
-更新日期：2026-09-22。实现位置：`E:\study\YZForge`，Creator 3.8.8。日常用法见 [README](../README.md)，设计取舍见 [重构方案](workbench-redesign-proposal.md)。
+更新日期：2026-09-23。实现位置：`E:\study\YZForge`，Creator 3.8.8。日常用法见 [README](../README.md)，设计取舍见 [重构方案](workbench-redesign-proposal.md)。
+
+## 2026-09-23 红点、HTTP 与连续聚焦引导
+
+已实现 Scope 管理的红点聚合与显示、HTTP 请求/超时/取消/JSON 验证、可恢复的新手引导与圆形到矩形连续变形。预制体通过当前 Cocos MCP 制作，业务资源留在所属模块。引导消除了入场白色填充和换步隐藏造成的闪屏，等待及移动期间保持遮罩并拦截底层输入。
+
+完整检查的 130 项框架测试和 11 项业务测试通过；实际预览验证真实 HTTP、物理点击、过渡、复用、恢复和清理。详细发现、证据及平台边界见 [本轮审查](badges-network-guide-review.md)，使用方法见 [红点](badges.md)、[HTTP](network.md)、[引导](guide.md)。下面保留历史阶段的检查数量与日期。
 
 ## 2026-09-22 模块归属与页面导航复核
 

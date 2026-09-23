@@ -12,6 +12,8 @@ import type { InspectOverlayParams, InspectOverlayResult } from '../ui/InspectOv
 import type { NoticeToastParams, NoticeToastResult } from '../ui/NoticeToast.types';
 import type { ProgressLoadingParams, ProgressLoadingResult } from '../ui/ProgressLoading.types';
 import type { VirtualListLabPageParams, VirtualListLabPageResult } from '../ui/VirtualListLabPage.types';
+import type { NetworkLabPageParams, NetworkLabPageResult } from '../ui/NetworkLabPage.types';
+import type { TutorialLabPageParams, TutorialLabPageResult } from '../ui/TutorialLabPage.types';
 /** showcase 的模块内全部界面引用。 */
 export const ShowcaseViews = {
     /** showcase.showcase-page；show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。 */
@@ -76,6 +78,18 @@ export const ShowcaseViews = {
     virtualListLabPage: { id: 'showcase.virtual-list-lab-page', kind: 'page' } as ViewKey<
         VirtualListLabPageParams,
         VirtualListLabPageResult,
+        'page'
+    >,
+    /** showcase.network-lab-page；show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。 */
+    networkLabPage: { id: 'showcase.network-lab-page', kind: 'page' } as ViewKey<
+        NetworkLabPageParams,
+        NetworkLabPageResult,
+        'page'
+    >,
+    /** showcase.tutorial-lab-page；show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。 */
+    tutorialLabPage: { id: 'showcase.tutorial-lab-page', kind: 'page' } as ViewKey<
+        TutorialLabPageParams,
+        TutorialLabPageResult,
         'page'
     >,
 } as const;

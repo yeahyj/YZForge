@@ -5,7 +5,14 @@ import {
     type VirtualListLayout,
 } from '../../../../../framework/ui/components/virtual-list';
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
-import { VirtualListItemPart, VirtualListDemoPulse, type VirtualListDemoRow } from '../components/VirtualListItemPart';
+import {
+    VirtualListItemPart,
+    VirtualListDemoPulse,
+    VirtualListBadges,
+    virtualRowBadge,
+    type VirtualListDemoRow,
+} from '../components/VirtualListItemPart';
+import { Badge } from '../../../../../framework/ui/components/badge/badge';
 import { ShowcaseRes } from '../../contracts/generated/resources-default';
 import { VirtualListLabPageBinding } from './generated/VirtualListLabPageBinding';
 const { ccclass } = _decorator;
@@ -20,6 +27,11 @@ export class VirtualListLabPage extends VirtualListLabPageBinding {
             revision: 0,
         }));
         let grid = false;
+        this.ctx.badges.group(VirtualListBadges, 'sum', show.scope);
+        const sources = rows
+            .filter((row) => row.id % 100 === 1)
+            .map((row) => this.ctx.badges.source(virtualRowBadge(row.id), show.scope, VirtualListBadges, 1));
+        this.nodeBadge.getComponent(Badge)!.bind(this.ctx.badges, VirtualListBadges, show.scope);
         let pulse = 0;
         const scroll = this.nodeList.getComponent(ScrollView)!;
         const layout = (): VirtualListLayout => {
@@ -66,7 +78,10 @@ export class VirtualListLabPage extends VirtualListLabPageBinding {
                 list.updateItem(index, rows[index]);
             }
         });
-        bind(this.btnEvent, () => this.ctx.events.emit(VirtualListDemoPulse, ++pulse));
+        bind(this.btnEvent, () => {
+            this.ctx.events.emit(VirtualListDemoPulse, ++pulse);
+            this.ctx.badges.batch(() => sources.forEach((source) => source.set(pulse % 2 ? 0 : 1)));
+        });
     }
     protected onTick(): void {
         if (!this.list) return;

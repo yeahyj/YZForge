@@ -168,6 +168,28 @@ export const views: readonly ViewDefinition[] = [
         duplicate: 'reject',
     },
     {
+        id: 'showcase.network-lab-page',
+        module: 'showcase',
+        prefab: {
+            id: 'showcase/default/prefab/ui/network-lab-page',
+            type: 'Prefab',
+        },
+        kind: 'page',
+        cache: 'none',
+        duplicate: 'reject',
+    },
+    {
+        id: 'showcase.tutorial-lab-page',
+        module: 'showcase',
+        prefab: {
+            id: 'showcase/default/prefab/ui/tutorial-lab-page',
+            type: 'Prefab',
+        },
+        kind: 'page',
+        cache: 'none',
+        duplicate: 'reject',
+    },
+    {
         id: 'workshop.workflow-page',
         module: 'workshop',
         prefab: {

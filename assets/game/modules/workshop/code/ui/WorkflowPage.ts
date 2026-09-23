@@ -8,6 +8,8 @@ import { WorkshopRes } from '../../contracts/generated/resources-default';
 import { TaskPart } from '../components/TaskPart';
 import { WorkflowPageBinding } from './generated/WorkflowPageBinding';
 import { WorkflowPagePresenter } from './WorkflowPagePresenter';
+import { Badge } from '../../../../../framework/ui/components/badge/badge';
+import { TaskBadges } from '../../contracts/badges';
 const { ccclass } = _decorator;
 /** 界面负责节点和输入，把展示流程交给 Presenter；共享业务规则放在模块 Service。 */
 @ccclass('workshop.WorkflowPage')
@@ -18,6 +20,7 @@ export class WorkflowPage extends WorkflowPageBinding implements WorkflowPagePor
     /** 每次展示创建独立 Presenter，事件监听与异步工作归本次 show。 */
     protected async onShow(show: ViewShowContext<WorkflowPageParams, void>): Promise<void> {
         this.display = show;
+        this.nodeBadge.getComponent(Badge)!.bind(this.ctx.badges, TaskBadges, show.scope);
         this.parts.clear();
         const presenter = new WorkflowPagePresenter(this.ctx.services(WorkshopServices).tasks, show, this);
         const error = (cause: unknown) =>

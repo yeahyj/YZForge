@@ -93,6 +93,14 @@
         "showcase"
       ]
     },
+    "showcase/default/prefab/ui/network-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/NetworkLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
     "showcase/default/prefab/ui/notice-toast": {
       "bundle": "m-showcase",
       "path": "dynamic/ui/NoticeToast",
@@ -128,6 +136,14 @@
     "showcase/default/prefab/ui/time-lab-page": {
       "bundle": "m-showcase",
       "path": "dynamic/ui/TimeLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/tutorial-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/TutorialLabPage",
       "type": "Prefab",
       "requiredCodeModules": [
         "showcase"

@@ -94,6 +94,10 @@ export function defineModule<Api, Services = unknown, D extends ModuleDependenci
  * 模块 Scope、界面展示 Scope、组件激活 Scope 长度不同，应按实际使用期选择。
  */
 export interface ModuleContext {
+    /** 共享红点状态域；业务注册随模块或账号期限结束，UI 订阅使用 show/activation/item.scope。 */
+    readonly badges: import('../badges/badge-store').BadgeStore;
+    /** HTTP 入口；页面、条目及会话请求分别传入对应的 Scope，避免绑到过长的模块期限。 */
+    readonly http: import('../network/http-client').HttpClient;
     /** 按需查询只读运行状态；用于诊断展示，不作为业务规则或模块持有方式。 */
     readonly diagnostics: RuntimeDiagnostics;
     /** 应用命名空间下的小型存档与设置入口，支持逐版本迁移和有效备份恢复。 */

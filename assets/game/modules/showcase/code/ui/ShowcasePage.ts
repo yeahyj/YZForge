@@ -5,11 +5,14 @@ import { WorkshopViews } from '../../../workshop/contracts/generated/views';
 import { LobbyViews } from '../../../lobby/contracts/generated/views';
 import { ShowcaseServices } from '../ShowcaseServices';
 import { ShowcasePageBinding } from './generated/ShowcasePageBinding';
+import { Badge } from '../../../../../framework/ui/components/badge/badge';
+import { TaskBadges } from '../../../workshop/contracts/badges';
 const { ccclass } = _decorator;
 /** 展示应用入口；这是可删除的示例业务，不是框架内置首页。 */
 @ccclass('showcase.ShowcasePage')
 export class ShowcasePage extends ShowcasePageBinding {
     protected onShow(show: ViewShowContext<void, void>): void {
+        this.nodeBadge.getComponent(Badge)!.bind(this.ctx.badges, TaskBadges, show.scope);
         this.btnBack.node.active = false;
         const routes: readonly [Button, () => Promise<unknown>][] = [
             [this.btnWorkflow, () => show.ui.pushPage(WorkshopViews.workflowPage, undefined)],

@@ -37,6 +37,12 @@
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/ConfirmPopup.prefab"
     },
+    "12e49999-f446-4638-9250-bee204247220": {
+      "id": "showcase/default/prefab/ui/network-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/NetworkLabPage.prefab"
+    },
     "2659ac62-9ff7-4bfa-afff-4fb9573832d0": {
       "id": "showcase/default/prefab/ui/progress-loading",
       "type": "Prefab",
@@ -84,6 +90,12 @@
       "type": "AudioClip",
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/audio/chime.wav"
+    },
+    "48218f21-46ee-4352-af28-80aaa2f7718b": {
+      "id": "showcase/default/prefab/ui/tutorial-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/TutorialLabPage.prefab"
     },
     "4ea13fd4-6f0d-41a3-a65e-f19f90d6b0c7": {
       "id": "workshop/default/prefab/prefabs/task-part",

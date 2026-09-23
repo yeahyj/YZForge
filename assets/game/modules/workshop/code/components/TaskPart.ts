@@ -2,15 +2,20 @@ import { _decorator, Button, UIOpacity } from 'cc';
 import type { ActivationContext } from '../../../../../framework/core/game-component';
 import type { TaskCardModel } from '../../contracts/workflow';
 import { TaskPartBinding } from './generated/TaskPartBinding';
+import { Badge } from '../../../../../framework/ui/components/badge/badge';
+import { taskBadge } from '../../contracts/badges';
 const { ccclass } = _decorator;
 /** 通用任务卡片：只显示模型和回传输入；业务规则与存档不进入 Part。 */
 @ccclass('workshop.TaskPart')
 export class TaskPart extends TaskPartBinding {
     private model?: TaskCardModel;
     private claim?: (id: number) => Promise<void>;
+    private currentActivation?: ActivationContext;
     /** 可在激活前赋值，也可在业务事件到达后局部刷新。 */
     render(model: TaskCardModel, claim?: (id: number) => Promise<void>): void {
+        const changed = this.model?.id !== model.id;
         this.model = model;
+        if (changed && this.currentActivation) this.bindBadge(this.currentActivation);
         if (claim) this.claim = claim;
         this.lblTitle.string = model.title;
         this.lblDetail.string = model.detail;
@@ -21,6 +26,8 @@ export class TaskPart extends TaskPartBinding {
     }
     /** 自定义激活钩子绑定输入；禁用或销毁时自动解绑。 */
     protected onActivate(activation: ActivationContext): void {
+        this.currentActivation = activation;
+        this.bindBadge(activation);
         const button = this.btnClaim.node;
         const clicked = () => {
             const id = this.model?.id;
@@ -36,5 +43,12 @@ export class TaskPart extends TaskPartBinding {
         };
         button.on(Button.EventType.CLICK, clicked);
         activation.scope.defer(() => button.off(Button.EventType.CLICK, clicked));
+    }
+    protected onDeactivate(): void {
+        this.currentActivation = undefined;
+    }
+    private bindBadge(activation: ActivationContext): void {
+        if (this.model)
+            this.nodeBadge.getComponent(Badge)!.bind(this.ctx.badges, taskBadge(this.model.id), activation.scope);
     }
 }

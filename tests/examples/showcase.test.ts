@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { Scope, taskContext } from '../../assets/framework/core/scope';
 import { Actions } from '../../assets/framework/core/actions';
 import { Events } from '../../assets/framework/core/events';
+import { BadgeStore } from '../../assets/framework/badges/badge-store';
 import { TimeService } from '../../assets/framework/time/time-service';
 import { Storage } from '../../assets/framework/platform/storage';
 import { WalletService } from '../../assets/game/modules/profile/code/services/WalletService';
 import { TaskService } from '../../assets/game/modules/workshop/code/services/TaskService';
+import { TaskBadges, taskBadge } from '../../assets/game/modules/workshop/contracts/badges';
 import { WorkflowPagePresenter } from '../../assets/game/modules/workshop/code/ui/WorkflowPagePresenter';
 import { LabClock } from '../../assets/game/modules/showcase/code/services/LabClock';
 import { StorageLab, LabWallet, LabStorageBackend } from '../../assets/game/modules/showcase/code/services/StorageLab';
@@ -26,6 +28,7 @@ async function setup() {
         scope: scope.lifetime,
         storage,
         events: new Events(),
+        badges: new BadgeStore(scope),
         config: {
             in: () => ({
                 loadMany: async () => ({ tasks: { all: () => [row] }, economy: { require: () => ({ id: 1 }) } }),
@@ -79,6 +82,26 @@ test('failed reward write changes neither balance nor idempotency record, and re
     } finally {
         await s.scope.close();
     }
+});
+
+test('任务红点在业务保存后更新，失败保留原值，外部领取同步更新且关闭清空', async () => {
+    const s = await setup();
+    const counts: number[] = [];
+    s.ctx.badges.subscribe(TaskBadges, s.scope, (value) => counts.push(value));
+    s.backend.failKey = 'test:workshop.progress';
+    assert.throws(() => s.tasks.train());
+    assert.deepEqual(counts, [0]);
+    s.backend.failKey = '';
+    s.tasks.train();
+    assert.equal(s.ctx.badges.get(taskBadge(row.id)), 1);
+    s.backend.failKey = 'test:profile.wallet';
+    assert.throws(() => s.tasks.claim(row.id));
+    assert.deepEqual(counts, [0, 1]);
+    s.backend.failKey = '';
+    s.wallet.claimReward('workshop/task/1', row.reward);
+    assert.deepEqual(counts, [0, 1, 0]);
+    await s.scope.close();
+    assert.deepEqual(s.ctx.badges.inspect(), { nodes: 0, subscriptions: 0, ended: true });
 });
 
 test('simulated domain failure and training write failure leave old state unchanged', async () => {
