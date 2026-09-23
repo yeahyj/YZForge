@@ -101,6 +101,7 @@ export class BadgeStore {
      * 立即同步回调当前值，随后仅在数量改变时通知。允许先订阅后注册；取消立即解绑。
      * callback 应只做同步渲染，异步业务通过已有 runTask / task.commit 管理。
      * 首次回调抛错会撤销订阅并向外抛出；后续回调异常独立上报，不阻止其他订阅者。
+     * @returns 幂等解绑函数；旧句柄重复调用不会影响同一 Key 后续建立的订阅。
      */
     subscribe(key: BadgeKey, owner: Lifetime, callback: (count: number) => void): () => void {
         key = badgeKey(key.id);
@@ -114,9 +115,10 @@ export class BadgeStore {
             lastValue: this.get(key),
             invoke: callback,
             off: () => {
+                if (!listener.active) return;
                 listener.active = false;
                 group!.delete(listener);
-                if (!group!.size) this.listeners.delete(key.id);
+                if (!group!.size && this.listeners.get(key.id) === group) this.listeners.delete(key.id);
                 detach();
             },
         };

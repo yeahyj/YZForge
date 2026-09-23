@@ -480,6 +480,42 @@ test('异步清理失败的实例销毁，不放回复用池；其他条目仍�
     await f.owner.close();
 });
 
+test('关闭期间绑定或 Part 清理失败仍释放全部实例，并拒绝 dispose 与父级 close', async () => {
+    for (const kind of ['binding', 'part'])
+        for (const parentCloses of [false, true])
+            for (const retirementStarted of [false, true]) {
+                const gate = deferred(),
+                    failure = Error(`${kind} cleanup failed`);
+                const cleanup = async () => {
+                    await gate.promise;
+                    throw failure;
+                };
+                const f = fixture({
+                    render: (_cell, item) => {
+                        if (kind === 'binding') item.scope.defer(cleanup);
+                    },
+                    deactivate: kind === 'part' ? cleanup : undefined,
+                });
+                f.list.setViewport(40, 0);
+                f.list.setItems([1, 2]);
+                await f.list.whenIdle();
+                if (retirementStarted) f.list.refresh();
+                const closing = parentCloses ? f.owner.close() : f.list.dispose();
+                const checked = assert.rejects(closing, { code: 'SCOPE_CLEANUP_FAILED' });
+                if (!parentCloses) assert.equal(f.list.dispose(), closing);
+                await flush();
+                assert.ok(f.cells.every((cell) => !cell.active && !cell.disposed));
+                gate.resolve();
+                await checked;
+                await f.list.whenIdle();
+                assert.ok(f.cells.every((cell) => cell.disposed));
+                assert.ok(f.errors.length > 0);
+                assert.equal(f.list.inspect().slots, 0);
+                assert.equal(f.owner.inspect().children.length, 0);
+                if (!parentCloses) await f.owner.close();
+            }
+});
+
 test('反复局部刷新后 Scope 子级数量稳定，不残留旧绑定期限', async () => {
     const f = fixture();
     f.list.setViewport(60, 0);

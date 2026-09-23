@@ -81,7 +81,7 @@ export interface VirtualListHandle<T> {
     /**
      * 同步取消并隐藏条目，等待任务、订阅及实例完整清理；父级结束时自动调用。
      * 不要在 item.run / render 中 await 自己列表的 dispose 或 whenIdle。
-     * @returns 本会话的清理屏障；清理失败时按现有 Scope 规则拒绝。
+     * @returns 本会话的清理屏障；关闭期间清理失败时，在其余清理完成后以 SCOPE_CLEANUP_FAILED 拒绝。
      */
     dispose(): Promise<void>;
 }

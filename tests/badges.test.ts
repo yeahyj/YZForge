@@ -73,6 +73,34 @@ test('红点：列表式反复解绑重绑只接收当前业务 Key，源所有�
     await root.close();
 });
 
+test('红点：旧解绑句柄重复调用和旧 owner 关闭不影响同名新订阅', async () => {
+    const root = new Scope('badges'),
+        store = new BadgeStore(root),
+        key = badgeKey('reused'),
+        source = store.source(key, root),
+        oldOwner = root.child('old-item'),
+        newOwner = root.child('new-item');
+    const oldValues: number[] = [],
+        newValues: number[] = [];
+    const oldOff = store.subscribe(key, oldOwner, (value) => oldValues.push(value));
+    oldOff();
+    const newOff = store.subscribe(key, newOwner, (value) => newValues.push(value));
+    oldOff();
+    await oldOwner.close();
+    source.set(1);
+    assert.deepEqual(oldValues, [0]);
+    assert.deepEqual(newValues, [0, 1]);
+    assert.equal(store.inspect().subscriptions, 1);
+    newOff();
+    newOff();
+    source.set(2);
+    assert.deepEqual(newValues, [0, 1]);
+    assert.equal(store.inspect().subscriptions, 0);
+    await root.close();
+    oldOff();
+    newOff();
+});
+
 test('红点：验证输入与父级、通知抛错隔离、批处理抛错仍发布已写入状态', async () => {
     const errors: unknown[] = [],
         root = new Scope('badges'),

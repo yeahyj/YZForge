@@ -87,10 +87,15 @@ export class CancellationSource {
  * @param pending - 已开始的 Promise；signal 取消不会停止它本身。
  * @param signal - 当前等待者的取消信号。
  * @returns 原结果或原错误；取消先到时以 OperationCancelled 拒绝。
+ * @throws OperationCancelled 调用时已经取消则同步抛出，但仍接管 pending 的迟到拒绝。
  * @remarks 不能用它替代网络 abort、节点销毁或资源释放，底层操作仍需处理迟到结果。
  */
 export function untilCancelled<T>(pending: Promise<T>, signal: CancellationSignal): Promise<T> {
-    signal.throwIfAborted();
+    if (signal.aborted) {
+        // pending 已经启动，即使取消发生在传入之前，也不能遗留未处理的拒绝。
+        void pending.catch(() => {});
+        signal.throwIfAborted();
+    }
     return new Promise<T>((resolve, reject) => {
         const off = signal.onAbort(reject);
         pending.then(

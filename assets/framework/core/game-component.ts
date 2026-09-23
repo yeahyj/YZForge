@@ -233,28 +233,37 @@ export class GameComponent extends Component {
     /**
      * @internal
      * 框架内部类型标记或生命周期入口，业务通过公开上下文和管理器使用，不直接读写或调用。
+     * @returns 本次停用的完整屏障；停用期间重复或重入调用共享结果，包括钩子失败及任务排空。
      */
     __deactivate(): Promise<void> {
         if (this.draining) return this.draining;
         const activation = this.activation;
         if (!activation) return Promise.resolve();
         this.activation = undefined;
-        scopeOwner(activation.scope).cancel();
-        let error: unknown;
+        const scope = scopeOwner(activation.scope);
+        let failure: { reason: unknown } | undefined;
+        // 先发布完整屏障再取消，取消监听和停用钩子重入时也拿到同一结果。
+        // 钩子的同步失败须留在屏障内，供列表判断该实例不能继续复用。
+        this.draining = Promise.resolve()
+            .then(() => scope.close())
+            .then(
+                () => {
+                    this.draining = undefined;
+                    if (failure) throw failure.reason;
+                    if (this.allowed && this.enabledInHierarchy) this.activate();
+                },
+                (error: unknown) => {
+                    this.draining = undefined;
+                    throw error;
+                },
+            );
+        scope.cancel();
         try {
             synchronous(this.onDeactivate(), 'onDeactivate');
-        } catch (failure) {
-            error = failure;
+        } catch (reason) {
+            failure = { reason };
         }
-        this.draining = scopeOwner(activation.scope)
-            .close()
-            .finally(() => {
-                this.draining = undefined;
-            });
-        return this.draining.then(() => {
-            if (error) throw error;
-            if (this.allowed && this.enabledInHierarchy) this.activate();
-        });
+        return this.draining;
     }
     /**
      * @internal

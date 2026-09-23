@@ -142,6 +142,36 @@ test('网络：取消一个请求不影响并发请求，owner.close 无未处�
     assert.equal(client.inspect().pending, 0);
 });
 
+test('网络：send 同步取消 owner 后的立即及迟到拒绝均被接管', async () => {
+    for (const immediate of [true, false]) {
+        const owner = new Scope('synchronous-cancel'),
+            late = deferred<HttpResponse>();
+        let timers = 0;
+        const client = new HttpClient({
+            schedule: () => {
+                timers++;
+                return () => {
+                    timers--;
+                };
+            },
+            transport: {
+                send: () => {
+                    owner.cancel();
+                    return immediate ? Promise.reject(Error('transport rejected immediately')) : late.promise;
+                },
+            },
+        });
+        await assert.rejects(client.request({ url: 'https://example.test' }, owner), { code: 'OPERATION_CANCELLED' });
+        if (!immediate) late.reject(Error('transport rejected after cancellation'));
+        // 让宿主处理未接管拒绝；node:test 会把它作为测试失败，而不只检查请求表面的取消结果。
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.equal(timers, 0);
+        assert.equal(client.inspect().pending, 0);
+        assert.equal(owner.inspect().children.length, 0);
+        await owner.close();
+    }
+});
+
 test('网络：非法输入及跨源请求在发送前拒绝', async () => {
     const root = new Scope('request');
     let calls = 0;

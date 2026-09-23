@@ -34,6 +34,15 @@ test('cancel one shared wait without cancelling other callers', async () => {
     task.resolve(42);
     assert.equal(await second, 42);
 });
+test('已取消的等待仍接管迟到拒绝，并保留同步抛出取消的约定', async () => {
+    const source = new CancellationSource(),
+        pending = deferred<number>();
+    source.cancel();
+    assert.throws(() => untilCancelled(pending.promise, source.signal), { code: 'OPERATION_CANCELLED' });
+    pending.reject(Error('late failure after cancelled wait'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+});
+
 test('Scope keeps descendant resources until ancestor asynchronous work drains', async () => {
     const scope = new Scope('root'),
         child = scope.child('resource'),

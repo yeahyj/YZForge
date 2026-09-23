@@ -150,6 +150,31 @@ releaseCleanup();await wait(30);check(renders===1,'Reused before actual Part act
 releaseActivation();await v.list.whenIdle();check(!lateCommit&&renders===2,'Part stale commit or reuse barrier failed');
 const closing=v.list.dispose();await wait(30);check(cc.isValid(retained)&&!retained.active,'Prefab destroyed before async binding cleanup');
 releaseParent();await closing;check(!cc.isValid(retained),'Prefab not reclaimed after cleanup');
+let releaseBrokenTask,brokenNode,brokenDeactivation,cancelBarrier,hookBarrier,brokenRenders=0;
+const brokenTask=new Promise(resolve=>releaseBrokenTask=resolve),cleanupErrors=[];
+v.list=v._bindNodeList.getComponent('yzforge.VirtualList').mount({owner:p.show.scope,assets:p.show.assets,prefab:{id:'showcase/default/prefab/prefabs/virtual-list-item-part',type:'Prefab'},part:cc.js.getClassByName('showcase.VirtualListItemPart'),layout:{itemWidth:scroll.view.width,itemHeight:88},onError:error=>cleanupErrors.push(error),render:(part,item)=>{
+ part.render(item);brokenRenders++;
+ if(brokenRenders===1){brokenNode=part.node;part.onActivate=current=>{current.signal.onAbort(()=>{cancelBarrier=part.__deactivate();});void current.run(()=>brokenTask).catch(()=>{});};part.onDeactivate=()=>{hookBarrier=part.__deactivate();throw Error('virtual-list-test: Part cleanup failure');};}
+}});
+v.list.setItems([{id:1,title:'清理异常',revision:0}]);await v.list.whenIdle();
+const brokenPart=brokenNode.getComponent('showcase.VirtualListItemPart');
+v.list.updateItem(0,{id:2,title:'异常后替换',revision:0});
+brokenDeactivation=brokenPart.__deactivate();
+check(brokenPart.__deactivate()===brokenDeactivation,'Repeated deactivation did not share the complete barrier');
+check(cancelBarrier===brokenDeactivation&&hookBarrier===brokenDeactivation,'Reentrant deactivation missed the cleanup barrier');
+const observedFailure=brokenDeactivation.then(()=>false,error=>error.message==='virtual-list-test: Part cleanup failure');
+await wait(30);check(brokenRenders===1&&!brokenNode.active&&cc.isValid(brokenNode,true),'Failed Part released before task drained');
+releaseBrokenTask();await v.list.whenIdle();
+check(await observedFailure,'Repeated deactivation swallowed cleanup error');
+check(brokenRenders===2&&!cc.isValid(brokenNode,true),'Failed Part was reused instead of destroyed');
+check(cleanupErrors.length===1&&cleanupErrors[0].message==='virtual-list-test: Part cleanup failure','List did not report Part cleanup failure');
+check(scroll.content.children.some(n=>n.active&&n!==brokenNode),'Replacement Part not active');
+const replacementNode=scroll.content.children.find(n=>n.active),replacementPart=replacementNode.getComponent('showcase.VirtualListItemPart');
+replacementPart.onDeactivate=()=>{throw Error('virtual-list-test: Part cleanup failure');};
+let disposeError;
+try{await v.list.dispose();}catch(error){disposeError=error;}
+check(disposeError?.code==='SCOPE_CLEANUP_FAILED','Dispose swallowed Part cleanup failure');
+check(cleanupErrors.length===2&&!cc.isValid(replacementNode,true)&&scroll.content.children.length===0,'Failed dispose did not finish releasing instances');
 const events=v.ctx.events;await app.ui.back().completed;await until(()=>record('showcase.ui-lab-page')?.interactive);
 check(!events.listeners.has('showcase/virtual-list-pulse'),'Close leaked listeners');
 await click(record('showcase.ui-lab-page'),'_bindBtnVirtualList');await until(()=>record('showcase.virtual-list-lab-page')?.interactive);
@@ -159,8 +184,16 @@ await app.ui.back().completed;return {reopened:true,subscriptions:events.listene
     const errors = await editor('return require("electron").BrowserWindow.fromId(args.id).__virtualListErrors;', {
         id,
     });
-    assert.deepEqual(errors, [], '运行时出现错误日志');
-    console.log('PASS: VirtualList 真实引擎定位、网格、局部更新、尺寸变化、复用和清理');
+    assert.ok(
+        errors.some((message) => message.includes('virtual-list-test: Part cleanup failure')),
+        '缺少预期的清理异常记录',
+    );
+    assert.deepEqual(
+        errors.filter((message) => !message.includes('virtual-list-test: Part cleanup failure')),
+        [],
+        '运行时出现非预期错误日志',
+    );
+    console.log('PASS: VirtualList 真实引擎定位、网格、局部更新、复用、清理失败销毁与关闭错误传播');
 } finally {
     try {
         if (originalDevice)

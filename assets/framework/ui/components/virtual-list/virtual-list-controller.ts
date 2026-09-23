@@ -1,4 +1,4 @@
-import { type ErrorReporter, invariant, OperationCancelled, reportError } from '../../../core/errors';
+import { type ErrorReporter, FrameworkError, invariant, OperationCancelled, reportError } from '../../../core/errors';
 import { type Lifetime, runTask, Scope, type TaskContext, taskContext } from '../../../core/scope';
 import {
     FixedVirtualLayout,
@@ -66,6 +66,7 @@ export class VirtualListController<T, Item> {
     private readonly failed = new Set<Request<T>>();
     private readonly slots = new Set<Slot<T, Item>>();
     private readonly pending = new Set<Promise<void>>();
+    private readonly closingFailures: unknown[] = [];
     private pumping = false;
     private again = false;
 
@@ -85,6 +86,9 @@ export class VirtualListController<T, Item> {
             await this.whenIdle();
             this.slots.clear();
             this.data = [];
+            const failures = this.closingFailures.splice(0);
+            if (failures.length)
+                throw new FrameworkError('VIRTUAL_LIST_CLEANUP_FAILED', '虚拟列表条目清理失败', { failures });
         });
     }
     setItems(items: readonly T[]): void {
@@ -293,7 +297,7 @@ export class VirtualListController<T, Item> {
             .then((results) => {
                 const failures = results.filter((result) => result.status === 'rejected');
                 if (failures.length) {
-                    for (const failure of failures) this.report(failure.reason);
+                    for (const failure of failures) this.reportCleanup(failure.reason);
                     this.destroy(slot);
                 } else slot.state = 'idle';
             })
@@ -307,11 +311,17 @@ export class VirtualListController<T, Item> {
         this.watch(
             slot.scope
                 .close()
-                .catch(this.report)
+                .catch((error: unknown) => this.reportCleanup(error))
                 .then(() => {
                     this.slots.delete(slot);
                 }),
         );
+    }
+    private reportCleanup(error: unknown): void {
+        this.report(error);
+        // 回收已自行关闭的子 Scope 可能先从父级移除。关闭期间保留失败，
+        // 等所有节点释放后再交给列表 Scope 汇总，不能只上报而成功返回 dispose。
+        if (this.scope.signal.aborted) this.closingFailures.push(error);
     }
     private fail(request: Request<T>, error: unknown): void {
         if (this.current(request)) this.failed.add(request);
