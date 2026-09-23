@@ -1,0 +1,37 @@
+{
+  "appVersion": "1.0.0",
+  "channel": "web_local",
+  "mode": "debug",
+  "environment": "dev",
+  "channelName": "Web · 开发",
+  "platform": "web",
+  "buildTargets": [
+    "web-mobile",
+    "web-desktop"
+  ],
+  "platformAppId": "",
+  "diagnostics": {
+    "logLevel": "debug",
+    "showStats": true
+  },
+  "endpoints": {
+    "apiBaseUrl": "",
+    "resourceBaseUrl": ""
+  },
+  "sdk": {
+    "integration": "platform",
+    "ads": {
+      "revive": "",
+      "double_reward": ""
+    },
+    "share": {
+      "default": {
+        "title": "一起玩游戏"
+      }
+    },
+    "parameters": {},
+    "timeoutMs": 10000
+  },
+  "previewMockSdk": false,
+  "configHash": "7a981197f3ac44b33eb6d772959e17975246336bfc9f2984c58ea03388cf1789"
+}

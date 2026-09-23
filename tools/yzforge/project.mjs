@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir, rename, readdir, realpath, unlink, open } from 'node:fs/promises';
 import { resolve, relative, dirname, isAbsolute, sep } from 'node:path';
 import { createHash } from 'node:crypto';
+import projectLock from './project-lock.cjs';
 export const json = async (path) => JSON.parse(await readFile(path, 'utf8'));
 export const digest = (value) =>
     `sha256:${createHash('sha256')
@@ -228,26 +229,6 @@ export async function recoverTransaction(root, request) {
         await unlink(guard);
     }
 }
-export async function withProjectLock(root, action) {
-    const directory = await safePath(root, '.yzforge');
-    await mkdir(directory, { recursive: true });
-    const target = resolve(directory, 'generation.lock');
-    let lock;
-    try {
-        lock = await open(target, 'wx');
-    } catch (error) {
-        if (error.code === 'EEXIST')
-            throw Error(
-                'Generation is already running or was interrupted. Inspect .yzforge/generation.lock before recovery.',
-                { cause: error },
-            );
-        throw error;
-    }
-    try {
-        await lock.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
-        return await action();
-    } finally {
-        await lock.close();
-        await unlink(target);
-    }
+export function withProjectLock(root, action) {
+    return projectLock.withProjectLock(root, action);
 }

@@ -1,11 +1,13 @@
 import type { BootContext } from '../../framework/core/boot';
-import { _decorator, Label, Node } from 'cc';
+import { _decorator, Label, Node, profiler } from 'cc';
+import { GameSettings } from './GameSettings';
 import { App } from '../../framework/core/app';
 import { AppEntry } from '../../framework/core/app-entry';
 import { modules, views } from '../app/generated/assembly';
 import { release } from '../app/generated/release';
 import { runtimeOptions } from '../app/generated/options';
 import { startGame } from '../app/start-game';
+import { sdkIntegrations, sdkPlatforms } from '../app/sdk-integrations';
 const { ccclass, property } = _decorator;
 /**
  * 项目启动根节点：装配框架、调用业务入口并显示启动状态。
@@ -21,7 +23,22 @@ export class GameRoot extends AppEntry {
      */
     protected appOptions() {
         if (!this.uiRoot) throw Error('Bootstrap scene is missing its Canvas UI root');
-        return { ...runtimeOptions, root: this.node, uiRoot: this.uiRoot, release, modules, views };
+        const component = this.getComponent(GameSettings);
+        if (!component) throw Error('Bootstrap/GameRoot 缺少 GameSettings 组件');
+        const settings = component.resolve();
+        if (settings.diagnostics.showStats) profiler.showStats();
+        else profiler.hideStats();
+        return {
+            ...runtimeOptions,
+            settings,
+            sdkIntegrations,
+            sdkPlatforms,
+            root: this.node,
+            uiRoot: this.uiRoot,
+            release,
+            modules,
+            views,
+        };
     }
     /**
      * 调用业务入口。入口为空时显示就绪状态；业务已打开界面时收起启动提示。
@@ -43,7 +60,7 @@ export class GameRoot extends AppEntry {
                 this.bootStatus.node.active = app.ui.inspect().views.length === 0;
             }
         });
-        console.info('[YZForge] Bootstrap ready');
+        app.log.info('Bootstrap ready');
     }
     /**
      * 把启动错误写入日志并显示到启动标签。

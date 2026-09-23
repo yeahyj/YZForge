@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.contracts.json",
     "check": "node tools/yzforge/cli.mjs check",
     "generate": "node tools/yzforge/cli.mjs generate",
+    "game:config": "node tools/yzforge/game-config-cli.mjs",
     "mcp": "node tools/yzforge/mcp.mjs",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",

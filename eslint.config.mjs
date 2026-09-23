@@ -88,7 +88,7 @@ export default defineConfig(
     },
     {
         name: 'yzforge/creator-panel-globals',
-        files: ['extensions/yzforge-editor/panel.js'],
+        files: ['extensions/yzforge-editor/panel.js', 'extensions/yzforge-editor/game-settings-inspector.js'],
         languageOptions: { globals: globals.browser },
     },
     {

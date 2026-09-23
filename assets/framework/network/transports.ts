@@ -140,10 +140,11 @@ export function createWechatTransport(api: WechatRequestApi): HttpTransport {
         },
     };
 }
-/** 自动选择当前宿主的 wx.request 或 XMLHttpRequest；不可用时首次发送报错，创建时不联网。 */
+/** 自动选择当前宿主的 wx.request、tt.request 或 XMLHttpRequest；创建时不联网。 */
 export function createPlatformHttpTransport(): HttpTransport {
-    const host = globalThis as typeof globalThis & { wx?: WechatRequestApi };
+    const host = globalThis as typeof globalThis & { wx?: WechatRequestApi; tt?: WechatRequestApi };
     if (host.wx?.request) return createWechatTransport(host.wx);
+    if (host.tt?.request) return createWechatTransport(host.tt);
     if (typeof XMLHttpRequest !== 'undefined') return createXhrTransport();
     return { send: () => Promise.reject(new HttpError('HTTP_TRANSPORT_UNAVAILABLE', '当前平台需要注入 HTTP 适配器')) };
 }

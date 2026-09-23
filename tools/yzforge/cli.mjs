@@ -26,6 +26,6 @@ try {
     console.log(JSON.stringify({ ok, ...result }, null, 2));
     if (!ok) process.exitCode = 1;
 } catch (error) {
-    console.error(JSON.stringify({ ok: false, message: error.message }, null, 2));
+    console.error(JSON.stringify({ ok: false, code: error.code, message: error.message }, null, 2));
     process.exitCode = 1;
 }

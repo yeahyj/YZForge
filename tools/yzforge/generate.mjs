@@ -4,6 +4,7 @@ import { register } from 'node:module';
 import { compileTables } from './config.mjs';
 import { lifecycleCheck, validateModules, codeBoundaryCheck } from './checks.mjs';
 import settingsTools from './settings.cjs';
+import gameConfigTools from './game-config.cjs';
 import formatting from './format.cjs';
 import { workbookSources } from './workbooks.mjs';
 import { identityFile, scanCatalog, scriptDependencies } from './catalog.mjs';
@@ -73,6 +74,7 @@ async function metadata(root) {
 }
 export async function generate(root, input = {}) {
     return withProjectLock(root, async () => {
+        if (!input.check && !input.preview) await gameConfigTools.assertUnlocked(root);
         const pending = await pendingTransactions(root);
         if (pending.length)
             throw Error('存在未完成生成，请在工作台预览并恢复：' + pending.map((item) => item.id).join(', '));
@@ -346,6 +348,13 @@ async function generateLocked(
         `// 自动生成的发布快照；切换发布版本需要重启游戏运行时。\nimport type { ContentRelease } from '../../../framework/assets/asset-types';\n/** 当前发布的 Bundle、动态索引及配置路由；由 App 装配使用，运行中不修改。 */\nexport const release: ContentRelease = ${JSON.stringify(release, null, 2)};\n`;
     output['assets/game/app/generated/options.ts'] =
         `// 自动生成的项目设置，请通过工作台或源设置文件修改。\nimport type { AppOptions } from '../../../framework/core/app';\n/** App 的音频、日历及清理参数；日历 offsetMinutes 为固定时区分钟偏移，480 表示 UTC+8。 */\nexport const runtimeOptions: Pick<AppOptions, 'appId' | 'cleanupTimeoutMs' | 'maxAudioVoices' | 'audioChannels' | 'time' | 'clockOptions'> = ${JSON.stringify(appOptions, null, 2)};\n`;
+    const gameConfig = await gameConfigTools.readConfig(root);
+    output[gameConfigTools.outputPath] =
+        `// 自动生成：GameSettings 已保存的选择 + project-settings/game-config.json 渠道参数。\nimport { freezeGameConfig } from '../../../framework/platform/game-config';\n/** 当前运行配置；地址与 SDK 参数在运行期间保持不变。 */\nexport const gameConfig = freezeGameConfig(${JSON.stringify(gameConfig, null, 2)});\n`;
+    output[gameConfigTools.snapshotPath] = JSON.stringify(gameConfig, null, 2) + '\n';
+    output[gameConfigTools.channelOptionsPath] = gameConfigTools.channelOptionsSource(
+        await gameConfigTools.readSource(root),
+    );
     output['assets/game/app/generated/assembly.ts'] =
         `// 根据 module.json 自动生成应用装配。\nimport type { ModuleDefinition } from '../../../framework/modules/module-manager';\nimport type { ViewDefinition } from '../../../framework/ui/ui-manager';\n${imports.join('\n')}\n/** 模块装配列表；登记或加载工厂代码不等于执行业务初始化，首次 use 才初始化。 */\nexport const modules: readonly ModuleDefinition[] = [\n${definitions.join(',\n')}\n];\n/** UI 装配列表，供 App 创建 UIManager；业务通过生成的 ViewKey 打开界面。 */\nexport const views: readonly ViewDefinition[] = ${JSON.stringify(viewDefinitions, null, 2)};\n`;
     const differences = [];

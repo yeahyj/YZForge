@@ -49,5 +49,8 @@
   "assets/game/modules/workshop/contracts/generated/enums/Quality.ts": "sha256:01eb32301f875cfa3cc00624594ca10a2b215e1753e7c9eed796eb27d1440328",
   "assets/game/app/generated/release.ts": "sha256:e875b4ff9c5d08f5a592c6b6cb6d133af0df2d43ec554f19ce9797c7c2dc9c7c",
   "assets/game/app/generated/options.ts": "sha256:c96c67385fc38234a2e200a79dc9904d477f9d8fc0cd656aa133200d627df608",
+  "assets/game/app/generated/game-config.ts": "sha256:a87862baa66b94991708a9943b88ed3a02e1704a23a0260a2b5d96d76477b24a",
+  "project-settings/generated/game-config.json": "sha256:295731163890f2c6604bd4e6f8707a202ef734c4e270fea0f82529ddb61b49b7",
+  "assets/game/app/generated/channel-options.ts": "sha256:6481bfab3d64a2da4c273e3230d58a160d3633a828b634522852c4d740db3332",
   "assets/game/app/generated/assembly.ts": "sha256:6941018fdbb6cbffb872989336e5a87117a3be5d731fcc91983d91bd58dfadea"
 }

@@ -69,7 +69,8 @@ export async function lifecycleCheck(root) {
                         !names.includes('GameComponent') &&
                         !names.includes('UIView') &&
                         !names.includes('ModuleEntry') &&
-                        !names.includes('AppEntry')
+                        !names.includes('AppEntry') &&
+                        !names.includes('AppSettings')
                     )
                         issue(node, 'Business node scripts must inherit GameComponent or UIView');
                     for (const member of node.members) {

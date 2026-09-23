@@ -1,0 +1,199 @@
+{
+  "formatVersion": 2,
+  "modes": {
+    "debug": {
+      "logLevel": "debug",
+      "showStats": true
+    },
+    "release": {
+      "logLevel": "warn",
+      "showStats": false
+    }
+  },
+  "preview": {
+    "mockSdk": false
+  },
+  "channels": {
+    "web_local": {
+      "name": "Web · 开发",
+      "platform": "web",
+      "platformAppId": "",
+      "ads": {
+        "revive": "",
+        "double_reward": ""
+      },
+      "share": {
+        "default": {
+          "title": "一起玩游戏"
+        }
+      },
+      "environments": {
+        "dev": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "staging": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "prod": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        }
+      },
+      "integration": "platform"
+    },
+    "wechat_self": {
+      "name": "微信 · 自发行",
+      "platform": "wechat",
+      "platformAppId": "",
+      "ads": {
+        "revive": "",
+        "double_reward": ""
+      },
+      "share": {
+        "default": {
+          "title": "一起玩游戏"
+        }
+      },
+      "environments": {
+        "dev": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "staging": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "prod": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        }
+      },
+      "integration": "platform"
+    },
+    "wechat_partner": {
+      "name": "微信 · 合作发行",
+      "platform": "wechat",
+      "platformAppId": "",
+      "ads": {
+        "revive": "",
+        "double_reward": ""
+      },
+      "share": {
+        "default": {
+          "title": "一起玩游戏"
+        }
+      },
+      "environments": {
+        "dev": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "staging": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "prod": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        }
+      },
+      "integration": "platform"
+    },
+    "douyin_self": {
+      "name": "抖音 · 自发行",
+      "platform": "douyin",
+      "platformAppId": "",
+      "ads": {
+        "revive": "",
+        "double_reward": ""
+      },
+      "share": {
+        "default": {
+          "title": "一起玩游戏"
+        }
+      },
+      "environments": {
+        "dev": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "staging": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "prod": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        }
+      },
+      "integration": "platform"
+    },
+    "native_self": {
+      "name": "原生 · 自发行",
+      "platform": "native",
+      "platformAppId": "",
+      "ads": {
+        "revive": "",
+        "double_reward": ""
+      },
+      "share": {
+        "default": {
+          "title": "一起玩游戏"
+        }
+      },
+      "environments": {
+        "dev": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "staging": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        },
+        "prod": {
+          "apiBaseUrl": "",
+          "resourceBaseUrl": "",
+          "sdkParameters": {},
+          "timeoutMs": 10000
+        }
+      },
+      "integration": "platform"
+    }
+  },
+  "platforms": {
+    "web": ["web-mobile", "web-desktop"],
+    "wechat": ["wechatgame"],
+    "douyin": ["bytedance-mini-game"],
+    "native": ["android", "ios", "windows", "mac", "ohos", "harmonyos-next"]
+  }
+}

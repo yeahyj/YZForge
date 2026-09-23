@@ -14,7 +14,8 @@
 | 虚拟列表       | 固定尺寸纵向列表与网格、Part 复用、局部刷新和滚动定位；见 [使用文档](docs/virtual-list.md)               |
 | 通用 UI 组件   | 安全区 Widget、原生按钮/图片扩展、倒计时、子节点切换、超宽滚动文本；见 [使用文档](docs/ui-components.md) |
 | 红点与数量     | 分组聚合、批量更新、页面/条目订阅清理；见 [使用文档](docs/badges.md)                                     |
-| HTTP 网络      | JSON 验证、超时、Scope 取消、XHR 与微信传输适配；见 [使用文档](docs/network.md)                          |
+| 游戏设置与 SDK | GameRoot 原生设置、JSON 渠道参数、构建校验、可组合 SDK；见 [使用文档](docs/game-settings-sdk.md)         |
+| HTTP 网络      | JSON 验证、超时、Scope 取消、XHR 与微信/抖音传输适配；见 [使用文档](docs/network.md)                     |
 | 新手引导       | 检查点恢复、稳定目标、圆形与矩形连续聚焦；见 [使用文档](docs/guide.md)                                   |
 | 资源管理       | 自动扫描动态资源，生成资源 Key，按需加载并管理使用期限                                                   |
 | 配置表         | XLSX 导入、校验、枚举、外键、分片，导出 JSON 数据和 TypeScript 类型                                      |
@@ -45,6 +46,8 @@
 - [功能展示与验证入口](docs/showcase.md)：可交互示例、编辑器步骤和自动化验证。
 
 启动接入点是 [start-game.ts](assets/game/app/start-game.ts)，在这里选择首屏。`GameRoot` 负责框架装配和启动状态显示，`app/generated` 由工作台生成。业务规则、状态、页面以及多步业务协调都放在所属模块的 `code` 中。页面通过 `show.ui` 打开其他界面和返回；单纯跳转不需要再写一个导航类。
+
+`Bootstrap/GameRoot` 上的 `GameSettings` 提供游戏版本、渠道、构建模式和服务环境四项选择。地址、公开 AppID 和 SDK 参数维护在 `project-settings/game-config.json`。默认本地存档继续共用，切换这些选项不会建立新存档。
 
 项目附带 `showcase`、`workshop`、`lobby`、`profile`、`common` 五个示例模块，展示功能实验、任务流程、界面交互、共享服务和公共配置。示例模块可以按需清理，具体见 [示例应用说明](docs/example-app.md)。
 

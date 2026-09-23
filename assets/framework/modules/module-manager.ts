@@ -94,6 +94,12 @@ export function defineModule<Api, Services = unknown, D extends ModuleDependenci
  * 模块 Scope、界面展示 Scope、组件激活 Scope 长度不同，应按实际使用期选择。
  */
 export interface ModuleContext {
+    /** 当前渠道、构建模式与环境的不可变配置；与数据表 ctx.config 分开。 */
+    readonly settings: import('../platform/game-config').GameConfig;
+    /** 带渠道与环境上下文的业务日志。 */
+    readonly log: import('../core/game-log').GameLog;
+    /** 统一平台/发行 SDK；每次调用传入界面、流程或账号的实际 Scope。 */
+    readonly sdk: import('../platform/sdk').GameSdk;
     /** 共享红点状态域；业务注册随模块或账号期限结束，UI 订阅使用 show/activation/item.scope。 */
     readonly badges: import('../badges/badge-store').BadgeStore;
     /** HTTP 入口；页面、条目及会话请求分别传入对应的 Scope，避免绑到过长的模块期限。 */

@@ -7,12 +7,17 @@ import { ModuleDefinition, ModuleManager } from '../modules/module-manager';
 import { bundleFactoryLoader } from '../modules/module-entry';
 import { Storage, StorageBackend } from '../platform/storage';
 import { createPlatformClock, PlatformClockOptions } from '../platform/clock';
+import { PREVIEW, WECHAT, BYTEDANCE, NATIVE } from 'cc/env';
+import { freezeGameConfig, standaloneGameConfig, type GameConfig } from '../platform/game-config';
+import { GameSdk, type SdkIntegrationFactory } from '../platform/sdk';
+import { createPlatformSdkAdapter, resolveSdkRuntime, type SdkPlatformRegistration } from '../platform/sdk-adapters';
 import { TimeOptions, TimeService } from '../time/time-service';
 import { UIManager, ViewDefinition } from '../ui/ui-manager';
 import { ClockDriver, SystemClockDriver } from './clock-driver';
 import { Events } from './events';
 import { Scope, Lifetime } from './scope';
 import { FrameworkError } from './errors';
+import { GameLog } from './game-log';
 import { componentBindings } from './component-binding';
 import { BootFlow } from './boot';
 import { BadgeStore } from '../badges/badge-store';
@@ -23,7 +28,13 @@ import type { RuntimeDiagnostics } from './diagnostics';
  * 应用启动装配参数。通常由项目设置和生成的发布清单构建，交给 AppEntry.appOptions。
  */
 export interface AppOptions {
-    /** HTTP 默认配置；省略 transport 时自动选择 wx.request 或 XMLHttpRequest，构造时不会联网。 */
+    /** 当前构建的配置快照；存档仍仅使用 appId，不按此配置拆分。 */
+    readonly settings?: GameConfig;
+    /** 项目显式登记的渠道组合接入；JSON integration 通过稳定名称选择。 */
+    readonly sdkIntegrations?: Readonly<Record<string, SdkIntegrationFactory>>;
+    /** 项目新增宿主的实际检测与平台适配器。 */
+    readonly sdkPlatforms?: readonly SdkPlatformRegistration[];
+    /** HTTP 默认配置；省略 transport 时自动选择 wx.request、tt.request 或 XMLHttpRequest，构造时不会联网。 */
     readonly http?: Omit<HttpClientOptions, 'transport'> & { readonly transport?: HttpTransport };
     /** 可选同步存储适配器；默认 Cocos sys.localStorage，用于平台接入或测试。 */
     readonly storageBackend?: StorageBackend;
@@ -93,6 +104,8 @@ export class App {
             config: this.config.inspect(),
             time: this.time.snapshot(),
             boot: this.boot.inspect(),
+            settings: this.settings,
+            sdk: this.sdk.inspect(),
         });
     }
     /** 只读诊断能力；模块接收此接口，不需要获得整个 App。 */
@@ -134,6 +147,12 @@ export class App {
     readonly badges = new BadgeStore(this.scope);
     /** 通用 HTTP 客户端；每次请求必须显式传入生命周期。 */
     readonly http: HttpClient;
+    /** 只读的版本、渠道、模式、环境和服务参数。 */
+    readonly settings: GameConfig;
+    /** 业务日志，级别由 modes 配置决定；不影响平台原始 console。 */
+    readonly log: GameLog;
+    /** 统一平台与发行 SDK，所有业务异步调用需指定 Scope。 */
+    readonly sdk: GameSdk;
     /**
      * 以 appId 隔离的小型本地存储入口，提供版本和类型校验。
      */
@@ -196,9 +215,11 @@ export class App {
     static async create(input: AppOptions): Promise<App> {
         let partial: App | undefined;
         try {
-            return new App(input, (value) => {
+            const app = new App(input, (value) => {
                 partial = value;
             });
+            await app.sdk.initialize();
+            return app;
         } catch (error) {
             try {
                 await partial?.close();
@@ -221,7 +242,30 @@ export class App {
         if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(input.appId))
             throw new FrameworkError('APP_ID_INVALID', 'Provide a stable application ID for storage isolation');
         this.storage = new Storage(`${input.appId}:`, input.storageBackend ?? sys.localStorage);
+        const runtime = resolveSdkRuntime(
+            {
+                platform: WECHAT
+                    ? ('wechat' as const)
+                    : BYTEDANCE
+                      ? ('douyin' as const)
+                      : NATIVE
+                        ? ('native' as const)
+                        : ('web' as const),
+                preview: PREVIEW,
+            },
+            input.sdkPlatforms,
+        );
+        this.settings = freezeGameConfig(input.settings ?? { ...standaloneGameConfig, platform: runtime.platform });
+        this.log = new GameLog(this.settings);
+        this.sdk = new GameSdk(
+            this.settings,
+            runtime,
+            this.scope,
+            createPlatformSdkAdapter(this.settings, runtime, input.sdkPlatforms),
+            input.sdkIntegrations,
+        );
         this.http = new HttpClient({
+            baseUrl: this.settings.endpoints.apiBaseUrl || undefined,
             ...input.http,
             transport: input.http?.transport ?? createPlatformHttpTransport(),
         });
@@ -243,6 +287,9 @@ export class App {
                     events: this.events,
                     badges: this.badges,
                     http: this.http,
+                    settings: this.settings,
+                    log: this.log,
+                    sdk: this.sdk,
                     storage: this.storage,
                     diagnostics: this.diagnostics,
                     ui: this.ui,
@@ -293,9 +340,11 @@ export class App {
         );
         const hide = () => {
             if (this.clock instanceof SystemClockDriver) this.clock.setBackground(true);
+            this.sdk.notifyVisibility(false);
         };
         const show = () => {
             if (this.clock instanceof SystemClockDriver) this.clock.setBackground(false);
+            this.sdk.notifyVisibility(true);
         };
         game.on(Game.EVENT_HIDE, hide);
         game.on(Game.EVENT_SHOW, show);

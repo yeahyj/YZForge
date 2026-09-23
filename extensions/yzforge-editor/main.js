@@ -20,6 +20,9 @@ const projectTools = () => {
 };
 const name = 'yzforge-editor';
 const workflow = require('./workflow');
+const gameSettings = require('./game-settings');
+const gameConfigTools = require('../../tools/yzforge/game-config.cjs');
+const gameBuild = require('../../tools/yzforge/game-build.cjs');
 let queue = Promise.resolve();
 let autoTimer;
 let sourceWatcher;
@@ -374,13 +377,15 @@ function runTool(command, extra = []) {
             (error, stdout, stderr) => {
                 if (error) {
                     let message = stderr || stdout || error.message;
+                    let code;
                     try {
                         const value = JSON.parse(message);
                         message = value.error || value.message || message;
+                        code = value.code;
                     } catch {
                         /* Non-JSON process errors remain readable. */
                     }
-                    reject(Error(message));
+                    reject(Object.assign(Error(message), { code }));
                 } else {
                     try {
                         resolve(JSON.parse(stdout));
@@ -759,6 +764,7 @@ const actions = {
     deleteModule,
     restore,
     async generate() {
+        await gameSettings.refreshChannels();
         const preview = await runTool('preview'),
             obsoleteSet = new Set(preview.obsolete.map((item) => inside(item).toLowerCase()));
         // Validate before replacing any good output; a removed table may still be imported by business code.
@@ -844,6 +850,20 @@ const actions = {
         runtimeOptions(next);
         await saveJson(target, next);
         return next;
+    },
+    async exportGameBuild() {
+        if (await Editor.Message.request('scene', 'query-dirty')) throw Error('请先保存场景，再导出构建参数');
+        await actions.generate();
+        return gameSettings.buildOptions();
+    },
+    async recoverGameBuild() {
+        const result = await gameBuild.recover(root(), async () => {
+            const state = await Editor.Message.request('builder', 'query-tasks-info');
+            return state?.free === true;
+        });
+        await actions.generate();
+        autoStatus = { state: 'ready', message: '构建状态已恢复，动态清单与配置已同步' };
+        return result;
     },
     check: () => runTool('check'),
     async updateModule(args) {
@@ -935,6 +955,15 @@ function scheduleGeneration() {
                 autoStatus = { state: 'ready', message: '动态清单与配置已同步' };
             },
             (error) => {
+                if (!autoEnabled) return;
+                if (error.code === 'GAME_BUILD_BUSY') {
+                    autoStatus = {
+                        state: 'waiting',
+                        message: '等待构建结束后自动生成配置；构建中断时请使用游戏设置菜单恢复',
+                    };
+                    scheduleGeneration();
+                    return;
+                }
                 autoStatus = { state: 'error', message: error.message };
                 console.warn('[YZForge] 自动生成未完成：' + error.message);
             },
@@ -954,6 +983,9 @@ function assetChanged(...args) {
 }
 exports.load = function () {
     autoEnabled = true;
+    syncFs.watchFile(inside(gameConfigTools.sourcePath), { interval: 1000 }, scheduleGeneration);
+    syncFs.watchFile(inside(gameConfigTools.selectionPath), { interval: 1000 }, scheduleGeneration);
+    scheduleGeneration();
     for (const event of assetEvents) Editor.Message.addBroadcastListener(event, assetChanged);
     const source = inside('config-source');
     if (syncFs.existsSync(source)) {
@@ -971,12 +1003,25 @@ exports.load = function () {
 };
 exports.unload = function () {
     autoEnabled = false;
+    syncFs.unwatchFile(inside(gameConfigTools.sourcePath), scheduleGeneration);
+    syncFs.unwatchFile(inside(gameConfigTools.selectionPath), scheduleGeneration);
     clearTimeout(autoTimer);
     sourceWatcher?.close();
     sourceWatcher = undefined;
     for (const event of assetEvents) Editor.Message.removeBroadcastListener(event, assetChanged);
 };
 exports.methods = {
+    recoverGameBuild: () => exports.methods.dispatch('recoverGameBuild'),
+    gameSettingsState: () => gameSettings.state(),
+    async openGameConfig() {
+        const error = await require('electron').shell.openPath(inside(gameConfigTools.sourcePath));
+        if (error) throw Error(error);
+    },
+    async exportGameBuild() {
+        const result = await exports.methods.dispatch('exportGameBuild');
+        require('electron').shell.showItemInFolder(result.file);
+        return result;
+    },
     openPanel() {
         Editor.Panel.open(name);
     },

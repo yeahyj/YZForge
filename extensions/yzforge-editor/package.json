@@ -25,9 +25,34 @@
         "path": "YZForge",
         "label": "项目工作台",
         "message": "open-panel"
+      },
+      {
+        "path": "YZForge/游戏设置",
+        "label": "打开渠道参数 JSON",
+        "message": "open-game-config"
+      },
+      {
+        "path": "YZForge/游戏设置",
+        "label": "导出构建参数",
+        "message": "export-game-build"
+      },
+      {
+        "path": "YZForge/游戏设置",
+        "label": "恢复中断的构建",
+        "message": "recover-game-build"
       }
     ],
     "messages": {
+      "recover-game-build": {
+        "methods": [
+          "recoverGameBuild"
+        ]
+      },
+      "game-settings-state": {
+        "methods": [
+          "gameSettingsState"
+        ]
+      },
       "open-panel": {
         "methods": [
           "openPanel"
@@ -42,11 +67,29 @@
         "methods": [
           "state"
         ]
+      },
+      "open-game-config": {
+        "methods": [
+          "openGameConfig"
+        ]
+      },
+      "export-game-build": {
+        "methods": [
+          "exportGameBuild"
+        ]
       }
     },
     "scene": {
       "script": "scene.js"
     },
-    "builder": "builder.js"
+    "builder": "builder.js",
+    "preview": {
+      "*": {
+        "methods": "./game-preview.js",
+        "hooks": {
+          "settings": "checkSettings"
+        }
+      }
+    }
   }
 }
