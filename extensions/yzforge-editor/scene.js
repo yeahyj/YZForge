@@ -1,6 +1,7 @@
 'use strict';
 const cc = require('cc');
 const { randomBytes } = require('crypto');
+const { scanBindings, bindingShape } = require('../../tools/yzforge/binding-scan.cjs');
 const serialize = (value) => {
     if (!global.cce?.Utils?.serialize) throw Error('Creator scene serializer is unavailable');
     const data = cce.Utils.serialize(value);
@@ -26,27 +27,7 @@ function nodes(root, includeNestedRoot = true) {
     return result;
 }
 function scan(root, prefixes) {
-    const fields = [],
-        names = new Set();
-    for (const { node, path } of nodes(root)) {
-        const match = /^([a-z]+)_([a-zA-Z][a-zA-Z0-9_]*)$/.exec(node.name);
-        if (!match || !prefixes[match[1]]) continue;
-        const type = prefixes[match[1]],
-            ctor = type === 'Node' ? cc.Node : cc[type];
-        if (!ctor) throw Error(`Unsupported binding component ${type}`);
-        const target = type === 'Node' ? node : node.getComponent(ctor);
-        if (!target) throw Error(`${path}: expected ${type} for ${node.name}`);
-        const suffix = match[2]
-            .split('_')
-            .map((part) => part[0].toUpperCase() + part.slice(1))
-            .join('');
-        const name = `${match[1]}${suffix}`,
-            field = `_bind${name[0].toUpperCase()}${name.slice(1)}`;
-        if (names.has(name)) throw Error(`Duplicate binding name ${name}; rename one node`);
-        names.add(name);
-        fields.push({ name, field, type, path, nodeName: node.name, target });
-    }
-    return fields;
+    return scanBindings(cc, root, prefixes);
 }
 function ensurePrefabIds(root, prefab) {
     const { PrefabInfo, CompPrefabInfo } = cc.Prefab._utils;
@@ -106,7 +87,7 @@ exports.methods = {
         if (!(prefab instanceof cc.Prefab) || !prefab.data) throw Error('Target is not a Prefab');
         return scan(prefab.data, prefixes).map(({ target, ...field }) => field);
     },
-    async bindPrefab(uuid, className, prefixes) {
+    async bindPrefab(uuid, className, prefixes, plan) {
         const prefab = await load(uuid);
         if (!(prefab instanceof cc.Prefab) || !prefab.data) throw Error('Target is not a Prefab');
         const ctor = cc.js.getClassByName(className);
@@ -115,6 +96,11 @@ exports.methods = {
         if (!component) throw Error(`Prefab root is missing ${className}`);
         const fields = scan(prefab.data, prefixes),
             serialized = new Set(ctor.__props__ || []);
+        if (plan) {
+            if (JSON.stringify(bindingShape(fields)) !== JSON.stringify(plan.fields))
+                throw Error('预制体节点或组件在生成期间发生变化，请重新扫描绑定');
+            if (ctor.__yzforgeBindingSignature !== plan.signature) throw Error('Generated binding is not compiled yet');
+        }
         for (const field of fields)
             if (!serialized.has(field.field)) throw Error(`Generated field is not compiled yet: ${field.field}`);
         for (const name of serialized) if (name.startsWith('_bind')) component[name] = null;

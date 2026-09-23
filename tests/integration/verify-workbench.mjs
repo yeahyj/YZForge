@@ -52,7 +52,16 @@ try {
     const changed = await call('execute_javascript', {
         context: 'scene',
         args: { uuid: part.uuid },
-        code: 'const prefab=await new Promise((yes,no)=>cc.assetManager.loadAny(args.uuid,(error,value)=>error?no(error):yes(value)));if(prefab.data.children.length)throw Error("Expected the newly created empty fixture");const rootId=prefab.data._prefab.fileId;const child=new cc.Node("lbl_title");child.layer=prefab.data.layer;child.addComponent(cc.Label).string="Part binding";prefab.data.addChild(child);const {PrefabInfo,CompPrefabInfo}=cc.Prefab._utils;child._prefab=new PrefabInfo();child._prefab.root=prefab.data;child._prefab.asset=prefab;child._prefab.fileId=require("crypto").randomBytes(16).toString("base64").replace(/=+$/,"");for(const component of child.components){component.__prefab=new CompPrefabInfo();component.__prefab.fileId=require("crypto").randomBytes(16).toString("base64").replace(/=+$/,"");}const serialized=cce.Utils.serialize(prefab);return {rootId,content:typeof serialized==="string"?serialized:JSON.stringify(serialized)};',
+        code: `const prefab=await new Promise((yes,no)=>cc.assetManager.loadAny(args.uuid,(error,value)=>error?no(error):yes(value)));
+if(prefab.data.children.length)throw Error('Expected the newly created empty fixture');
+const rootId=prefab.data._prefab.fileId;
+const timer=cc.js.getClassByName('yzforge.CountdownLabel'),switchType=cc.js.getClassByName('yzforge.Switch'),safe=cc.js.getClassByName('yzforge.SafeWidget');
+if(!timer||!switchType||!safe)throw Error('Fixture component scripts not compiled');
+const child=new cc.Node('lbl_title');child.layer=prefab.data.layer;const label=child.addComponent(timer);label.autoStart=false;label.string='Part binding';prefab.data.addChild(child);
+const state=new cc.Node('comp_state');state.layer=prefab.data.layer;state.addComponent(switchType);state.addComponent(safe);prefab.data.addChild(state);
+const {PrefabInfo,CompPrefabInfo}=cc.Prefab._utils;
+for(const node of [child,state]){node._prefab=new PrefabInfo();node._prefab.root=prefab.data;node._prefab.asset=prefab;node._prefab.fileId=require('crypto').randomBytes(16).toString('base64').replace(/=+$/,'');for(const component of node.components){component.__prefab=new CompPrefabInfo();component.__prefab.fileId=require('crypto').randomBytes(16).toString('base64').replace(/=+$/,'');}}
+const serialized=cce.Utils.serialize(prefab);return {rootId,content:typeof serialized==='string'?serialized:JSON.stringify(serialized)};`,
     });
     const serialized = changed.data.result ?? changed.data;
     await editor('await Editor.Message.request("asset-db", "save-asset", args.uuid, args.content); return true;', {
@@ -60,8 +69,27 @@ try {
         content: serialized.content,
     });
     const binding = await action('bindComponent', { module, id: 'item-part' });
-    assert.equal(binding.bound, 1);
-    assert.deepEqual(binding.fields, ['lblTitle']);
+    assert.equal(binding.bound, 2);
+    assert.deepEqual(binding.fields, ['lblTitle', 'compState']);
+    const bindingSource = await readFile(
+        resolve(root, 'assets/game/modules', module, 'code/components/generated/ItemPartBinding.ts'),
+        'utf8',
+    );
+    assert.match(bindingSource, /get lblTitle\(\): CountdownLabel/);
+    assert.match(bindingSource, /get compState\(\): Switch/);
+    assert.match(bindingSource, /import type \{ Switch \}/);
+    const partReadback = (
+        await call('execute_javascript', {
+            context: 'scene',
+            args: { uuid: part.uuid, className: part.className },
+            code: `const p=await new Promise((yes,no)=>cc.assetManager.loadAny(args.uuid,(e,a)=>e?no(e):yes(a)));const part=p?.data?.getComponent(cc.js.getClassByName(args.className));if(!part)throw Error('Part missing');return {rootId:p.data._prefab.fileId,title:cc.js.getClassName(part.lblTitle.constructor),state:cc.js.getClassName(part.compState.constructor)};`,
+        })
+    ).data.result;
+    assert.deepEqual(partReadback, {
+        rootId: serialized.rootId,
+        title: 'yzforge.CountdownLabel',
+        state: 'yzforge.Switch',
+    });
     await create({ kind: 'popup', id: 'Reward', module, bundle: 'default', presenter: true });
     await create({ kind: 'table', id: 'entries', module, bundle: 'default' });
     console.log('PASS: Part binding is serialized without dragging; Popup/Presenter and XLSX outputs are generated');
@@ -103,7 +131,7 @@ try {
         'return await Editor.Message.request("scene", "execute-scene-script", {name:"yzforge-editor",method:"validateBinding",args:[args.uuid,args.className,args.prefixes]});',
         { uuid: part.uuid, className: part.className, prefixes: initial.settings.bindingPrefixes },
     );
-    assert.equal(validation.bound, 1);
+    assert.equal(validation.bound, 2);
     assert.equal((await readWorkbook(root, workbookSource)).config.enabled, true);
     console.log(JSON.stringify({ restored, binding: validation }));
     console.log('PASS: complete module recovery preserves UUIDs, inherited node references and workbook settings');

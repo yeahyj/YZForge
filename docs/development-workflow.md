@@ -87,6 +87,8 @@ const samples = await show.config.load(SamplesTable, { bundle: ShowcaseBundles.e
 
 在 Creator 编辑预制体，命名节点：`btn_train`、`lbl_output`、`node_items`；在工作台“自动绑定”选择对应界面并扫描。生成文件可覆盖，手写 Page / Part 不会被生成覆盖。
 
+原生前缀会识别实际挂载的项目子类，例如 `btn_submit` 挂 AsyncButton 后可直接调用 `this.btnSubmit.run(...)`。普通自定义组件使用 `comp_`；多个匹配组件按 Inspector 顺序取第一个。完整规则见[自动绑定](auto-binding.md)。
+
 页面用框架 `onShow(show)`、`onHide()` 等钩子；Part 用 `onActivate(activation)` 等钩子。业务不覆盖 `onLoad/start/update/onDestroy`。动态 Part 先用 `{ active: false }` 创建，传入模型和回调后调用 `show.assets.activate(node)`。
 
 `render()` 只同步写节点。异步取数后通过捕获的 `show.commit()` / `task.commit()` 提交，阻止旧展示覆盖新展示。一次 show 的资源、监听和任务都使用它自己的 Scope；长期账号任务才由账号会话持有。

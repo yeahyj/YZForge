@@ -11,7 +11,7 @@
 | Switch         | 挂在要切换子节点的父节点上                    | updateCheck、updateCheckByName                |
 | MarqueeLabel   | 挂在空 UI 节点，自动创建裁剪与文本            | string、speed、play、pause、restart           |
 
-按钮、图片、倒计时直接继承 Cocos 原生类型。字体、颜色、按钮过渡、九宫格等仍使用原生属性；getComponent(Button/Sprite/Label) 也能取得相应子类。工作台仍按 btn_、spr_、lbl_ 自动生成原生类型引用，需要扩展方法时通过 getComponent(AsyncButton) 等取得具体类型。
+按钮、图片、倒计时直接继承 Cocos 原生类型。字体、颜色、按钮过渡、九宫格等仍使用原生属性；getComponent(Button/Sprite/Label) 也能取得相应子类。工作台按 btn_、spr_、lbl_ 识别实际项目子类，生成 AsyncButton、AsyncSprite、CountdownLabel 等具体类型，直接调用扩展方法。Switch 等普通组件可用 comp_；多个匹配组件按 Inspector 顺序取第一个，详见[自动绑定](auto-binding.md)。
 
 Switch、SafeWidget、滚动文本以及按钮 run、倒计时可在普通节点使用。AsyncSprite 的 spriteFrame 是普通原生接口；按逻辑资源名 setSource 时需要模块的 Assets，框架 UI/Part 自动注入，手工场景使用已有 app.bindScene。不会另起 resources.load 或全局资源单例绕过框架持有规则。
 
@@ -20,7 +20,7 @@ Switch、SafeWidget、滚动文本以及按钮 run、倒计时可在普通节点
 在父节点挂 Switch，Inspector 配置“显示的子节点索引”，默认 [0]。直接子节点可自由命名，不需要 ToggleContainer，也不限制只能显示一个。
 
 ```ts
-const content = this.nodeState.getComponent(Switch)!;
+const content = this.compState;
 content.updateCheck(0);                     // 显示第一个
 content.updateCheck(0, 2);                  // 同时显示第一、第三个
 content.updateCheck();                      // 全部隐藏
@@ -37,7 +37,7 @@ Button.clickEvents 可直接指向 Switch.selectFromEvent，自定义事件数�
 默认 autoGuard=true，clickInterval=0.3 秒，普通点击事件仍在本组件的 clickEvents 配置。真实异步任务调用 run，任务与异步清理全部结束后才恢复可点击。
 
 ```ts
-const button = this.btnSubmit.getComponent(AsyncButton)!;
+const button = this.btnSubmit;
 await button.run(async task => {
     const result = await service.submit(task.signal);
     task.commit(() => { this.lblResult.string = result.message; });
@@ -51,7 +51,7 @@ await button.run(async task => {
 Inspector 的 source 填当前模块逻辑资源名即可自动加载，留空保留原生静态图；placeholder 和 failure 分别指定加载及失败图。
 
 ```ts
-const image = this.sprIcon.getComponent(AsyncSprite)!;
+const image = this.sprIcon;
 await image.setSource('icons/alpha/token');
 await image.setSource(null); // 清空并等待旧任务和资源归还
 // 已有 SpriteFrame 也可直接使用 image.spriteFrame = frame。
@@ -64,7 +64,7 @@ setSource 接受 SpriteFrame 资源 Key 或逻辑名称，不是 URL、磁盘路
 原生 Label 属性直接可用。autoStart 默认 true，duration 默认 60 秒；textFormat 支持 {hh}、{mm}、{ss}、{seconds}，默认 {hh}:{mm}:{ss}。mm 是小时内分钟，seconds 是剩余总秒数。
 
 ```ts
-const timer = this.lblCountdown.getComponent(CountdownLabel)!;
+const timer = this.lblCountdown;
 timer.textFormat = '剩余 {seconds} 秒';
 timer.startFor(30);
 timer.startUntil(offer.endsAtMs); // UTC 毫秒截止时间

@@ -6,6 +6,7 @@ const { execFile } = require('child_process');
 const { randomUUID, createHash } = require('crypto');
 const { runtimeOptions } = require('../../tools/yzforge/settings.cjs');
 const { formatScript } = require('../../tools/yzforge/format.cjs');
+const bindings = require('../../tools/yzforge/bindings.cjs');
 const naming = require('../../tools/yzforge/naming.cjs');
 const bundleConfig = require('./bundle-config');
 const { pathToFileURL } = require('url');
@@ -235,21 +236,19 @@ async function createScript(args) {
 }
 function bindingSource(module, className, fields, directory, component = false) {
     const framework = path.relative(directory, inside('assets/framework')).replaceAll('\\', '/');
-    const types = [...new Set(fields.map((field) => field.type))];
-    const label = (value) =>
-        String(value)
-            .replace(/\*\//g, '* /')
-            .replace(/[\r\n\u2028\u2029]+/g, ' ');
-    const declarations = fields
-        .map(
-            (field) =>
-                `  /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */\n  @property({ type: ${field.type}, visible: false })\n  private ${field.field}: ${field.type} | null = null;\n  /**\n   * 自动绑定节点 ${label(field.nodeName)} 的 ${field.type}；节点改名或增删后通过工作台更新绑定。\n   * @throws FrameworkError ${component ? '引用缺失' : '引用缺失或已失效'}，需检查命名、组件和绑定结果。\n   */\n  protected get ${field.name}(): ${field.type} { return this.requireBinding(this.${field.field}, ${JSON.stringify(field.nodeName)}); }`,
-        )
-        .join('\n');
-    const base = component
-        ? `import { GameComponent } from '${framework}/core/game-component';`
-        : `import { UIView } from '${framework}/ui/ui-view';\nimport type { ${className}Params, ${className}Result } from '../${className}.types';`;
-    return `// 由 YZForge 自动生成。节点绑定通过工作台更新，业务逻辑写在派生脚本中。\nimport { _decorator${types.length ? ', ' + types.join(', ') : ''} } from 'cc';\n${base}\nconst { ccclass${types.length ? ', property' : ''} } = _decorator;\n/** 自动绑定基类；由 Creator 根据节点命名写入引用，业务继承后直接使用受保护的节点 getter。 */\n@ccclass('${module}.${className}Binding')\nexport class ${className}Binding extends ${component ? 'GameComponent' : `UIView<${className}Params, ${className}Result>`} {\n${declarations}\n  /** @internal 框架初始化时验证全部绑定；重新生成会更新此方法。 */\n  protected validateBindings(): void { ${fields.map((field) => `void this.${field.name};`).join(' ')} }\n}\n`;
+    return bindings.bindingSource(module, className, fields, framework, component);
+}
+async function resolveBindingFields(fields, directory) {
+    return bindings.resolveBindingFields(fields, directory, async (classId) => {
+        const uuid = Editor.Utils.UUID.decompressUUID(classId);
+        const info = await Editor.Message.request('asset-db', 'query-asset-info', uuid);
+        // 只允许当前项目的真实脚本；不能靠 ccclass 名称猜文件路径或从库目录导入。
+        return info?.url?.startsWith('db://assets/') && info.file ? inside(info.file) : null;
+    });
+}
+async function assertBindingSceneSaved() {
+    if (await Editor.Message.request('scene', 'query-dirty'))
+        throw Error('请先保存正在编辑的场景或预制体，再更新绑定；未保存的节点修改不会参与资产扫描');
 }
 async function createView(args) {
     const { directory, manifest } = await moduleInfo(args.module),
@@ -307,15 +306,19 @@ async function createView(args) {
     return { id: `${manifest.id}.${id}`, uuid: prefab.uuid, className: `${manifest.id}.${className}` };
 }
 async function bindView(args) {
+    await assertBindingSceneSaved();
     const { directory, manifest } = await moduleInfo(args.module),
         view = manifest.views[args.id];
     if (!view) throw Error('界面未登记');
     const asset = await resourceIdentity(manifest, view.prefab);
     if (!asset) throw Error('界面 Prefab 未登记');
     const settings = await read(inside('project-settings/framework.json'));
-    const fields = await scene('scanPrefab', asset.uuid, settings.bindingPrefixes);
     const className = view.className.split('.').pop(),
         target = inside(path.join(directory, view.binding));
+    const fields = await resolveBindingFields(
+        await scene('scanPrefab', asset.uuid, settings.bindingPrefixes),
+        path.dirname(target),
+    );
     const text = await formatScript(target, bindingSource(manifest.id, className, fields, path.dirname(target)));
     await journal('binding', { path: rel(target), previous: await fs.readFile(target, 'utf8'), fields });
     await Editor.Message.request('asset-db', 'save-asset', url(target), text);
@@ -325,7 +328,13 @@ async function bindView(args) {
     const deadline = Date.now() + 15000;
     do {
         try {
-            bound = await scene('bindPrefab', asset.uuid, view.className, settings.bindingPrefixes);
+            bound = await scene(
+                'bindPrefab',
+                asset.uuid,
+                view.className,
+                settings.bindingPrefixes,
+                bindings.bindingPlan(fields),
+            );
             break;
         } catch (error) {
             if (!/not compiled yet|Wait for script compilation/.test(error.message) || Date.now() >= deadline)
@@ -334,6 +343,7 @@ async function bindView(args) {
         }
     } while (Date.now() < deadline);
     if (!bound) throw Error('绑定脚本未完成编译');
+    await assertBindingSceneSaved();
     await Editor.Message.request('asset-db', 'save-asset', asset.uuid, bound.content);
     return scene('validateBinding', asset.uuid, view.className, settings.bindingPrefixes);
 }
@@ -882,6 +892,9 @@ Object.assign(
         waitClass,
         scene,
         bindingSource,
+        resolveBindingFields,
+        assertBindingSceneSaved,
+        bindingPlan: bindings.bindingPlan,
         workbookTools,
         read,
         creation,

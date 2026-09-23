@@ -104,6 +104,8 @@ assets/game/modules/inventory/
 
 在 Creator 中编辑预制体，用 `btn_confirm`、`lbl_title`、`spr_icon` 等名称标记需要访问的节点，再执行自动绑定。生成的 Binding 提供对应属性，节点引用由工作台写入，无需手动拖拽。
 
+原生前缀会识别实际挂载的项目子类；普通业务组件用 `comp_`。生成后可直接调用 `this.btnSubmit.run(...)`、`this.compState.updateCheck(1)`。多个匹配组件按 Inspector 顺序取第一个，详见[自动绑定文档](docs/auto-binding.md)。
+
 界面脚本负责渲染和输入；复杂的显示流程可以交给 Presenter，多个界面共享的业务状态放在模块 Service。UI 之间通过打开参数、返回结果或事件通信。
 
 继承框架基类的业务脚本使用 `onShow`、`onHide`、`onActivate`、`onTick` 等框架生命周期，保留引擎 `onLoad`、`start`、`update` 等入口给框架使用。

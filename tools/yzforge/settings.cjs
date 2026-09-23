@@ -39,6 +39,7 @@ exports.runtimeOptions = function (settings) {
         throw Error('Invalid calendar offset, week start or reset minute');
     const types = [
         'Node',
+        'Component',
         'Button',
         'Label',
         'Sprite',

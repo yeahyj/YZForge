@@ -7,6 +7,7 @@
     "lbl": "Label",
     "spr": "Sprite",
     "node": "Node",
+    "comp": "Component",
     "edit": "EditBox",
     "scroll": "ScrollView",
     "toggle": "Toggle",

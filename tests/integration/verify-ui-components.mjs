@@ -48,9 +48,11 @@ try {
         `record('showcase.showcase-page').instance.view._bindBtnUi.node.emit(cc.Button.EventType.CLICK);await until(()=>record('showcase.ui-lab-page')?.interactive);record('showcase.ui-lab-page').instance.view._bindBtnComponents.node.emit(cc.Button.EventType.CLICK);await until(()=>record('showcase.components-lab-page')?.interactive);return true;`,
     );
     await run(`
-const state=v._bindNodeState.getComponent('yzforge.Switch'),child=name=>state.node.getChildByName(name);
+const state=v.compState,child=name=>state.node.getChildByName(name);
 check(v._bindBtnSubmit instanceof cc.Button && cc.js.getClassName(v._bindBtnSubmit)==='yzforge.AsyncButton','自动绑定未识别原生按钮子类');
 check(v._bindBtnSubmit.node.getComponents(cc.Button).length===1,'重复按钮组件');
+check(v.btnSubmit===v._bindBtnSubmit&&v.lblCountdown===v._bindLblCountdown&&v.sprPreview===v._bindSprPreview,'具体组件 getter 未返回原引用');
+check(typeof v.btnSubmit.run==='function'&&typeof v.lblCountdown.startFor==='function'&&typeof v.sprPreview.setSource==='function'&&typeof v.compState.updateCheck==='function','无法直接调用组件接口');
 check(v._bindSprPreview.node.getComponents(cc.Sprite).length===1&&v._bindLblCountdown.node.getComponents(cc.Label).length===1,'重复图片或文本组件');
 for(let i=0;i<8;i++)click('_bindBtnSubmit');check(!v._bindBtnSubmit.interactable,'忙碌时未禁用');await until(()=>v._bindLblSubmit.string==='完成 1 次');await until(()=>v._bindBtnSubmit.interactable);
 for(const [field,name]of [['_bindBtnLoading','loading'],['_bindBtnContent','content'],['_bindBtnReload','empty'],['_bindBtnError','error']]){click(field);check(child(name).active&&state.node.children.filter(n=>n.active).length===1,'Switch 编辑器事件 '+name);}
@@ -85,7 +87,7 @@ host.destroy();await wait(30);check(!cc.isValid(button,true)&&!cc.isValid(timer,
     );
     console.log('PASS 真实鼠标连续点击只提交一次');
     await run(`
-const marquee=v._bindNodeMarquee.getComponent('yzforge.MarqueeLabel'),view=marquee.getComponent(cc.UITransform),label=marquee.node.getComponentInChildren(cc.Label),width=view.width;
+const marquee=v.compMarquee,view=marquee.getComponent(cc.UITransform),label=marquee.node.getComponentInChildren(cc.Label),width=view.width;
 check(marquee.getComponent(cc.Mask)&&label.node.parent===marquee.node,'未自动建立裁剪层级');marquee.pauseDuration=0;marquee.restart();await wait(250);check(marquee.isScrolling&&label.node.position.x < -view.anchorX*width,'长文本没有滚动');
 marquee.pause();const x=label.node.position.x;await wait(80);near(label.node.position.x,x,'暂停仍在滚动');marquee.play();await wait(80);check(label.node.position.x<x,'继续播放未前进');
 const update=label.updateRenderData;let forced=0;label.updateRenderData=function(force){if(force)forced++;return update.call(this,force);};await wait(100);label.updateRenderData=update;check(forced===0,'滚动每帧重建文字');
@@ -134,7 +136,7 @@ component.bind(owner,time,{deadlineMs:9000});check(listeners.size===1,'新计时
 component.bind(owner,time,{deadlineMs:1000});await owner.close();check(listeners.size===0,'宿主结束仍有时间监听');return true;`);
     console.log('PASS 倒计时：校时、前台恢复、一次完成、重新绑定与订阅清理');
     await run(`
-const safe=v._bindNodeSafe.getComponent('yzforge.SafeWidget'),widget=v._bindNodeSafe.getComponent(cc.Widget);click('_bindBtnSafe');await wait(50);check(safe.simulate,'未启用模拟');near(widget.top,72,'纵屏顶部补偿');near(widget.bottom,24,'底部补偿');for(let i=0;i<8;i++)safe.refresh();near(widget.top,72,'反复刷新累计');
+const safe=v.compSafe,widget=v.compSafe.getComponent(cc.Widget);click('_bindBtnSafe');await wait(50);check(safe.simulate,'未启用模拟');near(widget.top,72,'纵屏顶部补偿');near(widget.bottom,24,'底部补偿');for(let i=0;i<8;i++)safe.refresh();near(widget.top,72,'反复刷新累计');
 const make=(name,parent,w,h)=>{const node=new cc.Node(name);node.layer=parent.layer;node.addComponent(cc.UITransform).setContentSize(w,h);parent.addChild(node);return node;};
 const stretch=node=>{const w=node.addComponent(cc.Widget);w.isAlignLeft=w.isAlignRight=w.isAlignTop=w.isAlignBottom=true;w.left=w.right=w.top=w.bottom=0;w.alignMode=cc.Widget.AlignMode.ON_WINDOW_RESIZE;w.updateAlignment();return w;};
 const configure=component=>{component.simulate=true;component.previewTop=safe.previewTop;component.previewBottom=safe.previewBottom;component.refresh();};
@@ -148,13 +150,13 @@ const offLists=[ns.globalOff,ns.referenceOff,ps.globalOff,ps.referenceOff,cs.glo
     console.log(await capture('ui-components-safe-portrait.png'));
     // Creator 的视口 x 取整，而相机居中保留小数；横屏固定竖版设计允许不到一个屏幕像素的差异。
     await run(
-        `click('_bindBtnSafe');await wait(30);document.getElementById('btn-rotate').click();await wait(250);click('_bindBtnSafe');await wait(50);const widget=v._bindNodeSafe.getComponent(cc.Widget),safe=v._bindNodeSafe.getComponent('yzforge.SafeWidget');check(cc.screen.windowSize.width>cc.screen.windowSize.height,'未横屏');pixelNear(widget.left,72,'横屏左补偿');pixelNear(widget.right,24,'横屏右补偿');safe.symmetry=1;safe.refresh();pixelNear(widget.right,72,'横屏对称');safe.symmetry=0;safe.refresh();cc.game.emit(cc.Game.EVENT_SHOW);await wait(50);pixelNear(widget.left,72,'前台刷新错误');return true;`,
+        `click('_bindBtnSafe');await wait(30);document.getElementById('btn-rotate').click();await wait(250);click('_bindBtnSafe');await wait(50);const widget=v.compSafe.getComponent(cc.Widget),safe=v.compSafe;check(cc.screen.windowSize.width>cc.screen.windowSize.height,'未横屏');pixelNear(widget.left,72,'横屏左补偿');pixelNear(widget.right,24,'横屏右补偿');safe.symmetry=1;safe.refresh();pixelNear(widget.right,72,'横屏对称');safe.symmetry=0;safe.refresh();cc.game.emit(cc.Game.EVENT_SHOW);await wait(50);pixelNear(widget.left,72,'前台刷新错误');return true;`,
     );
     console.log(await capture('ui-components-safe-landscape.png'));
     console.log('PASS 横竖屏窗口变化、可选左右对称与前台刷新');
     await run(`
 const scopes=[v._bindBtnSubmit,v._bindSprPreview,v._bindLblCountdown].flatMap(c=>[c.lifetime.binding,c.lifetime.activation]).filter(Boolean);
-const safe=v._bindNodeSafe.getComponent('yzforge.SafeWidget'),content=v._bindNodeMarquee,offLists=[safe.globalOff,safe.referenceOff];
+const safe=v.compSafe,content=v.compMarquee.node,offLists=[safe.globalOff,safe.referenceOff];
 await app.ui.back().completed;check(scopes.every(s=>s.closed),'页面关闭仍有组件 Scope');check(!cc.isValid(content,true),'滚动文本节点未销毁');check(offLists.every(list=>list.length===0),'页面关闭安全区未解绑');return true;`);
     console.log('PASS 页面关闭：所有组件任务、节点与监听排空');
     assert.deepEqual(

@@ -2,7 +2,6 @@ import { _decorator, Button, screen, view } from 'cc';
 import type { TaskContext } from '../../../../../framework/core/scope';
 import { OperationCancelled, reportError } from '../../../../../framework/core/errors';
 import type { ViewShowContext } from '../../../../../framework/ui/ui-view';
-import { AsyncButton, SafeWidget } from '../../../../../framework/ui/components';
 import { ComponentsLabPageBinding } from './generated/ComponentsLabPageBinding';
 const { ccclass } = _decorator;
 /** 示例延迟：主动响应任务取消，关闭页面不会留下定时器。 */
@@ -33,7 +32,7 @@ export class ComponentsLabPage extends ComponentsLabPageBinding {
         let submitted = 0;
         this.lblSubmit.string = '完成 0 次';
         click(this.btnSubmit, async () => {
-            await this.btnSubmit.getComponent(AsyncButton)!.run(async (task) => {
+            await this.btnSubmit.run(async (task) => {
                 await waitForDemo(task, 700);
                 task.commit(() => {
                     this.lblSubmit.string = `完成 ${++submitted} 次`;
@@ -41,7 +40,7 @@ export class ComponentsLabPage extends ComponentsLabPageBinding {
             });
         });
         // 换图、Switch、倒计时和滚动文字直接在 Inspector 配置事件。
-        const safe = this.nodeSafe.getComponent(SafeWidget)!;
+        const safe = this.compSafe;
         this.lblSafe.string = '安全区：设备实际边距';
         click(this.btnSafe, () => {
             safe.simulate = !safe.simulate;

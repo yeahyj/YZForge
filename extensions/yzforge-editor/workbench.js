@@ -17,6 +17,9 @@ exports.createWorkbench = function (ctx) {
         waitClass,
         scene,
         bindingSource,
+        resolveBindingFields,
+        assertBindingSceneSaved,
+        bindingPlan,
         workbookTools,
         read,
     } = ctx;
@@ -308,12 +311,16 @@ exports.createWorkbench = function (ctx) {
         return { id: named.id, uuid: info.uuid, className: `${manifest.id}.${className}` };
     }
     async function bindComponent(args) {
+        await assertBindingSceneSaved();
         const { directory, manifest } = await moduleInfo(args.module),
             definition = manifest.components?.[args.id];
         if (!definition) throw Error('请选择已接入绑定的通用预制体');
         const settings = await read(inside('project-settings/framework.json'));
-        const fields = await scene('scanPrefab', definition.uuid, settings.bindingPrefixes);
         const target = path.join(directory, definition.binding);
+        const fields = await resolveBindingFields(
+            await scene('scanPrefab', definition.uuid, settings.bindingPrefixes),
+            path.dirname(target),
+        );
         await writeScript(
             'save-asset',
             target,
@@ -328,11 +335,14 @@ exports.createWorkbench = function (ctx) {
                     definition.uuid,
                     definition.className,
                     settings.bindingPrefixes,
+                    bindingPlan(fields),
                 );
+                await assertBindingSceneSaved();
                 await Editor.Message.request('asset-db', 'save-asset', definition.uuid, result.content);
                 return scene('validateBinding', definition.uuid, definition.className, settings.bindingPrefixes);
             } catch (error) {
-                if (!error.message.includes('not compiled yet') || Date.now() > deadline) throw error;
+                if (!/not compiled yet|Wait for script compilation/.test(error.message) || Date.now() > deadline)
+                    throw error;
                 await new Promise((resolve) => setTimeout(resolve, 200));
             }
         }
