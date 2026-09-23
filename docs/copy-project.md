@@ -49,16 +49,18 @@ npm install --package-lock-only --ignore-scripts
 
 `package.json.uuid` 是新项目身份；改变它不需要重写资产 UUID。以后常规安装仍使用 `npm ci`。
 
-| 设置                                        | 修改位置                         | 说明                                                              |
-| ------------------------------------------- | -------------------------------- | ----------------------------------------------------------------- |
-| 项目名称、项目 UUID                         | `package.json`                   | 同步锁文件中的项目名称；通常保留框架和扩展的名称                  |
-| 框架应用标识 `appId`                        | 工作台 → 项目设置                | 例如 `com.studio.my-game`，影响本地存档命名空间；不要沿用示例标识 |
-| 发布版本 `releaseId`                        | 工作台 → 项目设置                | 开发期设置自己的版本；发布时与资源部署对应                        |
-| 设计分辨率、适配方式、横竖屏                | Creator 项目/构建设置            | 启动脚本遵循 Creator 设置，不再强制写入演示分辨率                 |
-| 微信 AppID、原生包名、签名、服务端/CDN 地址 | 对应平台的构建设置或项目业务配置 | 与框架 `appId` 是不同设置，需要分别配置                           |
-| 代码、资源交付策略                          | Creator → Bundle 预设            | 沿用两份 YZForge 预设，再按平台统一调整                           |
+| 设置                                    | 修改位置                            | 说明                                                              |
+| --------------------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| 项目名称、项目 UUID                     | `package.json`                      | 同步锁文件中的项目名称；通常保留框架和扩展的名称                  |
+| 框架应用标识 `appId`                    | 工作台 → 项目设置                   | 例如 `com.studio.my-game`，影响本地存档命名空间；不要沿用示例标识 |
+| 资源发布标识 `releaseId`                | `project-settings/framework.json`   | 修改后重新生成资源发布清单；与 GameSettings 的游戏版本分别维护    |
+| 游戏版本、渠道、模式、服务环境          | Bootstrap → GameRoot → GameSettings | 保存场景后自动生成运行配置，构建前导出对应参数                    |
+| 设计分辨率、适配方式、横竖屏            | Creator 项目/构建设置               | 启动脚本遵循 Creator 设置，不再强制写入演示分辨率                 |
+| 平台 AppID、服务地址、广告位与 SDK 参数 | `project-settings/game-config.json` | 按渠道和环境配置；与框架 `appId` 分开，不能只改构建任务里的 AppID |
+| 原生包名、签名及其他平台参数            | Creator 对应平台的构建设置          | 在导出的游戏构建参数基础上补齐                                    |
+| 代码、资源交付策略                      | Creator → Bundle 预设               | 沿用两份 YZForge 预设，再按平台统一调整                           |
 
-用 **Creator 3.8.8** 打开副本，等待首次导入完成，再检查项目扩展 `yzforge-editor` 是否启用。`tsconfig.json` 引用 Creator 生成的 `temp/tsconfig.cocos.json`，所以先导入，再执行完整类型检查。
+用 **Creator 3.8.8** 打开副本，等待首次导入完成，再检查项目扩展 `yzforge-editor` 是否启用。`tsconfig.json` 引用 Creator 生成的 `temp/tsconfig.cocos.json`，所以先导入，再执行完整类型检查。渠道与构建参数的完整流程见 [游戏设置与 SDK](game-settings-sdk.md)。
 
 ## 3. 清理示例，得到空框架
 
@@ -93,18 +95,18 @@ export function startGame(_app: App, _boot: BootContext): void {}
 1. 工作台创建模块，按需选择随应用加载或按需代码；只有配置/资源时使用纯资源模块。
 2. 创建 Page、Part、Service 或 XLSX，确认文件预览；预制体通过 Creator 编辑，命名节点通过工作台自动绑定。
 3. 在 `start-game.ts` 导入新模块公开的 `ViewKey`，用 `app.ui.pushPage(页面Key, 参数, boot.scope)` 打开首屏。后续页面通过 `show.ui` 跳转；需要多步业务协调时放在所属模块，通过公开 API 调用依赖。
-4. 构建发布时选择 `Bootstrap.scene` 作为启动场景。新副本没有旧构建任务，需要重新选择平台、场景和平台标识。
+4. 保存 `Bootstrap/GameRoot/GameSettings` 的四项选择，从 **YZForge → 游戏设置 → 导出构建参数** 导出并导入 Creator 构建面板，使用 `Bootstrap.scene` 启动。补齐目标平台参数；切换配置后重新导出，避免沿用旧任务。
 
 通用框架的模块、Scope、UI、音频、资源、配置和时间 API 见 [API 使用指南](api-guide.md)。示例清理后 `npm run verify` 仍应通过；专门操作大厅按钮的集成测试依赖示例，不属于空项目的运行要求。
 
 ## 验证副本
 
-实际验证记录见 [实施与验证记录](implementation-status.md)。空项目 Web 产物可通过现有静态服务启动，再使用 `tests/integration/verify-template.mjs` 检查启动、空装配、应用标识和关闭清理；测试窗口通过本地 MCP 创建并在结束时销毁。
+以下命令在**副本根目录**运行，MCP 必须连接该副本的 Creator。先按 [游戏设置与 SDK](game-settings-sdk.md#构建与预览模拟) 构建 Web 产物，再启动静态服务并使用 `verify-template.mjs` 检查启动、空装配、应用标识和关闭清理。脚本创建的测试窗口结束时销毁，静态服务使用完后手动停止；其他入口见 [实现范围与验证](implementation-status.md)。
 
 ```powershell
-node tests/integration/serve-build.mjs "副本/build/template-web"
+node tests/integration/serve-build.mjs build/template-web
 # 使用服务输出的实际 URL；另一个终端运行，第二个参数填副本设置的 appId。
 node tests/integration/verify-template.mjs "http://127.0.0.1:实际端口/" "com.studio.my-game"
 ```
 
-通过命令行构建副本时，Creator 支持 `--project` 和 `--build`，成功退出码为 **36**。建议从构建面板导出配置再复用，详见 [Creator 3.8 命令行发布文档](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-in-command-line.html)。
+需要命令行构建时，用 `--project` 指向副本，在 `--build` 参数中通过 `configPath` 传入导出的配置文件。Creator 的构建成功退出码为 **36**，参数无效为 32，构建失败为 34；执行方式见 [Creator 3.8 命令行发布文档](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-in-command-line.html)。

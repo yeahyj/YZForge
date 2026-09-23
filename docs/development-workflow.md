@@ -61,6 +61,8 @@ sequenceDiagram
 
 含公式的表修改后，需要在工作台执行“重新计算公式”，再正式导出。当前公式适配器使用 Windows 桌面 Excel，在副本上计算，不保存用户当前打开的 Excel 会话。已验证的公式结果位于 `project-settings/generated/formulas`，与源码一同复制；未改变输入时，读取这些结果不需要本机再次运行 Excel。源表或声明的关联输入改变会使旧结果失效。
 
+完整字段类型、导出规则和公式命令见 [XLSX 配置表制作](config-tables.md)。
+
 ```ts
 // 公开合同可以跨模块导入；import 本身不会加载 JSON 或创建业务服务。
 const tables = await show.config.loadMany({ tasks: TasksTable, economy: EconomyTable });
@@ -123,7 +125,7 @@ npm run test:showcase
 
 构建前除 TypeScript 和生成一致性检查外，还检查 Creator 是否已注册每个 UI 的组件类；有缺失导入时先修复、刷新脚本并等编辑器完成编译，不能仅凭 tsc 通过就发布。
 
-在 Creator 中运行 Bootstrap，逐个操作实验按钮。构建 Web 后可运行真实运行时集成检查：
+在 Creator 中运行 Bootstrap，逐个操作实验按钮。按 [游戏设置与 SDK](game-settings-sdk.md#构建与预览模拟) 保存场景并导出构建参数，构建 Web 后可运行真实运行时集成检查：
 
 ```powershell
 node tests/integration/serve-build.mjs build/verify-showcase-web

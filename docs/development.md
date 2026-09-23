@@ -1,17 +1,17 @@
 # 开发环境与代码规范
 
-适用目录：`E:\study\YZForge`。Creator 3.8.8；Node.js 22.13+（22.x）或 24+。代码质量工具属于开发依赖，不进入游戏运行包。
+适用于本仓库及其项目副本。Creator 3.8.8；Node.js 22.13+（22.x）或 24+。代码质量工具属于开发依赖，不进入游戏运行包；版本要求以 [package.json](../package.json) 为准。
 
 ## 安装
 
-用 VS Code 打开项目根目录，执行 `npm ci`。工作区推荐以下两个插件；本机已确认安装：
+用 VS Code 打开项目根目录，执行 `npm ci`，并安装工作区推荐的插件：
 
 - ESLint：`dbaeumer.vscode-eslint`。
 - Prettier：`esbenp.prettier-vscode`。
 
-只使用 Prettier 作为格式化器，ESLint 通过保存时 Code Action 修复代码问题。已有的 Prettier ESLint 合并插件不作为此工作区的格式化器，不需要叠加启用。设置保留在项目内，不修改个人全局偏好。
+工作区使用 Prettier 格式化，ESLint 通过保存时 Code Action 修复代码问题。设置保留在项目内。
 
-ESLint、TypeScript ESLint、Prettier 及配套依赖使用精确版本和 package-lock，CLI 与编辑器共享本地依赖。ESLint 使用 flat config；eslint-config-prettier 关闭与 Prettier 冲突的格式规则。该组合遵循 [TypeScript ESLint 配置方式](https://typescript-eslint.io/getting-started/) 和 [Prettier 的安装/集成说明](https://prettier.io/docs/install)。
+ESLint、TypeScript ESLint、Prettier 及配套依赖使用精确版本和 package-lock，CLI 与编辑器共享本地依赖。ESLint 使用 flat config；eslint-config-prettier 关闭与 Prettier 冲突的格式规则。项目规则见 [eslint.config.mjs](../eslint.config.mjs) 和 [.prettierrc.json](../.prettierrc.json)。
 
 ## 格式与检查规则
 
@@ -38,7 +38,7 @@ ESLint、TypeScript ESLint、Prettier 及配套依赖使用精确版本和 packa
 
 ## VS Code 工作区
 
-已按本机 **VS Code 1.138.0** 的内置配置核对 TypeScript 设置，使用新的统一键名：
+[工作区设置](../.vscode/settings.json) 使用以下 TypeScript 配置：
 
 ```json
 {
@@ -51,9 +51,9 @@ ESLint、TypeScript ESLint、Prettier 及配套依赖使用精确版本和 packa
 }
 ```
 
-旧的 typescript.tsdk、typescript.preferences.* 和 javascript.preferences.* 对应项已移除；替换关系也可查阅 [VS Code 官方设置声明](https://github.com/microsoft/vscode/blob/main/extensions/typescript-language-features/package.nls.json)。第一次打开项目时，按提示选择工作区 TypeScript 5.9.3。较旧的 VS Code 如不识别 js/ts 设置，应升级编辑器。
+第一次打开项目时，按提示选择工作区 TypeScript。较旧的 VS Code 如不识别 `js/ts` 设置，应升级编辑器。
 
-项目根 `tsconfig.json` 显式设置 `moduleResolution: "bundler"`，覆盖 Creator 3.8.8 生成的旧 `"node"`（即 `node10`），消除 TypeScript 6 的弃用诊断。该解析模式支持项目现有的无扩展名相对导入，详见 [TypeScript 模块解析说明](https://www.typescriptlang.org/tsconfig/moduleResolution.html)。`module` 继续继承 Creator 的 `ES2015`；覆盖项维护在项目根配置中，`temp/tsconfig.cocos.json` 由 Creator 生成。已用本项目 TypeScript 5.9.3 和本机 VS Code 内置的 6.0.3 检查当前全部游戏与框架脚本。
+项目根 [tsconfig.json](../tsconfig.json) 显式使用 `moduleResolution: "bundler"`，其余基础设置继承 Creator 生成的 `temp/tsconfig.cocos.json`。项目覆盖项维护在根配置中，不修改 `temp` 内文件；命令行与编辑器都使用工作区编译器。
 
 如果修改配置后仍显示旧诊断，执行命令面板中的“TypeScript: Restart TS Server”；需要切换编译器时，打开 TS 文件，执行“TypeScript: Select TypeScript Version”并选择工作区版本。
 
@@ -62,27 +62,27 @@ ESLint、TypeScript ESLint、Prettier 及配套依赖使用精确版本和 packa
 - 手动保存时格式化和 ESLint 修复；关闭自动保存以避免频繁触发 Creator 导入。
 - 不在保存时自动整理导入，保留 Cocos 脚本的明确导入意图；移动脚本时提示是否更新导入。
 - 隐藏 meta 与大型缓存，排除缓存/构建目录的全文搜索与文件监听，保持源码和声明导航可用。
-- 保留原有 cSpell 词汇，增加 YZForge。
 - 推荐插件与公共任务随项目提交；其他个人 VS Code 文件继续忽略。
 
 资源移动仍使用 Creator/工作台以保留 UUID，不能因为 VS Code 能更新 TS 导入就用它直接搬动场景资产。
 
 ## 常用命令与快捷入口
 
-| 命令                 | 用途                                              |
-| -------------------- | ------------------------------------------------- |
-| npm run lint         | ESLint 检查，错误或警告均返回失败                 |
-| npm run lint:fix     | 自动修复能够安全修复的问题；其余问题仍需处理      |
-| npm run format       | 格式化受管理的手写代码与文本                      |
-| npm run format:check | 检查格式，不修改文件                              |
-| npm run typecheck    | Cocos TypeScript 类型检查                         |
-| npm run check        | 生命周期/模块/生成产物一致性检查                  |
-| npm run generate     | 生成目录、配置与类型；需回收旧文件时使用工作台    |
-| npm test             | 自动化测试                                        |
-| npm run verify       | 依次执行 ESLint、格式、类型、框架检查与自动化测试 |
+| 命令                  | 用途                                              |
+| --------------------- | ------------------------------------------------- |
+| npm run lint          | ESLint 检查，错误或警告均返回失败                 |
+| npm run lint:fix      | 自动修复能够安全修复的问题；其余问题仍需处理      |
+| npm run format        | 格式化受管理的手写代码与文本                      |
+| npm run format:check  | 检查格式，不修改文件                              |
+| npm run typecheck     | 游戏/框架脚本及类型合同两套 TypeScript 检查       |
+| npm run check         | 生命周期/模块/生成产物一致性检查                  |
+| npm run generate      | 生成目录、配置与类型；需回收旧文件时使用工作台    |
+| npm test              | 自动化测试                                        |
+| npm run test:showcase | 单独运行示例业务测试，需要保留示例模块            |
+| npm run verify        | 依次执行 ESLint、格式、类型、框架检查与自动化测试 |
 
 **Ctrl+Shift+B** 调用完整检查；“终端 → 运行任务”可单独格式化、修复、导出或测试。脚本错误会进入 VS Code 的问题列表。
 
 **F5** 选择“YZForge: 调试 Creator 浏览器预览”：先在 Creator 启动浏览器预览，再粘贴完整 URL。URL 在启动时输入，未写死本机端口或项目哈希。使用 VS Code 内置 Edge 调试器；此入口不会自动启动 Creator，也不用于微信/原生真机调试。
 
-完整检查依赖 Creator 已生成 temp 中的 Cocos 类型声明。新检出项目先用 Creator 打开一次，再运行检查。
+完整检查依赖 Creator 已生成 temp 中的 Cocos 类型声明。新检出项目先用 Creator 打开并等待导入完成，再运行检查。编辑器、浏览器集成脚本和平台验证范围见 [实现范围与验证](implementation-status.md)。

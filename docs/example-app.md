@@ -18,19 +18,10 @@
 
 XLSX 源表为 `common/economy.xlsx`、`lobby/items.xlsx`、`workshop/tasks.xlsx`、`showcase/samples.xlsx`，均位于 `config-source/`。Samples 展示分片与跨工作表公式。旧 `lobby/items.csv` 没有登记，不参与导出，新内容使用 XLSX。
 
-## 验证边界
+## 验证与清理
 
-| 命令或脚本                                                 | 用途                                       | 对示例的要求              |
-| ---------------------------------------------------------- | ------------------------------------------ | ------------------------- |
-| npm run verify                                             | 通用格式、类型、生成一致性、框架与工具回归 | 清理示例后仍可执行        |
-| npm run test:showcase                                      | 规则、去重、Presenter、注入时钟与存档故障  | 需要新示例                |
-| verify-showcase.mjs                                        | 构建后真实运行时检查与截图                 | 需要全部示例              |
-| verify-showcase-editor.mjs                                 | 真实工作台步骤、源码读取与表/绑定跳转      | 需要 workshop 示例        |
-| verify-template.mjs                                        | 独立空副本的启动与关闭                     | 要求副本已清空示例        |
-| verify-workbench.mjs                                       | 真实 Creator 创建、绑定、删除与恢复        | 使用自己的临时模块        |
-| verify-build.mjs / verify-preview.mjs / verify-runtime.mjs | 综合大厅与通用运行时的深层回归             | 需要 lobby/profile/common |
-| verify-panel.mjs                                           | 工作台创建、草稿、设置与恢复交互           | 需要示例数据              |
+`npm run verify` 检查通用框架和工具，清理示例后仍可执行。`npm run test:showcase` 检查示例业务，需要保留对应模块；浏览器实验依赖 showcase，原大厅回归依赖 lobby/profile/common，空副本使用 `verify-template.mjs`。
 
-集成脚本位于 `tests/integration`，不参与游戏构建。使用当前项目自己的 MCP 连接；不要在副本复用原项目的本机连接配置。制作资源应通过 Creator/MCP，不手改预制体和场景序列化文件。
+集成脚本位于 `tests/integration`，不参与游戏构建。各脚本的前置条件、参数和覆盖范围统一见 [实现范围与验证](implementation-status.md#creator-与运行时检查)。使用当前项目自己的 MCP 连接，不在副本复用原项目的本机连接配置。制作资源通过 Creator/MCP 完成。
 
 清理示例需先解除启动入口中的示例调用，再按依赖顺序通过工作台处理模块，详见 [复制项目与清理示例](copy-project.md)。

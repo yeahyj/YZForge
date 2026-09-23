@@ -4,7 +4,7 @@
 
 ## 可运行示例
 
-运行 `assets/game/boot/Bootstrap.scene`，进入 **UI 实验 → 虚拟列表**。
+运行 `assets/game/boot/Bootstrap.scene`，进入 **UI 与 Part → 虚拟列表**。
 
 - 初始包含一万条数据，可拖动滚动、切换三列网格、动画定位第 5000 项。
 - “刷新可见项”只更新窗口内的数据；“清空 / 恢复”验证回收与重新填充。
@@ -12,7 +12,7 @@
 - 每条记录模拟一次可取消的异步详情加载。快速滚动后，旧详情不会写进新条目。
 - 页脚显示当前窗口、实例数与待处理操作数；返回后再进入会创建新的列表会话。
 
-源码：[VirtualListLabPage.ts](../assets/game/modules/showcase/code/ui/VirtualListLabPage.ts)、[VirtualListItemPart.ts](../assets/game/modules/showcase/code/components/VirtualListItemPart.ts)。两个预制体均在 `showcase/bundles/default/dynamic`，经 Cocos MCP 创建与写入，并调用现有工作台自动绑定流程。`generated/*Binding.ts` 不需要手改。
+源码：[VirtualListLabPage.ts](../assets/game/modules/showcase/code/ui/VirtualListLabPage.ts)、[VirtualListItemPart.ts](../assets/game/modules/showcase/code/components/VirtualListItemPart.ts)。页面与条目预制体分别位于 showcase 模块的 `bundles/default/dynamic/ui` 和 `dynamic/prefabs`；节点修改后通过工作台更新绑定，不手改 `generated/*Binding.ts`。
 
 ## 节点与布局所有权
 

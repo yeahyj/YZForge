@@ -133,7 +133,7 @@ assets/game/modules/inventory/
 
 跨模块使用的表应公开其配置类型，调用方通过该类型加载数据，框架按发布路由定位资源包。公共配置可以归属项目选择的任意模块。
 
-含公式的工作簿需要先重算再正式导出。当前公式重算使用 **Windows 桌面 Excel COM**；工作台提供环境检查和重算操作。
+含公式的工作簿需要先重算再正式导出。当前公式重算使用 **Windows 桌面 Excel COM**；工作台提供环境检查和重算操作。字段类型、枚举、分片与公式流程见 [XLSX 配置表制作](docs/config-tables.md)。
 
 ### 管理使用期限与时间
 
@@ -152,6 +152,7 @@ assets/game/modules/inventory/
 | 配置表     | 选择导出目标、校验数据、预览、重算公式和导出                                         |
 | 项目设置   | 分包配置、应用标识、音频、日历及框架运行参数                                         |
 | 删除与恢复 | 检查引用、备份并删除模块或资源，处理恢复与冲突                                       |
+| 示例工作流 | 按步骤阅读任务示例源码，跳转到配置表与自动绑定                                       |
 
 资源和 XLSX 变化后会自动校验并更新生成文件，也可以在工作台手动触发生成和检查。删除模块、资源包或界面时使用工作台的引用检查与备份流程。
 
@@ -174,13 +175,24 @@ assets/game/modules/inventory/
 
 脚本使用 **4 个空格**缩进，JSON 和 Markdown 使用 **2 个空格**。VS Code 保存时执行格式化与 ESLint 修复；**Ctrl+Shift+B** 运行完整检查，**F5** 连接 Creator 浏览器预览进行调试。
 
-构建时选择 `Bootstrap.scene` 作为启动场景，并配置对应平台参数。框架在构建前检查源码和生成文件，在构建后输出资源包与体积审计报告至 `.yzforge/build-reports`。
+构建前保存 `Bootstrap/GameRoot/GameSettings` 的版本、渠道、模式和环境，从 **YZForge → 游戏设置 → 导出构建参数** 导出并导入 Creator 构建面板，使用 `Bootstrap.scene` 启动。切换配置后重新导出，详细流程见 [游戏设置与 SDK](docs/game-settings-sdk.md)。框架在构建前检查源码和配置一致性，在构建后输出资源包与体积审计报告至 `.yzforge/build-reports`。
 
 ## 文档
 
-| 文档                                       | 内容                                           |
-| ------------------------------------------ | ---------------------------------------------- |
-| [复制项目与清理示例](docs/copy-project.md) | 复制清单、项目标识、清理示例和接入自己的业务   |
-| [API 使用指南](docs/api-guide.md)          | 生命周期、资源、配置、UI、模块通信、时间和存档 |
-| [示例应用说明](docs/example-app.md)        | 示例模块职责、依赖和集成测试入口               |
-| [开发环境与代码规范](docs/development.md)  | VS Code、ESLint、Prettier、类型检查和调试设置  |
+| 文档                                            | 内容                                             |
+| ----------------------------------------------- | ------------------------------------------------ |
+| [复制项目与清理示例](docs/copy-project.md)      | 复制清单、项目标识、清理示例和接入自己的业务     |
+| [开发环境与代码规范](docs/development.md)       | VS Code、ESLint、Prettier、类型检查和调试        |
+| [正式开发工作流](docs/development-workflow.md)  | 从模块、Service、Presenter 到 Page / Part        |
+| [API 使用指南](docs/api-guide.md)               | 生命周期、资源、配置、UI、模块通信、时间和存档   |
+| [XLSX 配置表制作](docs/config-tables.md)        | 字段、枚举、导出规则、分片、公式与生成物         |
+| [自动绑定](docs/auto-binding.md)                | 节点命名、实际组件类型、生成和排错               |
+| [通用 UI 组件](docs/ui-components.md)           | 安全区、异步按钮/图片、倒计时、Switch 和滚动文本 |
+| [虚拟列表](docs/virtual-list.md)                | 固定尺寸列表/网格、局部刷新、Part 复用与清理     |
+| [红点与数量提示](docs/badges.md)                | 数量来源、分组聚合和 UI 订阅                     |
+| [HTTP 请求与取消](docs/network.md)              | 请求、JSON 验证、错误及平台传输                  |
+| [新手引导与连续聚焦](docs/guide.md)             | 目标注册、检查点、聚焦与输入控制                 |
+| [游戏设置与 SDK](docs/game-settings-sdk.md)     | 版本、渠道、环境、SDK 组合和构建配置             |
+| [示例应用说明](docs/example-app.md)             | 示例模块职责、依赖和清理边界                     |
+| [功能展示与验证入口](docs/showcase.md)          | 可交互实验、工作台示例和业务验证                 |
+| [实现范围与验证](docs/implementation-status.md) | 当前限制、集成脚本、构建审计与平台验收           |

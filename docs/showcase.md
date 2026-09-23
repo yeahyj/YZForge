@@ -41,7 +41,7 @@ node tests/integration/verify-network-guide.mjs http://127.0.0.1:7456/
 node tests/integration/verify-ui-components.mjs http://127.0.0.1:7456/
 ```
 
-脚本使用当前 MCP 和独立隐藏窗口，验证重绑竞态、禁用/关闭清理、真实资源持有、原生 Toggle、倒计时校时与前台恢复，以及安全区百分比、缩放、嵌套和横竖屏。结束恢复设备和方向选项并关闭自建窗口。
+脚本使用当前 MCP 和独立隐藏窗口，验证重绑竞态、禁用/关闭清理、真实资源持有、Switch、滚动文本、倒计时校时与前台恢复，以及安全区百分比、缩放、嵌套和横竖屏。结束恢复设备和方向选项并关闭自建窗口。
 
 ## 编辑器工作流
 
@@ -52,11 +52,11 @@ node tests/integration/verify-ui-components.mjs http://127.0.0.1:7456/
 ## 可控失败与自动验证
 
 - `npm run test:showcase`：业务规则、写入失败一致性、领取去重、Presenter 确认/取消、跨模块状态刷新、订阅失败与结束后的解绑、模拟时间回收、存档故障。
-- `tests/integration/verify-showcase.mjs`：构建后真实 Cocos 运行时，检查界面种类约束、任务弹窗归属、过期导航、取消慢加载、失败后重试、子组件激活失败回收、初始化重入拦截、准备页不可见，以及结果、缓存、分包、资源持有及多屏截图；用真实鼠标验证慢加载下的导航与 Part 连点，检查同页重复读取配置的持有者数量，以及 Part 失败重试和等待期间退出。文字断言在本次操作及其子任务结束后执行，并要求产生本次输出。
+- `tests/integration/verify-showcase.mjs`：在真实 Cocos 运行时检查任务流程、导航、UI 结果、缓存、分包、资源持有、失败恢复及多屏适配，包含慢加载下的真实鼠标输入。
 - `tests/integration/verify-showcase-editor.mjs`：真实 Creator 工作台的步骤、源码读取和表格/绑定跳转。
 - `npm run verify`：通用框架的静态检查、生成一致性与回归测试；与可删除的示例业务测试分开。
 
-这套展示覆盖当前框架公开功能的主要使用路径，并不声称模拟器已验证所有真实设备和异常组合。远程 CDN、真实服务器校时、账号认证、原生 SDK 和目标平台音频策略需要项目接入后实测。
+脚本前置条件和完整入口见 [实现范围与验证](implementation-status.md)。远程 CDN、真实服务器校时、账号认证、原生 SDK 和目标平台音频策略需要项目接入后实测。
 
 ## 示例的清理边界
 

@@ -21,7 +21,7 @@ const items = await show.config.load(ItemsTable);
 await show.assets.setSprite(this.sprIcon, LobbyRes.sprite.status);
 ```
 
-`show.assets`、`show.config`、`show.audio`、`show.time` 已绑定本次展示，Part 的 `activation` 提供同样的入口。`ctx.assets`、`ctx.config` 默认跟随模块。切换配置表所有者使用 `ctx.config.in(owner).load(Table)`；已移除 `ctx.config.load(Table, owner)` 重载。应用级入口仍为 `app.config.load(Table, owner, options)`。
+`show.assets`、`show.config`、`show.audio`、`show.time` 已绑定本次展示，Part 的 `activation` 提供同样的入口。`ctx.assets`、`ctx.config` 默认跟随模块。切换配置表所有者使用 `ctx.config.in(owner).load(Table)`；应用级入口为 `app.config.load(Table, owner, options)`。
 
 自己拥有的 `scope.close()` 先发出取消，再等待登记任务、子级及清理函数。`signal.aborted` 表示已经请求取消，`scope.closed` 表示清理流程已经结束。它不会强行终止任意 Promise，也不会保证节点同一帧就销毁。结束 UI 使用 `show.finish / show.dismiss / show.ui.back`，不要关闭 `show.scope`。
 
@@ -177,6 +177,8 @@ await show.assets.destroyInstance(node);
 
 ## 配置表与生成的 TS 合同
 
+字段类型、表头、枚举、分片及公式重算见 [XLSX 配置表制作](config-tables.md)。本节说明生成合同的运行时用法。
+
 `Items.types.ts` 定义行、主键和索引类型，`Items.table.ts` 提供轻量加载合同，`tables.ts` 汇总合同。`import ItemsTable` 不加载配置数据；JSON 留在目标资源包，`config.load` 才校验并加载它。
 
 ```ts
@@ -315,6 +317,10 @@ if (navigation.status === 'ignored') return;
 
 业务使用 `GuideRunner` 执行步骤，`GuideTargets` 以稳定业务 ID 注册页面或虚拟条目目标，`StorageGuideProgress` 保存检查点。`GuideFocusOverlay.begin` 创建整次引导共用的视觉使用期，每步只移动和变形镂空，结束时统一 close。见 [引导 API、动画设计及 Creator 配置](guide.md)。
 
+## 游戏设置与 SDK
+
+`app.settings` 提供当前游戏版本、渠道、模式、环境和公开参数的只读快照。`app.sdk` / `ctx.sdk` 提供登录凭证、广告、分享和宿主能力；能力范围取决于实际平台及接入的渠道适配器。配置、SDK 组合、模拟与构建流程见 [游戏设置与 SDK](game-settings-sdk.md)。
+
 ## 存档迁移与恢复
 
 普通业务通过 `ctx.storage` 或 `app.storage` 使用小型 JSON 存档。`StorageKey<T>` 声明稳定 id、当前 version、validate 和逐版本 migrations；例如 `{ 1: old => ({ coins: old.gold }) }` 表示版本 1 升级到 2。完整可运行示例见 `profile/code/services/WalletService.ts`。
@@ -326,5 +332,7 @@ if (navigation.status === 'ignored') return;
 模块中的诊断页面可用 `ctx.diagnostics.snapshot()` 获取页面、模块、资源包和持有计数摘要，用 `.module(id)` 区分代码可用与业务就绪。它没有 UI 操作或模块启动能力，不承担业务状态查询。外部工具使用 `app.inspect()` 返回只读快照，包含模块使用数/清理状态、UI、Scope 树、任务标签、资源/配置持有者和时间质量。查询不会启动模块或加载资源，不返回可直接修改的内部 Node/Map。卡住时先看哪些 Scope 仍有任务、哪个持有者还没结束；快照不是完整的引擎 GPU/原生内存统计。
 
 工作台创建失败会在 `.yzforge/creations` 保留前后快照，可在“删除与恢复”预览撤销；生成失败可修复源文件后重试生成。撤销遇到后续修改或外部引用会停止，任意进程崩溃若没有完整后快照不能自动撤销。已有删除备份保留原流程。
+
+生成中断记录在 `.yzforge/changes`，先在工作台预览恢复，再继续生成。恢复只处理记录内的原内容或工具输出，遇到后续编辑会拒绝覆盖；活动进程持有的锁不会被移除。创建、生成、删除和构建使用各自的恢复记录，不能互相替代。
 
 构建后报告写到 `.yzforge/build-reports`，统计真实输出的未压缩字节、分包/remote 目录、至少 1 KiB 的同内容重复文件及 Bundle 依赖。可在 `project-settings/build-budgets.json` 设置总量、本地根目录与重复文件预算，`null` 表示不限制；超限使构建失败。该数字不是平台压缩包大小或网络首屏下载量。公式环境可通过工作台“检查公式环境”或 `node tools/yzforge/cli.mjs formula-status` 检测，检测通过后仍需对具体工作簿执行重算。

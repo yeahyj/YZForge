@@ -1,199 +1,73 @@
-# YZForge 实施与验证记录
+# 实现范围与验证
 
-更新日期：2026-09-23。实现位置：`E:\study\YZForge`，Creator 3.8.8。日常用法见 [README](../README.md)，设计取舍见 [重构方案](workbench-redesign-proposal.md)。
+本文维护当前实现的边界与验证入口。使用方法从 [README 文档目录](../README.md#文档) 进入；检查是否通过，以目标版本当次执行的日志和产物为准。
 
-## 2026-09-23 红点、HTTP 与连续聚焦引导
+## 能力边界
 
-已实现 Scope 管理的红点聚合与显示、HTTP 请求/超时/取消/JSON 验证、可恢复的新手引导与圆形到矩形连续变形。预制体通过当前 Cocos MCP 制作，业务资源留在所属模块。引导消除了入场白色填充和换步隐藏造成的闪屏，等待及移动期间保持遮罩并拦截底层输入。
+| 范围        | 当前约定与限制                                                                                                                                           |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 模块与资源  | 代码加载和业务初始化分开；模块持有归零后清理业务，不卸载已注册的 JavaScript。Bundle 输出、实际下载量和运行内存分别验证。                                 |
+| 生命周期    | Scope 协作式取消并等待任务及清理完成，不能强制终止任意 Promise。UI 清理超时会隔离故障实例；任务仍需响应取消。                                            |
+| 配置表      | XLSX 导出 JSON 和 TypeScript 合同，未实现二进制数据格式。公式重算仅提供 Windows 桌面 Excel COM 适配；复杂公式及外部工作簿联动需使用项目实际数据验收。    |
+| 时间        | 固定 UTC 偏移，不支持 IANA 时区或夏令时。服务器时间源由项目注入；跨重启计划、补算和结算去重由业务保存。                                                  |
+| HTTP 与 SDK | HTTP 支持 XHR、wx/tt 请求及自定义传输；不含 WebSocket、自动重连或令牌刷新。SDK 提供平台与渠道组合入口，发行商、真实登录和广告需项目接入。                |
+| UI 组件     | 虚拟列表只支持固定尺寸纵向列表/网格。SafeWidget 和聚焦引导限同一正交 Canvas 的轴对齐布局；MarqueeLabel 为单行普通文本。详细限制见各组件文档。            |
+| 制作恢复    | 创建、生成、删除和构建各有恢复流程；冲突会停止，不保证任意崩溃时刻自动恢复。包内移动可保持资源身份，跨包迁移和全项目重命名需要另行处理引用。             |
+| 静态检查    | 可检查显式导入、序列化引用、已知逻辑名及配置引用；不能完整证明反射、字符串拼接和动态表达式的行为。                                                       |
+| 交付审计    | 检查 Bundle/代码入口归属、未压缩输出字节、完整文件重复和体积预算；不分析图集/合并 JSON 内部的语义重复，不提供 CDN 发布、原生代码热更新或跨版本补丁系统。 |
 
-完整检查的 130 项框架测试和 11 项业务测试通过；实际预览验证真实 HTTP、物理点击、过渡、复用、恢复和清理。详细发现、证据及平台边界见 [本轮审查](badges-network-guide-review.md)，使用方法见 [红点](badges.md)、[HTTP](network.md)、[引导](guide.md)。下面保留历史阶段的检查数量与日期。
+微信、抖音及 Android/iOS 等目标平台需要分别验证开发者工具、发布构建与真机。浏览器预览和注入适配器测试不能证明后台恢复、音频权限、下载缓存、真实 SDK 或设备性能已通过验收。
 
-## 2026-09-22 模块归属与页面导航复核
+## 命令行检查
 
-移除示例导航转发类和顶层业务流程目录，启动入口只打开首屏；页面通过 `show.ui` 切换，复杂交互保留在所属模块的 Presenter / Service。诊断读取独立为 `ctx.diagnostics`。长期业务继续由启动或账号会话持有模块，不因 UI 隐藏而结束；没有新增每日重置业务规则。
+先执行 `npm ci`，用 Creator 3.8.8 打开本项目并等待导入完成。`npm run typecheck` 依赖 Creator 生成的 `temp/tsconfig.cocos.json` 和引擎声明。
 
-界面 Key 携带 kind，并区分模块内完整清单和明确公开的合同。工作台新建界面默认内部，可勾选公开；两份生成清单均进入创建预览。接口说明见 [API 使用指南](api-guide.md)。
-
-导航只在目标准备及同步子组件激活成功后提交。慢加载返回、来源显示失效和所有者取消会撤销未提交的目标；失败保留原页，同 Key 收尾期间禁止抢跑重试。重复点击返回 ignored/busy，不借用其他目标的结果；页面内部返回不会等待自身清理。保留 onShow 提前 finish 的弹窗成功结果。
-
-| 验证           | 实际结果                                                                                                                                                                                               |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 静态与通用回归 | `npm run verify` 通过：ESLint、Prettier、项目和合同类型检查、51 个生成产物一致性、87 项测试；增加私有 UI Key 越界导入和界面层级类型约束验证                                                            |
-| 示例业务       | 10 项业务测试通过；弹窗交互从 Presenter 注入的 show.ui 使用                                                                                                                                            |
-| 构建后示例     | `verify-showcase.mjs` 21 组通过，覆盖取消慢加载、过期 show、重复请求、原始错误、清理屏障、失败重试、子组件激活失败、初始化重入、资源回收及示例各功能；重载存档恢复、应用关闭后持有归零，控制台错误为 0 |
-| 底层运行回归   | `verify-runtime.mjs` 14 组原检查与 2 项补充检查通过，包含 onShow 提前完成弹窗、受管任务中返回、超时隔离和父子 UI 关闭                                                                                  |
-| 工作台         | 7 步工作流、10 份源码、3 处跳转通过；公开选项进入请求签名，文件预览同时列出公开与内部 views.ts，实际生成的公开清单不含内部界面                                                                         |
-| 引擎与平台     | Creator 脚本诊断无错误；最终 Web / 微信 Debug 构建任务 1790062429430 / 1790062429433 成功，无缺失界面类，Bundle 输出审计通过                                                                           |
-
-本轮构建曾遇到 Creator 保留旧的缺失导入状态：源码通过 tsc，但构建将 WorkflowPage 组件丢失。刷新脚本和重新导入后重新构建，并补上构建前的 UI 类注册检查，防止这类产物被当作成功。测试始终使用独立窗口；原 Untitled 场景未切换或保存。微信与原生真机验证仍需在目标设备进行。
-
-## 2026-09-22 功能展示与正式开发工作流
-
-默认首屏改为功能实验室，提供八个入口。新增 `showcase` 与按需代码模块 `workshop`；任务奖励示例通过配置、TaskService、WorkflowPagePresenter、Page、动态 TaskPart 和 Profile API 完成业务闭环。框架仍可独立使用，清理边界和顺序已更新。
-
-三种展示均已实现：实际运行页面、工作台“示例工作流”与源码阅读、可控故障及自动验证。相关用法见 [功能展示](showcase.md) 和 [正式工作流](development-workflow.md)。
-
-| 验证           | 实际结果                                                                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 静态与通用回归 | `npm run verify` 通过：ESLint、Prettier、两组类型检查、47 个生成产物一致性、87 项框架与工具测试                                             |
-| 示例业务测试   | `npm run test:showcase`，8 项通过；覆盖条件检查、写入失败、去重、确认/取消/界面失败、事件解绑、时间驱动回收和存档故障                       |
-| XLSX 公式      | Samples 两条跨工作表公式通过本机 Microsoft Excel COM 实际重算，结果 1.5 / 2.5；校验结果随 `project-settings/generated/formulas` 保存        |
-| 真实工作台     | 7 个步骤、10 份源码读取、3 处跳转通过；源码入口限制在声明的文件集合                                                                         |
-| 构建后运行     | `verify-showcase.mjs` 的 9 组检查通过；包含真实鼠标命中首页入口、节点输入、UI 结果/缓存、配置分片、代码延迟加载、故障恢复和重复进出持有稳定 |
-| 重载与关停     | 同一隔离浏览器会话完整重载后，训练和领取记录恢复；应用重复关闭后 Scope、模块、UI、资源和配置均清空，捕获运行错误为 0                        |
-| 原示例回归     | `verify-build.mjs` 通过 10 个大厅绑定和弹窗结果；`verify-runtime.mjs` 的 14 组原运行检查与 2 项补充检查通过                                 |
-| Web 与微信构建 | 最终 Debug 构建分别于 12:25:18、12:25:36 完成：`build/verify-showcase-web`、`build/verify-showcase-wechat`                                  |
-| 视觉复核       | 查看首页、任务页、数据页、时间页和工作台截图，以及平板/长屏截图；关闭后的按钮淡化，长列表可滚动                                             |
-| 编辑器现场     | 用户原 Untitled 场景 UUID `ada98583-ef32-4698-9dcf-88f2a6a2d89e` 保留，dirty 为 false；场景与预制体修改经 MCP/AssetDB 完成                  |
-
-修正了首次实际验证发现的日历实验问题：本地日历与模拟服务器各用独立 TimeService，避免未校时状态禁止相对周期注册。同时区分配置“业务持有”与“底层加载仍在收尾”，不把取消后的临时缓存条目显示成已泄漏的引用。
-
-微信构建审计确认 `code-workshop` 及各资源包位于 `subpackages`。当前产物为 Debug 验证包，未压缩输出统计不代表平台最终上传体积；预算未设置，不能把审计通过理解成已满足发行包大小要求。尚未进行微信真机和原生设备验收；真实 CDN、服务器和平台 SDK 也未接入本示例。
-
-截图保存在 `temp/mcp-captures/showcase-*.png`，运行验证使用独立临时窗口与浏览器存储会话。工作台保留在“示例工作流”，可直接查看实现。
-
-## 2026-09-22 直接复制的项目模板
-
-新项目沿用直接复制流程。新增 [复制项目与清理示例](copy-project.md) 和 [示例应用说明](example-app.md)，明确源码/缓存边界、项目 UUID、框架应用标识、平台标识、示例依赖及删除恢复顺序。业务入口移到 `assets/game/app/start-game.ts`；`GameRoot` 保留装配和状态显示，支持同步空入口与异步首屏流程，设计分辨率由 Creator 设置控制。
-
-原项目保留三个示例模块。独立验证副本位于 `.yzforge/template-check-20260922`：复制时排除示例模块与源表、缓存、旧构建、Git 和本机 MCP 配置，保留启动场景/脚本的 `.meta`、项目设置和身份记录，再设置新的项目 UUID 与 `com.yzforge.template-check` 应用标识。该副本是验证产物，不是另一套需要维护的模板源码。
-
-| 检查                      | 实际结果                                                                                                                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 原项目完整检查            | `npm run verify` 通过：ESLint、Prettier、两套 TypeScript、24 项生成产物一致性、87 项测试                                                                                         |
-| 空副本完整检查            | 独立 `npm ci`，Creator 从无缓存状态导入；`npm run verify` 通过，0 个模块/资源/表、4 项生成产物、87 项测试                                                                        |
-| 空副本 Web 构建           | Creator 3.8.8 命令行构建，最终退出码 36；11:20（UTC+8）产物在副本的 `build/template-web`，构建审计通过                                                                           |
-| 空副本真实运行            | `verify-template.mjs` 通过：boot 为 ready、业务模块/UI/Bundle/配置路由均为空，新 appId 生效，画面显示“YZForge / 启动完成”，重复关闭后 Scope 为 closed 且无子项，捕获运行错误为 0 |
-| 保留示例的 Web 构建与运行 | 11:20 构建 `build/verify-template-demo` 成功；`verify-build.mjs` 验证 9 个绑定、本模块与公共表、图片、弹窗参数/结果，捕获运行错误为 0                                            |
-| 编辑器复核                | 脚本诊断无错误；关闭历史日志聚合的场景校验通过；当前 Untitled 场景 UUID 保持 `ada98583-ef32-4698-9dcf-88f2a6a2d89e`                                                              |
-
-验收发现并修复了同步空入口触发 `await-thenable` 检查的问题，启动脚本现在统一接收同步/异步结果。旧示例制作工具的 `res/` 路径也已更新为实际的 `bundles/default/dynamic/`。本次未重新运行这两个制作工具，避免重复制作已有资源。
-
-已查看空副本与大厅的实际截图：`temp/mcp-captures/yzforge-empty-template.png`、`temp/mcp-captures/yzforge-web-build.png`。本次独立副本验证了清理后的导入、构建和运行；没有在副本中重新执行工作台删除恢复和完整创建交互，那些流程的实际验证记录见下一节。未新增原生/小游戏真机验收。
-
-## 2026-09-22 框架收敛与面板改造
-
-本轮完成 Lifetime 权限收敛、UI/Part Actions、公开异步 API 清理屏障、批量配置首错退出、配置异步释放、App 部分构造回收和业务启动重试、生成依赖引用、纯资源模块、可选存档命名空间、创建快照修复和生成中断恢复。工作台同时重做了导航、自动文件预览、输入校验、草稿、空状态和日历控件。详细决定和复核见 [本轮说明](framework-refinement.md)。
-
-| 检查            | 实际结果                                                                                                                                                       |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 真实工作台流程  | `verify-workbench.mjs` 通过：代码模块、Service/Component、默认包单独删除与恢复、Part 自动绑定、Popup/Presenter、XLSX 自动更新、整个模块恢复；核验 42 个 UUID   |
-| 真实面板交互    | `verify-panel.mjs` 通过自动预览、纯资源模块创建/删除、重名与类型限制、快速切换草稿、时区/时间保存、中断生成恢复与用户编辑冲突保护                              |
-| 失败创建        | `verify-creation.mjs` 通过真实 AssetDB 的后续编辑保护与撤销；测试资产和 meta 均回收                                                                            |
-| 宽窄窗口        | 1100px 和 650px 窗口实测，窄窗口为横向导航、单列卡片，无横向溢出；截图在 temp/mcp-captures/framework-panel-wide.png 与 framework-panel-narrow.png              |
-| Web Mobile 构建 | 2026-09-22 10:45（UTC+8）成功，输出 build/verify-framework-web-mobile，构建审计通过                                                                            |
-| Web 产物冒烟    | 9 个节点绑定、3 行本模块配置、公共配置、图片、弹窗结果通过，捕获运行错误为 0，未使用弹窗和音频未被首屏请求                                                     |
-| Web 产物回归    | `verify-runtime.mjs` 在独立测试游戏窗口执行既有 14 项回归，再验证 App 构造失败回收 UI 层、Lifetime 无关闭权限、latest 拦截旧结果、奖励按钮 exclusive；全部通过 |
-| 微信构建        | 2026-09-22 10:46（UTC+8）成功，输出 build/verify-framework-wechatgame；game.json 包含 m-common 和 m-lobby 两个实际 subpackages                                 |
-
-最终验收：`npm run verify` 全部通过，包括 ESLint、Prettier、运行时和类型合同两套 TypeScript 检查、24 项生成产物一致性检查、87 项测试（0 失败）。Cocos 当前脚本诊断为 0 错误；`validate_scene` 在关闭历史日志扫描时通过，确认编辑场景仍为原 UUID。最终状态只有 common、lobby、profile 三个模块，孤立目录、待恢复创建和待恢复生成均为 0。
-
-本轮没有切换或保存用户当前的 Untitled 场景，没有改变浏览器预览模式；运行回归通过构建产物的新窗口执行，窗口用完销毁。临时模块和配置已回收，备份/恢复测试记录保留在被 Git 忽略的 .yzforge 中。构建审计的未压缩磁盘输出为 Web 7,268,974 字节、微信 6,603,474 字节；默认预算仍未限定，这不代表平台压缩包体积或真机下载流量。
-
-原生设备和微信开发者工具/真机本轮未运行。日志保留历史错误与故障注入，不能将包含历史日志的聚合诊断当成“无任何历史错误”。以下是上一阶段的验证记录，旧测试数、旧构建时间不代表本轮状态。
-
-## 上一阶段：2026-09-22 优化与复验
-
-已实现本次展示的资源/配置/音频入口、类型化模块工厂与内部服务入口、返回请求与物理完成分离、按钮错误后重试、Part 提前销毁回收、诊断快照、显式存档迁移与备份、统一项目日历默认值、前台自动校时与退避、失败创建撤销、公式环境检测和构建预算审计。具体变化和迁移入口见 [优化说明](runtime-improvements.md)。
-
-演示增加普通 common 公共配置模块与 profile 账号服务模块，Dashboard 组合 LobbyService 和 WalletPart。公共 EconomyTable 在大厅加载，不启动 common 业务工厂；公共表和跨资源包/分片用法已补到 [API 指南](api-guide.md)。生成脚本注释同步更新生成器，不依赖手改产物。
-
-| 本轮检查        | 实际结果                                                                                                                                                                  |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 完整检查        | npm run verify 通过：ESLint、Prettier、运行时及类型合同两套 tsc、22 项生成产物一致性、75 项测试                                                                           |
-| Game View       | 14 项通过；新增页面内部返回与重复请求、可恢复按钮错误、6 次 Part 独立销毁、公共表及共享账号状态检查                                                                       |
-| 工作台          | 唯一测试模块 workbench-check-mub3bmhl 完整创建/绑定/XLSX 自动导出/删除恢复通过，核验 41 个 UUID；测试模块与源表已回收                                                     |
-| 失败创建        | 人为注入创建后失败，通过真实 AssetDB 验证：记录保留、后续编辑阻止撤销、原内容恢复后安全撤销、meta 删除、生成成功；记录 1789986482089-cbcaac77-711b-4cfc-9f4c-c3094a49fd5e |
-| 公式重算        | 通过 Excel COM 适配器在独立测试副本重算 SUM(2,3,4)=9，生成匹配输入摘要的快照，源文件未被重存；证据在 .yzforge/formula-validation-1789983854056                            |
-| Web Mobile 构建 | 2026-09-22 09:22（UTC+8）成功，输出 build/verify-optimization-web-mobile；构建审计通过                                                                                    |
-| Web 产物运行    | 自动绑定 9 项、3 行本地表与公共奖励配置、图片、弹窗参数/结果通过；未捕获运行错误，首屏未请求未使用弹窗/音频                                                               |
-| 微信构建        | 2026-09-22 09:23（UTC+8）成功，输出 build/verify-optimization-wechatgame；m-common、m-lobby 为两个实际 subpackages，当前三个演示模块均为 eager 代码                       |
-| Cocos 脚本诊断  | 0 个 TypeScript 错误；待恢复创建记录与孤立模块均为 0                                                                                                                      |
-
-构建审计统计的是**调试构建的未压缩磁盘输出**：Web 共 7,246,372 字节；微信共 6,587,194 字节，其中本地根目录 6,558,233、m-common 1,983、m-lobby 26,978 字节。至少 1 KiB 的完整同内容重复文件为 0。默认预算为 null，尚未替项目选择发行体积目标；这些数值不证明已满足平台压缩包限制，也不是首屏网络流量。报告在 `.yzforge/build-reports`，本轮产物不包含测试模块。
-
-含历史日志的 validate_scene 仍返回失败：扫描到旧资产删除错误及构建收尾的 debug 级 SIGTERM 记录；两次构建任务本身均 success，构建钩子报告 passed。未清空日志，也不把聚合检查宣称全绿。9 月 22 日编辑器当前为未命名空场景，本轮未改写它；示例场景运行证据来自 Game View 和明确以 Bootstrap 为入口的 Web 构建。截图为 `temp/mcp-captures/yzforge-verified-dashboard.png` 和 `yzforge-web-build.png`。
-
-以下内容保留上一阶段制作流程的实施证据，其中旧测试数量与旧构建时间不代表本轮最终状态。
-
-本轮已实现工作台和制作流程重构。运行时依然由 Module、Bundle、Scope 组织；没有新增 Extension 安装系统、ContentPack 业务对象或 Part 管理器。演示大厅可替换，框架面板不预设章节、关卡等业务概念。
-
-## 本轮完成
-
-| 范围       | 当前行为                                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| 创建面板   | 选择模块、资源包、已有预制体与依赖；按 Page/Popup/Overlay/Toast/Loading/Part/Component/Service 补后缀，预览文件、生成输出及冲突 |
-| 目录       | 默认包与附加包均为 bundles/组名；Bundle 根内包含 dynamic 和 static，资源代码分别使用两份真实 Creator 预设                       |
-| 动态资源   | 根据 Creator metadata 自动编目；资源/类型/层级区分重名，短名歧义时报错；UUID 保持包内移动后的逻辑身份，删除保留停用记录         |
-| 自动生成   | 监听资源新增、修改、删除及 XLSX 保存；事件合并、操作串行；失败保留有效输出，手动修复后可重试                                    |
-| UI 部件    | 最终使用 Part 名称，例如 ItemPart；支持动态实例化、父宿主上下文、框架生命周期与自动绑定；普通已有 Prefab 可接入                 |
-| 嵌套绑定   | 可以绑定嵌套根，不扫描其内部，不重写嵌套身份；缺失组件或同范围重名会报错                                                        |
-| 页面职责   | Page/Popup 管理完整界面；可选普通 TS Presenter 组织显示流程，Service 持有业务状态，Part 接收数据和回调                          |
-| XLSX       | __config 为唯一声明，__enums 支持可复用整数/字符串枚举；每表选择目标包，导出 JSON、TS 合同/类型/枚举                            |
-| 配置写回   | 校验摘要、备份、仅替换配置页 XML，验证其他 ZIP 内容不变；框架并发写入互斥                                                       |
-| 配置运行时 | ConfigManager 按包或分片加载；get/require/has/all/by，schema/revision 校验，Scope 结束释放持有                                  |
-| 删除恢复   | 模块、默认/附加包、UI、Part/普通预制体、脚本；检查外部引用，完整备份，Creator 逐个删除并核验，再删除空目录；恢复保留 UUID       |
-| 代码加载   | code Bundle 含真实 ModuleEntry prefab；代码加载共享且独立于业务工厂生命周期；Prefab 的 requiredCodeModules 包含嵌套依赖         |
-| 构建检查   | 检查类型、生成一致性、代码导入边界；构建后核验 Bundle 和代码入口实际归属，错误使构建失败                                        |
-| 原有核心   | UI、音频、Scope、通信、服务器校时、日/周/月/年边界和日历周期功能保留                                                            |
-
-资源身份和生成物所有权现存于 `project-settings/generated` 并纳入版本控制；历史和临时备份仍在 `.yzforge`。已将 lobby 迁移到新目录，保留其资源、预制体与原生成脚本 UUID；旧 CSV 不再作为有效导出源。
-
-## 验证证据
-
-以下操作均针对本项目。场景、预制体和 metadata 通过 Funplay Cocos MCP/Creator 操作；未直接改写序列化文件。
-
-| 检查              | 结果                                                                                                                              |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 单元测试          | 59 项全部通过；覆盖资源身份、歧义、XLSX 写回/枚举/公式、代码边界、循环嵌套依赖、代码准备与并发写入                                |
-| Game View         | 10 项通过：UI 绑定、配置/图片加载、弹窗结果、提前完成、重复打开、音频释放、父子关闭、页面导航、清理超时与图集持有                 |
-| 自动资源监听      | 实际新增、改名、删除资源后自动更新索引；UUID 和逻辑 Key 在包内改名后保持不变                                                      |
-| 工作台完整流程    | 纯代码模块、Component/Service、默认包单独删除恢复、Part 绑定、Popup/Presenter、XLSX 自动导出、整模块删除恢复均通过                |
-| XLSX 监听         | 外部停用表后回收生成输出，重新启用后自动重新生成                                                                                  |
-| 删除恢复          | 整模块恢复核验 41 个资源/目录 UUID，ItemPart 的 lblTitle 引用与工作簿启用状态恢复正确                                             |
-| 已有 Prefab 接入  | 原有静态 Prefab 接入 Part 后，资产 UUID、根节点 fileId 和名称保持不变                                                             |
-| Web Mobile 构建   | 2026-09-21 11:27 构建通过，构建后 Bundle/代码入口检查通过                                                                         |
-| Web 实际运行      | 9 个 UI 绑定、3 行配置、图片与弹窗参数/结果通过，无捕获到的运行错误                                                               |
-| Part 真实按需加载 | 启动时目标组件类和代码未注册；首次实例化才请求代码 Bundle。代码只加载 1 次，业务工厂独立启动 2 次；共享 Part 的宿主为调用方 lobby |
-| 微信构建          | 2026-09-21 11:28 构建通过，game.json 中代码包与资源包均为独立 subpackages；这是构建验证，不是设备运行验证                         |
-
-Web 请求记录还确认：首屏未加载同 Bundle 中未使用的弹窗或音频。本条适用于此次 Web 构建设置，不能推导出小游戏分包或 zip 交付只下载单个资产。
-
-完整流程的复测模块为 `workbench-check-muaoldvo`。验证后清理测试模块及源表，备份保留在 `.yzforge`。带测试模块的构建及报告用于证明按需代码能力，不作为正式发行包。
-
-最终复核：`npm run verify` 全部通过（ESLint、Prettier、TypeScript、12 项生成输出一致性、59 项测试）。测试模块清理后重新启动 Game View，10 项运行检查再次通过。静态 Part 单独删除和恢复另核验了预制体与两个脚本的 3 个 UUID。最终截图为 `temp/mcp-captures/yzforge-panel-final.png` 和 `yzforge-dashboard-final.png`。
-
-保留的 Creator 日志包含逐文件删除期间暂时失效的脚本入口报错；含历史日志的 `validate_scene` 因此仍报告失败，本记录不将它列为全项通过。最终 TypeScript 诊断为 0 个错误，11:49 重新启动预览后没有新增错误。测试源表与身份快照归档在 `.yzforge/test-verification/cleanup-20260921`，临时 Web 验证服务已停止。
-
-### 已复现并修复
-
-- Windows 下 Creator 整目录删除失败：改为经完整备份后，由 Creator 删除叶子资源并核验，再删除空目录；重新运行完整集成流程通过。
-- 失败删除触发自动生成：工作台操作与监听串行，失败时不继续生成；保留恢复记录。
-- 跨模块 Part 误用物理资源归属作为业务宿主：宿主由调用方明确提供，代码准备只注册必需类，不启动资源所有者的业务工厂。
-- 嵌套循环引用丢失脚本依赖：只缓存直接关系，对每个入口遍历完整依赖闭包。
-- 创建预览遗漏表类型、生成文件和元数据：按实际命名列出相关产物及缺失父目录。
-- 刷新丢失配置草稿：按模块和工作簿保留，保存前检查工作簿摘要。
-- 新建 UI 部件使用 Widget 引发引擎名称歧义：最终统一为 Part。
-
-## 尚需单独验证或继续开发
-
-1. **设备**：微信开发者工具/真机、Android/iOS 可执行产物未运行；平台后台、音频权限、网络与下载缓存需设备验收。其他小游戏平台尚未逐一验证。
-2. **公式引擎**：当前只有 Windows 桌面 Excel COM 适配器，已完成上述简单公式实际重算；复杂外部工作簿联动仍需用真实项目验收。ExcelJS 缓存预览和正式导出拒绝未验证/陈旧快照已测试。WPS、LibreOffice、任意网络/易变公式不在当前支持范围。
-3. **图集**：图集/帧持有关系和自动名称生成有回归验证，第三方图集导入、自动图集合并及各目标平台格式仍需真实资源验收。
-4. **交付审计**：已校验独立包/代码入口，并增加未压缩输出预算、完整同内容文件重复与 Bundle 依赖报告；尚无实际网络首屏预算、合并 JSON/图集内部语义重复、全部跨包静态引用链和下载失败恢复面板。CDN 发布、原生代码热更新、跨版本补丁系统尚未实现。
-5. **重构和恢复**：包内移动保持身份；跨包身份迁移、完整全项目重命名和任意崩溃时刻的自动恢复仍需专用流程。已有 CSV 自动迁移；旧 XLSX 需要补充 __config。备份冲突不会被强制覆盖。
-6. **运行时边界**：时间使用固定 UTC 偏移，未实现 IANA/DST；跨重启业务回调需业务保存 anchor/deadline 和去重状态。配置输出为 JSON，未实现二进制格式。
-7. **静态检查边界**：显式导入、序列化引用、已知逻辑名与配置单元格可检查；字符串拼接、反射和动态表达式无法完整证明。
-
-## 复现入口
-
-```text
+```powershell
 npm run verify
-node tests/integration/verify-workbench.mjs
-node tests/integration/verify-creation.mjs
-node tests/integration/verify-preview.mjs
+npm run test:showcase
 ```
 
-工作台验证需要开启本项目 Creator 和 MCP，会创建唯一名称的临时模块，成功后回收；失败时保留现场。`--keep-for-build` 可保留成功的测试模块供构建验证，之后使用工作台删除。
+`verify` 依次检查 ESLint、格式、运行时/合同类型、框架规则、生成一致性和框架/工具测试。`test:showcase` 单独检查示例业务，移除示例后不再执行。测试脚本定义见 [package.json](../package.json)，环境设置见 [开发环境与代码规范](development.md)。
 
-验证 Web 构建时，运行 `node tests/integration/serve-build.mjs [构建目录]`，再执行 `node tests/integration/verify-build.mjs <本机URL> [测试模块ID]`。传入模块 ID 时额外验证 Part 的代码按需加载、绑定和业务宿主。测试窗口会关闭，HTTP 服务由启动者停止。本轮临时 HTTP 服务已停止。
+## Creator 与运行时检查
+
+集成脚本使用项目根目录的本机 MCP 配置，并校验连接的 Creator 项目路径。先确认当前编辑器就是待测项目；复制项目后重新生成连接配置。只运行本次改动涉及的脚本。
+
+| 入口（位于 `tests/integration/`）                                             | 前置条件与覆盖范围                                                                                                                               |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [verify-workbench.mjs](../tests/integration/verify-workbench.mjs)             | Creator 与 MCP 已连接；创建临时模块，检查脚本、Part、绑定、XLSX、删除及恢复。成功后回收，失败保留现场；`--keep-for-build` 可保留夹具供构建检查。 |
+| [verify-creation.mjs](../tests/integration/verify-creation.mjs)               | Creator 与 MCP 已连接；故障注入、后续修改冲突和创建撤销。                                                                                        |
+| [verify-panel.mjs](../tests/integration/verify-panel.mjs)                     | 保留示例数据；检查真实工作台预览、草稿、设置及生成恢复。                                                                                         |
+| [verify-showcase-editor.mjs](../tests/integration/verify-showcase-editor.mjs) | 保留 workshop 示例；检查步骤、源码阅读和跳转。                                                                                                   |
+| [verify-preview.mjs](../tests/integration/verify-preview.mjs)                 | Bootstrap 已在 Game View 运行且保留大厅示例；检查 UI、结果与生命周期。                                                                           |
+| [verify-build.mjs](../tests/integration/verify-build.mjs)                     | 保留大厅示例，用 `serve-build.mjs` 启动构建产物并传入 URL；可选第二个参数为工作台测试模块 ID，额外检查 Part 代码按需加载。                       |
+| [verify-runtime.mjs](../tests/integration/verify-runtime.mjs)                 | 参数传入 Web 运行 URL，保留大厅示例；在独立窗口执行底层运行时回归。                                                                              |
+| [verify-showcase.mjs](../tests/integration/verify-showcase.mjs)               | 参数传入 Web 运行 URL，保留全部示例；检查业务、导航、分包、持有回收及屏幕适配。                                                                  |
+| [verify-virtual-list.mjs](../tests/integration/verify-virtual-list.mjs)       | 参数传入预览或 Web 运行 URL；检查列表窗口、复用、定位、Part 清理及尺寸变化。                                                                     |
+| [verify-ui-components.mjs](../tests/integration/verify-ui-components.mjs)     | 参数传入预览或 Web 运行 URL；检查真实输入、原生组件、资源、计时和安全区。                                                                        |
+| [verify-network-guide.mjs](../tests/integration/verify-network-guide.mjs)     | 参数传入预览或 Web 运行 URL；检查红点、真实本机 XHR、聚焦、输入、恢复与清理。                                                                    |
+| [verify-game-settings.mjs](../tests/integration/verify-game-settings.mjs)     | 需两份指定配置的 Web 构建，步骤见 [游戏设置与 SDK](game-settings-sdk.md#验证)。                                                                  |
+| [verify-template.mjs](../tests/integration/verify-template.mjs)               | 需已清空示例的独立副本构建，步骤见 [复制项目](copy-project.md#验证副本)。                                                                        |
+
+传入的 URL 必须属于当前项目。浏览器集成脚本通过 MCP 创建测试窗口；手工启动的静态服务由启动者停止。工作台脚本会实际创建、删除或恢复自己的测试资产，不是只读检查。截图通常写入忽略目录 `temp/mcp-captures`，不作为可在新检出中直接查看的证据。
+
+Web 构建检查示例：
+
+```powershell
+# 先构建到自己选择的目录；服务会输出实际 URL。
+node tests/integration/serve-build.mjs build/web-mobile
+# 另一个终端，将下列地址替换为服务输出的本机 URL。
+node tests/integration/verify-runtime.mjs "http://127.0.0.1:实际端口/"
+```
+
+## 构建与结果判定
+
+保存 `Bootstrap/GameRoot/GameSettings` 后导出构建参数，构建流程见 [游戏设置与 SDK](game-settings-sdk.md#构建与预览模拟)。构建钩子检查配置一致性、UI 类注册、模块边界和产物归属，报告写入 `.yzforge/build-reports`。已有构建还可单独审计：
+
+```powershell
+node tools/yzforge/cli.mjs audit-build --output build/web-mobile --platform web-mobile
+```
+
+[build-budgets.json](../project-settings/build-budgets.json) 按 `default` 与 `platforms` 合并预算；`maxTotalBytes`、`maxLocalRootBytes`、`maxDuplicateBytes` 单位均为字节，`null` 不限制。默认模板未设体积上限，审计通过不表示满足平台发行限制。完整同内容重复检查只统计至少 1 KiB 的文件。
+
+记录结果时注明版本、命令、目标平台及实际运行环境。Creator 当前脚本诊断、实际预览、构建成功和真机运行是不同层次；历史日志和故障注入记录不能冒充本次结果。检查新增错误，并保留失败原因及尚未执行的目标。

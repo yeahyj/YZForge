@@ -47,7 +47,7 @@ await show.actions.exclusive('claim', async task => {
 
 ## 装配与平台
 
-`AppOptions.http` 可配置 `baseUrl`、默认头、超时、计时器和 `transport`。省略 transport 时依次选择 `wx.request`、`XMLHttpRequest`；没有可用适配器时首次请求报 `HTTP_TRANSPORT_UNAVAILABLE`，创建 App 不联网。也可单独创建客户端：
+App 默认将当前游戏设置的 `apiBaseUrl` 作为 HTTP 地址前缀，来源见 [游戏设置与 SDK](game-settings-sdk.md)。`AppOptions.http` 可覆盖 `baseUrl`、默认头、超时、计时器和 `transport`。省略 transport 时依次选择 `wx.request`、`tt.request`、`XMLHttpRequest`；没有可用适配器时首次请求报 `HTTP_TRANSPORT_UNAVAILABLE`。创建 HTTP 客户端本身不联网，也可单独创建：
 
 ```ts
 const http = new HttpClient({
@@ -62,7 +62,7 @@ const response = await http.request({ url: '/profile' }, owner);
 配置 baseUrl 后只允许同源请求；不同服务创建不同客户端。默认头在构造时复制，账号凭据变化时重新装配客户端或显式提供本次请求头。框架不实现自动令牌刷新，也不自动发送失败请求第二次。
 
 - `createXhrTransport(factory?, withCredentials = false)`：支持浏览器和提供 XHR 的宿主；取消调用 `abort` 并解除回调。跨站 Cookie 默认关闭，浏览器同源 Cookie 仍遵守 XHR 自身规则。
-- `createWechatTransport(api)`：注入 `wx.request` 合同，强制文本响应，取消调用 RequestTask.abort。业务仍需配置小游戏合法域名。
+- `createWechatTransport(api)`：注入 `wx.request` 合同，自动选择抖音宿主时也用该合同适配 `tt.request`；强制文本响应，取消调用 RequestTask.abort。业务仍需配置平台合法域名。
 - `HttpTransport.send(request, signal)`：自定义平台/测试传输合同。应响应取消、清理回调，不持有 UI；即使适配器忽略取消，客户端也不会将迟到结果交付给旧调用方。
 
 每次请求独立创建子 Scope，完成/超时/取消都会归还；一个请求取消不影响其他请求。超时使用宿主计时器，后台唤醒可能延迟。`inspect().pending` 统计仍在等待的请求，不代表宿主仍在下载的数据量。
@@ -88,4 +88,4 @@ node tests/integration/http-fixture.mjs
 
 输入 `http://127.0.0.1:8787/health` 点击“真实 HTTP GET”。测试服务仅监听回环地址，Ctrl+C 停止；`/failure` 返回 503，`/invalid` 返回无效 JSON，`/slow` 延迟响应。远程服务的 CORS、HTTPS 和平台域名限制仍由对应宿主执行。
 
-`tests/network.test.ts` 验证请求编码、错误分类、超时、并发取消、迟到结果以及 XHR/微信适配合同。集成测试启动随机端口的同一服务，通过实际浏览器 XHR 验证请求和关页 abort。微信开发者工具和原生设备尚未实测。
+`tests/network.test.ts` 验证请求编码、错误分类、超时、并发取消、迟到结果以及 XHR/微信适配合同。`tests/integration/verify-network-guide.mjs` 启动随机端口的同一服务，通过实际浏览器 XHR 验证请求和关页 abort。微信、抖音和原生设备需要项目接入后单独验证。

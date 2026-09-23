@@ -30,7 +30,7 @@ content.updateCheckByName('icon', 'badge');  // 可多选
 
 按名字选择会同步保存当前索引，再次启用不会退回旧选择。重复索引去重；不存在的索引或名字忽略，同名节点全部选中。checkIndex 返回副本，直接给 checkIndex 赋新数组也会立即刷新。代码增删或重排子节点后调用 refresh，选择仍按索引解释。
 
-Button.clickEvents 可直接指向 Switch.selectFromEvent，自定义事件数据填写名字；多选用英文逗号分隔。切换不会销毁节点、创建 Part 或发起请求。加载/内容/空/错误只需四个子节点，用 Switch 表达；请求取消、重试和数据由业务处理。因此已移除原 ViewState 和复杂 TabGroup，不再提供一套固定四态或动态页签流程。
+Button.clickEvents 可直接指向 Switch.selectFromEvent，自定义事件数据填写名字；多选用英文逗号分隔。切换不会销毁节点、创建 Part 或发起请求。加载/内容/空/错误可用四个子节点和 Switch 表达；请求取消、重试和数据由业务处理。
 
 ## AsyncButton：按钮本身可执行异步工作
 
@@ -147,7 +147,7 @@ clear 关闭组件当前绑定，dispose 关闭指定绑定，均返回排空 Pr
 
 ## 示例与验证
 
-业务示例仍在 showcase 模块的 ComponentsLabPage 脚本和同名预制体。原生控件替换通过当前 Cocos MCP 保留节点、样式和原生组件 fileId，自动绑定重新扫描。换图、Switch、倒计时和长短文本切换都可查看 Inspector 事件配置。
+业务示例位于 [ComponentsLabPage](../assets/game/modules/showcase/code/ui/ComponentsLabPage.ts) 和同名预制体。换图、Switch、倒计时和长短文本切换可查看 Inspector 事件配置。
 
 ```sh
 npm run verify
@@ -155,4 +155,4 @@ npm run test:showcase
 node tests/integration/verify-ui-components.mjs http://127.0.0.1:7456/
 ```
 
-测试通过当前 MCP 创建独立隐藏预览，验证真实鼠标输入、资源、独立节点、框架生命周期、切换与滚动、安全区和横竖屏，并保存截图；结束恢复预览选项并关闭窗口。[审查记录](ui-components-review.md) 列出实际验证范围，微信及原生真机仍需设备验收。
+将示例 URL 替换为当前项目的本机预览或 Web 运行地址。脚本通过 MCP 创建独立隐藏预览，检查真实鼠标输入、资源、独立节点、框架生命周期、切换与滚动、安全区和横竖屏，并保存截图；结束恢复预览选项并关闭窗口。平台边界见 [实现范围与验证](implementation-status.md)，微信及原生真机仍需设备验收。
