@@ -4,7 +4,7 @@ import { AssetKey } from '../assets/asset-types';
 import { untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, OperationCancelled, reportError } from '../core/errors';
-import { GameComponent } from '../core/game-component';
+import { componentBindings, type ComponentBinding } from '../core/component-binding';
 import { runTask, Scope, taskContext, TaskContext, Lifetime, scopeOwner } from '../core/scope';
 import { ModuleContext, ModuleManager } from '../modules/module-manager';
 import { TimeService } from '../time/time-service';
@@ -171,7 +171,7 @@ export interface NavigationRequest {
 type Instance = {
     node: Node;
     view: UIView<unknown, unknown>;
-    components: GameComponent[];
+    components: ComponentBinding[];
     scope: Scope;
     context: ModuleContext;
     definition: ViewDefinition;
@@ -398,7 +398,7 @@ export class UIManager {
                         scope,
                         context,
                         definition,
-                        components: node.getComponentsInChildren(GameComponent),
+                        components: componentBindings(node),
                         disposed: false,
                     };
                     record.instance = instance;

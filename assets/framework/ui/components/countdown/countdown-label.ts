@@ -1,11 +1,14 @@
 import { _decorator, Component, game, Game, Label } from 'cc';
-import type { ActivationContext } from '../../../core/game-component';
+import { EDITOR } from 'cc/env';
 import { type ErrorReporter, OperationCancelled, reportError } from '../../../core/errors';
 import { type Lifetime, type TaskContext, runTask } from '../../../core/scope';
 import type { ScopedTime } from '../../../time/time-service';
-import { ScopedComponent } from '../scoped-component';
+import { ComponentScope } from '../component-scope';
 import { countdownSeconds, formatCountdown } from './countdown';
-const { ccclass, property, requireComponent, disallowMultiple, menu } = _decorator;
+const { ccclass, property, disallowMultiple, menu } = _decorator;
+/** 倒计时需要的最小时间接口；不传时独立节点使用 Date.now，框架节点自动使用校时服务。 */
+export type CountdownTime = Pick<ScopedTime, 'nowMs' | 'onChanged'>;
+const deviceTime: CountdownTime = { nowMs: () => Date.now(), onChanged: () => () => {} };
 /** 倒计时配置；更换截止时间请重新 bind，每次绑定只通知一次完成。 */
 export interface CountdownOptions {
     /** 截止 UTC 毫秒时间戳。 */ readonly deadlineMs: number;
@@ -22,12 +25,14 @@ export interface CountdownHandle {
     /** 取消订阅和完成任务，等待异步清理；保留最后显示的文字。 */
     dispose(): Promise<void>;
 }
-/** 倒计时显示：校时或恢复前台后重新读时间；时间源是否可信由现有 TimeService 决定。 */
+/** 原生 Label 的扩展；字体、颜色、对齐等直接配置在本组件，独立节点也能 startFor。 */
 @ccclass('yzforge.CountdownLabel')
 @menu('YZForge/UI/倒计时文本')
-@requireComponent(Label)
 @disallowMultiple
-export class CountdownLabel extends ScopedComponent {
+export class CountdownLabel extends Label {
+    private readonly lifetime = new ComponentScope(this, () => {
+        if (this.autoStart) this.restart();
+    });
     /** 每次节点业务激活时按配置启动；手动调用 restart 也可启动。 */
     @property({ displayName: '启用后自动开始' }) autoStart = true;
     /** 编辑器默认计时时长，秒。 */
@@ -40,31 +45,26 @@ export class CountdownLabel extends ScopedComponent {
         typeof Component.EventHandler
     >[] = [];
     private refreshCurrent?: () => void;
-    protected onAutomaticActivate(_activation: ActivationContext): void {
-        if (this.autoStart) this.restart();
-    }
     /** 使用 Inspector 中的时长重新开始，可直接连接 Button.clickEvents。 */
     restart(): void {
         this.startFor(this.duration);
     }
     /** 从指定秒数开始，无需传 Scope 或时间服务。 */
     startFor(seconds: number): void {
-        const activation = this.requireActivation();
+        const activation = this.lifetime.requireContext();
         if (!Number.isFinite(seconds) || seconds < 0) throw new RangeError('倒计时长须为非负秒数');
-        this.startUntil(activation.time.nowMs() + seconds * 1000);
+        this.startUntil((activation.time ?? deviceTime).nowMs() + seconds * 1000);
     }
     /** 从绝对 UTC 毫秒截止时刻开始；服务端活动计时通常调用这一方法。 */
     startUntil(deadlineMs: number): void {
-        const activation = this.requireActivation(),
+        const activation = this.lifetime.requireContext(),
             template = this.textFormat;
-        this.bind(activation.scope, activation.time, {
+        this.bind(activation.scope, activation.time ?? deviceTime, {
             deadlineMs,
             format: (seconds) => {
                 const [hh, mm, ss] = formatCountdown(seconds).split(':');
-                return template.replace(
-                    /\{(hh|mm|ss|seconds)\}/g,
-                    (_, key: string) => ({ hh, mm, ss, seconds: String(seconds) })[key as 'hh'],
-                );
+                const tokens: Record<string, string> = { hh, mm, ss, seconds: String(seconds) };
+                return template.replace(/\{(hh|mm|ss|seconds)\}/g, (_, key: string) => tokens[key]);
             },
             onComplete: () => Component.EventHandler.emitEvents(this.completedEvents, this),
         });
@@ -80,27 +80,26 @@ export class CountdownLabel extends ScopedComponent {
      * @param options 截止时刻、同步格式化和一次完成通知。
      * @throws COUNTDOWN_TIME_INVALID 截止时间或当前时间无效。
      */
-    bind(owner: Lifetime, time: ScopedTime, options: CountdownOptions): CountdownHandle {
+    bind(owner: Lifetime, time: CountdownTime, options: CountdownOptions): CountdownHandle {
         options = { ...options };
         countdownSeconds(options.deadlineMs, time.nowMs());
-        const label = this.getComponent(Label)!,
-            report = options.onError ?? reportError;
+        const report = options.onError ?? reportError;
         let off = () => {},
             ended = false,
             last = -1;
-        const scope = this.beginBinding(owner, 'countdown', () => {
+        const scope = this.lifetime.begin(owner, 'countdown', () => {
             off();
             game.off(Game.EVENT_SHOW, refresh);
             this.refreshCurrent = undefined;
         });
         const refresh = () => {
-            if (!this.current(scope) || ended) return;
+            if (!this.lifetime.current(scope) || ended) return;
             try {
                 const seconds = countdownSeconds(options.deadlineMs, time.nowMs());
                 if (seconds !== last) {
                     const text = (options.format ?? formatCountdown)(seconds);
-                    if (!this.current(scope)) return;
-                    label.string = text;
+                    if (!this.lifetime.current(scope)) return;
+                    this.string = text;
                     last = seconds;
                 }
                 if (seconds === 0) {
@@ -125,7 +124,26 @@ export class CountdownLabel extends ScopedComponent {
         return Object.freeze({ refresh, dispose: () => scope.close() });
     }
     /** @internal 每帧读取框架时间，仅剩余秒数变化时写 Label；不使用 dt 累加。 */
-    protected onTick(): void {
+    update(): void {
         this.refreshCurrent?.();
+    }
+    /** 停止当前计时，等待完成任务退出，保留最后文字。 */
+    clear(): Promise<void> {
+        return this.lifetime.clear();
+    }
+    /** @internal 保留 Label 的渲染、字体加载和材质行为。 */
+    onEnable(): void {
+        super.onEnable();
+        if (!EDITOR) this.lifetime.enable();
+    }
+    /** @internal 禁用时移除时间和前台事件订阅。 */
+    onDisable(): void {
+        this.lifetime.disable();
+        super.onDisable();
+    }
+    /** @internal 关闭完成回调的使用期限。 */
+    onDestroy(): void {
+        this.lifetime.destroy();
+        super.onDestroy();
     }
 }

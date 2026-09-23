@@ -1,5 +1,5 @@
 // 由 YZForge 自动生成。节点绑定通过工作台更新，业务逻辑写在派生脚本中。
-import { _decorator, Node, Button, Label, ScrollView, Sprite, Toggle } from 'cc';
+import { _decorator, Node, Button, Label, ScrollView, Sprite } from 'cc';
 import { UIView } from '../../../../../../framework/ui/ui-view';
 import type { ComponentsLabPageParams, ComponentsLabPageResult } from '../ComponentsLabPage.types';
 const { ccclass, property } = _decorator;
@@ -178,33 +178,43 @@ export class ComponentsLabPageBinding extends UIView<ComponentsLabPageParams, Co
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Node, visible: false })
-    private _bindNodeTabs: Node | null = null;
+    private _bindNodeTextControls: Node | null = null;
     /**
-     * 自动绑定节点 node_tabs 的 Node；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 node_text_controls 的 Node；节点改名或增删后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
-    protected get nodeTabs(): Node {
-        return this.requireBinding(this._bindNodeTabs, 'node_tabs');
+    protected get nodeTextControls(): Node {
+        return this.requireBinding(this._bindNodeTextControls, 'node_text_controls');
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
-    @property({ type: Toggle, visible: false })
-    private _bindToggleAlpha: Toggle | null = null;
+    @property({ type: Button, visible: false })
+    private _bindBtnLongText: Button | null = null;
     /**
-     * 自动绑定节点 toggle_alpha 的 Toggle；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_long_text 的 Button；节点改名或增删后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
-    protected get toggleAlpha(): Toggle {
-        return this.requireBinding(this._bindToggleAlpha, 'toggle_alpha');
+    protected get btnLongText(): Button {
+        return this.requireBinding(this._bindBtnLongText, 'btn_long_text');
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
-    @property({ type: Toggle, visible: false })
-    private _bindToggleBeta: Toggle | null = null;
+    @property({ type: Button, visible: false })
+    private _bindBtnShortText: Button | null = null;
     /**
-     * 自动绑定节点 toggle_beta 的 Toggle；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_short_text 的 Button；节点改名或增删后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
-    protected get toggleBeta(): Toggle {
-        return this.requireBinding(this._bindToggleBeta, 'toggle_beta');
+    protected get btnShortText(): Button {
+        return this.requireBinding(this._bindBtnShortText, 'btn_short_text');
+    }
+    /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
+    @property({ type: Node, visible: false })
+    private _bindNodeMarquee: Node | null = null;
+    /**
+     * 自动绑定节点 node_marquee 的 Node；节点改名或增删后通过工作台更新绑定。
+     * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
+     */
+    protected get nodeMarquee(): Node {
+        return this.requireBinding(this._bindNodeMarquee, 'node_marquee');
     }
     /** @internal 框架初始化时验证全部绑定；重新生成会更新此方法。 */
     protected validateBindings(): void {
@@ -225,8 +235,9 @@ export class ComponentsLabPageBinding extends UIView<ComponentsLabPageParams, Co
         void this.btnError;
         void this.lblCountdown;
         void this.btnRestart;
-        void this.nodeTabs;
-        void this.toggleAlpha;
-        void this.toggleBeta;
+        void this.nodeTextControls;
+        void this.btnLongText;
+        void this.btnShortText;
+        void this.nodeMarquee;
     }
 }

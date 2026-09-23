@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Scope } from '../assets/framework/core/scope';
 import { AsyncButtonController } from '../assets/framework/ui/components/async-button/async-button-controller';
-import { TabController } from '../assets/framework/ui/components/tab-group/tab-controller';
+import { marqueeOffset } from '../assets/framework/ui/components/marquee/marquee-motion';
 import { countdownSeconds, formatCountdown } from '../assets/framework/ui/components/countdown/countdown';
 import {
     SafeEdge,
@@ -74,109 +74,16 @@ test('异步按钮失败后恢复；宿主取消阻止旧提交并等待任务�
     assert.equal(writes, 0);
 });
 
-test('页签 A→B→C：未启动的 B 也传递 A 的任务及清理屏障', async () => {
-    const owner = new Scope('tabs'),
-        work = deferred(),
-        cleanup = deferred();
-    const opened: string[] = [];
-    let writes = 0;
-    const tabs = new TabController(
-        owner,
-        new Set(['a', 'b', 'c']),
-        async (id, task) => {
-            opened.push(id);
-            if (id === 'a') {
-                task.scope.defer(() => cleanup.promise);
-                await work.promise;
-                task.commit(() => writes++);
-            }
-        },
-        () => {},
-    );
-    const a = tabs.select('a');
-    const rejectedA = assert.rejects(a, { code: 'OPERATION_CANCELLED' });
-    await flush();
-    const b = tabs.select('b');
-    const rejectedB = assert.rejects(b, { code: 'OPERATION_CANCELLED' });
-    const c = tabs.select('c');
-    await Promise.all([rejectedA, rejectedB]);
-    await flush();
-    assert.deepEqual(opened, ['a']);
-    work.resolve();
-    await flush();
-    assert.deepEqual(opened, ['a']);
-    cleanup.resolve();
-    await c;
-    assert.deepEqual(opened, ['a', 'c']);
-    assert.equal(writes, 0);
-    assert.equal(tabs.selected, 'c');
-    await owner.close();
-    assert.equal(tabs.selected, undefined);
-    assert.equal(owner.inspect().children.length, 0);
-});
-
-test('页签同选不重复；非法选择保留旧页签；原始错误可见并能重试', async () => {
-    const owner = new Scope('tabs'),
-        gate = deferred();
-    let calls = 0,
-        fail = true;
-    const error = new Error('prepare failed');
-    const tabs = new TabController(
-        owner,
-        new Set(['a', 'b']),
-        async (id) => {
-            calls++;
-            if (id === 'a') await gate.promise;
-            else if (fail) {
-                fail = false;
-                throw error;
-            }
-        },
-        () => {},
-    );
-    const a = tabs.select('a');
-    assert.equal(a, tabs.select('a'));
-    assert.throws(() => tabs.select('missing'), { code: 'TAB_ID_INVALID' });
-    gate.resolve();
-    await a;
-    assert.equal(calls, 1);
-    assert.equal(tabs.selected, 'a');
-    await assert.rejects(tabs.select('b'), (value) => value === error);
-    await flush();
-    assert.equal(tabs.selected, undefined);
-    await tabs.select('b');
-    assert.equal(calls, 3);
-    await tabs.dispose();
-    await owner.close();
-});
-
-test('关闭准备中的页签，禁止迟到节点提交并排空资源', async () => {
-    const owner = new Scope('tabs'),
-        gate = deferred();
-    let released = false,
-        committed = false;
-    const tabs = new TabController(
-        owner,
-        new Set(['a']),
-        async (_, task) => {
-            task.scope.defer(() => {
-                released = true;
-            });
-            await gate.promise;
-            committed = task.commit(() => {});
-        },
-        () => {},
-    );
-    const pending = tabs.select('a');
-    const rejected = assert.rejects(pending, { code: 'OPERATION_CANCELLED' });
-    await flush();
-    const closing = owner.close();
-    await rejected;
-    assert.equal(released, false);
-    gate.resolve();
-    await closing;
-    assert.equal(released, true);
-    assert.equal(committed, false);
+test('滚动文本：短文本静止，首尾停留，平滑往返，大帧间隔不越界', () => {
+    assert.equal(marqueeOffset(50, 0, 40, 1), 0);
+    assert.equal(marqueeOffset(2, 100, 0, 1), 0);
+    assert.equal(marqueeOffset(0.5, 100, 50, 1), 0);
+    assert.equal(marqueeOffset(2, 100, 50, 1), -50);
+    assert.equal(marqueeOffset(3.5, 100, 50, 1), -100);
+    assert.equal(marqueeOffset(5, 100, 50, 1), -50);
+    assert.equal(marqueeOffset(6, 100, 50, 1), 0);
+    assert.equal(marqueeOffset(6000002, 100, 50, 1), -50);
+    assert.throws(() => marqueeOffset(Infinity, 100, 50, 1), RangeError);
 });
 
 const full = { left: 0, right: 720, bottom: 0, top: 1280 };

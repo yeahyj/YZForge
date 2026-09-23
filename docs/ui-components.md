@@ -1,45 +1,96 @@
 # 通用 UI 组件
 
-这组组件位于 `assets/framework/ui/components`，适用于 Cocos Creator 3.8.8。**默认通过 Inspector 配置使用，不需要先写 bind 或传 Scope。** 在“添加组件 → YZForge → UI”中选择组件。业务样式、预制体、加载规则和数据仍放在业务模块。
+入口：**添加组件 → YZForge → UI**。组件挂在节点上，通过自身接口使用；普通操作不需要先 bind 或传 Scope。示例入口：**UI 与 Part → 通用组件**。
 
-| 组件           | 用途                                         | 需要的 Cocos 组件                           |
-| -------------- | -------------------------------------------- | ------------------------------------------- |
-| SafeWidget     | 指定边避让安全区，保留 Widget 基础边距       | Widget、UITransform、所属 Canvas 的正交相机 |
-| AsyncButton    | 防连点、忙碌提示、任务取消                   | Button                                      |
-| AsyncSprite    | 占位图、失败图、快速换图与资源释放           | Sprite                                      |
-| ViewState      | loading / content / empty / error 四态及重试 | 四个业务子节点，可选 Button                 |
-| CountdownLabel | 按绝对截止时间显示，校时及恢复前台后修正     | Label                                       |
-| TabGroup       | 拖入 Toggle 与内容节点直接切换；可选动态加载 | ToggleContainer、Toggle、对应内容节点       |
+| 组件           | 挂载方式                                      | 常用接口                                      |
+| -------------- | --------------------------------------------- | --------------------------------------------- |
+| SafeWidget     | 挂在固定布局节点，自动补齐 Widget/UITransform | refresh、setBaseOffsets                       |
+| AsyncButton    | 直接作为 Button 使用，同节点无需再挂 Button   | run、interactable、clickEvents                |
+| AsyncSprite    | 直接作为 Sprite 使用，同节点无需再挂 Sprite   | setSource、spriteFrame、sizeMode              |
+| CountdownLabel | 直接作为 Label 使用，同节点无需再挂 Label     | startFor、startUntil、restart、stop、fontSize |
+| Switch         | 挂在要切换子节点的父节点上                    | updateCheck、updateCheckByName                |
+| MarqueeLabel   | 挂在空 UI 节点，自动创建裁剪与文本            | string、speed、play、pause、restart           |
 
-## 先用编辑器配置
+按钮、图片、倒计时直接继承 Cocos 原生类型。字体、颜色、按钮过渡、九宫格等仍使用原生属性；getComponent(Button/Sprite/Label) 也能取得相应子类。工作台仍按 btn_、spr_、lbl_ 自动生成原生类型引用，需要扩展方法时通过 getComponent(AsyncButton) 等取得具体类型。
 
-放在框架创建的 UI 或 Part 里，生命周期自动接入；直接放到场景里的组件沿用项目现有的 `app.bindScene` 接入方式。除 SafeWidget 外不需要手动调用引擎生命周期，也不要在业务中覆盖它们。静态图片继续直接使用 Cocos Sprite；只有按需加载或运行时换图才需要 AsyncSprite。
+Switch、SafeWidget、滚动文本以及按钮 run、倒计时可在普通节点使用。AsyncSprite 的 spriteFrame 是普通原生接口；按逻辑资源名 setSource 时需要模块的 Assets，框架 UI/Part 自动注入，手工场景使用已有 app.bindScene。不会另起 resources.load 或全局资源单例绕过框架持有规则。
 
-| 需要什么          | 在 Inspector 做什么                                            | 普通业务最多写什么                                                                            |
-| ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| 避让刘海          | 挂 SafeWidget，选边和对称策略                                  | 无                                                                                            |
-| 防连点            | Button 上挂 AsyncButton，填点击间隔，可拖忙碌提示节点          | 无；普通 Button 点击事件照常配置                                                              |
-| 等待真实异步提交  | 同上                                                           | 点击回调里 `await button.run(async task => { ... })`                                          |
-| 动态图片          | 填初始资源名，拖占位图、失败图                                 | 换图调用 `await image.setSource(key)`；按钮也可直接连接 `loadFromEvent`，自定义数据填写资源名 |
-| 加载/内容/空/失败 | 拖四个根节点，选初始状态，拖重试按钮和重试事件                 | `state.showLoading()` / `showContent()` / `showEmpty()` / `showError()`，也可直接连接按钮事件 |
-| 倒计时            | 勾自动开始，填秒数、显示格式和完成事件                         | 固定时长无需代码；服务器截止时间调用 `timer.startUntil(ms)`                                   |
-| 普通页签          | 在“页签与内容”数组里逐项拖入 Toggle 和对应内容节点，填默认索引 | 无；也支持 `tabs.selectIndex(1)`、`next()`、`previous()`                                      |
+## Switch：只做子节点切换
 
-CountdownLabel 默认格式为 `{hh}:{mm}:{ss}`，可填 `{mm}:{ss}` 或 `剩余 {seconds} 秒`。`restart()` 和 `stop()` 可直接连 Button.clickEvents；完成事件每次只触发一次。TabGroup 的普通模式保留业务节点，只切换 active，不重新创建页面，页面内的数据不会因切换自动丢失。
+在父节点挂 Switch，Inspector 配置“显示的子节点索引”，默认 [0]。直接子节点可自由命名，不需要 ToggleContainer，也不限制只能显示一个。
 
-这些方法在组件业务激活后调用；通常来自按钮回调。按钮 `run` 在未激活/正在清理时返回 false。页面 onShow 需要立即启动任务、虚拟列表需要每个 item 独立期限，或页签需要按需创建 Part 时，再使用下文的高级 bind 接口。统一 TypeScript 入口为 `assets/framework/ui/components/index.ts`，也可按文件导入。
+```ts
+const content = this.nodeState.getComponent(Switch)!;
+content.updateCheck(0);                     // 显示第一个
+content.updateCheck(0, 2);                  // 同时显示第一、第三个
+content.updateCheck();                      // 全部隐藏
+content.updateCheckByName('content');        // 按名字选择
+content.updateCheckByName('icon', 'badge');  // 可多选
+```
 
-**可以直接查看示例预制体的 Inspector：**换图、四态、倒计时、普通页签的事件和引用已经配置，`ComponentsLabPage.ts` 中没有它们的绑定代码。
+按名字选择会同步保存当前索引，再次启用不会退回旧选择。重复索引去重；不存在的索引或名字忽略，同名节点全部选中。checkIndex 返回副本，直接给 checkIndex 赋新数组也会立即刷新。代码增删或重排子节点后调用 refresh，选择仍按索引解释。
 
-## 生命周期与自动绑定
+Button.clickEvents 可直接指向 Switch.selectFromEvent，自定义事件数据填写名字；多选用英文逗号分隔。切换不会销毁节点、创建 Part 或发起请求。加载/内容/空/错误只需四个子节点，用 Switch 表达；请求取消、重试和数据由业务处理。因此已移除原 ViewState 和复杂 TabGroup，不再提供一套固定四态或动态页签流程。
 
-除自动布局的 SafeWidget 外，其余组件继承现有 GameComponent，自动使用 UI / Part 激活期。禁用、节点失活、销毁或页面结束时取消任务并解绑；再次激活自动恢复 Inspector 配置。高级 `bind(owner, ...)` 可显式使用 `show.scope`、`activation.scope` 或虚拟列表的 `item.scope`，也能在首次激活前调用；显式绑定优先于自动配置，不会启动两套行为。自定义绑定取消后，业务若要恢复该绑定，需要再次调用 bind。
+## AsyncButton：按钮本身可执行异步工作
 
-重新 `bind` 会同步取消旧绑定，旧任务在原 Scope 中继续排空。每次返回的句柄只操作自己的绑定，旧句柄的 `dispose()` 不会关闭新绑定。组件的 `clear()` 关闭当前绑定。两者都返回排空 Promise；需要等待资源归还时必须 `await`。**不要在绑定自己的回调中等待自己的 dispose/clear 或宿主关闭**，否则会等待当前任务本身。回调应响应 `task.signal`，异步后通过 `task.commit` 写界面。不配合取消的业务 Promise 仍会阻塞完整清理。
+默认 autoGuard=true，clickInterval=0.3 秒，普通点击事件仍在本组件的 clickEvents 配置。真实异步任务调用 run，任务与异步清理全部结束后才恢复可点击。
 
-保留现有自动绑定：节点继续命名为 `btn_submit`、`spr_icon`、`lbl_countdown`、`node_state`、`node_tabs`、`toggle_goods` 等；工作台生成 Button、Sprite、Label、Node、Toggle 引用，业务用 `getComponent(AsyncButton)` 等取得增强组件，无需增加绑定前缀。
+```ts
+const button = this.btnSubmit.getComponent(AsyncButton)!;
+await button.run(async task => {
+    const result = await service.submit(task.signal);
+    task.commit(() => { this.lblResult.string = result.message; });
+});
+```
 
-程序调用 `press/set/reload/select` 的错误由调用方处理；真实点击由 `onError` 接收非取消错误，默认交给框架日志。取消使用 `OperationCancelled`。清理错误仍由 Scope 聚合并上报，不能把日志吞掉视为成功。输入校验和已取消状态可能同步抛错，推荐在 `async` 流程中 `try/await/catch`。
+在组件启用后的事件中调用。忙碌、禁用、框架尚未允许当前页面工作或旧停用尚未排空时返回 false；成功返回 true，业务失败拒绝 Promise。busyVisual 是可选提示子节点。禁用/销毁同步取消，迟到结果不能通过 task.commit 回写。
+
+## AsyncSprite：保留原生 Sprite，用一行换资源
+
+Inspector 的 source 填当前模块逻辑资源名即可自动加载，留空保留原生静态图；placeholder 和 failure 分别指定加载及失败图。
+
+```ts
+const image = this.sprIcon.getComponent(AsyncSprite)!;
+await image.setSource('icons/alpha/token');
+await image.setSource(null); // 清空并等待旧任务和资源归还
+// 已有 SpriteFrame 也可直接使用 image.spriteFrame = frame。
+```
+
+setSource 接受 SpriteFrame 资源 Key 或逻辑名称，不是 URL、磁盘路径或 ImageAsset。连续换图取消旧请求，仅最新请求能够显示；每次成功持有资源到替换、清空或禁用。仍使用已有 Assets 的加载合并和引用管理。Button.clickEvents 可指向 loadFromEvent，自定义事件数据填逻辑名称。调用方处理加载失败和 OperationCancelled。
+
+## CountdownLabel：文本本身就是倒计时
+
+原生 Label 属性直接可用。autoStart 默认 true，duration 默认 60 秒；textFormat 支持 {hh}、{mm}、{ss}、{seconds}，默认 {hh}:{mm}:{ss}。mm 是小时内分钟，seconds 是剩余总秒数。
+
+```ts
+const timer = this.lblCountdown.getComponent(CountdownLabel)!;
+timer.textFormat = '剩余 {seconds} 秒';
+timer.startFor(30);
+timer.startUntil(offer.endsAtMs); // UTC 毫秒截止时间
+timer.stop();                    // 保留最后文字
+timer.restart();                 // 使用 Inspector 中的 duration
+```
+
+普通独立节点读取设备时间，框架实例自动使用现有 TimeService。根据绝对截止时刻计算，不靠 dt 累减；每秒变化才更新文字。前台恢复与校时立即重算。completedEvents 每次计时只触发一次，时钟回拨不会重复；重新开始会取消旧的待执行完成通知。禁用时取消订阅与完成任务，再次启用按 autoStart 配置启动。
+
+## MarqueeLabel：固定宽度，超宽自动滚动
+
+挂在空 UI 节点，UITransform 的宽高就是可见区域。填 string、字体、字号、行高、颜色；速度 speed 是每秒设计像素，pauseDuration 是首尾各停留的秒数。默认单行、左对齐、往返滚动：读完末尾后平滑返回开头。短文本和空文本保持静止，换行会转为空格。
+
+```ts
+const text = this.nodeMessage.getComponent(MarqueeLabel)!;
+text.string = message;
+text.speed = 60;
+text.pauseDuration = 1;
+text.pause();   // 保持位置
+text.play();    // 继续
+text.restart();// 从开头重新播放
+```
+
+string、字体、字号或容器宽度变化会重新测量并从开头开始。普通赋值下一帧生效，需要同帧测量可调用 refresh。只改文字子节点的位置，不改根节点尺寸或位置，能配合外部 Widget；稳定滚动不重新生成文字贴图。禁用隐藏自有文字且不再更新，重新启用按 autoPlay 从开头播放。
+
+这个组件采用容器组合，因为 [Cocos Mask 只裁剪子节点，不能和 Label 放在同一个渲染节点](https://docs.cocos.com/creator/3.8/manual/en/ui-system/components/editor/mask.html)。组件会自动创建文本子节点，使用方不必搭层级。Mask 与 MarqueeText 由组件管理，不要再在根节点叠加 Sprite/Label。字体资源使用原生 Label 的字体行为，编辑器只预览内容，不播放滚动。
 
 ## SafeWidget
 
@@ -68,101 +119,35 @@ safe.setBaseOffsets({ top: 16, left: 24, right: 24 });
 
 预览模拟以整个实际窗口为参考，包括固定设计尺寸周围已有的留白。缺口仍在留白内时，内容无需移动。这与真机安全区相交的判断一致；示例页的“模拟刘海”会越过已有留白，让避让可见。
 
-## AsyncButton 的高级绑定
+## 列表复用与自定义期限
 
-```ts
-this.btnSubmit.getComponent(AsyncButton)!.bind(show.scope, async task => {
-    const result = await service.submit(task.signal);
-    task.commit(() => { this.lblResult.string = result.message; });
-}, error => this.showFailure(error));
-```
-
-- `busyVisual`：可选子节点，忙碌时显示；节点样式由业务预制体提供。
-- `handle.press(): Promise<boolean>`：程序触发；执行成功返回 true，忙碌、不可交互或节点尚未激活返回 false，失败拒绝。
-- `handle.setInteractable(value)`：修改空闲时的可交互状态；忙碌期间保持禁用。
-- `handle.dispose()`：立即取消、移除本组件点击监听，恢复绑定前的 interactable 和忙碌节点状态，等待任务清理。
-
-忙碌覆盖业务 Promise **和本次 task.scope 的异步清理**，避免清理未结束就接受下一次点击。组件绑定期间接管 Button.interactable；不要同时通过 Button.clickEvents 或其他监听重复执行提交业务。页面长期显示的数据/资源应由 show.scope 持有，按钮 task.scope 只覆盖本次操作。组件没有自动重试，也不能撤销已经成功提交到服务器的变更。
-
-## AsyncSprite 的高级绑定
-
-在 Sprite 所在节点挂载，Inspector 可指定静态 `placeholder`、`failure`。静态引用由所属预制体管理，不能拿其他短期 Scope 加载的资源随意充当长期占位图。
+普通操作使用上面的组件接口；需要 item.scope、自定义时间源或指定资源入口时，可使用高级 bind。每次返回的句柄只操作自己的绑定，旧 dispose 不会影响新绑定。
 
 ```ts
 const image = this.sprIcon.getComponent(AsyncSprite)!.bind(item.scope, this.ctx.assets);
-void image.set(ItemRes.sprite.icon).catch(error => {
-    if (!(error instanceof OperationCancelled)) reportError(error);
+await image.set(ItemRes.sprite.icon);
+
+const click = this.btnSubmit.getComponent(AsyncButton)!.bind(item.scope, async task => {
+    await service.submit(task.signal);
+    task.commit(() => this.renderDone());
 });
-```
+click.setInteractable(true);
+await click.press();
 
-`set(key)` 接收 `AssetKey<'SpriteFrame'>` 或当前资源入口可解析的逻辑名称，不是 URL、磁盘路径或 ImageAsset。每次调用先显示占位图并取消前一次请求；成功后持有该图片至替换、清空或绑定结束。只有最新请求能写入显示和 `state`（empty/loading/ready/error）。失败显示 failure，并向调用方抛原错误。
-
-`set(null)` 同步清空显示并取消旧请求；它不等待旧请求实际排空。`dispose()` 清空图片并等待资源归还。复用条目时每次 render 传新的 item.scope 重新绑定即可；旧请求和旧句柄不会覆盖新条目。仍使用现有 Assets 的共享加载和引用管理，不另外下载远程图片、不建立另一套缓存，不要手动 decRef。
-
-## ViewState 的异步加载模式
-
-组件根节点下准备四个不同的**直接子节点**，分别填写 `loading/content/empty/error`，它们的内容完全由业务决定。可选 `retryButton` 位于 error 子树；不要再给它绑定第二个加载处理器，也不要叠加会随 error 隐藏而取消的 AsyncButton。
-
-```ts
-const region = this.nodeState.getComponent(ViewState)!.bind(show.scope, async task => {
-    const rows = await service.query(task.signal);
-    task.commit(() => { this.renderRows(rows); });
-    return rows.length ? 'content' : 'empty';
-}, error => this.renderError(error));
-await region.reload();
-```
-
-`bind` 初始显示 loading，但**不自动调用加载函数**。`reload()` 使用 Actions.latest：再次调用立即取消旧结果等待，最后一次成功返回 content 或 empty；失败切到 error 并拒绝。点击 retryButton 调用同一 reload，支持反复失败后重试。业务更新同样使用 task.commit；需要持续显示的资源用外部 show/item Scope，不要绑定到一次请求的 task.scope。
-
-手动模式使用 `component.show('empty')` 等，它会结束旧异步绑定，再显示指定状态。绑定结束时四个区域全部隐藏；`handle.state` 记录本次最后状态。四态会触发子树的引擎启停，子树中需持续工作的组件应在重新显示时重新绑定。
-
-## CountdownLabel 的高级绑定
-
-```ts
-this.lblCountdown.getComponent(CountdownLabel)!.bind(show.scope, show.time, {
+this.lblCountdown.getComponent(CountdownLabel)!.bind(item.scope, this.ctx.time, {
     deadlineMs: offer.endsAtMs,
-    format: seconds => `${seconds} 秒`,
+    format: seconds => seconds + ' 秒',
     onComplete: task => { task.commit(() => this.renderExpired()); },
-    onError: reportError,
 });
 ```
 
-每帧读取现有 TimeService 的当前时间，以 `max(0, ceil((deadline-now)/1000))` 得到剩余秒数，仅秒数变化时改 Label；不使用 dt 累加。校时通知、前台恢复或 `handle.refresh()` 会立即重算。默认格式 `HH:mm:ss`，小时允许超过 24；也导出纯函数 `countdownSeconds` 和 `formatCountdown`。
+显式绑定允许在首次启用前配置，优先于自动 Inspector 行为。bind 同步取消旧绑定，旧任务由原 Scope 继续排空；停用后的完整清理期间重绑会报 UI_COMPONENT_DRAINING，应在下一次激活/列表 render 时绑定。图片句柄提供 set/state/dispose，状态为 empty/loading/ready/error；set(null) 同步清空但不等待旧请求物理退出，dispose 等待。倒计时句柄提供 refresh/dispose。
 
-每次绑定只完成一次，时间回拨不会重新触发完成；重新 bind 可更换截止时间。已经到期时立即显示 0，在受跟踪任务中执行 onComplete；禁用或关闭会取消未执行的通知、退订并等待已开始的任务。dispose 保留最后文字。默认时间可能来自本机，组件只负责显示；服务器校时、时间可信度和最终奖励结算沿用 TimeService 与业务服务的规则。
-
-## TabGroup 的动态内容模式
-
-普通页签使用上方 Inspector 配置即可。只有内容需要按需创建、离开销毁时，使用这里的高级模式。组节点挂 ToggleContainer 和 TabGroup，每个 Toggle 位于它的直接子节点。`contentRoot` 是同一业务预制体中的空 UITransform 节点，可以放背景组件，但不要预放业务内容或放进 Toggle 子树。定义必须覆盖本组全部启用的 Toggle，ID 和 Toggle 均唯一。
-
-```ts
-const tabs = this.nodeTabs.getComponent(TabGroup)!.bind(show.scope, [
-    {
-        id: 'goods',
-        toggle: this.toggleGoods,
-        open: async task => {
-            const assets = show.assets.in(task.scope);
-            const node = await assets.instantiate(ShopRes.prefab.goodsPart, task.parent, { active: false });
-            task.commit(() => {
-                node.getComponent(GoodsPart)!.render(model);
-                assets.activate(node);
-            });
-        },
-    },
-    { id: 'details', toggle: this.toggleDetails, open: task => this.openDetails(task) },
-]);
-await tabs.select('goods');
-```
-
-`bind` 清除选择；由业务显式 `select(id)`。准备期间 `selected` 已是目标 ID，整个内容容器保持隐藏，open 完成后才显示。切换先取消并隐藏旧内容，等待旧任务、Part 和资源清理后才打开下一项。A→B→C 快速选择时，未启动的 B 不会打开，C 仍等待 A 的真实清理；同一有效 ID 复用当前操作，不重复创建，重复点击当前 Toggle 保持选中。
-
-创建内容要使用提供的 `task.scope` 和 `task.parent`；不要从其他页面搬已有节点进来，也不要自行改变 Toggle 选择或重复绑定加载事件。每次重新进入都创建新内容，本组件不缓存页面。保持跨页签数据时把业务状态放在外部 Service，而非依赖 Part 实例存活。
-
-加载失败向调用方/点击上报器交付原错误，清理失败内容并清除选中，可再次选择重试。关闭时恢复绑定前的 Toggle 状态与 allowSwitchOff。重绑前必须 `await` 旧句柄 dispose，确保 contentRoot 已为空；否则报 `TAB_SETUP`。非法 ID 报 `TAB_ID_INVALID`，不关闭当前页签。
+clear 关闭组件当前绑定，dispose 关闭指定绑定，均返回排空 Promise。不要在一个任务内部等待自己的 clear/dispose，否则会等待自身。业务必须响应 signal，await 后用 task.commit；不响应取消的物理任务仍会阻塞完整清理。原生继承没有放弃 Scope：内部是普通 TypeScript 生命周期对象，不是额外挂载的组件；UI、Part、场景绑定与 VirtualList 的现有实例遍历都会收集它们并等待关闭。
 
 ## 示例与验证
 
-预览 Bootstrap → **UI 与 Part → 通用组件 / 安全区与异步交互**。滚动页面可体验全部组件。示例代码为 `showcase/code/ui/ComponentsLabPage.ts`，业务预制体为 `showcase/bundles/default/dynamic/ui/ComponentsLabPage.prefab`。动态页签的测试示例使用同模块的 `ComponentTabPart.prefab`，继承现有自动 Binding 和 GameComponent。
+业务示例仍在 showcase 模块的 ComponentsLabPage 脚本和同名预制体。原生控件替换通过当前 Cocos MCP 保留节点、样式和原生组件 fileId，自动绑定重新扫描。换图、Switch、倒计时和长短文本切换都可查看 Inspector 事件配置。
 
 ```sh
 npm run verify
@@ -170,6 +155,4 @@ npm run test:showcase
 node tests/integration/verify-ui-components.mjs http://127.0.0.1:7456/
 ```
 
-集成测试通过当前 Cocos MCP 创建独立隐藏预览窗口，使用真实引擎、Sprite 资源、Toggle、Widget、Part 与 Scope，验证 Inspector 配置、异步竞态、重复重试、校时、禁用/重绑/销毁、窗口旋转、嵌套及百分比安全区，并保存截图。结束时恢复设备与方向选项、关闭窗口。`author-ui-components.mjs` 和后续 `configure-ui-components.mjs` 是一次性制作记录，不属于日常测试，不能在已有内容上重复执行。
-
-审查与实际验证范围见 [通用组件审查](ui-components-review.md)。微信和原生的真实安全区、前后台通知仍需目标设备验收。
+测试通过当前 MCP 创建独立隐藏预览，验证真实鼠标输入、资源、独立节点、框架生命周期、切换与滚动、安全区和横竖屏，并保存截图；结束恢复预览选项并关闭窗口。[审查记录](ui-components-review.md) 列出实际验证范围，微信及原生真机仍需设备验收。

@@ -1,10 +1,10 @@
 import { _decorator, Button, isValid, Node } from 'cc';
+import { EDITOR } from 'cc/env';
 import { type ErrorReporter, invariant, OperationCancelled, reportError } from '../../../core/errors';
 import type { Lifetime, TaskContext } from '../../../core/scope';
-import type { ActivationContext } from '../../../core/game-component';
-import { ScopedComponent } from '../scoped-component';
+import { ComponentScope, type ComponentContext } from '../component-scope';
 import { AsyncButtonController } from './async-button-controller';
-const { ccclass, property, requireComponent, disallowMultiple, menu } = _decorator;
+const { ccclass, property, disallowMultiple, menu } = _decorator;
 
 /** 一次按钮绑定；dispose 仅结束该次绑定，不影响同一组件后来建立的绑定。 */
 export interface AsyncButtonHandle {
@@ -15,12 +15,12 @@ export interface AsyncButtonHandle {
     /** 立即解绑和恢复按钮，等待本次操作清理；不要在操作内部 await 自己的 dispose。 */
     dispose(): Promise<void>;
 }
-/** 异步按钮：组合原生 Button，复用 Actions 防连点，绑定结束时同步取消工作。 */
+/** 原生 Button 的扩展：保留全部按钮属性与事件，直接 run 执行业务，禁用时取消任务。 */
 @ccclass('yzforge.AsyncButton')
 @menu('YZForge/UI/异步按钮')
-@requireComponent(Button)
 @disallowMultiple
-export class AsyncButton extends ScopedComponent {
+export class AsyncButton extends Button {
+    private readonly lifetime = new ComponentScope(this, (context) => this.onAutomaticActivate(context));
     /** 挂上即可防连点，普通点击仍使用 Button.clickEvents；显式 bind 会接管此模式。 */
     @property({ displayName: '自动防连点' }) autoGuard = true;
     /** 普通点击后禁用的秒数；等待真实异步任务使用 run，无需传 Scope。 */
@@ -28,7 +28,7 @@ export class AsyncButton extends ScopedComponent {
     /** 可选忙碌提示子节点；样式由业务预制体提供，不能引用自身或祖先。 */
     @property({ type: Node, displayName: '忙碌提示节点' }) busyVisual: Node | null = null;
     private runningConvenience = false;
-    protected onAutomaticActivate(activation: ActivationContext): void {
+    private onAutomaticActivate(activation: ComponentContext): void {
         if (!this.autoGuard) return;
         invariant(
             Number.isFinite(this.clickInterval) && this.clickInterval >= 0,
@@ -56,15 +56,15 @@ export class AsyncButton extends ScopedComponent {
      * @param work 本次任务，取消时响应 task.signal。
      */
     async run(work: (task: TaskContext) => void | Promise<void>): Promise<boolean> {
-        const activation = this.activationContext;
-        if (!activation || activation.signal.aborted || !this.enabledInHierarchy || this.runningConvenience)
+        const activation = this.lifetime.context;
+        if (!activation || activation.scope.signal.aborted || !this.enabledInHierarchy || this.runningConvenience)
             return false;
         this.runningConvenience = true;
         let handle: AsyncButtonHandle | undefined;
-        let scope = this.bindingScope;
+        let scope = this.lifetime.binding;
         try {
             handle = this.bind(activation.scope, work);
-            scope = this.bindingScope;
+            scope = this.lifetime.binding;
             return await handle.press();
         } finally {
             try {
@@ -73,9 +73,9 @@ export class AsyncButton extends ScopedComponent {
                 this.runningConvenience = false;
                 if (
                     handle &&
-                    this.bindingScope === scope &&
-                    this.activationContext === activation &&
-                    !activation.signal.aborted
+                    this.lifetime.binding === scope &&
+                    this.lifetime.context === activation &&
+                    !activation.scope.signal.aborted
                 )
                     this.onAutomaticActivate(activation);
             }
@@ -101,21 +101,20 @@ export class AsyncButton extends ScopedComponent {
             '忙碌提示必须是子节点',
         );
         void this.clear().catch(reportError);
-        const button = this.getComponent(Button)!;
         const node = this.node;
-        const original = button.interactable,
+        const original = this.interactable,
             visual = this.busyVisual;
         const originalVisible = visual?.active ?? false;
         let enabled = original,
             busy = false;
-        const scope = this.beginBinding(owner, 'async-button', () => {
+        const scope = this.lifetime.begin(owner, 'async-button', () => {
             node.off(Button.EventType.CLICK, clicked);
-            if (isValid(button, true)) button.interactable = original;
+            if (isValid(this, true)) this.interactable = original;
             if (isValid(visual, true)) visual!.active = originalVisible;
         });
         const render = () => {
-            if (!this.current(scope)) return;
-            button.interactable = enabled && !busy;
+            if (!this.lifetime.current(scope)) return;
+            this.interactable = enabled && !busy;
             if (isValid(visual, true)) visual!.active = busy;
         };
         const controller = new AsyncButtonController(scope, work, (value) => {
@@ -124,7 +123,7 @@ export class AsyncButton extends ScopedComponent {
         });
         const press = () => {
             scope.signal.throwIfAborted();
-            return this.enabledInHierarchy && button.interactable ? controller.press() : Promise.resolve(false);
+            return this.enabledInHierarchy && this.interactable ? controller.press() : Promise.resolve(false);
         };
         const clicked = () => {
             if (scope.signal.aborted) return;
@@ -132,7 +131,7 @@ export class AsyncButton extends ScopedComponent {
                 if (!(error instanceof OperationCancelled)) onError(error);
             });
         };
-        button.node.on(Button.EventType.CLICK, clicked);
+        node.on(Button.EventType.CLICK, clicked);
         render();
         return Object.freeze({
             press,
@@ -143,5 +142,24 @@ export class AsyncButton extends ScopedComponent {
             },
             dispose: () => scope.close(),
         });
+    }
+    /** 取消当前操作和绑定，等待清理结束；保留原生按钮的配置。 */
+    clear(): Promise<void> {
+        return this.lifetime.clear();
+    }
+    /** @internal 保留原生 Button 输入与过渡动画生命周期。 */
+    onEnable(): void {
+        super.onEnable();
+        if (!EDITOR) this.lifetime.enable();
+    }
+    /** @internal 同步取消，原生按钮负责解绑触摸监听。 */
+    onDisable(): void {
+        this.lifetime.disable();
+        super.onDisable();
+    }
+    /** @internal 销毁后禁止旧任务提交。 */
+    onDestroy(): void {
+        this.lifetime.destroy();
+        super.onDestroy();
     }
 }

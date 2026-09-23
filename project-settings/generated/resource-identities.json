@@ -112,7 +112,7 @@
     "51a00c94-d6fd-466e-b612-8f560f8463b4": {
       "id": "showcase/default/prefab/prefabs/component-tab-part",
       "type": "Prefab",
-      "active": true,
+      "active": false,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/prefabs/ComponentTabPart.prefab"
     },
     "5749fee4-a52a-49eb-b411-c95cd8c19e1c": {

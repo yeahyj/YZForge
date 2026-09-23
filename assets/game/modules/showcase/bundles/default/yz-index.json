@@ -45,14 +45,6 @@
         "showcase"
       ]
     },
-    "showcase/default/prefab/prefabs/component-tab-part": {
-      "bundle": "m-showcase",
-      "path": "dynamic/prefabs/ComponentTabPart",
-      "type": "Prefab",
-      "requiredCodeModules": [
-        "showcase"
-      ]
-    },
     "showcase/default/prefab/prefabs/virtual-list-item-part": {
       "bundle": "m-showcase",
       "path": "dynamic/prefabs/VirtualListItemPart",

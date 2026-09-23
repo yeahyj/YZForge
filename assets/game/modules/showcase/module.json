@@ -161,11 +161,6 @@
       "uuid": "721bf3d6-8cd8-487d-b70d-2bd2f7f5ff95",
       "className": "showcase.VirtualListItemPart",
       "binding": "code/components/generated/VirtualListItemPartBinding.ts"
-    },
-    "component-tab-part": {
-      "uuid": "51a00c94-d6fd-466e-b612-8f560f8463b4",
-      "className": "showcase.ComponentTabPart",
-      "binding": "code/components/generated/ComponentTabPartBinding.ts"
     }
   }
 }

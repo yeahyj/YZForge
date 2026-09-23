@@ -2,6 +2,7 @@ import { _decorator, Component, isValid, Layout, Node, ScrollView, UITransform, 
 import type { ScopedAssets } from '../../../assets/asset-manager';
 import type { AssetKey } from '../../../assets/asset-types';
 import { GameComponent } from '../../../core/game-component';
+import { componentBindings } from '../../../core/component-binding';
 import { type ErrorReporter, invariant, reportError } from '../../../core/errors';
 import type { Lifetime } from '../../../core/scope';
 import {
@@ -159,7 +160,7 @@ export class VirtualList extends Component {
                 render: (cell, context) => options.render(cell.part, context),
                 activate: (cell) => options.assets.activate(cell.node),
                 deactivate: (cell) => {
-                    const parts = cell.node.getComponentsInChildren(GameComponent);
+                    const parts = componentBindings(cell.node);
                     for (const part of parts) part.__allow(undefined);
                     cell.node.active = false;
                     return Promise.all(parts.map((part) => part.__deactivate())).then(() => {});

@@ -20,7 +20,7 @@ async function waitForDemo(task: TaskContext, ms: number): Promise<void> {
     });
     task.signal.throwIfAborted();
 }
-/** 六个通用组件的业务组合示例；节点来自自动绑定，全部异步工作归本次 show。 */
+/** 通用组件示例；继承原生控件，子节点切换和滚动文本直接在 Inspector 配置。 */
 @ccclass('showcase.ComponentsLabPage')
 export class ComponentsLabPage extends ComponentsLabPageBinding {
     protected onShow(show: ViewShowContext<void, void>): void {
@@ -40,7 +40,7 @@ export class ComponentsLabPage extends ComponentsLabPageBinding {
                 });
             });
         });
-        // 换图、四态、倒计时和页签全部在 Inspector 配置，本页不为它们写绑定代码。
+        // 换图、Switch、倒计时和滚动文字直接在 Inspector 配置事件。
         const safe = this.nodeSafe.getComponent(SafeWidget)!;
         this.lblSafe.string = '安全区：设备实际边距';
         click(this.btnSafe, () => {

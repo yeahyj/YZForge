@@ -31,8 +31,6 @@ export const ShowcaseRes = {
     prefab: {
         /** Prefab：showcase/default/prefab/prefabs/badge-part。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         prefabsBadgePart: { id: 'showcase/default/prefab/prefabs/badge-part', type: 'Prefab' },
-        /** Prefab：showcase/default/prefab/prefabs/component-tab-part。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
-        prefabsComponentTabPart: { id: 'showcase/default/prefab/prefabs/component-tab-part', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/prefabs/virtual-list-item-part。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         prefabsVirtualListItemPart: { id: 'showcase/default/prefab/prefabs/virtual-list-item-part', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/async-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */

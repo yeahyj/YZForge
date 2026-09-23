@@ -13,7 +13,7 @@ import { ClockDriver, SystemClockDriver } from './clock-driver';
 import { Events } from './events';
 import { Scope, Lifetime } from './scope';
 import { FrameworkError } from './errors';
-import { GameComponent } from './game-component';
+import { componentBindings } from './component-binding';
 import { BootFlow } from './boot';
 import { BadgeStore } from '../badges/badge-store';
 import { HttpClient, type HttpClientOptions, type HttpTransport } from '../network/http-client';
@@ -257,7 +257,7 @@ export class App {
         this.assets.prepareCode = (id, owner) => this.modules.prepareCode(id, owner);
         this.assets.moduleReady = (id) => this.modules.isReady(id);
         this.assets.bindInstance = (node, scope, id, active) => {
-            const components = node.getComponentsInChildren(GameComponent);
+            const components = componentBindings(node);
             if (components.length && !id)
                 throw new FrameworkError(
                     'INSTANCE_MODULE_REQUIRED',
@@ -270,7 +270,7 @@ export class App {
                 }
         };
         this.assets.activateInstance = (node, scope) => {
-            for (const component of node.getComponentsInChildren(GameComponent)) component.__allow(scope);
+            for (const component of componentBindings(node)) component.__allow(scope);
         };
         this.ui = new UIManager(
             input.uiRoot,

@@ -48,19 +48,30 @@ try {
         `record('showcase.showcase-page').instance.view._bindBtnUi.node.emit(cc.Button.EventType.CLICK);await until(()=>record('showcase.ui-lab-page')?.interactive);record('showcase.ui-lab-page').instance.view._bindBtnComponents.node.emit(cc.Button.EventType.CLICK);await until(()=>record('showcase.components-lab-page')?.interactive);return true;`,
     );
     await run(`
-const state=v._bindNodeState.getComponent('yzforge.ViewState');await until(()=>state.content.active);
+const state=v._bindNodeState.getComponent('yzforge.Switch'),child=name=>state.node.getChildByName(name);
+check(v._bindBtnSubmit instanceof cc.Button && cc.js.getClassName(v._bindBtnSubmit)==='yzforge.AsyncButton','自动绑定未识别原生按钮子类');
+check(v._bindBtnSubmit.node.getComponents(cc.Button).length===1,'重复按钮组件');
+check(v._bindSprPreview.node.getComponents(cc.Sprite).length===1&&v._bindLblCountdown.node.getComponents(cc.Label).length===1,'重复图片或文本组件');
 for(let i=0;i<8;i++)click('_bindBtnSubmit');check(!v._bindBtnSubmit.interactable,'忙碌时未禁用');await until(()=>v._bindLblSubmit.string==='完成 1 次');await until(()=>v._bindBtnSubmit.interactable);
-click('_bindBtnLoading');check(state.loading.active,'Inspector 加载事件');click('_bindBtnContent');check(state.content.active,'Inspector 内容事件');
-click('_bindBtnReload');await until(()=>state.empty.active);click('_bindBtnError');await until(()=>state.error.active);
-state.retryButton.node.emit(cc.Button.EventType.CLICK);await until(()=>state.content.active);
-click('_bindBtnReload');await until(()=>state.empty.active);click('_bindBtnError');await until(()=>state.error.active);state.retryButton.node.emit(cc.Button.EventType.CLICK);await until(()=>state.content.active);
-const group=v._bindNodeTabs.getComponent('yzforge.TabGroup');check(group.selectedIndex===0&&group.pages[0].content.active&&!group.pages[1].content.active,'配置型页签初始状态');
-v._bindToggleAlpha.node.emit(cc.Button.EventType.CLICK);check(v._bindToggleAlpha.isChecked,'再次点击当前页签不应取消选中');
-v._bindToggleBeta.node.emit(cc.Button.EventType.CLICK);check(group.selectedIndex===1&&!group.pages[0].content.active&&group.pages[1].content.active,'拖拽内容未切换');
-group.previous();check(group.selectedIndex===0,'上一页 API');group.next();check(group.selectedIndex===1,'下一页 API');group.selectIndex(0);
+for(const [field,name]of [['_bindBtnLoading','loading'],['_bindBtnContent','content'],['_bindBtnReload','empty'],['_bindBtnError','error']]){click(field);check(child(name).active&&state.node.children.filter(n=>n.active).length===1,'Switch 编辑器事件 '+name);}
+state.updateCheck(0,2,2);check(child('loading').active&&child('empty').active&&!child('error').active,'Switch 多选');
+state.updateCheckByName('content');check(state.checkIndex.join(',')==='1','按名字未同步保存索引');state.enabled=false;state.enabled=true;check(child('content').active,'重新启用丢失名字选择');
+const copy=state.checkIndex;copy.push(0);state.refresh();check(!child('loading').active,'外部数组修改污染选择');state.updateCheck();check(state.node.children.every(n=>!n.active),'空选择未全部隐藏');state.updateCheckByName('content');
 const sprite=v._bindSprPreview;await until(()=>sprite.spriteFrame);const alphaId=sprite.spriteFrame.uuid;click('_bindBtnBeta');await until(()=>sprite.spriteFrame&&sprite.spriteFrame.uuid!==alphaId);click('_bindBtnAlpha');await until(()=>sprite.spriteFrame?.uuid===alphaId);
 click('_bindBtnRestart');check(v._bindLblCountdown.string==='00:15','Inspector 重启倒计时');return true;`);
-    console.log('PASS 编辑器配置：防连点与 run、四态/重试事件、自动换图、计时、拖拽页签');
+    console.log('PASS 原生继承、自动绑定、防连点、Switch 多选/名字/事件、换图与计时');
+    await run(`
+const host=new cc.Node('StandaloneComponents');host.active=false;host.layer=v.node.layer;v.node.addChild(host);
+const make=(name,type)=>{const n=new cc.Node(name);n.layer=host.layer;n.addComponent(cc.UITransform).setContentSize(160,50);host.addChild(n);return n.addComponent(cc.js.getClassByName(type));};
+const button=make('Button','yzforge.AsyncButton'),timer=make('Timer','yzforge.CountdownLabel'),sprite=make('Sprite','yzforge.AsyncSprite');button.autoGuard=false;timer.autoStart=false;host.active=true;
+let calls=0;check(await button.run(task=>task.commit(()=>calls++)),'独立节点 run 需要框架注入');check(calls===1,'独立按钮未执行');timer.startFor(20);check(timer.string==='00:00:20','独立倒计时未工作');sprite.spriteFrame=v._bindSprPreview.spriteFrame;check(sprite.spriteFrame,'原生 spriteFrame 接口不可用');
+const owner=page.show.scope.child('native-instance');app.assets.bindInstance(host,owner,'showcase',true);await until(()=>button.lifetime.context?.assets);check(button.lifetime.context.assets,'未注入模块资源');
+let release,finish,started=false,closed=false,writes=0;const gate=new Promise(r=>release=r),cleanup=new Promise(r=>finish=r);
+const pending=button.run(async task=>{started=true;task.scope.defer(()=>cleanup);await gate;task.commit(()=>writes++);}).catch(e=>check(e.code==='OPERATION_CANCELLED','实例取消错误'));
+await until(()=>started);const closing=owner.close().then(()=>closed=true);check(!button.lifetime.context,'实例取消未同步停用');await wait(20);check(!closed,'实例未等待原生子类任务');
+release();await wait(20);check(!closed,'实例未等待异步清理');finish();await Promise.all([pending,closing]);check(writes===0&&owner.inspect().children.length===0,'原生组件取消后回写或 Scope 泄漏');
+host.destroy();await wait(30);check(!cc.isValid(button,true)&&!cc.isValid(timer,true),'独立组件销毁失败');return true;`);
+    console.log('PASS 独立节点直接使用、后续框架注入、实例关闭排空与销毁');
     console.log(await capture('ui-components-portrait.png'));
     const point = await run(
         `const node=v._bindBtnSubmit.node,camera=cc.director.getScene().getComponentsInChildren(cc.Camera).find(camera=>(camera.visibility&node.layer)!==0),p=camera.worldToScreen(node.worldPosition),canvas=cc.game.canvas,rect=canvas.getBoundingClientRect();return {x:Math.round(rect.left+p.x/canvas.width*rect.width),y:Math.round(rect.top+(1-p.y/canvas.height)*rect.height)};`,
@@ -74,17 +85,20 @@ click('_bindBtnRestart');check(v._bindLblCountdown.string==='00:15','Inspector �
     );
     console.log('PASS 真实鼠标连续点击只提交一次');
     await run(`
-const group=v._bindNodeTabs.getComponent('yzforge.TabGroup'),original=group.contentRoot;
-const container=new cc.Node('DynamicTabTest');container.layer=original.layer;container.addComponent(cc.UITransform).setContentSize(576,172);original.parent.addChild(container);group.contentRoot=container;
-const open=async(id,task)=>{const assets=page.show.assets.in(task.scope),node=await assets.instantiate({id:'showcase/default/prefab/prefabs/component-tab-part',type:'Prefab'},task.parent,{active:false});task.commit(()=>{node.getComponent('showcase.ComponentTabPart').render(id);assets.activate(node);});};
-const tabs=group.bind(page.show.scope,[{id:'a',toggle:v._bindToggleAlpha,open:task=>open('a',task)},{id:'b',toggle:v._bindToggleBeta,open:task=>open('b',task)}]);
-await tabs.select('a');const first=container.getComponentInChildren('showcase.ComponentTabPart');first._bindBtnIncrement.node.emit(cc.Button.EventType.CLICK);check(first._bindLblCount.string==='点击 1 次','动态 Part 未激活');await tabs.select('b');check(!cc.isValid(first,true),'动态 Part 未销毁');await tabs.select('a');check(container.getComponentInChildren('showcase.ComponentTabPart')._bindLblCount.string==='点击 0 次','动态 Part 未重建');await tabs.dispose();check(container.children.length===0,'动态内容未排空');container.destroy();group.contentRoot=original;group.enabled=false;await group.__deactivate();group.enabled=true;await until(()=>group.selectedIndex===0);return true;`);
-    console.log('PASS 高级动态页签：Part 创建激活、切换销毁、排空后恢复配置模式');
+const marquee=v._bindNodeMarquee.getComponent('yzforge.MarqueeLabel'),view=marquee.getComponent(cc.UITransform),label=marquee.node.getComponentInChildren(cc.Label),width=view.width;
+check(marquee.getComponent(cc.Mask)&&label.node.parent===marquee.node,'未自动建立裁剪层级');marquee.pauseDuration=0;marquee.restart();await wait(250);check(marquee.isScrolling&&label.node.position.x < -view.anchorX*width,'长文本没有滚动');
+marquee.pause();const x=label.node.position.x;await wait(80);near(label.node.position.x,x,'暂停仍在滚动');marquee.play();await wait(80);check(label.node.position.x<x,'继续播放未前进');
+const update=label.updateRenderData;let forced=0;label.updateRenderData=function(force){if(force)forced++;return update.call(this,force);};await wait(100);label.updateRenderData=update;check(forced===0,'滚动每帧重建文字');
+click('_bindBtnShortText');await wait(50);check(!marquee.isScrolling&&label.string==='短文字保持静止','短文本仍在滚动');near(label.node.position.x,-view.anchorX*width,'短文本没复位');check(view.width===width,'文本改变了固定宽度');
+marquee.string='';await wait(40);check(!marquee.isScrolling,'空文本在滚动');click('_bindBtnLongText');await wait(60);check(marquee.isScrolling,'换回长文本未恢复');
+const count=marquee.node.children.length;marquee.enabled=false;check(!label.node.active,'禁用文字没隐藏');marquee.enabled=true;check(marquee.node.children.length===count&&label.node.active,'重新启用重复创建');
+const w=marquee.node.getComponent(cc.Widget);w.enabled=false;view.width=2000;await wait(40);check(!marquee.isScrolling,'宽度变大未停');view.width=width;w.enabled=true;w.updateAlignment();await wait(50);check(marquee.isScrolling,'宽度缩小未重算');marquee.pauseDuration=0.8;marquee.restart();return true;`);
+    console.log('PASS 滚动文本：自动裁剪、长短切换、暂停继续、禁用恢复、宽度变化');
     await run(`
 const button=v._bindBtnSubmit.getComponent('yzforge.AsyncButton');let release,finish,started=false,writes=0,closed=false;
 const gate=new Promise(resolve=>release=resolve),cleanup=new Promise(resolve=>finish=resolve);
 const pending=button.run(async task=>{started=true;task.scope.defer(()=>cleanup);await gate;task.commit(()=>writes++);}).catch(error=>check(error.code==='OPERATION_CANCELLED','run 取消类型'));
-await until(()=>started);button.enabled=false;const closing=button.__deactivate().then(()=>closed=true);button.enabled=true;check(await button.run(()=>{writes+=100;})===false,'清理期间不应执行新点击');await wait(20);check(!closed,'自动激活期未等待旧工作');release();await wait(20);check(!closed,'自动激活期未等待异步清理');finish();await Promise.all([pending,closing]);await until(()=>!!button.activationContext);check(writes===0,'取消后 run 回写');check(await button.run(()=>{writes++;})===true&&writes===1,'重新启用后无法 run');return true;`);
+await until(()=>started);button.enabled=false;const closing=button.lifetime.__deactivate().then(()=>closed=true);button.enabled=true;check(await button.run(()=>{writes+=100;})===false,'清理期间不应执行新点击');await wait(20);check(!closed,'自动激活期未等待旧工作');release();await wait(20);check(!closed,'自动激活期未等待异步清理');finish();await Promise.all([pending,closing]);await until(()=>!!button.lifetime.context);check(writes===0,'取消后 run 回写');check(await button.run(()=>{writes++;})===true&&writes===1,'重新启用后无法 run');return true;`);
     console.log('PASS 自动生命周期：run 禁用取消、等待实际任务与清理、重新启用');
     await run(`
 const component=v._bindSprPreview.getComponent('yzforge.AsyncSprite'),owner=page.show.scope.child('sprite-test');
@@ -112,18 +126,11 @@ await current.press();check(writes===20,'无效绑定取消了已有绑定');
 v._bindBtnSubmit.node.active=false;await component.clear();v._bindBtnSubmit.node.active=true;v._bindBtnSubmit.node.emit(cc.Button.EventType.CLICK);await wait(20);check(writes===20,'禁用后监听未移除');await owner.close();return true;`);
     console.log('PASS 异步按钮：复用、迟到提交、无效绑定、禁用解绑');
     await run(`
-const component=v._bindNodeState.getComponent('yzforge.ViewState'),owner=page.show.scope.child('state-test');
-let release,started=false,n=0;const gate=new Promise(resolve=>release=resolve);
-const state=component.bind(owner,async task=>{if(n++===0){started=true;await gate;task.commit(()=>{throw Error('过期四态提交');});return 'content';}return 'empty';},()=>{});
-const old=state.reload().catch(e=>check(e.code==='OPERATION_CANCELLED','四态旧请求未取消'));await until(()=>started);await state.reload();release();await old;await wait(30);check(state.state==='empty'&&component.empty.active,'旧四态回写');
-await owner.close();check([component.loading,component.content,component.empty,component.error].every(n=>!n.active),'四态未隐藏');return true;`);
-    console.log('PASS 四态：最新结果胜出、取消隐藏');
-    await run(`
 const component=v._bindLblCountdown.getComponent('yzforge.CountdownLabel'),owner=page.show.scope.child('countdown-test');let now=1000,completed=0,eventCount=0;const listeners=new Set();const time={nowMs:()=>now,onChanged:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
 const event=new cc.Component.EventHandler();event.target=v.node;event.component='showcase.ComponentsLabPage';event.handler='testCountdownCompleted';v.testCountdownCompleted=()=>eventCount++;component.completedEvents=[event];component.textFormat='剩余 {seconds} 秒';component.startFor(0);await wait(0);check(eventCount===1&&v._bindLblCountdown.string==='剩余 0 秒','配置格式或完成事件失效');cc.game.emit(cc.Game.EVENT_SHOW);await wait(0);check(eventCount===1,'配置完成事件重复');component.startFor(0);component.startFor(5);await wait(0);check(eventCount===1,'重启前的完成事件没有取消');component.stop();component.completedEvents=[];delete v.testCountdownCompleted;
 const timer=component.bind(owner,time,{deadlineMs:6000,onComplete:()=>{completed++;}});check(v._bindLblCountdown.string==='00:00:05','初始秒数');now=4501;for(const fn of listeners)fn();check(v._bindLblCountdown.string==='00:00:02','校时未刷新');
 now=8000;cc.game.emit(cc.Game.EVENT_SHOW);await wait(0);check(completed===1&&v._bindLblCountdown.string==='00:00:00','恢复后未完成');now=0;timer.refresh();cc.game.emit(cc.Game.EVENT_SHOW);await wait(0);check(completed===1&&listeners.size===0,'重复完成或订阅泄漏');
-component.bind(owner,time,{deadlineMs:9000});check(listeners.size===1,'新计时未绑定');component.enabled=false;check(listeners.size===0,'禁用未取消时间监听');component.enabled=true;
+component.bind(owner,time,{deadlineMs:9000});check(listeners.size===1,'新计时未绑定');component.enabled=false;check(listeners.size===0,'禁用未取消时间监听');const drain=component.lifetime.__deactivate();component.enabled=true;try{component.bind(owner,time,{deadlineMs:1000});throw Error('清理期间重绑应失败');}catch(e){check(e.code==='UI_COMPONENT_DRAINING','清理中重绑错误');}await drain;
 component.bind(owner,time,{deadlineMs:1000});await owner.close();check(listeners.size===0,'宿主结束仍有时间监听');return true;`);
     console.log('PASS 倒计时：校时、前台恢复、一次完成、重新绑定与订阅清理');
     await run(`
@@ -146,9 +153,9 @@ const offLists=[ns.globalOff,ns.referenceOff,ps.globalOff,ps.referenceOff,cs.glo
     console.log(await capture('ui-components-safe-landscape.png'));
     console.log('PASS 横竖屏窗口变化、可选左右对称与前台刷新');
     await run(`
-const scopes=[v._bindBtnSubmit,v._bindSprPreview,v._bindLblCountdown].map(c=>c.node.getComponents(cc.Component).find(c=>c.bindingScope)?.bindingScope).filter(Boolean);
-const group=v._bindNodeTabs.getComponent('yzforge.TabGroup'),safe=v._bindNodeSafe.getComponent('yzforge.SafeWidget'),content=group.contentRoot,offLists=[safe.globalOff,safe.referenceOff];
-await app.ui.back().completed;check(scopes.every(s=>s.closed),'页面关闭仍有组件 Scope');check(!cc.isValid(content,true),'页签根节点未销毁');check(offLists.every(list=>list.length===0),'页面关闭安全区未解绑');return true;`);
+const scopes=[v._bindBtnSubmit,v._bindSprPreview,v._bindLblCountdown].flatMap(c=>[c.lifetime.binding,c.lifetime.activation]).filter(Boolean);
+const safe=v._bindNodeSafe.getComponent('yzforge.SafeWidget'),content=v._bindNodeMarquee,offLists=[safe.globalOff,safe.referenceOff];
+await app.ui.back().completed;check(scopes.every(s=>s.closed),'页面关闭仍有组件 Scope');check(!cc.isValid(content,true),'滚动文本节点未销毁');check(offLists.every(list=>list.length===0),'页面关闭安全区未解绑');return true;`);
     console.log('PASS 页面关闭：所有组件任务、节点与监听排空');
     assert.deepEqual(
         await editor('return require("electron").BrowserWindow.fromId(args.id).__componentErrors;', { id }),

@@ -1,5 +1,5 @@
 {
-  "project-settings/generated/resource-identities.json": "sha256:23a38808d3b8f0c43c32dc25b357e0204cecf465f8faa44977d7ad183f4b4190",
+  "project-settings/generated/resource-identities.json": "sha256:25fc9c59375bc5b9c9440cc885fd1d5eb9c6cc0bc3ac5476ee1180dff7544952",
   "assets/game/modules/common/bundles/default/yz-index.json": "sha256:b15a90fa1e65ed549596abfe17c9bbcb4314c69fc5f8420bbfecc5b58d50ad89",
   "assets/game/modules/common/contracts/generated/resources-default.ts": "sha256:0f6ae20199cdd4f04df4fefcd6a033e1451f9bd17ae9a76d834d2d8c31b653e6",
   "assets/game/modules/common/contracts/generated/views.ts": "sha256:93f734b0aee198c3d18d84ce74a638464912f0d412ef797081e3a4a6e34e64e3",
@@ -14,8 +14,8 @@
   "assets/game/modules/profile/code/generated/views.ts": "sha256:fce51c546878d568efcc765bc0272fa56449725e6a3b2e46852ec953c165e52a",
   "assets/game/modules/profile/contracts/generated/bundles.ts": "sha256:0a182e1823f00cb040521955e11a90ce082e3c5f453a2c67e54bc94ab442818c",
   "assets/game/modules/profile/code/generated/dependencies.ts": "sha256:00df891b8f7062a53588a75662b3af84a1fb27f26739ac321c3e316f25bb3aa6",
-  "assets/game/modules/showcase/bundles/default/yz-index.json": "sha256:67da3f74c36c9ab373c11e1980150f545378fdd3caf0d97ae42af1efccfb5c8b",
-  "assets/game/modules/showcase/contracts/generated/resources-default.ts": "sha256:794ceadb900715e1ed4dcca35017d26d060eb3c3bed1978fe75b0bf765572eff",
+  "assets/game/modules/showcase/bundles/default/yz-index.json": "sha256:5df74bb12571b6122a0482ad5676657f481aa1ad192465743c04d81397b6e2f5",
+  "assets/game/modules/showcase/contracts/generated/resources-default.ts": "sha256:e8a87ffed3ac4cc4f3059261d252872d0470d08c7b98d874931f42fd5ca153f3",
   "assets/game/modules/showcase/bundles/extra/yz-index.json": "sha256:c7d18751133068375c41fc0be915907f869c7aa4b45759b9a4598fbd5f9e6691",
   "assets/game/modules/showcase/contracts/generated/resources-extra.ts": "sha256:9590dea3928c64d009ad4a5db26ccea95afb2392867b7a1e84c26de22c5f00ec",
   "assets/game/modules/showcase/contracts/generated/views.ts": "sha256:16ba264f4513f320293b2855e87125f94a098ee15816e01f6525cc8f7a52b89e",

@@ -35,7 +35,7 @@ node tests/integration/verify-network-guide.mjs http://127.0.0.1:7456/
 
 ## 通用组件
 
-“UI 与 Part → 通用组件”提供 SafeWidget、异步按钮/图片、ViewState 四态和重试、CountdownLabel、TabGroup 六项实验。换图、四态、倒计时和普通页签由 Inspector 引用与事件配置直接驱动，无需在页面脚本中 bind。可以连点提交、快速换图、切换四态并重试、重启倒计时、切换已有内容节点，以及打开模拟刘海。滚动列表可看到全部内容；完整 API 见 [通用 UI 组件](ui-components.md)。
+“UI 与 Part → 通用组件”展示 SafeWidget、继承原生控件的 AsyncButton/AsyncSprite/CountdownLabel、Switch 和 MarqueeLabel。可以连点提交、快速换图、按名字切换子节点、重启倒计时、切换长短文本观察自动滚动，以及模拟安全区。滚动页面可看到全部内容；换图、切换和计时等由 Inspector 事件驱动，完整接口见 [通用 UI 组件](ui-components.md)。
 
 ```sh
 node tests/integration/verify-ui-components.mjs http://127.0.0.1:7456/
