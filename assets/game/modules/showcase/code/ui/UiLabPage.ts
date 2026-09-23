@@ -17,6 +17,9 @@ export class UiLabPage extends UiLabPageBinding {
         const bind = (button: Button, work: () => void | Promise<void>) =>
             show.listen(button.node, Button.EventType.CLICK, work, (error) => output(String(error)));
         bind(this.btnBack, () => show.ui.back());
+        bind(this.btnComponents, async () => {
+            await show.ui.pushPage(ShowcaseViews.componentsLabPage, undefined);
+        });
         bind(this.btnNetwork, async () => {
             await show.ui.pushPage(ShowcaseViews.networkLabPage, undefined);
         });

@@ -33,6 +33,16 @@ node tests/integration/verify-network-guide.mjs http://127.0.0.1:7456/
 
 脚本通过当前 MCP 创建独立隐藏预览窗口和随机端口本机 HTTP 服务，验证红点、真实 XHR、物理输入、连续变形、恢复与清理；结束恢复预览设备选项并销毁自建窗口。提供的 URL 必须是当前项目的本机预览或构建运行地址。
 
+## 通用组件
+
+“UI 与 Part → 通用组件”提供 SafeWidget、异步按钮/图片、ViewState 四态和重试、CountdownLabel、TabGroup 六项实验。换图、四态、倒计时和普通页签由 Inspector 引用与事件配置直接驱动，无需在页面脚本中 bind。可以连点提交、快速换图、切换四态并重试、重启倒计时、切换已有内容节点，以及打开模拟刘海。滚动列表可看到全部内容；完整 API 见 [通用 UI 组件](ui-components.md)。
+
+```sh
+node tests/integration/verify-ui-components.mjs http://127.0.0.1:7456/
+```
+
+脚本使用当前 MCP 和独立隐藏窗口，验证重绑竞态、禁用/关闭清理、真实资源持有、原生 Toggle、倒计时校时与前台恢复，以及安全区百分比、缩放、嵌套和横竖屏。结束恢复设备和方向选项并关闭自建窗口。
+
 ## 编辑器工作流
 
 **YZForge → 项目工作台 → 示例工作流** 提供七个步骤、十份源码的只读查看、任务表与绑定页跳转。完整说明在 [正式开发工作流](development-workflow.md)。

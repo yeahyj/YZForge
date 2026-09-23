@@ -14,6 +14,7 @@ import type { ProgressLoadingParams, ProgressLoadingResult } from '../ui/Progres
 import type { VirtualListLabPageParams, VirtualListLabPageResult } from '../ui/VirtualListLabPage.types';
 import type { NetworkLabPageParams, NetworkLabPageResult } from '../ui/NetworkLabPage.types';
 import type { TutorialLabPageParams, TutorialLabPageResult } from '../ui/TutorialLabPage.types';
+import type { ComponentsLabPageParams, ComponentsLabPageResult } from '../ui/ComponentsLabPage.types';
 /** showcase 的模块内全部界面引用。 */
 export const ShowcaseViews = {
     /** showcase.showcase-page；show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。 */
@@ -90,6 +91,12 @@ export const ShowcaseViews = {
     tutorialLabPage: { id: 'showcase.tutorial-lab-page', kind: 'page' } as ViewKey<
         TutorialLabPageParams,
         TutorialLabPageResult,
+        'page'
+    >,
+    /** showcase.components-lab-page；show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。 */
+    componentsLabPage: { id: 'showcase.components-lab-page', kind: 'page' } as ViewKey<
+        ComponentsLabPageParams,
+        ComponentsLabPageResult,
         'page'
     >,
 } as const;

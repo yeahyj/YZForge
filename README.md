@@ -12,6 +12,7 @@
 | UI 管理        | Page、Popup、Overlay、Toast、Loading；页面导航、界面参数和返回结果                         |
 | 自动绑定       | 按节点命名生成类型化访问代码，并自动写入节点引用；支持界面和 Part                          |
 | 虚拟列表       | 固定尺寸纵向列表与网格、Part 复用、局部刷新和滚动定位；见 [使用文档](docs/virtual-list.md) |
+| 通用 UI 组件   | 安全区 Widget、异步按钮/图片、区域四态、倒计时、页签；见 [使用文档](docs/ui-components.md) |
 | 红点与数量     | 分组聚合、批量更新、页面/条目订阅清理；见 [使用文档](docs/badges.md)                       |
 | HTTP 网络      | JSON 验证、超时、Scope 取消、XHR 与微信传输适配；见 [使用文档](docs/network.md)            |
 | 新手引导       | 检查点恢复、稳定目标、圆形与矩形连续聚焦；见 [使用文档](docs/guide.md)                     |

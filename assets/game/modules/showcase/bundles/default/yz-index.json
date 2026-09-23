@@ -45,6 +45,14 @@
         "showcase"
       ]
     },
+    "showcase/default/prefab/prefabs/component-tab-part": {
+      "bundle": "m-showcase",
+      "path": "dynamic/prefabs/ComponentTabPart",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
     "showcase/default/prefab/prefabs/virtual-list-item-part": {
       "bundle": "m-showcase",
       "path": "dynamic/prefabs/VirtualListItemPart",
@@ -56,6 +64,14 @@
     "showcase/default/prefab/ui/async-lab-page": {
       "bundle": "m-showcase",
       "path": "dynamic/ui/AsyncLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/components-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/ComponentsLabPage",
       "type": "Prefab",
       "requiredCodeModules": [
         "showcase"

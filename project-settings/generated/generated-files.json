@@ -1,5 +1,5 @@
 {
-  "project-settings/generated/resource-identities.json": "sha256:23ffcc0da8a7ef23042f1c8858a1d809c412fa44b69e18120b6fb315a9883a16",
+  "project-settings/generated/resource-identities.json": "sha256:23a38808d3b8f0c43c32dc25b357e0204cecf465f8faa44977d7ad183f4b4190",
   "assets/game/modules/common/bundles/default/yz-index.json": "sha256:b15a90fa1e65ed549596abfe17c9bbcb4314c69fc5f8420bbfecc5b58d50ad89",
   "assets/game/modules/common/contracts/generated/resources-default.ts": "sha256:0f6ae20199cdd4f04df4fefcd6a033e1451f9bd17ae9a76d834d2d8c31b653e6",
   "assets/game/modules/common/contracts/generated/views.ts": "sha256:93f734b0aee198c3d18d84ce74a638464912f0d412ef797081e3a4a6e34e64e3",
@@ -14,12 +14,12 @@
   "assets/game/modules/profile/code/generated/views.ts": "sha256:fce51c546878d568efcc765bc0272fa56449725e6a3b2e46852ec953c165e52a",
   "assets/game/modules/profile/contracts/generated/bundles.ts": "sha256:0a182e1823f00cb040521955e11a90ce082e3c5f453a2c67e54bc94ab442818c",
   "assets/game/modules/profile/code/generated/dependencies.ts": "sha256:00df891b8f7062a53588a75662b3af84a1fb27f26739ac321c3e316f25bb3aa6",
-  "assets/game/modules/showcase/bundles/default/yz-index.json": "sha256:2305b140801b901d85778157dffc8dfc456f530ce5af00dd7fc04a3d1cf676bd",
-  "assets/game/modules/showcase/contracts/generated/resources-default.ts": "sha256:86e07b4bb7984718461f8831533a9fe30c0fdf59baf044a6ff42099455542b44",
+  "assets/game/modules/showcase/bundles/default/yz-index.json": "sha256:67da3f74c36c9ab373c11e1980150f545378fdd3caf0d97ae42af1efccfb5c8b",
+  "assets/game/modules/showcase/contracts/generated/resources-default.ts": "sha256:794ceadb900715e1ed4dcca35017d26d060eb3c3bed1978fe75b0bf765572eff",
   "assets/game/modules/showcase/bundles/extra/yz-index.json": "sha256:c7d18751133068375c41fc0be915907f869c7aa4b45759b9a4598fbd5f9e6691",
   "assets/game/modules/showcase/contracts/generated/resources-extra.ts": "sha256:9590dea3928c64d009ad4a5db26ccea95afb2392867b7a1e84c26de22c5f00ec",
   "assets/game/modules/showcase/contracts/generated/views.ts": "sha256:16ba264f4513f320293b2855e87125f94a098ee15816e01f6525cc8f7a52b89e",
-  "assets/game/modules/showcase/code/generated/views.ts": "sha256:666017e8e67b1dc16deea521c49ba99411e1b563d4fc04123138e18ae10dca35",
+  "assets/game/modules/showcase/code/generated/views.ts": "sha256:9b8a4a219f6f2001dafbb8044ab2b847be635291196999db9ae0fd232684c4df",
   "assets/game/modules/showcase/contracts/generated/bundles.ts": "sha256:3215ed65765e0b676e6b77858a8428558c892680a205da6ecc233b5d739fadc2",
   "assets/game/modules/showcase/code/generated/dependencies.ts": "sha256:00df891b8f7062a53588a75662b3af84a1fb27f26739ac321c3e316f25bb3aa6",
   "assets/game/modules/workshop/bundles/default/yz-index.json": "sha256:5dcc285a00cfca96bb41b3850b5a77ed34b64169d63bce089df8f842837264e0",
@@ -49,5 +49,5 @@
   "assets/game/modules/workshop/contracts/generated/enums/Quality.ts": "sha256:01eb32301f875cfa3cc00624594ca10a2b215e1753e7c9eed796eb27d1440328",
   "assets/game/app/generated/release.ts": "sha256:e875b4ff9c5d08f5a592c6b6cb6d133af0df2d43ec554f19ce9797c7c2dc9c7c",
   "assets/game/app/generated/options.ts": "sha256:c96c67385fc38234a2e200a79dc9904d477f9d8fc0cd656aa133200d627df608",
-  "assets/game/app/generated/assembly.ts": "sha256:ae02a2a20be1bd27dacb3cff52ddc42b96509927b402f5fa60d470ce5dc4a48b"
+  "assets/game/app/generated/assembly.ts": "sha256:6941018fdbb6cbffb872989336e5a87117a3be5d731fcc91983d91bd58dfadea"
 }

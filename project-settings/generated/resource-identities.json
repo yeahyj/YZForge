@@ -109,11 +109,23 @@
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/DataLabPage.prefab"
     },
+    "51a00c94-d6fd-466e-b612-8f560f8463b4": {
+      "id": "showcase/default/prefab/prefabs/component-tab-part",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/prefabs/ComponentTabPart.prefab"
+    },
     "5749fee4-a52a-49eb-b411-c95cd8c19e1c": {
       "id": "showcase/default/prefab/prefabs/badge-part",
       "type": "Prefab",
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/prefabs/BadgePart.prefab"
+    },
+    "5bc3950a-6092-4976-ac90-91f99c15cc7c": {
+      "id": "showcase/default/prefab/ui/components-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/ComponentsLabPage.prefab"
     },
     "70da8183-ef80-4310-a7f7-6ea7f755c201": {
       "id": "showcase/default/prefab/ui/storage-lab-page",
