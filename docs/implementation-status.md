@@ -42,6 +42,7 @@ npm run test:showcase
 | [verify-preview.mjs](../tests/integration/verify-preview.mjs)                 | Bootstrap 已在 Game View 运行且保留大厅示例；检查 UI、结果与生命周期。                                                                           |
 | [verify-build.mjs](../tests/integration/verify-build.mjs)                     | 保留大厅示例，用 `serve-build.mjs` 启动构建产物并传入 URL；可选第二个参数为工作台测试模块 ID，额外检查 Part 代码按需加载。                       |
 | [verify-runtime.mjs](../tests/integration/verify-runtime.mjs)                 | 参数传入 Web 运行 URL，保留大厅示例；在独立窗口执行底层运行时回归。                                                                              |
+| [verify-ui-cleanup.mjs](../tests/integration/verify-ui-cleanup.mjs)           | 参数传入本机预览或 Web 构建 URL，保留展示模块；验证缓存界面清理失败后仍释放其他实例、UI 层和资源。                                               |
 | [verify-showcase.mjs](../tests/integration/verify-showcase.mjs)               | 参数传入 Web 运行 URL，保留全部示例；检查业务、导航、分包、持有回收及屏幕适配。                                                                  |
 | [verify-virtual-list.mjs](../tests/integration/verify-virtual-list.mjs)       | 参数传入预览或 Web 运行 URL；检查列表窗口、复用、定位、Part 清理及尺寸变化。                                                                     |
 | [verify-ui-components.mjs](../tests/integration/verify-ui-components.mjs)     | 参数传入预览或 Web 运行 URL；检查真实输入、原生组件、资源、计时和安全区。                                                                        |

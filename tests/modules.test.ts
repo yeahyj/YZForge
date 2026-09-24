@@ -47,6 +47,92 @@ test('public asynchronous calls retain services until physical completion during
     await owner.close();
     await manager.close();
 });
+test('冻结的模块 API 保留方法、访问器与枚举，并等待异步方法结束后释放', async () => {
+    const owner = new Scope('frozen-api'),
+        gate = deferred();
+    let disposed = false;
+    const api = Object.freeze({
+        value: 7,
+        get doubled() {
+            return this.value * 2;
+        },
+        read() {
+            return this.value;
+        },
+        async delayed() {
+            await gate.promise;
+            assert.equal(disposed, false);
+            return this.value;
+        },
+    });
+    const manager = new ModuleManager(
+        [
+            {
+                id: 'frozen',
+                dependencies: [],
+                factory: (ctx) => {
+                    ctx.scope.defer(() => {
+                        disposed = true;
+                    });
+                    return { api };
+                },
+            },
+        ],
+        new FakeClock(),
+        context,
+    );
+    const handle = await manager.use<typeof api>({ id: 'frozen' }, owner);
+    const borrowed = handle.api,
+        read = borrowed.read;
+    assert.equal(read(), 7);
+    assert.equal(borrowed.doubled, 14);
+    assert.deepEqual(Object.keys(borrowed), Object.keys(api));
+    assert.equal('read' in borrowed, true);
+    assert.equal(Object.getOwnPropertyDescriptor(borrowed, 'value')?.value, 7);
+    const result = borrowed.delayed();
+    const closing = owner.close();
+    await flush();
+    assert.equal(disposed, false);
+    assert.throws(read, { code: 'MODULE_HANDLE_ENDED' });
+    gate.resolve();
+    assert.equal(await result, 7);
+    await closing;
+    assert.equal(disposed, true);
+    await manager.close();
+});
+
+test('模块 API 包装保留类访问器的接收者和可写业务属性', async () => {
+    class Counter {
+        #value = 1;
+        extra?: string = 'temporary';
+        get value() {
+            return this.#value;
+        }
+        set value(value: number) {
+            this.#value = value;
+        }
+        read() {
+            return this.#value;
+        }
+    }
+    const api = new Counter(),
+        owner = new Scope('class-api');
+    const manager = new ModuleManager(
+        [{ id: 'counter', dependencies: [], factory: () => ({ api }) }],
+        new FakeClock(),
+        context,
+    );
+    const handle = await manager.use<Counter>({ id: 'counter' }, owner);
+    assert.equal(handle.api instanceof Counter, true);
+    handle.api.value = 5;
+    assert.equal(api.value, 5);
+    assert.equal(handle.api.read(), 5);
+    delete handle.api.extra;
+    assert.equal('extra' in api, false);
+    await owner.close();
+    await manager.close();
+});
+
 test('concurrent module users share initialization and have independent cancellation', async () => {
     const gate = deferred(),
         a = new Scope('a'),

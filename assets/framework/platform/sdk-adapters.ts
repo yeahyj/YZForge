@@ -112,6 +112,10 @@ function launchInfo(value: unknown): LaunchInfo {
 export function createMiniGameSdkAdapter(platform: 'wechat' | 'douyin', host: MiniGameSdkHost): SdkAdapter {
     const activeVideos = new Set<() => Promise<void>>();
     let adCleanupFailed = false;
+    const stopVideos = async () => {
+        await Promise.allSettled(Array.from(activeVideos, (cancel) => cancel()));
+        if (adCleanupFailed) throw new SdkError('SDK_AD_CLEANUP_FAILED', '广告实例未能完整清理');
+    };
     const adapter: SdkAdapter = {
         id: platform,
         initialize: (config: GameConfig) => {
@@ -120,10 +124,8 @@ export function createMiniGameSdkAdapter(platform: 'wechat' | 'douyin', host: Mi
                 return Promise.reject(new SdkError('SDK_APP_ID_MISMATCH', '实际平台 AppID 与当前渠道配置不一致'));
             return Promise.resolve();
         },
-        dispose: async () => {
-            await Promise.allSettled(Array.from(activeVideos, (cancel) => cancel()));
-            if (adCleanupFailed) throw new SdkError('SDK_AD_CLEANUP_FAILED', '广告实例未能完整清理');
-        },
+        stop: stopVideos,
+        dispose: stopVideos,
         launch: () => launchInfo(host.getLaunchOptionsSync?.()),
         enter: () => launchInfo(host.getEnterOptionsSync?.() ?? host.getLaunchOptionsSync?.()),
         login: host.login

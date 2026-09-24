@@ -720,11 +720,18 @@ export class UIManager {
      * 销毁指定模块的闲置 UI 缓存，不关闭它当前已打开的界面；模块清理时自动调用。
      */
     async evictModule(module: string): Promise<void> {
+        const failures: unknown[] = [];
         for (const [id, instance] of Array.from(this.cache))
             if (instance.definition.module === module) {
                 this.cache.delete(id);
-                await this.dispose(instance);
+                try {
+                    await this.dispose(instance);
+                } catch (error) {
+                    failures.push(error);
+                }
             }
+        if (failures.length)
+            throw new FrameworkError('UI_CLEANUP_FAILED', `Cached UI cleanup failed: ${module}`, { failures });
     }
     private navigate<T>(action: () => Promise<T>): Promise<T> {
         const next = this.navigation.then(action);
@@ -878,12 +885,32 @@ export class UIManager {
     async close(): Promise<void> {
         this.accepting = false;
         if (this.pendingPage) this.cancelNavigation(this.pendingPage);
-        await Promise.all(
-            Array.from(this.records.values()).map((record) => this.requestClose(record, { status: 'cancelled' })),
+        const failures: unknown[] = [];
+        const records = Array.from(this.records.values());
+        const results = await Promise.allSettled(
+            records.map(async (record) => this.requestClose(record, { status: 'cancelled' })),
         );
-        for (const instance of this.cache.values()) await this.dispose(instance);
-        this.cache.clear();
-        for (const node of this.layers.values()) await destroyNode(node);
+        for (const [index, result] of results.entries()) {
+            const outcome = records[index].termination;
+            if (result.status === 'rejected') failures.push(result.reason);
+            else if (outcome?.status === 'failed') failures.push(outcome.error);
+        }
+        for (const [id, instance] of Array.from(this.cache)) {
+            this.cache.delete(id);
+            try {
+                await this.dispose(instance);
+            } catch (error) {
+                failures.push(error);
+            }
+        }
+        for (const node of this.layers.values()) {
+            try {
+                await destroyNode(node);
+            } catch (error) {
+                failures.push(error);
+            }
+        }
+        if (failures.length) throw new FrameworkError('UI_SHUTDOWN_FAILED', 'Some UI cleanups failed', { failures });
     }
 }
 function snapshotParams<T>(value: T): T {

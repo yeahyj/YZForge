@@ -94,6 +94,33 @@ test('Scope executes all cleanups after failure and handles reentrant close', as
     await assert.rejects(closing, { code: 'SCOPE_CLEANUP_FAILED' });
     assert.deepEqual(order, ['last']);
 });
+test('重复调用旧事件解绑函数不会删除新订阅或其他所有者的监听', async () => {
+    const previous = new Scope('previous'),
+        current = new Scope('current'),
+        events = new Events(),
+        key = eventKey<number>('review.changed');
+    const received: number[] = [];
+    const off = events.on(key, () => assert.fail('Old listener was invoked'), previous);
+    off();
+    events.on(
+        key,
+        (value) => {
+            received.push(value);
+        },
+        current,
+    );
+    off();
+    await previous.close();
+    off();
+    events.emit(key, 42);
+    await flush();
+    assert.deepEqual(received, [42]);
+    await current.close();
+    events.emit(key, 99);
+    await flush();
+    assert.deepEqual(received, [42]);
+});
+
 test('typed event work participates in owner cleanup and unsubscribes immediately', async () => {
     const owner = new Scope('listener'),
         events = new Events(),

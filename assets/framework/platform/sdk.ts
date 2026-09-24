@@ -62,6 +62,9 @@ export interface SdkSimulation {
 export interface SdkLifecycle {
     readonly id: string;
     initialize?(config: GameConfig, signal: CancellationSignal): Promise<void>;
+    /** SDK 所有者结束时请求底层工作停止，初始化期间也可触发；可异步收尾，保留在途调用的共享状态。 */
+    stop?(): void | Promise<void>;
+    /** 所有初始化、调用及 stop 完成后逆序销毁；不要依靠 dispose 才结束在途调用。 */
     dispose?(): void | Promise<void>;
 }
 /** 能力对象只负责 SDK 调用；渠道接入实现可以组合多个这样的对象。 */
@@ -86,6 +89,7 @@ export interface SdkIntegrationContext {
 /** 只登记接入代码；JSON 选择实现并提供参数，调用顺序在 TypeScript 中明确编排。 */
 export type SdkIntegrationFactory = (context: SdkIntegrationContext) => SdkAdapter;
 const emptyLaunch = (): LaunchInfo => Object.freeze({ query: Object.freeze({}) });
+type Subscription<T> = { callback: T; owner: Lifetime; active: boolean; remove(): void };
 
 /** 统一 SDK 入口；不缓存游戏账号、不改存档前缀、不执行发奖业务。 */
 export class GameSdk {
@@ -103,8 +107,8 @@ export class GameSdk {
     private initialization?: Promise<void>;
     private phase: 'idle' | 'starting' | 'ready' | 'failed' | 'closed' = 'idle';
     private videoBusy = false;
-    private readonly showListeners = new Set<(launch: LaunchInfo) => void>();
-    private readonly hideListeners = new Set<() => void>();
+    private readonly showListeners = new Set<Subscription<(launch: LaunchInfo) => void>>();
+    private readonly hideListeners = new Set<Subscription<() => void>>();
 
     /** 取得当前接入的登录凭证；调用顺序由渠道实现决定，不隐式重复平台登录。 */
     readonly auth = {
@@ -196,12 +200,32 @@ export class GameSdk {
         integrations: Readonly<Record<string, SdkIntegrationFactory>> = {},
     ) {
         const instances = new Set<SdkLifecycle>([platformAdapter]);
+        let stopping: Promise<number> | undefined;
+        const stop = () =>
+            (stopping ??= Promise.resolve().then(async () => {
+                // 逆序发出全部停止请求后再等待，避免某个适配器等另一个适配器先停止。
+                const results = await Promise.allSettled(
+                    Array.from(instances)
+                        .reverse()
+                        .map(async (adapter) => adapter.stop?.()),
+                );
+                return results.filter((result) => result.status === 'rejected').length;
+            }));
+        const clearListeners = () => {
+            for (const subscription of [...Array.from(this.showListeners), ...Array.from(this.hideListeners)])
+                subscription.remove();
+        };
+        const detachStop = owner.signal.onAbort(() => {
+            clearListeners();
+            // 与 Scope 的任务等待并行发出停止请求，原生广告才能结束其物理调用。
+            void stop();
+        });
         // 先登记收尾，保证发行工厂或配置解析失败时已创建的适配器也能回收。
         owner.defer(async () => {
             this.phase = 'closed';
-            this.showListeners.clear();
-            this.hideListeners.clear();
-            let failed = 0;
+            detachStop();
+            clearListeners();
+            let failed = await stop();
             for (const adapter of Array.from(instances).reverse()) {
                 try {
                     await adapter.dispose?.();
@@ -209,7 +233,7 @@ export class GameSdk {
                     failed++;
                 }
             }
-            if (failed) throw new SdkError('SDK_CLEANUP_FAILED', `${failed} 个 SDK 适配器清理失败`);
+            if (failed) throw new SdkError('SDK_CLEANUP_FAILED', `${failed} 项 SDK 停止或销毁失败`);
         });
         // 显式预览模拟覆盖整套接入，不初始化真实发行/广告 SDK。
         const id = runtime.preview && config.previewMockSdk ? 'platform' : config.sdk.integration;
@@ -253,21 +277,15 @@ export class GameSdk {
         this.phase = 'starting';
         this.initialization = this.wait(
             this.owner,
-            (signal) =>
-                // 超时只结束调用者的等待；底层初始化仍持有 SDK，完成后才允许 dispose。
-                runTask(
-                    this.owner,
-                    async () => {
-                        for (const adapter of this.adapters) {
-                            signal.throwIfAborted();
-                            await adapter.initialize?.(this.config, signal);
-                            signal.throwIfAborted();
-                        }
-                    },
-                    undefined,
-                    'sdk.initialize',
-                ),
+            async (signal) => {
+                for (const adapter of this.adapters) {
+                    signal.throwIfAborted();
+                    await adapter.initialize?.(this.config, signal);
+                    signal.throwIfAborted();
+                }
+            },
             this.config.sdk.timeoutMs,
+            'sdk.initialize',
         ).then(
             () => {
                 if (this.phase !== 'closed') this.phase = 'ready';
@@ -281,11 +299,12 @@ export class GameSdk {
     }
     /** @internal 由 App 唯一的前后台事件桥转发。 */
     notifyVisibility(visible: boolean): void {
-        if (this.phase !== 'ready') return;
+        if (this.phase !== 'ready' || this.owner.signal.aborted) return;
         const launch = visible ? (this.platformAdapter.enter?.() ?? this.lifecycle.getLaunchOptions()) : undefined;
-        for (const callback of visible ? Array.from(this.showListeners) : Array.from(this.hideListeners)) {
+        for (const subscription of visible ? Array.from(this.showListeners) : Array.from(this.hideListeners)) {
+            if (!subscription.active || subscription.owner.signal.aborted || this.owner.signal.aborted) continue;
             try {
-                (callback as (info?: LaunchInfo) => void)(launch);
+                (subscription.callback as (info?: LaunchInfo) => void)(launch);
             } catch (error) {
                 reportError(error);
             }
@@ -325,6 +344,7 @@ export class GameSdk {
         owner: Lifetime,
         action: (signal: CancellationSignal) => Promise<T>,
         timeoutMs: number,
+        label = 'sdk.operation',
     ): Promise<T> {
         owner.signal.throwIfAborted();
         this.owner.signal.throwIfAborted();
@@ -355,7 +375,17 @@ export class GameSdk {
                 return;
             }
             try {
-                void action(operation.signal).then(
+                // 调用方只等待可取消结果；底层 Promise 始终由 SDK 所有者持有到实际结束。
+                const physical = runTask(
+                    this.owner,
+                    () => {
+                        operation.signal.throwIfAborted();
+                        return action(operation.signal);
+                    },
+                    undefined,
+                    label,
+                );
+                void physical.then(
                     (value) => finish(true, value),
                     (error: unknown) => finish(false, error),
                 );
@@ -364,15 +394,18 @@ export class GameSdk {
             }
         });
     }
-    private subscribe<T>(listeners: Set<T>, callback: T, owner: Lifetime): () => void {
+    private subscribe<T>(listeners: Set<Subscription<T>>, callback: T, owner: Lifetime): () => void {
         owner.signal.throwIfAborted();
         this.owner.signal.throwIfAborted();
-        listeners.add(callback);
         let detach = () => {};
         const remove = () => {
-            listeners.delete(callback);
+            if (!subscription.active) return;
+            subscription.active = false;
+            listeners.delete(subscription);
             detach();
         };
+        const subscription: Subscription<T> = { callback, owner, active: true, remove };
+        listeners.add(subscription);
         detach = owner.signal.onAbort(remove);
         return remove;
     }

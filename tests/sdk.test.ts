@@ -4,6 +4,7 @@ import { Scope } from '../assets/framework/core/scope';
 import { OperationCancelled } from '../assets/framework/core/errors';
 import { freezeGameConfig, standaloneGameConfig } from '../assets/framework/platform/game-config';
 import { GameSdk, type SdkAdapter } from '../assets/framework/platform/sdk';
+import { deferred, flush } from './fake-clock';
 import {
     createMiniGameSdkAdapter,
     createPlatformSdkAdapter,
@@ -148,6 +149,133 @@ test('SDK：登录取消/超时迅速结束，迟到结果不会交付，Scope �
     callbacks.success({ code: 'another-late-code' });
     await owner.close();
 });
+test('SDK：普通调用取消或超时后，页面及时结束，SDK 等底层工作完成再销毁', async () => {
+    for (const reason of ['cancel', 'timeout']) {
+        const gate = deferred(),
+            order: string[] = [];
+        const { owner, sdk } = await setup(
+            {
+                id: 'delayed',
+                login: async (signal) => {
+                    order.push('started');
+                    await gate.promise;
+                    order.push('finished');
+                    signal.throwIfAborted();
+                    return { kind: 'platform', provider: 'test', simulated: false };
+                },
+                dispose: () => {
+                    order.push('disposed');
+                },
+            },
+            settings({ sdk: { timeoutMs: 20 } }),
+        );
+        const page = owner.child('page');
+        const rejected = assert.rejects(sdk.auth.login(page), {
+            code: reason === 'cancel' ? 'OPERATION_CANCELLED' : 'SDK_TIMEOUT',
+        });
+        await flush();
+        if (reason === 'cancel') page.cancel();
+        await rejected;
+        await page.close();
+        const closing = owner.close();
+        await flush();
+        assert.equal(owner.closed, false);
+        assert.deepEqual(order, ['started']);
+        gate.resolve();
+        await closing;
+        assert.deepEqual(order, ['started', 'finished', 'disposed']);
+    }
+});
+
+test('SDK：关闭先通知全部适配器停止，等待调用和异步停止完成后才逆序销毁', async () => {
+    const owner = new Scope('stop-order'),
+        operation = deferred(),
+        dependencyStopped = deferred(),
+        stopped = deferred();
+    const order: string[] = [];
+    const sdk = new GameSdk(
+        settings({ sdk: { integration: 'publisher' } }),
+        { platform: 'web', preview: true },
+        owner,
+        {
+            id: 'platform',
+            login: async () => {
+                await operation.promise;
+                order.push('login.finished');
+                return { kind: 'platform', provider: 'test', simulated: false };
+            },
+            stop: () => {
+                order.push('platform.stop');
+                operation.resolve();
+                dependencyStopped.resolve();
+                return stopped.promise;
+            },
+            dispose: () => {
+                order.push('platform.dispose');
+            },
+        },
+        {
+            publisher: ({ platform }) => ({
+                id: 'publisher',
+                login: platform.login?.bind(platform),
+                stop: async () => {
+                    order.push('publisher.stop');
+                    await dependencyStopped.promise;
+                },
+                dispose: () => {
+                    order.push('publisher.dispose');
+                },
+            }),
+        },
+    );
+    await sdk.initialize();
+    const rejected = assert.rejects(sdk.auth.login(owner), OperationCancelled);
+    await flush();
+    const closing = owner.close();
+    await rejected;
+    await flush();
+    assert.deepEqual(order, ['publisher.stop', 'platform.stop', 'login.finished']);
+    assert.equal(owner.closed, false);
+    stopped.resolve();
+    await closing;
+    assert.deepEqual(order.slice(-2), ['publisher.dispose', 'platform.dispose']);
+});
+
+test('SDK：停止失败仍尝试其他适配器停止和销毁，并报告清理失败', async () => {
+    const owner = new Scope('stop-failure'),
+        order: string[] = [];
+    const sdk = new GameSdk(
+        settings({ sdk: { integration: 'publisher' } }),
+        { platform: 'web', preview: true },
+        owner,
+        {
+            id: 'platform',
+            stop: () => {
+                order.push('platform.stop');
+            },
+            dispose: () => {
+                order.push('platform.dispose');
+            },
+        },
+        {
+            publisher: () => ({
+                id: 'publisher',
+                stop: () => {
+                    order.push('publisher.stop');
+                    throw Error('stop failed');
+                },
+                dispose: () => {
+                    order.push('publisher.dispose');
+                },
+            }),
+        },
+    );
+    await sdk.initialize();
+    await assert.rejects(owner.close(), { code: 'SCOPE_CLEANUP_FAILED' });
+    assert.deepEqual(order, ['publisher.stop', 'platform.stop', 'publisher.dispose', 'platform.dispose']);
+    assert.equal(owner.closed, true);
+});
+
 test('SDK：广告完整观看/提前关闭/未知结果与多次完成数量不混淆', async () => {
     const f = videoFixture();
     const { owner, sdk } = await setup(createMiniGameSdkAdapter('douyin', { createRewardedVideoAd: () => f.video }));
@@ -184,6 +312,20 @@ test('SDK：取消已展示广告只取消等待，直到真实关闭才释放�
     assert.equal(f.listeners, 0);
     await owner.close();
 });
+test('SDK：App 关闭主动停止已展示广告，无需等待用户关闭', async () => {
+    const f = videoFixture();
+    const { owner, sdk } = await setup(createMiniGameSdkAdapter('wechat', { createRewardedVideoAd: () => f.video }));
+    const page = owner.child('page');
+    const rejected = assert.rejects(sdk.ads.showRewarded('revive', page), OperationCancelled);
+    await flush();
+    assert.equal(f.shown, 1);
+    await owner.close();
+    await rejected;
+    assert.equal(f.destroyed, 1);
+    assert.equal(f.listeners, 0);
+    assert.equal(sdk.inspect().videoBusy, false);
+});
+
 test('SDK：加载阶段取消不再展示广告，App 关闭清理原生监听', async () => {
     const f = videoFixture();
     let finish!: () => void;
@@ -540,6 +682,68 @@ test('SDK：预览模拟覆盖发行接入，不初始化第三方 SDK', async (
     assert.equal((await sdk.auth.login(owner)).simulated, true);
     await owner.close();
 });
+test('SDK：相同回调的多次前后台订阅彼此独立，旧解绑句柄不会取消新订阅', async () => {
+    for (const visible of [true, false]) {
+        const { owner, sdk } = await setup({ id: 'web' });
+        const a = owner.child('a'),
+            b = owner.child('b');
+        const subscribe = (callback: () => void, scope: Scope) =>
+            visible ? sdk.lifecycle.onShow(callback, scope) : sdk.lifecycle.onHide(callback, scope);
+        let count = 0;
+        const callback = () => {
+            count++;
+        };
+        const oldOff = subscribe(callback, a);
+        subscribe(callback, b);
+        sdk.notifyVisibility(visible);
+        assert.equal(count, 2);
+        await a.close();
+        oldOff();
+        sdk.notifyVisibility(visible);
+        assert.equal(count, 3);
+        subscribe(callback, b);
+        oldOff();
+        sdk.notifyVisibility(visible);
+        assert.equal(count, 5);
+        await owner.close();
+        sdk.notifyVisibility(visible);
+        assert.equal(count, 5);
+    }
+});
+
+test('SDK：广播期间解绑或取消的订阅不再执行，关闭 SDK 也立即停止广播', async () => {
+    for (const visible of [true, false]) {
+        const { owner, sdk } = await setup({ id: 'web' });
+        const page = owner.child('page');
+        const subscribe = (callback: () => void, scope: Scope) =>
+            visible ? sdk.lifecycle.onShow(callback, scope) : sdk.lifecycle.onHide(callback, scope);
+        let remove = () => {},
+            count = 0;
+        const firstOff = subscribe(() => {
+            remove();
+            page.cancel();
+        }, owner);
+        remove = subscribe(() => {
+            count++;
+        }, owner);
+        subscribe(() => {
+            count++;
+        }, page);
+        sdk.notifyVisibility(visible);
+        assert.equal(count, 0);
+        firstOff();
+        const external = new Scope('external');
+        subscribe(() => owner.cancel(), external);
+        subscribe(() => {
+            count++;
+        }, external);
+        sdk.notifyVisibility(visible);
+        assert.equal(count, 0);
+        await owner.close();
+        await external.close();
+    }
+});
+
 test('SDK：前后台订阅由调用者期限清理，配置深冻结', async () => {
     const { owner, sdk } = await setup({ id: 'web', enter: () => ({ query: { from: 'resume' } }) });
     const page = owner.child('page');

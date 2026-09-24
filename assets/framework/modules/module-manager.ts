@@ -542,10 +542,11 @@ export class ModuleManager {
                 );
             const guarded =
                 api && typeof api === 'object'
-                    ? (new Proxy(api as object, {
-                          get(target, property) {
+                    ? // 代理使用独立目标，冻结的业务 API 也允许返回受生命周期保护的方法。
+                      (new Proxy(Object.create(Object.getPrototypeOf(api)) as object, {
+                          get(_target, property) {
                               check();
-                              const value = Reflect.get(target, property, target);
+                              const value = Reflect.get(api as object, property, api);
                               return typeof value === 'function'
                                   ? (...args: unknown[]) => {
                                         check();
@@ -559,7 +560,7 @@ export class ModuleManager {
                                         });
                                         void current.scope.track(running, `api:${String(property)}`);
                                         try {
-                                            const result: unknown = Reflect.apply(value, target, args);
+                                            const result: unknown = Reflect.apply(value, api, args);
                                             complete(result);
                                             return result;
                                         } catch (error) {
@@ -569,6 +570,30 @@ export class ModuleManager {
                                     }
                                   : value;
                           },
+                          has(_target, property) {
+                              check();
+                              return Reflect.has(api as object, property);
+                          },
+                          ownKeys() {
+                              check();
+                              return Reflect.ownKeys(api as object);
+                          },
+                          getOwnPropertyDescriptor(_target, property) {
+                              check();
+                              const descriptor = Reflect.getOwnPropertyDescriptor(api as object, property);
+                              return descriptor ? { ...descriptor, configurable: true } : undefined;
+                          },
+                          set(_target, property, value) {
+                              check();
+                              return Reflect.set(api as object, property, value, api);
+                          },
+                          deleteProperty(_target, property) {
+                              check();
+                              return Reflect.deleteProperty(api as object, property);
+                          },
+                          // 保持包装目标可扩展，避免调用方再次施加冻结属性约束。
+                          preventExtensions: () => false,
+                          defineProperty: () => false,
                       }) as Api)
                     : api;
             return Object.freeze({

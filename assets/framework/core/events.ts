@@ -61,9 +61,12 @@ export class Events {
         if (!group) this.listeners.set(key.id, (group = new Set()));
         group.add(item);
         let detach = () => {};
+        let subscribed = true;
         const off = () => {
+            if (!subscribed) return;
+            subscribed = false;
             group!.delete(item);
-            if (!group!.size) this.listeners.delete(key.id);
+            if (!group!.size && this.listeners.get(key.id) === group) this.listeners.delete(key.id);
             detach();
         };
         detach = scope.signal.onAbort(off);
