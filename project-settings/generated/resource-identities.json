@@ -43,6 +43,12 @@
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/NetworkLabPage.prefab"
     },
+    "1bbad6a1-6f5b-408d-b018-b6ec400ba6b1": {
+      "id": "showcase/default/prefab/ui/resource-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/ResourceLabPage.prefab"
+    },
     "2659ac62-9ff7-4bfa-afff-4fb9573832d0": {
       "id": "showcase/default/prefab/ui/progress-loading",
       "type": "Prefab",
@@ -115,6 +121,12 @@
       "active": false,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/prefabs/ComponentTabPart.prefab"
     },
+    "5537660d-57f8-4cba-a72a-7b9d9ce9c00d": {
+      "id": "showcase/extra/json/locales/en",
+      "type": "JsonAsset",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/extra/dynamic/locales/en.json"
+    },
     "5749fee4-a52a-49eb-b411-c95cd8c19e1c": {
       "id": "showcase/default/prefab/prefabs/badge-part",
       "type": "Prefab",
@@ -126,6 +138,12 @@
       "type": "Prefab",
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/ComponentsLabPage.prefab"
+    },
+    "6492a52f-f07d-4035-be72-04102a383061": {
+      "id": "showcase/default/json/locales/zh-cn",
+      "type": "JsonAsset",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/locales/zh-cn.json"
     },
     "70da8183-ef80-4310-a7f7-6ea7f755c201": {
       "id": "showcase/default/prefab/ui/storage-lab-page",

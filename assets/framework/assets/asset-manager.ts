@@ -23,7 +23,7 @@ import type { AssetManager as EngineAssetManager } from 'cc';
 import type { ConfigManager, ScopedConfig } from '../config/config-manager';
 import { untilCancelled } from '../core/cancellation';
 import { FrameworkError, invariant, reportError } from '../core/errors';
-import { Scope, Lifetime } from '../core/scope';
+import { Scope, Lifetime, scopeOwner } from '../core/scope';
 import {
     AssetAddress,
     AssetKey,
@@ -36,6 +36,8 @@ import {
 } from './asset-types';
 import { logicalKey, resolveIndex, validateIndex } from './catalog';
 import { LeaseCache } from './lease-cache';
+import { loadAssetBatch, type AssetBatchOptions, type LoadedAssets } from './asset-batch';
+import { PrefabPool, type PrefabPoolOptions } from './prefab-pool';
 const constructors = {
     Prefab,
     SpriteFrame,
@@ -230,6 +232,17 @@ export class Assets {
         return this.loadAddress(address, scope);
     }
     /**
+     * 准备命名的一组资源，保留各项类型；成功由 owner 的子 Scope 持有，失败回收本批。
+     * 进度按请求条目统计。资源加载完成不代表节点已实例化；重试由调用方明确发起。
+     */
+    loadMany<T extends Record<string, AssetKey>>(
+        keys: T,
+        owner: Lifetime,
+        options?: AssetBatchOptions,
+    ): Promise<LoadedAssets<T>> {
+        return loadAssetBatch(keys, owner, (key, scope) => this.load(key, scope), options);
+    }
+    /**
      * 按 Bundle 内路径加载，绕过动态清单。已有逻辑键时优先用 load。
      * @param bundle - 发布清单中登记的 Bundle ID 或引用。
      * @param path - Bundle 相对加载路径，不是磁盘路径；通常省略扩展名，保留必要的子资源后缀。
@@ -392,9 +405,10 @@ export class Assets {
     /**
      * 激活由本管理器以 active: false 创建的实例，并接通框架生命周期。
      * @param node - 本管理器创建且尚未销毁的节点。
+     * @param owner - 可选的本次激活期限；实例池每次借出使用新期限，默认跟随实例。
      * @throws FrameworkError 节点不受托管或宿主业务模块尚未初始化。
      */
-    activate(node: Node): void {
+    activate(node: Node, owner?: Lifetime): void {
         const instance = this.instances.get(node);
         invariant(
             instance && isValid(node, true),
@@ -403,8 +417,14 @@ export class Assets {
         );
         instance.scope.signal.throwIfAborted();
         if (instance.moduleId) invariant(this.moduleReady(instance.moduleId), 'MODULE_NOT_READY', instance.moduleId);
-        this.activateInstance(node, instance.scope);
+        const activation = owner ? scopeOwner(owner) : instance.scope;
+        activation.signal.throwIfAborted();
+        this.activateInstance(node, activation);
         node.active = true;
+    }
+    /** 创建有容量上限的预制体实例池，节点与资源跟随 owner；每次 spawn 独立管理使用期限。 */
+    createPool(key: AssetKey<'Prefab'>, owner: Lifetime, options?: PrefabPoolOptions): PrefabPool {
+        return new PrefabPool(this, key, owner, options);
     }
     /**
      * 提前结束一个 instantiate 创建的实例，等待任务退出、销毁节点并归还预制体持有。
@@ -624,6 +644,10 @@ export class ScopedAssets {
     loadPath<K extends AssetKind>(bundle: BundleRef, path: string, type: K): Promise<AssetTypes[K]> {
         return this.manager.loadPath(bundle, path, type, this.scope);
     }
+    /** 批量准备资源；进度、并发和失败回收与 Assets.loadMany 相同，持有归当前使用期。 */
+    loadMany<T extends Record<string, AssetKey>>(keys: T, options?: AssetBatchOptions): Promise<LoadedAssets<T>> {
+        return this.manager.loadMany(keys, this.scope, options);
+    }
     /**
      * 取得资源包访问入口，不加载包内全部内容。
      * @param ref - 已登记的资源包引用。
@@ -663,6 +687,10 @@ export class ScopedAssets {
      */
     activate(node: Node): void {
         this.manager.activate(node);
+    }
+    /** 创建归当前 scope 所有的实例池，继承当前模块作为 Part 宿主。 */
+    createPool(key: AssetKey<'Prefab'>, options?: PrefabPoolOptions): PrefabPool {
+        return this.manager.createPool(key, this.scope, { moduleId: this.moduleId, ...options });
     }
     /**
      * 设置图片并自动处理同一 Sprite 的先后请求、旧图替换与引用归还。

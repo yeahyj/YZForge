@@ -15,6 +15,7 @@ import type { VirtualListLabPageParams, VirtualListLabPageResult } from '../ui/V
 import type { NetworkLabPageParams, NetworkLabPageResult } from '../ui/NetworkLabPage.types';
 import type { TutorialLabPageParams, TutorialLabPageResult } from '../ui/TutorialLabPage.types';
 import type { ComponentsLabPageParams, ComponentsLabPageResult } from '../ui/ComponentsLabPage.types';
+import type { ResourceLabPageParams, ResourceLabPageResult } from '../ui/ResourceLabPage.types';
 /** showcase 的模块内全部界面引用。 */
 export const ShowcaseViews = {
     /** showcase.showcase-page；show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。 */
@@ -97,6 +98,12 @@ export const ShowcaseViews = {
     componentsLabPage: { id: 'showcase.components-lab-page', kind: 'page' } as ViewKey<
         ComponentsLabPageParams,
         ComponentsLabPageResult,
+        'page'
+    >,
+    /** showcase.resource-lab-page；show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。 */
+    resourceLabPage: { id: 'showcase.resource-lab-page', kind: 'page' } as ViewKey<
+        ResourceLabPageParams,
+        ResourceLabPageResult,
         'page'
     >,
 } as const;

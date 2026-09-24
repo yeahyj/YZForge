@@ -27,6 +27,13 @@ export const ShowcaseRes = {
         /** SpriteFrame：showcase/default/sprite/icons/beta/token。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         iconsBetaToken: { id: 'showcase/default/sprite/icons/beta/token', type: 'SpriteFrame' },
     },
+    /** json 资源键集合；动态目录自动编目，按需 load 时才加载内容。 */
+    json: {
+        /** JsonAsset：showcase/default/json/locales/zh-cn。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        localesZhCn: { id: 'showcase/default/json/locales/zh-cn', type: 'JsonAsset' },
+        /** JsonAsset：showcase/default/json/config/samples。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        configSamples: { id: 'showcase/default/json/config/samples', type: 'JsonAsset' },
+    },
     /** prefab 资源键集合；动态目录自动编目，按需 load 时才加载内容。 */
     prefab: {
         /** Prefab：showcase/default/prefab/prefabs/badge-part。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
@@ -51,6 +58,8 @@ export const ShowcaseRes = {
         uiNoticeToast: { id: 'showcase/default/prefab/ui/notice-toast', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/progress-loading。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiProgressLoading: { id: 'showcase/default/prefab/ui/progress-loading', type: 'Prefab' },
+        /** Prefab：showcase/default/prefab/ui/resource-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        uiResourceLabPage: { id: 'showcase/default/prefab/ui/resource-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/showcase-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiShowcasePage: { id: 'showcase/default/prefab/ui/showcase-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/storage-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
@@ -63,10 +72,5 @@ export const ShowcaseRes = {
         uiUiLabPage: { id: 'showcase/default/prefab/ui/ui-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/virtual-list-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiVirtualListLabPage: { id: 'showcase/default/prefab/ui/virtual-list-lab-page', type: 'Prefab' },
-    },
-    /** json 资源键集合；动态目录自动编目，按需 load 时才加载内容。 */
-    json: {
-        /** JsonAsset：showcase/default/json/config/samples。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
-        configSamples: { id: 'showcase/default/json/config/samples', type: 'JsonAsset' },
     },
 } as const;

@@ -24,10 +24,13 @@ import { BadgeStore } from '../badges/badge-store';
 import { HttpClient, type HttpClientOptions, type HttpTransport } from '../network/http-client';
 import { createPlatformHttpTransport } from '../network/transports';
 import type { RuntimeDiagnostics } from './diagnostics';
+import { Localization, type LocalizationOptions } from '../localization/localization';
 /**
  * 应用启动装配参数。通常由项目设置和生成的发布清单构建，交给 AppEntry.appOptions。
  */
 export interface AppOptions {
+    /** 可选语言目录，复用资源 Key 和 Bundle 路由；默认语言在业务启动前准备。 */
+    readonly localization?: LocalizationOptions;
     /** 当前构建的配置快照；存档仍仅使用 appId，不按此配置拆分。 */
     readonly settings?: GameConfig;
     /** 项目显式登记的渠道组合接入；JSON integration 通过稳定名称选择。 */
@@ -153,6 +156,8 @@ export class App {
     readonly log: GameLog;
     /** 统一平台与发行 SDK，所有业务异步调用需指定 Scope。 */
     readonly sdk: GameSdk;
+    /** 同步文本查询、语言切换与本地化资源 Key；无配置时不会加载语言资源。 */
+    readonly i18n: Localization;
     /**
      * 以 appId 隔离的小型本地存储入口，提供版本和类型校验。
      */
@@ -219,6 +224,7 @@ export class App {
                 partial = value;
             });
             await app.sdk.initialize();
+            await app.i18n.initialize();
             return app;
         } catch (error) {
             try {
@@ -272,6 +278,11 @@ export class App {
         this.clock = input.clock ?? createPlatformClock(input.clockOptions);
         this.time = new TimeService(this.clock, this.scope, input.time);
         this.assets = new Assets(input.release, this.scope);
+        this.i18n = new Localization(
+            this.scope,
+            async (key, owner) => (await this.assets.load(key, owner)).json,
+            input.localization,
+        );
         this.config = new ConfigManager(this.assets);
         this.assets.attachConfig(this.config);
         this.modules = new ModuleManager(
@@ -290,6 +301,7 @@ export class App {
                     settings: this.settings,
                     log: this.log,
                     sdk: this.sdk,
+                    i18n: this.i18n,
                     storage: this.storage,
                     diagnostics: this.diagnostics,
                     ui: this.ui,

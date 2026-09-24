@@ -23,6 +23,7 @@ export class ShowcasePage extends ShowcasePageBinding {
             [this.btnStorage, () => show.ui.pushPage(ShowcaseViews.storageLabPage, undefined)],
             [this.btnGuide, () => show.ui.pushPage(ShowcaseViews.guidePage, undefined)],
             [this.btnLegacy, () => show.ui.pushPage(LobbyViews.dashboard, { title: '综合示例' })],
+            [this.btnResources, () => show.ui.pushPage(ShowcaseViews.resourceLabPage, undefined)],
         ];
         for (const [button, route] of routes)
             show.listen(

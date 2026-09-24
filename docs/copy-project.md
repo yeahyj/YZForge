@@ -66,7 +66,7 @@ npm install --package-lock-only --ignore-scripts
 
 示例边界是 `showcase`、`workshop`、`lobby`、`profile`、`common` 五个模块及其 XLSX 源表，以及启动入口中的首屏调用。它们各自的职责见 [示例应用说明](example-app.md)。建议在新副本执行以下步骤。
 
-1. 将 `assets/game/app/start-game.ts` 替换为下面的空入口，移除所有示例导入。
+1. 将 `assets/game/app/start-game.ts` 替换为下面的空入口，移除所有示例导入。同时移除 `GameRoot.ts` 中 `localization` 的导入和 AppOptions 配置，并通过 Creator 删除 `assets/game/app/localization.ts`，或将其语言目录改为自己项目的资源 Key。该配置引用了 showcase 的语言 JSON，不能带着旧引用删除模块。
 2. 等待脚本导入完成。在工作台“删除与恢复”中，依次预览并删除 `showcase`、`workshop`、`lobby`、`profile`、`common`。每次处理引用提示，确认备份成功；不要跳过检查强删目录。
 3. 模块删除会停用关联 XLSX 导出，并保留源表。确认这些表没有自己的新增数据后，将 `config-source/showcase/`、`config-source/workshop/`、`config-source/lobby/`、`config-source/common/` 移到项目外归档，或删除。不要只改文件夹名字留在 `config-source` 内，该目录会递归扫描。
 4. 保留根目录的 `config-source/tables.json`。模板里它的 `tables` 为空；自行接入过旧表时，也要处理其中的引用。

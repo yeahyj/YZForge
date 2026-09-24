@@ -55,6 +55,7 @@ export class Scope {
     private readonly children = new Set<Scope>();
     private readonly tasks = new Map<Promise<unknown>, string>();
     private readonly cleanups = new Set<Cleanup>();
+    private parent?: Scope;
     private closing?: Promise<void>;
     private ended = false;
     /**
@@ -103,9 +104,11 @@ export class Scope {
     child(label: string): Scope {
         this.signal.throwIfAborted();
         const child = new Scope(`${this.label}/${label}`, this.report);
+        child.parent = this;
         this.children.add(child);
         child.defer(() => {
             this.children.delete(child);
+            child.parent = undefined;
         });
         return child;
     }
@@ -200,6 +203,14 @@ export class Scope {
             Promise.all(Array.from(this.children).map((child) => child.drainTasks())),
         ]);
         return [...own, ...nested.flat()];
+    }
+    /**
+     * @internal
+     * 取消后回收跨 Scope 借用物时，等候本次一并取消的最外层祖先任务。
+     * 只等待实际工作，不执行清理；回收屏障自身不能登记为这些 Scope 的任务。
+     */
+    drainCancelledTasks(): Promise<PromiseSettledResult<unknown>[]> {
+        return this.parent?.signal.aborted ? this.parent.drainCancelledTasks() : this.drainTasks();
     }
     /** 读取谁在阻止清理；快照不延长任务或资源的使用期限，也不能用于修改框架内部状态。 */
     inspect(): ScopeSnapshot {

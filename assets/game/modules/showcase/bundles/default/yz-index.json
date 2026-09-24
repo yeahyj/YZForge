@@ -37,6 +37,11 @@
       "path": "dynamic/icons/beta/token/spriteFrame",
       "type": "SpriteFrame"
     },
+    "showcase/default/json/locales/zh-cn": {
+      "bundle": "m-showcase",
+      "path": "dynamic/locales/zh-cn",
+      "type": "JsonAsset"
+    },
     "showcase/default/prefab/prefabs/badge-part": {
       "bundle": "m-showcase",
       "path": "dynamic/prefabs/BadgePart",
@@ -120,6 +125,14 @@
     "showcase/default/prefab/ui/progress-loading": {
       "bundle": "m-showcase",
       "path": "dynamic/ui/ProgressLoading",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
+    "showcase/default/prefab/ui/resource-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/ResourceLabPage",
       "type": "Prefab",
       "requiredCodeModules": [
         "showcase"

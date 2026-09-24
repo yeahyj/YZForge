@@ -94,6 +94,8 @@ export function defineModule<Api, Services = unknown, D extends ModuleDependenci
  * 模块 Scope、界面展示 Scope、组件激活 Scope 长度不同，应按实际使用期选择。
  */
 export interface ModuleContext {
+    /** 语言目录复用资源包，切换只在成功后生效；界面订阅须传 show/activation.scope。 */
+    readonly i18n: import('../localization/localization').Localization;
     /** 当前渠道、构建模式与环境的不可变配置；与数据表 ctx.config 分开。 */
     readonly settings: import('../platform/game-config').GameConfig;
     /** 带渠道与环境上下文的业务日志。 */

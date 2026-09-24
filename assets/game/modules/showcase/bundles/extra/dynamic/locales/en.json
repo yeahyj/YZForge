@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "locale": "en",
+  "texts": {
+    "resources.title": "Resources & Languages",
+    "resources.subtitle": "Batch loading · Instance reuse · Language bundles",
+    "resources.info": "Text and the icon follow the selected language.\nThe next line is missing in English and falls back to Chinese:\n{fallback}",
+    "resources.back": "Back",
+    "resources.load": "Prepare images, audio and prefab",
+    "resources.cancel": "Cancel preparation",
+    "resources.warm": "Prewarm 3 idle instances",
+    "resources.spawn": "Borrow an instance",
+    "resources.release": "Return all instances",
+    "resources.language": "切换为简体中文",
+    "resources.progress": "Preparing resources {completed} / {total}",
+    "resources.ready": "Ready. Language: {locale}",
+    "resources.loaded": "Resources are ready and held until this page closes.",
+    "resources.pool": "Total {size} · Idle {idle} · Borrowed {borrowed}",
+    "resources.token": "Instance #{id}",
+    "resources.cancelled": "Preparation cancelled."
+  },
+  "assets": {
+    "resources.logo": { "id": "showcase/default/sprite/icons/beta/token", "type": "SpriteFrame" }
+  }
+}

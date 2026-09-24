@@ -148,6 +148,15 @@
       "duplicate": "reject",
       "className": "showcase.ComponentsLabPage",
       "binding": "code/ui/generated/ComponentsLabPageBinding.ts"
+    },
+    "resource-lab-page": {
+      "visibility": "internal",
+      "prefab": "showcase/default/prefab/ui/resource-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.ResourceLabPage",
+      "binding": "code/ui/generated/ResourceLabPageBinding.ts"
     }
   },
   "audio": {},

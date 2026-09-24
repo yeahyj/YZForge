@@ -17,7 +17,8 @@
 | 游戏设置与 SDK | GameRoot 原生设置、JSON 渠道参数、构建校验、可组合 SDK；见 [使用文档](docs/game-settings-sdk.md)         |
 | HTTP 网络      | JSON 验证、超时、Scope 取消、XHR 与微信/抖音传输适配；见 [使用文档](docs/network.md)                     |
 | 新手引导       | 检查点恢复、稳定目标、圆形与矩形连续聚焦；见 [使用文档](docs/guide.md)                                   |
-| 资源管理       | 自动扫描动态资源，生成资源 Key，按需加载并管理使用期限                                                   |
+| 资源管理       | 生成资源 Key、批量准备与进度、Prefab 实例池；见 [使用文档](docs/resources.md)                            |
+| 多语言         | Bundle 语言目录、文案参数、默认语言回退和图片/字体/语音资源 Key；见 [使用文档](docs/localization.md)     |
 | 配置表         | XLSX 导入、校验、枚举、外键、分片，导出 JSON 数据和 TypeScript 类型                                      |
 | 音频           | 播放、音量分组、并发数量和播放生命周期管理                                                               |
 | 时间           | 时间戳、日期格式化、服务器校时、日历周期和到期通知                                                       |
@@ -189,6 +190,8 @@ assets/game/modules/inventory/
 | [自动绑定](docs/auto-binding.md)                | 节点命名、实际组件类型、生成和排错               |
 | [通用 UI 组件](docs/ui-components.md)           | 安全区、异步按钮/图片、倒计时、Switch 和滚动文本 |
 | [虚拟列表](docs/virtual-list.md)                | 固定尺寸列表/网格、局部刷新、Part 复用与清理     |
+| [批量资源与实例池](docs/resources.md)           | 资源准备、进度、取消与 Prefab 节点复用           |
+| [多语言与语言包](docs/localization.md)          | 文案目录、资源映射、切换、回退和新增语言         |
 | [红点与数量提示](docs/badges.md)                | 数量来源、分组聚合和 UI 订阅                     |
 | [HTTP 请求与取消](docs/network.md)              | 请求、JSON 验证、错误及平台传输                  |
 | [新手引导与连续聚焦](docs/guide.md)             | 目标注册、检查点、聚焦与输入控制                 |

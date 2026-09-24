@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "locale": "zh-CN",
+  "texts": {
+    "resources.title": "资源与多语言",
+    "resources.subtitle": "批量准备 · 实例复用 · 按需切换语言",
+    "resources.info": "文案、图标会随语言一起更新。\n下面这句话在英文目录中缺失，用于演示默认语言回退：\n{fallback}",
+    "resources.fallback": "缺失翻译时保留默认语言内容。",
+    "resources.back": "返回",
+    "resources.load": "批量准备图片、音频和预制体",
+    "resources.cancel": "取消本次准备",
+    "resources.warm": "预热 3 个闲置实例",
+    "resources.spawn": "借用一个实例",
+    "resources.release": "归还全部实例",
+    "resources.language": "切换为 English",
+    "resources.progress": "资源准备 {completed} / {total}",
+    "resources.ready": "准备就绪。语言：{locale}",
+    "resources.loaded": "本批资源已就绪，退出页面时归还。",
+    "resources.pool": "池内 {size} · 闲置 {idle} · 借出 {borrowed}",
+    "resources.token": "实例 #{id}",
+    "resources.cancelled": "本次准备已取消。"
+  },
+  "assets": {
+    "resources.logo": { "id": "showcase/default/sprite/icons/alpha/token", "type": "SpriteFrame" }
+  }
+}

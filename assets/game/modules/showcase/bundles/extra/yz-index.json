@@ -2,6 +2,11 @@
   "formatVersion": 2,
   "namespace": "showcase/extra",
   "assets": {
+    "showcase/extra/json/locales/en": {
+      "bundle": "showcase-extra",
+      "path": "dynamic/locales/en",
+      "type": "JsonAsset"
+    },
     "showcase/extra/json/config/samples": {
       "bundle": "showcase-extra",
       "path": "dynamic/config/samples",
