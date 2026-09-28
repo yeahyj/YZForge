@@ -111,11 +111,12 @@ export async function scanCatalog(root, modules, metadata, sources) {
                 const existing = entries[uuid];
                 if (existing && !existing.id.startsWith(`${module.id}/${group}/`))
                     throw Error(`跨包移动需要显式迁移逻辑名：${existing.id} → ${suggested}`);
-                const id = existing?.id ?? suggested;
+                // 语言资源的路径就是 key；重命名和同路径替换不沿用历史逻辑名。
+                const id = bundle.language ? suggested : (existing?.id ?? suggested);
                 if (owners.has(id) && owners.get(id) !== uuid)
                     throw Error(`逻辑名冲突：${id} (${owners.get(id)} / ${uuid})`);
                 const retired = Object.entries(entries).find(([other, item]) => other !== uuid && item.id === id);
-                if (retired) throw Error(`名字属于旧资源 UUID：${id}；请显式替换或改名`);
+                if (retired && !bundle.language) throw Error(`名字属于旧资源 UUID：${id}；请显式替换或改名`);
                 owners.set(id, uuid);
                 entries[uuid] = { id, type, active: true, source: relative(root, asset.source).replaceAll('\\', '/') };
                 module.assets[id] = { uuid, type };

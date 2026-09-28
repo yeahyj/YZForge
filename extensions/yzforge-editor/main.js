@@ -552,14 +552,16 @@ async function previewDelete(args, creation) {
         }
         if (kind === 'language') delete nextManifest.bundles[base].localization.locales[locale];
         else {
-            const workbook = state.localizationWorkbooks.find((item) => item.source === declaration.source);
-            if (!workbook) throw Error('找不到源工作簿');
-            workbooks.push({
-                source: workbook.source,
-                hash: workbook.hash,
-                previous: workbook.config,
-                next: { ...workbook.config, enabled: false },
-            });
+            if (declaration.source) {
+                const workbook = state.localizationWorkbooks.find((item) => item.source === declaration.source);
+                if (!workbook) throw Error('找不到源工作簿');
+                workbooks.push({
+                    source: workbook.source,
+                    hash: workbook.hash,
+                    previous: workbook.config,
+                    next: { ...workbook.config, enabled: false },
+                });
+            }
             delete nextManifest.bundles[base].localization;
             const contract = path.join(directory, `contracts/generated/localization-${base}.ts`);
             if (syncFs.existsSync(contract)) targets.push(contract);
@@ -569,8 +571,7 @@ async function previewDelete(args, creation) {
         if (!bundle) throw Error('未找到资源包');
         targets.push(inside(path.join(directory, bundle.root)));
         ids.push(`${manifest.id}/${args.id}/`, bundle.id);
-        if (bundle.localization)
-            refs.push(`此业务包拥有多语言工作簿 ${bundle.localization.source}，请先迁移或停用其声明`);
+        if (bundle.localization) refs.push('此业务包拥有多语言资源，请先迁移或停用其声明');
         for (const [base, definition] of Object.entries(manifest.bundles))
             if (base !== args.id && Object.values(definition.localization?.variants ?? {}).includes(args.id))
                 refs.push(`语言资源包仍被 ${base} 的多语言声明使用`);
@@ -709,29 +710,6 @@ async function previewDelete(args, creation) {
     // XLSX references live in typed cells, not plain-text files or Creator's asset reference graph.
     for (const diagnostic of state.workbookDiagnostics ?? []) refs.push('配置表无法检查：' + diagnostic.message);
     const workbookTool = await workbookTools();
-    for (const item of state.localizationWorkbooks ?? []) {
-        if (
-            !item.config.enabled ||
-            (kind === 'module' &&
-                Object.values(manifest.bundles).some((bundle) => bundle.localization?.source === item.source))
-        )
-            continue;
-        for (const row of item.localization.assets)
-            for (const [locale, value] of Object.entries(row.values)) {
-                const [base, removedLocale] = (args.id ?? '').split('/');
-                if (
-                    item.source === manifest.bundles[base]?.localization?.source &&
-                    (kind === 'localization' || (kind === 'language' && locale === removedLocale))
-                )
-                    continue;
-                if (
-                    uuids.has(value.split('@')[0]) ||
-                    uuids.has(value) ||
-                    (value.startsWith('@') && ids.some((id) => value.slice(1).includes(id)))
-                )
-                    refs.push(`${item.source}: ${row.key}/${locale} 引用待删除资源`);
-            }
-    }
     for (const item of state.workbooks) {
         if (
             !item.config.enabled ||
@@ -1226,6 +1204,7 @@ exports.methods = {
             settings: await read(inside('project-settings/framework.json')),
             tables: { tables: sources.tables },
             workbooks,
+            languageResources: await actions.languageResourceState(modules),
             localizationWorkbooks: sources.localizationWorkbooks.map(({ source, hash, config, localization }) => ({
                 source,
                 hash,

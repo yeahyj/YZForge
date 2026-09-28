@@ -1,134 +1,16 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, relative, resolve } from 'node:path';
-import ExcelJS from 'exceljs';
-import { digest, identifier, pascal, safePath } from './project.mjs';
+import { relative, resolve, extname, isAbsolute } from 'node:path';
+import { digest, pascal } from './project.mjs';
 import settingsTools from './settings.cjs';
 import localizationLayout from './localization-layout.cjs';
 
 const has = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
-const empty = (value) => value === null || value === undefined || value === '';
-const keyPattern = /^[a-z][a-zA-Z0-9]*(?:[._-][a-zA-Z0-9]+)*$/;
 const parameterPattern = /\{\{|\}\}|\{([a-zA-Z_][a-zA-Z0-9_.-]*)\}/g;
-const kinds = [
-    'Prefab',
-    'SpriteFrame',
-    'Texture2D',
-    'ImageAsset',
-    'AudioClip',
-    'JsonAsset',
-    'TextAsset',
-    'Material',
-    'SpriteAtlas',
-    'Font',
-    'SceneAsset',
-];
 const forward = (path) => path.replaceAll('\\', '/');
 const parameters = (text) =>
     [...new Set([...text.matchAll(parameterPattern)].map((match) => match[1]).filter(Boolean))].sort();
-const nameOf = (key) => identifier(key.replace(/[._]/g, '-'));
 
-/** 独立工作簿类型；不经过普通配置表的字符串裁剪、类型行或公式计算。 */
-export function parseLocalizationWorkbook(book, source) {
-    const meta = book.getWorksheet('__localization');
-    if (
-        !meta ||
-        meta.getCell('A1').value !== 'formatVersion' ||
-        meta.getCell('B1').value !== 1 ||
-        book.getWorksheet('__config')
-    )
-        throw Error(`${source}: 多语言工作簿声明无效或与普通配置表混用`);
-    const output = { texts: [], assets: [], locales: [] };
-    for (const [sheetName, headers] of [
-        ['texts', ['key', 'comment']],
-        ['assets', ['key', 'type', 'comment']],
-    ]) {
-        const sheet = book.getWorksheet(sheetName);
-        if (!sheet) throw Error(`${source}: 缺少 ${sheetName} 页`);
-        // ExcelJS 的 values 可能是稀疏数组，逐列读取才能发现中间缺失的语言表头。
-        const head = Array.from({ length: sheet.getRow(1).cellCount }, (_, i) => sheet.getCell(1, i + 1).value);
-        if (headers.some((name, i) => head[i] !== name)) throw Error(`${source}: ${sheetName} 表头无效`);
-        const locales = head.slice(headers.length);
-        if (!locales.length) throw Error(`${source}: ${sheetName} 缺少语言列`);
-        for (const [i, name] of locales.entries()) {
-            if (typeof name !== 'string' || !name.trim() || name !== name.trim())
-                throw Error(
-                    `${source}: ${sheetName}!${sheet.getCell(1, headers.length + i + 1).address} 语言表头为空或无效`,
-                );
-        }
-        if (new Set(locales).size !== locales.length) throw Error(`${source}: ${sheetName} 语言列重复`);
-        if (sheetName === 'texts') output.locales = locales;
-        else if (JSON.stringify(locales) !== JSON.stringify(output.locales))
-            throw Error(`${source}: 文案和资源页语言列必须一致`);
-        const keys = new Set(),
-            names = new Set();
-        for (let n = 2; n <= sheet.rowCount; n++) {
-            const cells = Array.from(
-                { length: Math.max(head.length, sheet.getRow(n).cellCount) },
-                (_, i) => sheet.getCell(n, i + 1).value,
-            );
-            if (cells.every(empty)) continue;
-            if (cells.slice(head.length).some((value) => !empty(value)))
-                throw Error(`${source}: ${sheetName}:${n} 存在无表头数据`);
-            const key = cells[0];
-            if (
-                typeof key !== 'string' ||
-                (!keyPattern.test(key) && !(sheetName === 'assets' && key === '$font')) ||
-                keys.has(key)
-            )
-                throw Error(`${source}: ${sheetName}:${n} 文案/资源键重复或无效`);
-            const name = key === '$font' ? '$font' : nameOf(key);
-            if (names.has(name)) throw Error(`${source}: 生成标识冲突 ${name}`);
-            keys.add(key);
-            names.add(name);
-            const values = {};
-            for (const [i, locale] of locales.entries()) {
-                const value = cells[headers.length + i];
-                if (empty(value)) continue;
-                if (typeof value !== 'string')
-                    throw Error(`${source}: ${sheetName}:${n}/${locale} 必须为纯文本，数字和公式请转成文本`);
-                // 空单元格表示缺译；显式空串与字面标记各有独立写法。
-                values[locale] =
-                    sheetName === 'texts' && value === '#EMPTY' ? '' : value.startsWith('##') ? value.slice(1) : value;
-            }
-            const type = sheetName === 'assets' ? cells[1] : undefined;
-            if (sheetName === 'assets' && (!kinds.includes(type) || (key === '$font' && type !== 'Font')))
-                throw Error(`${source}: ${sheetName}:${n} 资源类型无效`);
-            output[sheetName].push({ key, name, type, values });
-        }
-    }
-    return output;
-}
-export async function createLocalizationWorkbook(root, source, locales, rows) {
-    if (!source.startsWith('config-source/') || !source.endsWith('.xlsx'))
-        throw Error('多语言源文件必须位于 config-source');
-    const book = new ExcelJS.Workbook();
-    book.creator = 'YZForge';
-    book.addWorksheet('__localization').addRows([['formatVersion', 1]]);
-    book.addWorksheet('__help').addRows([
-        ['空单元格表示缺译；#EMPTY 表示有意留空；##EMPTY 输出字面 #EMPTY。'],
-        ['保留空格和换行，禁止公式或数字值。参数使用 {name}，两种语言参数必须一致。'],
-        ['资源填写 Creator UUID（精灵帧含 @ 子资源 ID），或 @模块/包/类型/逻辑路径。'],
-        ['assets 页 $font / Font 为该语言字体；文案回退时使用默认语言的字体。'],
-        ['工作簿归属和存放位置由模块资源包声明统一管理。新增语言须在 texts 和 assets 页添加同名列。'],
-    ]);
-    book.addWorksheet('texts').addRows([
-        ['key', 'comment', ...locales],
-        ...(rows?.texts ?? [['sample.greeting', '示例文案', '你好', ...locales.slice(1).map(() => null)]]),
-    ]);
-    book.addWorksheet('assets').addRows([['key', 'type', 'comment', ...locales], ...(rows?.assets ?? [])]);
-    for (const sheet of book.worksheets) {
-        sheet.views = [{ state: 'frozen', ySplit: 1 }];
-        sheet.getRow(1).font = { bold: true };
-        sheet.columns.forEach((column) => {
-            column.width = 32;
-        });
-    }
-    parseLocalizationWorkbook(book, source);
-    const target = await safePath(root, source);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, Buffer.from(await book.xlsx.writeBuffer()), { flag: 'wx' });
-    return { source, hash: digest(await readFile(target)) };
-}
+export { parseLocalizationWorkbook, createLocalizationWorkbook } from './localization-workbook.mjs';
+
 export function localizationOutputPaths(root, modules) {
     return modules.flatMap((module) =>
         Object.entries(module.bundles).flatMap(([base, bundle]) =>
@@ -152,15 +34,16 @@ export function localizationDeclarations(modules, settings) {
             if (!config) throw Error('请先在项目设置登记默认语言与支持语言');
             if (
                 Object.keys(declaration).some((name) => !['source', 'locales'].includes(name)) ||
-                typeof declaration.source !== 'string' ||
-                !declaration.source.startsWith(`config-source/${module.id}/`) ||
-                !declaration.source.endsWith('.xlsx') ||
-                sources.has(declaration.source)
+                (has(declaration, 'source') &&
+                    (typeof declaration.source !== 'string' ||
+                        !declaration.source.startsWith(`config-source/${module.id}/`) ||
+                        !declaration.source.endsWith('.xlsx') ||
+                        sources.has(declaration.source)))
             )
                 throw Error(`${module.id}/${base}: 工作簿归属无效或重复`);
             if (!has(declaration.locales, config.defaultLocale))
                 throw Error(`${module.id}/${base}: 必须配置默认语言存放位置`);
-            sources.add(declaration.source);
+            if (declaration.source) sources.add(declaration.source);
             const variants = {};
             for (const [locale, variant] of Object.entries(declaration.locales)) {
                 const { group } = localizationLayout.languageBundle(module, base, locale, variant);
@@ -180,7 +63,48 @@ export function localizationDeclarations(modules, settings) {
         }
     return { config, declarations, owners };
 }
-export function compileLocalization(root, modules, settings, sources, registry) {
+/** 用当前物理路径配对；资源 UUID/旧逻辑名不参与语言 key 的生成。 */
+export function languageResources(module, group, registry, metadata) {
+    const directory = resolve(module.directory, module.bundles[group].root, 'dynamic');
+    const entries = [...registry].filter(([id]) => id.startsWith(`${module.id}/${group}/`));
+    const typesBySource = new Map();
+    for (const [, record] of entries) {
+        const asset = metadata.get(record.uuid);
+        if (!asset) throw Error(`语言资源尚未导入：${record.uuid}`);
+        if (!typesBySource.has(asset.source)) typesBySource.set(asset.source, new Set());
+        typesBySource.get(asset.source).add(record.type);
+    }
+    const assets = {},
+        seen = new Map();
+    let font = null;
+    for (const [id, record] of entries) {
+        const asset = metadata.get(record.uuid),
+            types = typesBySource.get(asset.source);
+        // 一张图片只暴露实际使用的入口，避免引擎导入的三层对象争用同一个路径。
+        if (['ImageAsset', 'Texture2D'].includes(record.type) && types.has('SpriteFrame')) continue;
+        if (record.type === 'ImageAsset' && types.has('Texture2D')) continue;
+        const local = forward(relative(directory, asset.source));
+        if (!local || local.startsWith('../') || isAbsolute(local)) throw Error(`语言资源不在 dynamic 内：${id}`);
+        const frame =
+            metadata.get(record.uuid.split('@')[0])?.importer === 'sprite-atlas' && record.type === 'SpriteFrame'
+                ? asset.suffix.replace(/^\//, '').replace(/\.[^./]+$/, '')
+                : '';
+        const key = local.slice(0, local.length - extname(local).length) + (frame ? '/' + frame : '');
+        if (!key.split('/').every((part) => /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(part)))
+            throw Error(`无效语言资源路径：${local}；请使用英文字母、数字、短横线和下划线`);
+        if (seen.has(key.toLowerCase()))
+            throw Error(`语言资源 key 冲突（含大小写/扩展名）：${key} / ${seen.get(key.toLowerCase())}`);
+        seen.set(key.toLowerCase(), local);
+        const value = { id, type: record.type };
+        if (key === 'fonts/default') {
+            if (record.type !== 'Font') throw Error(`${id}: fonts/default 必须是字体`);
+            font = value;
+        } else assets[key] = value;
+    }
+    return { assets: Object.fromEntries(Object.entries(assets).sort(([a], [b]) => a.localeCompare(b))), font };
+}
+
+export function compileLocalization(root, modules, settings, sources, registry, metadata = new Map()) {
     const { config, declarations, owners } = localizationDeclarations(modules, settings);
     const output = {},
         bundles = {},
@@ -195,10 +119,10 @@ export function compileLocalization(root, modules, settings, sources, registry) 
     }
     for (const declaration of declarations) {
         const { module, base, bundle, source, variants } = declaration;
-        const workbook = workbooks.get(source);
-        if (!workbook) throw Error(`${source}: 未找到有效多语言工作簿`);
-        workbooks.delete(source);
-        const data = workbook.localization,
+        const workbook = source ? workbooks.get(source) : undefined;
+        if (source && !workbook) throw Error(`${source}: 未找到有效多语言工作簿`);
+        if (source) workbooks.delete(source);
+        const data = workbook?.localization ?? { texts: [], locales: Object.keys(variants) },
             namespace = `${module.id}/${base}`;
         if (
             data.locales.some((locale) => !config.locales.includes(locale)) ||
@@ -206,45 +130,39 @@ export function compileLocalization(root, modules, settings, sources, registry) 
         )
             throw Error(`${source}: 语言列与项目/资源包声明不一致`);
         const defaults = config.defaultLocale;
-        for (const row of [...data.texts, ...data.assets]) {
+        for (const row of data.texts) {
             if (!has(row.values, defaults)) throw Error(`${source}: 默认语言缺少 ${row.key}`);
-            if (row.type) continue;
             const expected = parameters(row.values[defaults]).join(',');
             for (const [locale, value] of Object.entries(row.values))
                 if (parameters(value).join(',') !== expected) throw Error(`${source}: ${row.key}/${locale} 参数不一致`);
         }
+        const resources = Object.fromEntries(
+            Object.entries(variants).map(([locale, group]) => [
+                locale,
+                languageResources(module, group, registry, metadata),
+            ]),
+        );
+        const defaultAssets = resources[defaults].assets;
+        for (const [locale, { assets }] of Object.entries(resources))
+            for (const [key, value] of Object.entries(assets)) {
+                if (!has(defaultAssets, key)) throw Error(`${namespace}/${locale}: 默认语言缺少资源路径 ${key}`);
+                if (defaultAssets[key].type !== value.type)
+                    throw Error(`${namespace}/${locale}: 资源类型不一致 ${key}`);
+            }
         const contract = digest({
             namespace,
             texts: data.texts.map((row) => [row.key, parameters(row.values[defaults])]).sort(),
-            assets: data.assets
-                .filter((row) => row.key !== '$font')
-                .map((row) => [row.key, row.type])
+            assets: Object.entries(defaultAssets)
+                .map(([key, value]) => [key, value.type])
                 .sort(),
         });
         const definition = { namespace, contract, catalogs: {} };
         bundles[bundle.id] = definition;
-        const resolveAsset = (value, type, locale) => {
-            const entry = value.startsWith('@')
-                ? [...registry].find(([id]) => id === value.slice(1))
-                : [...registry].find(([, record]) => record.uuid === value && record.type === type);
-            if (!entry || entry[1].type !== type) throw Error(`${source}: ${locale} 资源不存在或类型不符：${value}`);
-            const [id] = entry,
-                owner = owners.get(id.split('/').slice(0, 2).join('/'));
-            if (owner && owner.locale !== locale) throw Error(`${source}: 不能引用其他语言专用包：${value}`);
-            return { id, type };
-        };
         for (const locale of data.locales) {
-            // 停用的语言保留翻译列与资源记录，恢复归档包后再参与资源校验。
-            const assets = {},
+            // 停用的语言保留文案列；资源仅扫描已启用的语言目录。
+            const { assets, font } = resources[locale] ?? { assets: {}, font: null },
                 texts = {};
-            let font = null;
             for (const row of data.texts) if (has(row.values, locale)) texts[row.key] = row.values[locale];
-            for (const row of data.assets)
-                if (variants[locale] && has(row.values, locale)) {
-                    const key = resolveAsset(row.values[locale], row.type, locale);
-                    if (row.key === '$font') font = key;
-                    else assets[row.key] = key;
-                }
             const group = variants[locale];
             reports.push({
                 namespace,
@@ -254,6 +172,9 @@ export function compileLocalization(root, modules, settings, sources, registry) 
                 total: data.texts.length,
                 translated: Object.keys(texts).length,
                 assets: Object.keys(assets).length,
+                assetKeys: Object.keys(assets),
+                missingAssets: Object.keys(defaultAssets).filter((key) => !has(assets, key)),
+                font: font?.id ?? null,
             });
             if (!group) continue;
             const catalog = { formatVersion: 2, namespace, locale, contract, texts, assets, font };
@@ -273,14 +194,12 @@ export function compileLocalization(root, modules, settings, sources, registry) 
                         .join(' | ') || 'never'
                 }>,`,
         );
-        const assets = data.assets
-            .filter((row) => row.key !== '$font')
-            .map(
-                (row) =>
-                    `    ${row.name}: ${JSON.stringify({ namespace, key: row.key, contract, type: row.type })} as LocalizedAssetKey<${JSON.stringify(row.type)}>,`,
-            );
+        const assets = Object.entries(defaultAssets).map(
+            ([key, value]) =>
+                `    ${JSON.stringify(key)}: ${JSON.stringify({ namespace, key, contract, type: value.type })} as LocalizedAssetKey<${JSON.stringify(value.type)}>,`,
+        );
         output[`${generated}/localization-${base}.ts`] =
-            `// 根据多语言工作簿生成；修改源工作簿后通过工作台生成。\nimport type { TextKey, LocalizedAssetKey } from '${framework}/localization/localization';\n/** ${namespace} 的文案与语言资源合同，不加载任何内容。 */\nexport const ${pascal(module.id)}${base === 'default' ? '' : pascal(base)}I18n = {\n  text: {\n${texts.join('\n')}\n  },\n  asset: {\n${assets.join('\n')}\n  },\n} as const;\n`;
+            `// 根据文案工作簿与语言 dynamic 相对路径生成；通过工作台更新。\nimport type { TextKey, LocalizedAssetKey } from '${framework}/localization/localization';\n/** ${namespace} 的文案与语言资源合同，不加载任何内容。 */\nexport const ${pascal(module.id)}${base === 'default' ? '' : pascal(base)}I18n = {\n  text: {\n${texts.join('\n')}\n  },\n  asset: {\n${assets.join('\n')}\n  },\n} as const;\n`;
     }
     if (workbooks.size) throw Error(`多语言工作簿尚未归属资源包：${[...workbooks.keys()].join(', ')}`);
     return { output, reports, release: config ? { ...config, bundles } : undefined };

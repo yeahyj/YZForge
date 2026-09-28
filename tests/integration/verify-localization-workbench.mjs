@@ -53,7 +53,7 @@ try {
     await panel('el("refresh").click();');
     await until('return root.dataset.busy!=="true";');
     await panel(
-        'set("module",input.fixture);root.querySelector("[data-tab=localization]").click();set("languageBundle","default");set("languageLocale","en");el("previewLanguage").click();',
+        'set("module",input.fixture);root.querySelector("[data-tab=localization]").click();set("languageBundle","default");set("languageLocale","en");el("languageTexts").checked=true;el("languageTexts").dispatchEvent(new Event("change",{bubbles:true}));el("previewLanguage").click();',
         { fixture },
     );
     await until('return !el("createLanguage").disabled;');

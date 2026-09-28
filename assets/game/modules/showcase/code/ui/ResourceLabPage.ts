@@ -54,7 +54,7 @@ export class ResourceLabPage extends ResourceLabPageBinding {
                 fallback: reader.t(text.resourcesFallback),
             })),
             i18n.bindText(this.lblOutput, text.resourcesReady, (reader) => ({ locale: reader.locale })),
-            i18n.bindSprite(this.sprLogo, ShowcaseI18n.asset.resourcesLogo),
+            i18n.bindSprite(this.sprLogo, ShowcaseI18n.asset['images/logo']),
             ...captions.map(([button, key]) => i18n.bindText(button.getComponentInChildren(Label)!, key)),
         ]);
         this.poolText = await i18n.bindText(this.lblPool, text.resourcesPool, () => {
@@ -81,7 +81,7 @@ export class ResourceLabPage extends ResourceLabPageBinding {
                     try {
                         await this.ctx.assets.in(batch).loadMany(
                             {
-                                picture: i18n.asset(ShowcaseI18n.asset.resourcesLogo),
+                                picture: i18n.asset(ShowcaseI18n.asset['images/logo']),
                                 sound: ShowcaseRes.audio.audioChime,
                                 part: ShowcaseRes.prefab.prefabsBadgePart,
                             },

@@ -12,7 +12,10 @@ export class LocalizedComponent extends Component {
     namespace = '';
     @property({ visible: false })
     key = '';
-    @property({ displayName: '语言键', tooltip: '当前预制体所属业务包的语言键，例如 example.welcome。' })
+    @property({
+        displayName: '语言键',
+        tooltip: '文案如 example.welcome；图片如 images/greeting，使用语言 dynamic 下不含扩展名的相对路径。',
+    })
     get languageKey(): string {
         return this.key;
     }

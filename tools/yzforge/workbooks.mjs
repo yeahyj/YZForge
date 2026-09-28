@@ -5,7 +5,7 @@ import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { SaxesParser } from 'saxes';
 import { files, json, safePath, withProjectLock } from './project.mjs';
-import { parseLocalizationWorkbook } from './localization.mjs';
+import { parseLocalizationWorkbook } from './localization-workbook.mjs';
 
 export const workbookVersion = 2;
 const columns = ['kind', 'id', 'sheet', 'bundle', 'primaryKey', 'enabled', 'field', 'name', 'value', 'unique'];
@@ -421,7 +421,7 @@ async function writeLocalizationWorkbookLocked(root, source, patch, expectedHash
     if (additions.some((locale) => typeof locale !== 'string' || !/^[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*$/.test(locale)))
         throw Error('语言列无效');
     for (const name of [
-        ...(additions.length ? ['texts', 'assets'] : []),
+        ...(additions.length ? ['texts'] : []),
         ...(patch.enabled !== undefined ? ['__localization'] : []),
     ]) {
         const sheet = sheets.find((sheet) => sheet.name === name),
@@ -439,7 +439,7 @@ async function writeLocalizationWorkbookLocked(root, source, patch, expectedHash
             xml = xml
                 .replace(/<sheetData(?:\s[^>]*)?>[\s\S]*?<\/sheetData>/, () =>
                     sheetData([
-                        ['formatVersion', 1],
+                        ['formatVersion', current.book.getWorksheet('__localization').getCell('B1').value],
                         ['enabled', patch.enabled],
                     ]),
                 )

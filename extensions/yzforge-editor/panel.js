@@ -129,6 +129,7 @@ exports.ready = function () {
         el('migrateLanguage').disabled = busy || !languageMigrationPlan;
         el('previewLanguage').disabled = busy || !val('languageBundle') || !val('languageLocale');
         el('openLanguageWorkbook').disabled = busy || !current()?.bundles[val('languageBundle')]?.localization?.source;
+        el('languageTexts').disabled = busy || !!current()?.bundles[val('languageBundle')]?.localization?.source;
         el('previewLanguageUpdate').hidden = val('languageApplyScope') !== 'bundle';
         el('languageApplyBundleOptions').hidden = val('languageApplyScope') !== 'bundle';
         el('previewLanguageUpdate').disabled =
@@ -221,14 +222,16 @@ exports.ready = function () {
         languageMigrationPlan = undefined;
         el('migrateLanguage').disabled = true;
         const declaration = current()?.bundles[val('languageBundle')]?.localization;
-        el('languageSource').textContent = declaration?.source ?? '此业务资源包尚未配置多语言。';
+        el('languageSource').textContent =
+            declaration?.source ?? (declaration ? '纯资源多语言包，无需文案工作簿。' : '此业务资源包尚未配置多语言。');
+        el('languageTexts').checked = !!declaration?.source;
         const workbook = state.localizationWorkbooks?.find((item) => item.source === declaration?.source);
         const content = el('languageStatus');
         content.replaceChildren();
-        if (workbook) {
+        if (declaration) {
             const table = document.createElement('table');
             const head = document.createElement('tr');
-            for (const title of ['语言', '存放位置', '文案', '资源']) {
+            for (const title of ['语言', '存放位置', '文案', '资源（上次生成）']) {
                 const th = document.createElement('th');
                 th.textContent = title;
                 head.appendChild(th);
@@ -236,17 +239,24 @@ exports.ready = function () {
             table.appendChild(head);
             for (const locale of state.settings.localization?.locales ?? []) {
                 const tr = document.createElement('tr');
-                const count = (kind) =>
-                    workbook.localization[kind].filter((row) =>
-                        Object.prototype.hasOwnProperty.call(row.values, locale),
-                    ).length;
+                const texts = workbook?.localization.texts ?? [];
+                const namespace = `${current().id}/${val('languageBundle')}`;
+                const resources = state.languageResources?.filter((item) => item.namespace === namespace) ?? [];
+                const keys = resources.find((item) => item.locale === locale)?.keys;
+                const defaults =
+                    resources.find((item) => item.locale === state.settings.localization.defaultLocale)?.keys ?? [];
+                const missing = keys ? defaults.filter((key) => !keys.includes(key)) : defaults;
                 for (const value of [
                     locale,
                     declaration.locales?.[locale]
                         ? `localization/${val('languageBundle')}/${locale}`
                         : (declaration.variants?.[locale] ?? '回退默认语言'),
-                    `${count('texts')} / ${workbook.localization.texts.length}`,
-                    `${count('assets')} / ${workbook.localization.assets.length}`,
+                    `${texts.filter((row) => Object.prototype.hasOwnProperty.call(row.values, locale)).length} / ${texts.length}`,
+                    keys
+                        ? `${keys.length} 项${missing.length ? '；回退：' + missing.join('、') : ''}`
+                        : declaration.locales?.[locale]
+                          ? '待生成'
+                          : '回退默认语言',
                 ]) {
                     const td = document.createElement('td');
                     td.textContent = value;
@@ -707,6 +717,14 @@ exports.ready = function () {
     on('previewTables', () => run('previewTables', {}, false));
     on('exportTables', () => run('generate'));
     for (const id of ['languageBundle', 'languageLocale']) on(id, languageChanged, 'change');
+    on(
+        'languageTexts',
+        () => {
+            languagePlan = undefined;
+            updateCreationActions();
+        },
+        'change',
+    );
     on('previewLanguage', async () => {
         const plan = await run(
             'previewCreate',
@@ -715,6 +733,7 @@ exports.ready = function () {
                 module: val('module'),
                 bundle: val('languageBundle'),
                 locale: val('languageLocale'),
+                texts: el('languageTexts').checked,
             },
             false,
         );

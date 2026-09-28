@@ -111,7 +111,7 @@ return {stage:'batch-rollback-and-catalog-cleanup',failure:failure.code,cancelle
         await run(`
 const p=page(),owner=p.show.scope.child('initial-binding-race'),node=new cc.Node('LocalizationRace');
 const sprite=node.addComponent(cc.Sprite),language=await p.show.i18n.in(owner).use('m-showcase');
-const definition=language.handle.definition,key={namespace:definition.namespace,contract:definition.contract,key:'resources.logo',type:'SpriteFrame'};
+const definition=language.handle.definition,key={namespace:definition.namespace,contract:definition.contract,key:'images/logo',type:'SpriteFrame'};
 const originalLoad=app.assets.load;let started=false,delayed=false;
 app.assets.load=async function(key,lifetime){
 if(!delayed&&key.type==='SpriteFrame'&&lifetime.inspect().label.startsWith(owner.label)){

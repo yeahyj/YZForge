@@ -40,10 +40,10 @@ const staticTemplate=find(prefab.data,'StaticImage').getComponent(SpriteType),pr
 const fetch=app.assets.fetch;
 let release;
 try {
-  staticTemplate.key='resources.logo';
+  staticTemplate.key='images/logo';
   prefab.compileCreateFunction();
   let started=false;const loading=new Promise(r=>release=r);
-  app.assets.fetch=async function(address){if(address.type==='SpriteFrame'&&address.path==='dynamic/icons/alpha/token/spriteFrame'){started=true;await loading;}return fetch.call(this,address);};
+  app.assets.fetch=async function(address){if(address.type==='SpriteFrame'&&address.path==='dynamic/images/logo/spriteFrame'){started=true;await loading;}return fetch.call(this,address);};
   let opened=false;const pending=app.ui.pushPage(key,undefined,owner.lifetime).then(v=>{opened=true;return v;});
   const observed=pending.catch(e=>{throw e;});observed.catch(()=>{});
   await until(()=>started);await wait(100);

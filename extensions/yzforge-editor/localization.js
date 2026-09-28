@@ -9,7 +9,7 @@ const digest = (value) => createHash('sha256').update(JSON.stringify(value)).dig
 
 exports.createLocalizationTools = function (ctx) {
     const { root, inside, read, moduleInfo, saveJson, workbookTools, bundleFolder, ensureFolder, url, journal } = ctx;
-    const tools = () => import(pathToFileURL(inside('tools/yzforge/localization.mjs')).href);
+    const tools = () => import(pathToFileURL(inside('tools/yzforge/localization-workbook.mjs')).href);
     async function planLocalization(args) {
         const { manifest } = await moduleInfo(args.module),
             base = args.bundle;
@@ -19,7 +19,9 @@ exports.createLocalizationTools = function (ctx) {
         if (!config.locales.includes(args.locale)) throw Error('请选择有效语言');
         const previous = manifest.bundles[base].localization;
         if (previous?.variants) throw Error('请先迁移旧目录');
-        const source = previous?.source ?? `config-source/${manifest.id}/localization-${base}.xlsx`;
+        const source =
+            previous?.source ??
+            (args.texts === true ? `config-source/${manifest.id}/localization-${base}.xlsx` : undefined);
         const locales = {
             [config.defaultLocale]: {},
             ...previous?.locales,
@@ -27,30 +29,35 @@ exports.createLocalizationTools = function (ctx) {
         };
         const next = {
             ...manifest,
-            bundles: { ...manifest.bundles, [base]: { ...manifest.bundles[base], localization: { source, locales } } },
+            bundles: {
+                ...manifest.bundles,
+                [base]: { ...manifest.bundles[base], localization: { ...(source ? { source } : {}), locales } },
+            },
         };
         layout.physicalBundles(next);
         const prefix = `assets/game/modules/${manifest.id}`,
             paths = [],
             folders = [],
             updates = [`${prefix}/module.json`];
-        const exists = await fs.stat(inside(source)).then(
-            () => true,
-            (error) => {
-                if (error.code === 'ENOENT') return false;
-                throw error;
-            },
-        );
+        const exists =
+            source &&
+            (await fs.stat(inside(source)).then(
+                () => true,
+                (error) => {
+                    if (error.code === 'ENOENT') return false;
+                    throw error;
+                },
+            ));
         let hash;
-        if (previous && !exists) throw Error('源工作簿丢失，请先恢复文件');
+        if (previous?.source && !exists) throw Error('源工作簿丢失，请先恢复文件');
         if (exists) {
-            if (!previous) throw Error('同名工作簿已存在，请从删除记录恢复，不能覆盖');
+            if (!previous?.source) throw Error('同名工作簿已存在，请从删除记录恢复，不能覆盖');
             const workbook = await (await workbookTools()).readWorkbook(root(), source);
             if (workbook.kind !== 'localization' || !workbook.config.enabled)
                 throw Error('多语言工作簿无效或已停用，请从删除记录恢复');
             hash = workbook.hash;
             updates.push(source);
-        } else paths.push(source);
+        } else if (source) paths.push(source);
         for (const [locale, variant] of Object.entries(locales)) {
             const target = layout.languageBundle(manifest, base, locale, variant);
             if (!previous?.locales?.[locale]) {
@@ -85,6 +92,7 @@ exports.createLocalizationTools = function (ctx) {
                 locale: args.locale,
                 id: base,
                 source,
+                texts: !!source,
                 hash,
                 locales,
             },
@@ -109,8 +117,11 @@ exports.createLocalizationTools = function (ctx) {
             await (
                 await workbookTools()
             ).writeLocalizationWorkbook(root(), request.source, { locales: columns }, request.hash);
-        else await (await tools()).createLocalizationWorkbook(root(), request.source, columns);
-        manifest.bundles[request.bundle].localization = { source: request.source, locales: request.locales };
+        else if (request.source) await (await tools()).createLocalizationWorkbook(root(), request.source, columns);
+        manifest.bundles[request.bundle].localization = {
+            ...(request.source ? { source: request.source } : {}),
+            locales: request.locales,
+        };
         await saveJson(path.join(directory, 'module.json'), manifest);
         return { source: request.source, module: request.module, bundle: request.bundle, locale: request.locale };
     }
@@ -237,7 +248,28 @@ exports.createLocalizationTools = function (ctx) {
             }
         return { removed };
     }
+    async function languageResourceState(modules) {
+        const result = [];
+        for (const module of modules)
+            for (const [base, bundle] of Object.entries(layout.businessBundles(module)))
+                for (const [locale, variant] of Object.entries(bundle.localization?.locales ?? {})) {
+                    const target = layout.languageBundle(module, base, locale, variant);
+                    const catalog = await read(
+                        inside(`assets/game/modules/${module.id}/${target.root}/yz-locale.json`),
+                    ).catch((error) => {
+                        if (error.code === 'ENOENT') return null;
+                        throw error;
+                    });
+                    result.push({
+                        namespace: `${module.id}/${base}`,
+                        locale,
+                        keys: catalog ? Object.keys(catalog.assets) : null,
+                    });
+                }
+        return result;
+    }
     return {
+        languageResourceState,
         planLocalization,
         createLocalization,
         previewLocalizationMigration,

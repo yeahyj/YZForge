@@ -2,7 +2,7 @@
   "formatVersion": 2,
   "namespace": "showcase/default",
   "locale": "en",
-  "contract": "sha256:4c884e918c8c0f46d4f7933b8e80fe3fed04ada0f1f372413203559c287fa8a5",
+  "contract": "sha256:b9629081ee18a21cc01bdabafe47944052d231cebc5bd7c605c21f370cd6df01",
   "texts": {
     "resources.title": "Resources & Languages",
     "resources.subtitle": "Batch loading · Instance reuse · Language bundles",
@@ -33,15 +33,15 @@
     "example.help": "See the page script for the first two; inspect the binding components for the last two."
   },
   "assets": {
-    "resources.logo": {
-      "id": "showcase/default/sprite/icons/beta/token",
+    "images/greeting": {
+      "id": "showcase/default-en/sprite/images/greeting",
       "type": "SpriteFrame"
     },
-    "example.greeting": {
-      "id": "showcase/default-en/sprite/images/greeting",
+    "images/logo": {
+      "id": "showcase/default-en/sprite/images/logo",
       "type": "SpriteFrame"
     }
   },
   "font": null,
-  "revision": "sha256:3f96b9878d0d9b29a33791faf232fe297b40c68980d64c87f20adb84223b2c49"
+  "revision": "sha256:96bfa0b6c8ab4f8ab41ed26b2a800a9e45b0971dcd9f15894e3fe108571344ee"
 }

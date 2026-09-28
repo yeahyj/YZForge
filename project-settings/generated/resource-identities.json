@@ -109,6 +109,24 @@
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/TutorialLabPage.prefab"
     },
+    "4c36a062-556c-414d-b809-654778854915": {
+      "id": "showcase/default-zh-cn/image/images/logo",
+      "type": "ImageAsset",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/zh-CN/dynamic/images/logo.png"
+    },
+    "4c36a062-556c-414d-b809-654778854915@6c48a": {
+      "id": "showcase/default-zh-cn/texture/images/logo",
+      "type": "Texture2D",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/zh-CN/dynamic/images/logo.png"
+    },
+    "4c36a062-556c-414d-b809-654778854915@f9941": {
+      "id": "showcase/default-zh-cn/sprite/images/logo",
+      "type": "SpriteFrame",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/zh-CN/dynamic/images/logo.png"
+    },
     "4ea13fd4-6f0d-41a3-a65e-f19f90d6b0c7": {
       "id": "workshop/default/prefab/prefabs/task-part",
       "type": "Prefab",
@@ -270,6 +288,24 @@
       "type": "Prefab",
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/AsyncLabPage.prefab"
+    },
+    "f8f42b2f-3d11-4f6f-9098-a97296d91dbf": {
+      "id": "showcase/default-en/image/images/logo",
+      "type": "ImageAsset",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/en/dynamic/images/logo.png"
+    },
+    "f8f42b2f-3d11-4f6f-9098-a97296d91dbf@6c48a": {
+      "id": "showcase/default-en/texture/images/logo",
+      "type": "Texture2D",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/en/dynamic/images/logo.png"
+    },
+    "f8f42b2f-3d11-4f6f-9098-a97296d91dbf@f9941": {
+      "id": "showcase/default-en/sprite/images/logo",
+      "type": "SpriteFrame",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/en/dynamic/images/logo.png"
     }
   },
   "aliases": {}

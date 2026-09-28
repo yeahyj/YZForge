@@ -7,17 +7,17 @@
   "bundles": {
     "m-showcase": {
       "namespace": "showcase/default",
-      "contract": "sha256:4c884e918c8c0f46d4f7933b8e80fe3fed04ada0f1f372413203559c287fa8a5",
+      "contract": "sha256:b9629081ee18a21cc01bdabafe47944052d231cebc5bd7c605c21f370cd6df01",
       "catalogs": {
         "zh-CN": {
           "bundle": "showcase-default-zh-cn",
           "path": "yz-locale",
-          "revision": "sha256:1ffdc736f559f74c842a2a1c0e82e8349ab6c721d041830d982f41bff21b742e"
+          "revision": "sha256:82214ade125915c9784f74f7694f03a62f518c724eb68cf93b5d6d513386acca"
         },
         "en": {
           "bundle": "showcase-default-en",
           "path": "yz-locale",
-          "revision": "sha256:3f96b9878d0d9b29a33791faf232fe297b40c68980d64c87f20adb84223b2c49"
+          "revision": "sha256:96bfa0b6c8ab4f8ab41ed26b2a800a9e45b0971dcd9f15894e3fe108571344ee"
         }
       }
     }

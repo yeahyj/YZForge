@@ -16,6 +16,21 @@
       "bundle": "showcase-default-en",
       "path": "dynamic/images/greeting/spriteFrame",
       "type": "SpriteFrame"
+    },
+    "showcase/default-en/image/images/logo": {
+      "bundle": "showcase-default-en",
+      "path": "dynamic/images/logo",
+      "type": "ImageAsset"
+    },
+    "showcase/default-en/texture/images/logo": {
+      "bundle": "showcase-default-en",
+      "path": "dynamic/images/logo/texture",
+      "type": "Texture2D"
+    },
+    "showcase/default-en/sprite/images/logo": {
+      "bundle": "showcase-default-en",
+      "path": "dynamic/images/logo/spriteFrame",
+      "type": "SpriteFrame"
     }
   }
 }

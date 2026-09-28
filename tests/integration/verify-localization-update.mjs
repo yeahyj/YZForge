@@ -47,7 +47,7 @@ const parent=cce.Scene.rootNode;if(!parent)throw Error('Open a scene or prefab f
 const root=new cc.Node('__locale_apply_check');root.layer=cc.Layers.Enum.UI_2D;root.setPosition(100000,100000);root.parent=parent;
 root._objFlags|=cc.CCObject.Flags.DontSave|cc.CCObject.Flags.HideInHierarchy;
 const data={root};globalThis.__yzforgeManualLocaleCheck=data;
-for(const [kind,name,key]of[['text','yzforge.LocalizedLabel','example.welcome'],['sprite','yzforge.LocalizedSprite','example.greeting']]){
+for(const [kind,name,key]of[['text','yzforge.LocalizedLabel','example.welcome'],['sprite','yzforge.LocalizedSprite','images/greeting']]){
  const node=new cc.Node(kind);node.layer=root.layer;node.parent=root;
  const component=node.addComponent(cc.js.getClassByName(name));component.namespace='showcase/default';component.key=key;
  if(typeof component.update==='function'||typeof component.onFocusInEditor==='function')throw Error('Runtime preview code remains');
@@ -92,7 +92,7 @@ return {root:root.uuid,text:data.text.uuid,sprite:data.sprite.uuid};`);
     await assert.rejects(dispatch('applyLanguageUpdate', { scope: 'selection', locale: 'en' }), /语言键不存在/);
     assert.equal((await read()).text, chinese.text);
     await scene(
-        `globalThis.__yzforgeManualLocaleCheck.sprite.getComponent('yzforge.LocalizedSprite').key='example.greeting';return true;`,
+        `globalThis.__yzforgeManualLocaleCheck.sprite.getComponent('yzforge.LocalizedSprite').key='images/greeting';return true;`,
     );
 
     // Export a real native prefab to an isolated folder; never save the user's open asset.
@@ -101,7 +101,7 @@ const clone=cc.instantiate(globalThis.__yzforgeManualLocaleCheck.root);clone.par
 clone._objFlags&=~(cc.CCObject.Flags.DontSave|cc.CCObject.Flags.HideInHierarchy);
 clone.walk(node=>{node._prefab=null;for(const c of node.components)c.__prefab=null;});
 const asset=new cc.Prefab();asset.data=clone;
-try{const value=cce.Utils.serialize(asset);return typeof value==='string'?value:JSON.stringify(value,null,2);}finally{clone.destroy();}`);
+try{const value=EditorExtends.serialize(asset);return typeof value==='string'?value:JSON.stringify(value,null,2);}finally{clone.destroy();}`);
     await editor(`await Editor.Message.request('asset-db','create-asset',args.url,null);return true;`, {
         url: fixtureUrl,
     });
@@ -116,6 +116,11 @@ try{const value=cce.Utils.serialize(asset);return typeof value==='string'?value:
     );
     assert.equal(persisted.text, chinese.text);
     assert.equal(persisted.image, chinese.image);
+    assert.equal(
+        await editor('return await Editor.Message.request("scene","query-current-scene");'),
+        before.source,
+        'Fixture serialization changed the active asset',
+    );
 
     // Use the production batch implementation and real asset-db against an isolated scope.
     await editor(

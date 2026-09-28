@@ -15,10 +15,10 @@ export class LocalizationLabPage extends LocalizationLabPageBinding {
         const counter = await language.bindText(this.lblDynamic, ShowcaseI18n.text.exampleCounter, { count });
         let picture: LocalizedBinding | undefined;
         // 动态图片：bindSprite 内部用现有 Assets 加载，切换时先准备新图再提交。
-        // 只取当前资源键时可调用 language.asset(ShowcaseI18n.asset.exampleGreeting)。
+        // 只取当前资源键时可调用 language.asset(ShowcaseI18n.asset['images/greeting'])。
         const loadImage = async () => {
             picture?.dispose();
-            picture = await language.bindSprite(this.sprDynamic, ShowcaseI18n.asset.exampleGreeting);
+            picture = await language.bindSprite(this.sprDynamic, ShowcaseI18n.asset['images/greeting']);
         };
         await loadImage();
         const error = (cause: unknown) =>

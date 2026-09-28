@@ -1,6 +1,6 @@
 # 多语言目录规划
 
-状态：已按此结构迁移并实现。实际使用、原生组件与四种示例见 [多语言文档](localization.md)。本文保留目录选择的依据。
+状态：已按此结构迁移并实现。资源对应关系现由各语言 `dynamic` 的相对路径生成，Excel 仅保存文案，纯资源包无需 Excel。实际使用、原生组件与四种示例见 [多语言文档](localization.md)。本文保留目录选择的依据。
 
 ## 选择
 
@@ -45,8 +45,8 @@ assets/game/modules/showcase/
 
 config-source/showcase/
 ├─ samples.xlsx                       普通配置表
-├─ localization-default.xlsx          default 的全部语言，共用一份 Excel
-└─ localization-extra.xlsx            extra 启用多语言后创建
+├─ localization-default.xlsx          default 的全部语言文案，可选
+└─ localization-extra.xlsx            extra 需要文案时创建
 ```
 
 上图省略 `.meta`、其他现有合同和由资源扫描生成的物理资源键文件；这些文件仍按现有框架规则维护。
@@ -58,7 +58,7 @@ config-source/showcase/
 3. `localization` 下的语言包由工具根据业务包的多语言声明管理。普通页面和配置表的目标列表只显示业务资源包，语言变体在多语言页按业务包分组显示。
 4. `dynamic`、`static` 沿用现有框架含义。图片、字体、音频等分类不是新的框架类型，也不要求每个语言包都有这些目录。只有文案的语言包可以没有手工资源。
 5. `yz-index.json` 供现有 Assets 查找物理资源；`yz-locale.json` 供多语言服务选择文案和资源键。两者职责不同，不合并为第二套加载器。后者不作为普通动态 JSON 重复生成资源键。
-6. Excel 按业务包划分，每种语言占一列；继续使用 `config-source/<模块>/localization-<业务包>.xlsx`。生成的语言键继续位于 `contracts/generated/localization-<业务包>.ts`，业务调用不依赖具体语言目录。
+6. 文案 Excel 按业务包划分，每种语言占一列；继续使用 `config-source/<模块>/localization-<业务包>.xlsx`。语言资源按 `dynamic` 下不含扩展名的相对路径对应。生成的语言键继续位于 `contracts/generated/localization-<业务包>.ts`，业务调用不依赖具体语言目录。
 7. 业务包的多语言声明是归属来源。实际 Bundle ID、加载路径和目录位置由工具校验、维护，不通过拆分 `default-en` 这类名字猜测归属。迁移时优先保留已有 Bundle ID、UUID 和公开资源键。
 8. 普通公共资源留在现有公共业务包。同语言公共字体等可通过公开资源键显式复用公共语言包，不复制到每个使用者目录。引用校验需覆盖所有业务包与语言包，缺译继续走明确的默认语言回退。
 
@@ -78,7 +78,7 @@ config-source/showcase/
 
 - 保留普通业务包根目录、Excel 源表、现有语言键合同及业务调用方式。
 - 通过 Creator 移动现有英文语言包，尽量保留目录和资源 UUID；将默认语言目录迁到对应语言包（当前项目为 `zh-CN`）。仅迁移已确认归属的语言内容，普通公共资源不随之移动。
-- 将语言目录文件移动、重命名为 `yz-locale.json`；同步更新生成所有权记录、加载路由、资源身份记录及构建审计。生成 JSON 的内容仍来自 Excel。
+- 将语言目录文件移动、重命名为 `yz-locale.json`；同步更新生成所有权记录、加载路由、资源身份记录及构建审计。生成 JSON 的文案来自 Excel，资源来自目录扫描。
 - 新目录与旧目录不能同时进入正式发布清单。旧目录仅在文件迁移完成、引用校验通过且确认空目录后，通过 Creator 清理；旧 `dynamic/locales` 空目录也纳入检查。
 - 创建预览、生成器和运行时必须使用同一份派生路由，补齐前面审查发现的普通内容误选语言包、公共字体复用和依赖检查问题。
 - 验证首次创建、追加语言、只含文案的语言包、同语言公共资源引用、停用及删除恢复、目录迁移、语言切换、页面关闭、Web 构建和产物运行。预览与构建中的 Bundle 归属须与清单一致。

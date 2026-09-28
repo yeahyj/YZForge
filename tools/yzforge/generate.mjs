@@ -345,7 +345,7 @@ async function generateLocked(
             runtime.validateIndex(index, `${module.id}/${group}`);
             output[target] = JSON.stringify(index, null, 2) + '\n';
         }
-    const localization = compileLocalization(root, projectModules, settings, sources, registry);
+    const localization = compileLocalization(root, projectModules, settings, sources, registry, meta);
     await validateLocalizedBindings(root, meta, localization, projectModules, { forBuild: !!platform });
     Object.assign(output, localization.output);
     output['project-settings/generated/localization.json'] =

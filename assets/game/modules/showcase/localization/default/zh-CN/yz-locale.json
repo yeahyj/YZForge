@@ -2,7 +2,7 @@
   "formatVersion": 2,
   "namespace": "showcase/default",
   "locale": "zh-CN",
-  "contract": "sha256:4c884e918c8c0f46d4f7933b8e80fe3fed04ada0f1f372413203559c287fa8a5",
+  "contract": "sha256:b9629081ee18a21cc01bdabafe47944052d231cebc5bd7c605c21f370cd6df01",
   "texts": {
     "resources.title": "资源与多语言",
     "resources.subtitle": "批量准备 · 实例复用 · 按需切换语言",
@@ -34,15 +34,15 @@
     "example.help": "前两项查看页面脚本；后两项查看节点上的文字绑定 / 图片绑定组件。"
   },
   "assets": {
-    "resources.logo": {
-      "id": "showcase/default/sprite/icons/alpha/token",
+    "images/greeting": {
+      "id": "showcase/default-zh-cn/sprite/images/greeting",
       "type": "SpriteFrame"
     },
-    "example.greeting": {
-      "id": "showcase/default-zh-cn/sprite/images/greeting",
+    "images/logo": {
+      "id": "showcase/default-zh-cn/sprite/images/logo",
       "type": "SpriteFrame"
     }
   },
   "font": null,
-  "revision": "sha256:1ffdc736f559f74c842a2a1c0e82e8349ab6c721d041830d982f41bff21b742e"
+  "revision": "sha256:82214ade125915c9784f74f7694f03a62f518c724eb68cf93b5d6d513386acca"
 }

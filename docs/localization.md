@@ -1,17 +1,17 @@
 # 多语言与语言资源包
 
-多语言以**业务资源包**为单位维护。同一模块里的 `default`、`shop` 等资源包可以各自有独立工作簿；专用语言包只承载其中一个业务包的一种语言。框架复用已有 Bundle、Assets、LeaseCache 和 Scope，不另建加载系统。
+多语言以**业务资源包**为单位维护。文案用 Excel；图片、音频等使用各语言 `dynamic` 下不含扩展名的相对路径作为 key，目录是资源对应关系的唯一来源。纯资源包不需要工作簿。专用语言包只承载其中一个业务包的一种语言，框架复用已有 Bundle、Assets、LeaseCache 和 Scope。
 
 ## 在工作台维护
 
 1. 打开 **YZForge → 项目工作台 → 项目设置**，保存默认语言和支持语言，例如 `zh-CN, en`。
 2. 进入 **多语言**，选择模块、业务资源包和语言。
-3. **预览创建**后执行 **创建并生成**。默认语言和其他语言统一放到 `localization/业务包/语言`，每种语言一个 Bundle。
-4. 打开生成的 Excel，填写文案与资源映射，再选择 **校验并生成**。面板显示各语言的翻译数量和存放位置。
+3. 需要文案时勾选 **同时创建文案工作簿**，然后 **预览创建 → 创建并生成**。默认语言和其他语言统一放到 `localization/业务包/语言`，每种语言一个 Bundle。已有纯资源包也可用此操作添加文案工作簿。
+4. 文案填写 Excel 的 `texts` 页；资源放入各语言相同相对位置，再选择 **校验并生成**。面板显示翻译数量、上次生成的资源数量及缺失资源的回退清单。
 
-首次创建同时登记默认语言。以后增加语言，先保存项目支持语言，再到多语言页执行创建。已有工作簿会安全追加空语言列，保留原有文本、格式和其他工作表；不会复制默认文案冒充翻译。写入会核对文件摘要、保留备份并使用临时文件替换，外部编辑导致预览过期时拒绝覆盖。
+首次创建同时登记默认语言。以后增加语言，先保存项目支持语言，再到多语言页执行创建。已有工作簿会安全追加空语言列，保留原有文本、格式和其他工作表；不会复制默认文案冒充翻译。纯资源包不创建占位 Excel；声明了工作簿但文件丢失时仍然报错。写入会核对文件摘要、保留备份并使用临时文件替换，外部编辑导致预览过期时拒绝覆盖。
 
-旧项目使用 **预览旧目录迁移 → 迁移并生成**。工具通过 Creator 移动目录和语言文件，保留 UUID、已有语言包 ID 和资源分组；迁移记录保存在 `.yzforge/editor-history`，随后清理已确认无内容、无引用的旧空目录。普通资源改名仍通过 Creator/工作台完成，不手改 `.meta`。同包改名保留资源键；跨包移动需要显式更新身份和所有引用。
+旧目录使用 **预览旧目录迁移 → 迁移并生成**，通过 Creator 移动，保留 UUID 和语言包身份。旧工作簿中的 `assets` 映射需要迁移到相同相对路径，并同步修改代码和组件中的资源键，再移除资源页；生成器会拒绝遗留映射，避免改表无效。普通资源改名仍通过 Creator/工作台完成，不手改 `.meta`。普通业务资源保留原有稳定键规则；语言资源改名或移动会改变路径键，各语言及引用需要同步调整。
 
 ```text
 assets/game/modules/showcase/
@@ -22,10 +22,10 @@ assets/game/modules/showcase/
 │     ├─ dynamic/images/greeting.png      示例图片，按需编目和加载
 │     ├─ static/                         仅供此包内资源静态引用
 │     ├─ yz-index.json                   自动生成的物理资源索引
-│     └─ yz-locale.json                  自动生成的文案、字体和图片映射
+│     └─ yz-locale.json                  自动生成的文案、字体和路径资源索引
 └─ contracts/generated/localization-default.ts
 
-config-source/showcase/localization-default.xlsx   全部语言共用的源工作簿
+config-source/showcase/localization-default.xlsx   可选，仅维护全部语言的文案
 ```
 
 `localization` 和业务包分组目录均不标记 Bundle，真正的包根目录互不嵌套。`dynamic`、`static` 沿用框架已有含义；图片、字体、音频分类按需要创建。只有文案也使用相同目录，无需放入占位图片。
@@ -41,7 +41,7 @@ config-source/showcase/localization-default.xlsx   全部语言共用的源工�
 }
 ```
 
-工作台在基包的 `module.json` 声明中写入工作簿与存放位置：
+工作台在基包的 `module.json` 声明中写入工作簿与存放位置（纯资源包省略 `source`）：
 
 ```json
 "default": {
@@ -56,16 +56,28 @@ config-source/showcase/localization-default.xlsx   全部语言共用的源工�
 
 实际语言 Bundle 由此声明派生，不再重复登记在普通 `bundles` 中。默认物理 ID 为 `模块-业务包-语言`（小写），目录保留标准语言大小写。`locales.en` 内可由迁移工具保存 `id`、`group` 以保留旧身份；平时通过面板维护即可。普通页面、配置表和预制体的目标只显示业务包。
 
-公共中性图片、字体仍放普通公共包；专属语言字体等可以跨业务包引用**同语言**公共包的资源键。跨语言直接引用被拒绝，缺译使用明确的默认语言回退。
+不随语言变化的图片、字体仍放普通公共包直接使用。共用的多语言图片可放公共模块的语言包，组件通过“跨包引用”选择该业务包，代码通过 `i18n.use` 获取该包。跨语言直接引用被拒绝，缺失版本回退默认语言。
+
+## 资源路径规则
+
+`zh-CN/dynamic/images/greeting.png` 与 `en/dynamic/images/greeting.jpg` 对应同一个 key：`images/greeting`。不包含模块、业务包、语言、`dynamic` 和扩展名；资源归属由当前业务包确定。大小写保持实际路径，推荐小写英文，目录分隔符统一使用 `/`。
+
+- 只编目 `dynamic` 入口，`static` 依赖和生成文件不参与语言对应。
+- 图片优先使用 SpriteFrame；没有精灵帧的纹理使用 Texture2D，不把同一图片的底层 ImageAsset、Texture2D 重复暴露。图集精灵帧使用 `图集相对路径/子图片名`。
+- 同一种语言的 key 必须唯一，包括去扩展名冲突和大小写冲突。不同语言相同 key 的资源类型必须一致。
+- 默认语言提供全部普通资源 key。其他语言缺少文件时回退默认语言，缺失项由校验和面板列出；默认语言缺少对应项、已有文件类型错误或实际加载失败仍报错。未提供和已删除的版本统一按缺失处理，不保存历史配对记录。
+- 改名、移动就是修改 key。组件的旧 key 在生成时检查；代码优先使用生成的路径键，动态拼接路径由业务自行同步。使用 Creator 覆盖同路径内容时语言 key 不变。
+- `dynamic/fonts/default.ttf`（或其他受支持字体格式）是可选的该语言默认字体，不作为普通资源 key 输出。当前语言未设置时使用默认语言字体，两者都未设置时保留 Label 原有字体。文案回退时按实际文案语言选择字体。其他路径的字体作为普通语言资源提供，不自动切换 Label 的字体角色。
+
+运行时读取生成索引并通过现有 Assets 加载；不会扫描文件夹或维护另一套资源管理器。
 
 ## 工作簿格式
 
-语言工作簿由 `__localization` 识别，和普通配置表的 `__config` 分开处理；没有类型行、主键行或公式求值。工作簿只保存内容，其归属不重复填写。
+语言工作簿由 `__localization` 的 `formatVersion = 2` 识别，和普通配置表的 `__config` 分开处理；没有类型行、主键行或公式求值。工作簿只保存文案，其归属不重复填写。旧版本 1 的纯文案工作簿仍可读取，有内容的旧 `assets` 页会报迁移提示。
 
-| 工作表   | 固定列                   | 后续列                 |
-| -------- | ------------------------ | ---------------------- |
-| `texts`  | `key`、`comment`         | `zh-CN`、`en` 等语言列 |
-| `assets` | `key`、`type`、`comment` | 相同顺序的语言列       |
+| 工作表  | 固定列           | 后续列                 |
+| ------- | ---------------- | ---------------------- |
+| `texts` | `key`、`comment` | `zh-CN`、`en` 等语言列 |
 
 文案键示例 `resources.title`、`resources.progress`。内容保留首尾空格、换行和 Unicode；数字必须作为 Excel 文本填写，公式、重复键、生成标识冲突、参数不一致均拒绝导出。语言表头不能留空或带首尾空格，中间空列会按工作表和单元格位置报错；正文中的空单元格仍按下列规则处理。
 
@@ -75,8 +87,6 @@ config-source/showcase/localization-default.xlsx   全部语言共用的源工�
 - `{count}`：参数，值只能为字符串或有限数字；`{{`、`}}` 表示字面大括号。
 - 默认语言必须覆盖全部文案和资源键，不提供“返回键名”来掩盖漏配。
 
-资源类型填写 `SpriteFrame`、`Font`、`AudioClip` 等已有 AssetKind。单元格填写 Creator UUID，精灵帧须包含子资源后缀；也可填写 `@模块/包/类型/逻辑路径`，引用已生成的公开资源键。UUID 引用在同包改名后仍有效。`assets` 中特殊行 `$font` / `Font` 定义整种语言的字体；没有字体行时保留 Label 的原始字体设置。某条文案回退中文时使用中文目录的字体。
-
 图片、字体和音频文件仍由 Creator 管理。不要在业务预制体里静态引用全部语言资源；生成的语言目录只保存键，不形成所有语言包的静态依赖。
 
 ## 页面与组件
@@ -85,7 +95,7 @@ config-source/showcase/localization-default.xlsx   全部语言共用的源工�
 
 在 Label 所在节点添加 **YZForge → 多语言 → 文字绑定（LocalizedLabel）**；在 Sprite 所在节点添加 **图片绑定（LocalizedSprite）**。两者沿用原生检查器，填写：
 
-- **语言键**：Excel 的原始 key，如 `example.welcome` 或 `example.greeting`。
+- **语言键**：文字填写 Excel 的原始 key，如 `example.welcome`；图片填写相对路径，如 `images/greeting`。
 - 文字可填写 **固定参数**，如 `name = YZForge`；变化的计数使用下面的代码绑定。
 - **跨包引用** 默认关闭，框架按源预制体/场景所在的业务资源包自动确定词条库。引用其他包时再打开并填写 **词条来源**，如 `common/default`。
 
@@ -95,7 +105,7 @@ config-source/showcase/localization-default.xlsx   全部语言共用的源工�
 
 在 **YZForge → 项目工作台 → 多语言 → 应用语言到界面** 中选择目标语言，点击 **应用语言**。语言下拉来自项目配置。可更新当前预制体/场景、选中节点及子节点，或明确选择业务资源包批量更新。普通更新自动识别源资源归属，不需要再选择业务包。
 
-当前范围通过 Creator 原生属性操作直接修改 Label 文字、Sprite 图片和已配置的语言字体，支持一次 Ctrl+Z 撤销和 Ctrl+S 保存。所有语言键、固定参数和资源先验证，失败不留下部分更新。保留颜色、字号、Label 溢出模式和 Sprite 尺寸模式；原生自适应尺寸随新内容正常计算。无语言字体映射时保留普通字体；上次应用的语言字体没有对应映射时改用系统字体，需要固定的默认语言字体时应在工作簿明确配置。
+当前范围通过 Creator 原生属性操作直接修改 Label 文字、Sprite 图片和语言默认字体，支持一次 Ctrl+Z 撤销和 Ctrl+S 保存。所有语言键、固定参数和资源先验证，失败不留下部分更新。保留颜色、字号、Label 溢出模式和 Sprite 尺寸模式；原生自适应尺寸随新内容正常计算。无语言字体时保留普通字体；上次应用的语言字体没有对应映射时改用系统字体，需要固定默认字体时放入默认语言的 `dynamic/fonts/default`。
 
 批量范围先点击 **检查批量范围** 查看文件，再点击 **应用语言** 直接保存。未保存的目标资源会阻止批量覆盖。**恢复批量更新** 可恢复已有记录；检测到后续编辑时停止恢复并保留当前文件。批量只修改源资源中的绑定，不改嵌套实例覆盖；跨包嵌套预制体在自身所属资源包更新，有覆盖的实例可使用当前场景范围更新。
 
@@ -113,7 +123,7 @@ config-source/showcase/localization-default.xlsx   全部语言共用的源工�
 const language = await show.i18n.use(ShowcaseBundles.default);
 
 await language.bindText(this.lblTitle, ShowcaseI18n.text.resourcesTitle);
-await language.bindSprite(this.sprLogo, ShowcaseI18n.asset.resourcesLogo);
+await language.bindSprite(this.sprLogo, ShowcaseI18n.asset['images/logo']);
 const status = await language.bindText(this.lblStatus, ShowcaseI18n.text.resourcesProgress, {
     completed: 0,
     total: 10,
@@ -189,6 +199,7 @@ node tests/integration/verify-localization-examples.mjs http://127.0.0.1:7456/
 node tests/integration/verify-localization-update.mjs
 node tests/integration/verify-localization-ready.mjs http://127.0.0.1:7456/
 node tests/integration/verify-localization-workbench.mjs
+node tests/integration/verify-localization-paths.mjs
 node tests/integration/verify-resources-localization.mjs http://127.0.0.1:7456/
 ```
 
