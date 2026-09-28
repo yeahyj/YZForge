@@ -4,13 +4,14 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import audit from '../tools/yzforge/build-audit.cjs';
-test('审计所有业务包与所有语言包：允许同语言共享，拒绝跨业务静态依赖和跨语言依赖', async (t) => {
+test('允许业务引用默认语言和同语言共享，拒绝业务引用其他语言和语言之间交叉依赖', async (t) => {
     const root = await mkdtemp(join(tmpdir(), 'yzforge-language-graph-'));
     t.after(() => rm(root, { recursive: true, force: true }));
     await mkdir(join(root, 'project-settings/generated'), { recursive: true });
     await writeFile(
         join(root, 'project-settings/generated/localization.json'),
         JSON.stringify({
+            defaultLocale: 'zh-CN',
             bundles: {
                 shop: {
                     namespace: 'shop/default',
@@ -26,6 +27,7 @@ test('审计所有业务包与所有语言包：允许同语言共享，拒绝�
     };
     for (const name of ['shop', 'shop-zh', 'common', 'common-en']) await save(name, []);
     await save('shop-en', ['common-en']);
+    await save('shop', ['shop-zh']);
     assert.deepEqual((await audit.auditProjectBuild(root, join(root, 'output'), 'web-mobile')).problems, []);
     await save('shop', ['common-en']);
     await save('shop-en', ['shop-zh']);

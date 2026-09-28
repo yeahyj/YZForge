@@ -49,6 +49,7 @@ function ensurePrefabIds(root, prefab) {
 exports.load = function () {};
 exports.unload = function () {};
 exports.methods = {
+    ...require('./localization-scene').createMethods(cc, () => cce.Scene.rootNode),
     createPrefab(className, name, ui = false) {
         const ctor = cc.js.getClassByName(className);
         if (!ctor) throw Error(`Script not compiled: ${className}`);

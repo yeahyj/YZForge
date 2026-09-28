@@ -9,6 +9,7 @@ import ts from 'typescript';
 import { scanBindings, bindingShape } from '../tools/yzforge/binding-scan.cjs';
 import { componentExport, resolveBindingFields, bindingSource, bindingPlan } from '../tools/yzforge/bindings.cjs';
 import { runtimeOptions } from '../tools/yzforge/settings.cjs';
+import localizationScene from '../extensions/yzforge-editor/localization-scene.js';
 
 function engine() {
     class Component {}
@@ -360,7 +361,14 @@ test('写回前核对编译签名和扫描结构，失败不清空已有引用',
         exports,
         global: { cce },
         cce,
-        require: (name) => (name === 'cc' ? cc : name === 'crypto' ? {} : { scanBindings, bindingShape }),
+        require: (name) =>
+            name === 'cc'
+                ? cc
+                : name === 'crypto'
+                  ? {}
+                  : name === './localization-scene'
+                    ? localizationScene
+                    : { scanBindings, bindingShape },
     });
     const fields = bindingShape(scanBindings(cc, prefab.data, prefixes)),
         plan = bindingPlan(fields);

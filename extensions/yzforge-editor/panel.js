@@ -11,6 +11,7 @@ exports.ready = function () {
         createPlan,
         languagePlan,
         languageMigrationPlan,
+        languageUpdatePlan,
         creationRollbackPlan,
         deletePlan,
         workbookDraft,
@@ -128,6 +129,13 @@ exports.ready = function () {
         el('migrateLanguage').disabled = busy || !languageMigrationPlan;
         el('previewLanguage').disabled = busy || !val('languageBundle') || !val('languageLocale');
         el('openLanguageWorkbook').disabled = busy || !current()?.bundles[val('languageBundle')]?.localization?.source;
+        el('previewLanguageUpdate').hidden = val('languageApplyScope') !== 'bundle';
+        el('languageApplyBundleOptions').hidden = val('languageApplyScope') !== 'bundle';
+        el('previewLanguageUpdate').disabled =
+            busy || !current() || !val('languageApplyBundle') || !val('languageApplyLocale');
+        el('applyLanguageUpdate').disabled =
+            busy || !val('languageApplyLocale') || (val('languageApplyScope') === 'bundle' && !languageUpdatePlan);
+        el('restoreLanguageUpdate').disabled = busy || !val('languageUpdateRecord');
         el('previewCreate').disabled = busy || !state || !val('newName');
         el('delete').disabled = busy || !deletePlan || deletePlan.references.length > 0;
         el('previewDelete').disabled =
@@ -207,6 +215,8 @@ exports.ready = function () {
         updateCreationActions();
     };
     const languageChanged = () => {
+        languageUpdatePlan = undefined;
+        renderFiles('languageUpdateFiles', [], '当前范围使用原生撤销，修改后正常保存；批量范围会直接保存所列文件。');
         languagePlan = undefined;
         languageMigrationPlan = undefined;
         el('migrateLanguage').disabled = true;
@@ -261,6 +271,7 @@ exports.ready = function () {
                     ? '启动加载'
                     : '无模块';
         options('bundle', bundles);
+        options('languageApplyBundle', bundles);
         options('workbookBundle', bundles);
         options('tableBundle', [['', '使用工作簿默认资源包'], ...bundles]);
         options('adopt', [
@@ -317,6 +328,22 @@ exports.ready = function () {
         options(
             'languageLocale',
             (state.settings.localization?.locales ?? []).map((locale) => [locale, locale]),
+        );
+        const previousLocale = val('languageApplyLocale');
+        options(
+            'languageApplyLocale',
+            (state.settings.localization?.locales ?? []).map((locale) => [
+                locale,
+                locale === state.settings.localization.defaultLocale ? `${locale} · 默认语言` : locale,
+            ]),
+        );
+        if (!previousLocale) el('languageApplyLocale').value = state.settings.localization?.defaultLocale ?? '';
+        options(
+            'languageUpdateRecord',
+            (state.languageUpdates ?? []).map((record) => [
+                record.id,
+                `${record.locale} · ${record.files} 个资源 · ${new Date(Number(record.id.split('-')[0])).toLocaleString()}`,
+            ]),
         );
         languageChanged();
         invalidateCreate();
@@ -705,6 +732,47 @@ exports.ready = function () {
     );
     on('validateLanguages', () => run('previewTables', {}, false));
     on('generateLanguages', () => run('generate'));
+    const languageUpdateArgs = () => ({
+        scope: val('languageApplyScope'),
+        locale: val('languageApplyLocale'),
+        module: val('module'),
+        bundle: val('languageApplyBundle'),
+    });
+    for (const id of ['languageApplyLocale', 'languageApplyScope', 'languageApplyBundle'])
+        on(
+            id,
+            () => {
+                languageUpdatePlan = undefined;
+                renderFiles(
+                    'languageUpdateFiles',
+                    [],
+                    val('languageApplyScope') === 'bundle'
+                        ? '先检查所选业务资源包的更新文件，再应用语言；未保存的编辑内容会阻止批量覆盖。'
+                        : '应用到当前编辑内容，支持 Ctrl+Z 撤销、Ctrl+S 保存。',
+                );
+                updateCreationActions();
+            },
+            'change',
+        );
+    on('previewLanguageUpdate', async () => {
+        languageUpdatePlan = await run('previewLanguageUpdate', languageUpdateArgs(), false);
+        if (languageUpdatePlan) {
+            renderFiles('languageUpdateFiles', languageUpdatePlan.files, '没有需要更新的资源。');
+            el('languageUpdateResult').textContent = languageUpdatePlan.message;
+        }
+        updateCreationActions();
+    });
+    on('applyLanguageUpdate', async () => {
+        const args = { ...languageUpdateArgs(), planId: languageUpdatePlan?.id };
+        languageUpdatePlan = undefined;
+        const result = await run('applyLanguageUpdate', args);
+        if (result) el('languageUpdateResult').textContent = result.message;
+    });
+    on('restoreLanguageUpdate', async () => {
+        const result = await run('restoreLanguageUpdate', { id: val('languageUpdateRecord') });
+        if (result) el('languageUpdateResult').textContent = result.message;
+    });
+    on('languageUpdateRecord', updateCreationActions, 'change');
     on('previewLanguageMigration', async () => {
         languageMigrationPlan = await run('previewLocalizationMigration', { module: current().id }, false);
         el('migrateLanguage').disabled = !languageMigrationPlan;

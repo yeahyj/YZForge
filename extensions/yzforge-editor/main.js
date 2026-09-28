@@ -1021,6 +1021,7 @@ const actions = {
         return result;
     },
 };
+Object.assign(actions, require('./localization-update').createLocalizationUpdates({ inside, journal, moduleInfo }));
 Object.assign(
     actions,
     require('./localization').createLocalizationTools({
@@ -1239,6 +1240,7 @@ exports.methods = {
             scripts,
             prefabs: prefabs.map(({ uuid, url }) => ({ uuid, url })),
             autoStatus,
+            languageUpdates: await actions.languageUpdateHistory(),
             presets: (await Editor.Profile.getProject('builder', 'bundleConfig.custom')) ?? {},
         };
     },
@@ -1260,6 +1262,8 @@ exports.methods = {
                         'createLocalization',
                         'migrateLocalization',
                         'cleanupLocalizationDirectories',
+                        'applyLanguageUpdate',
+                        'restoreLanguageUpdate',
                         'deleteModule',
                         'restore',
                     ].includes(action)

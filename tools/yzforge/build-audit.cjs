@@ -40,8 +40,12 @@ exports.auditProjectBuild = async function (project, destination, platform) {
         for (const from of graph.keys())
             for (const [target, locale] of languages) {
                 if (from === target || !reachable(from, target)) continue;
-                if (!languages.has(from)) result.problems.push(`业务资源包静态依赖语言包：${from} → ${target}`);
-                else if (languages.get(from) !== locale)
+                if (!languages.has(from)) {
+                    if (locale !== localization.defaultLocale)
+                        result.problems.push(
+                            `业务资源包静态依赖非默认语言包：${from} → ${target}，请在多语言面板应用默认语言`,
+                        );
+                } else if (languages.get(from) !== locale)
                     result.problems.push(`语言包静态依赖其他语言：${from} → ${target}`);
             }
         result.localization = checked;

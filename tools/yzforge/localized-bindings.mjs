@@ -1,4 +1,4 @@
-import { relative } from 'node:path';
+import { relative, resolve, isAbsolute } from 'node:path';
 import { json } from './project.mjs';
 import { decodeUuid } from './catalog.mjs';
 import layout from './localization-layout.cjs';
@@ -47,7 +47,27 @@ export function validateLocalizedRecords(records, classes, catalogs, namespace =
     }
 }
 
-export async function validateLocalizedBindings(root, metadata, localization, modules = []) {
+/** 构建前定位误存入资源的其他语言图片、字体等直接引用。普通编辑/生成允许查看其他语言。 */
+export function validateDefaultLanguageReferences(records, languageAssets, defaultLocale) {
+    const dereference = (value) => (value?.__id__ === undefined ? value : records[value.__id__]);
+    const scan = (value, label) => {
+        if (!value || typeof value !== 'object') return;
+        if (typeof value.__uuid__ === 'string') {
+            const [base, sub] = value.__uuid__.split('@');
+            const uuid = decodeUuid(base) + (sub ? '@' + sub : '');
+            const locale = languageAssets.get(uuid) ?? languageAssets.get(decodeUuid(base));
+            if (locale && locale !== defaultLocale)
+                throw Error(
+                    `${label}: 直接引用了 ${locale} 语言资源 ${value.__uuid__}，请在多语言面板应用默认语言 ${defaultLocale}`,
+                );
+        }
+        for (const child of Object.values(value)) scan(child, label);
+    };
+    for (const record of records)
+        scan(record, dereference(record?.node)?._name ?? record?._name ?? record?.__type__ ?? '节点');
+}
+
+export async function validateLocalizedBindings(root, metadata, localization, modules = [], { forBuild = false } = {}) {
     const classes = new Map([
         ['yzforge.LocalizedLabel', 'text'],
         ['yzforge.LocalizedSprite', 'sprite'],
@@ -70,10 +90,29 @@ export async function validateLocalizedBindings(root, metadata, localization, mo
         if (catalogs.has(namespace)) sources[uuid] = namespace;
     }
     if (localization.release) localization.release.sources = sources;
+    const languageRoots = modules.flatMap((module) =>
+        Object.values(layout.physicalBundles(module))
+            .filter((bundle) => bundle.language)
+            .map((bundle) => ({ directory: resolve(module.directory, bundle.root), locale: bundle.language.locale })),
+    );
+    const languageAssets = new Map();
+    const languageOf = (source) =>
+        languageRoots.find(({ directory }) => {
+            const local = relative(directory, source);
+            return local && !local.startsWith('..') && !isAbsolute(local);
+        })?.locale;
+    if (forBuild)
+        for (const [uuid, asset] of metadata) {
+            const locale = languageOf(asset.source);
+            if (locale) languageAssets.set(uuid, locale);
+        }
     for (const [uuid, asset] of metadata) {
         if (uuid.includes('@') || !['prefab', 'scene'].includes(asset.importer)) continue;
         try {
-            validateLocalizedRecords(await json(asset.source), classes, catalogs, sources[uuid], sources);
+            const records = await json(asset.source);
+            validateLocalizedRecords(records, classes, catalogs, sources[uuid], sources);
+            if (forBuild && !languageOf(asset.source))
+                validateDefaultLanguageReferences(records, languageAssets, localization.release?.defaultLocale);
         } catch (error) {
             throw Error(`${relative(root, asset.source)}: ${error.message}`, { cause: error });
         }

@@ -20,7 +20,7 @@ export class LocalizedLabel extends LocalizedComponent {
         tooltip: '对应文案中的 {name}；变化的数值请在业务代码中使用 bindText/update。',
     })
     parameters: LocalizedTextParameter[] = [];
-    protected previewParameters(): Record<string, string> {
+    private textParameters(): Record<string, string> {
         const values: Record<string, string> = Object.create(null) as Record<string, string>;
         for (const parameter of this.parameters) {
             invariant(
@@ -34,6 +34,6 @@ export class LocalizedLabel extends LocalizedComponent {
     }
     protected async localize(context: ComponentContext): Promise<void> {
         const bundle = await context.i18n!.useNamespace(this.resolveNamespace(context));
-        await bundle.bindText(this.getComponent(Label)!, bundle.textKey(this.key), () => this.previewParameters());
+        await bundle.bindText(this.getComponent(Label)!, bundle.textKey(this.key), () => this.textParameters());
     }
 }

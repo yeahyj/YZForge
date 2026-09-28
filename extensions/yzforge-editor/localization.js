@@ -208,73 +208,6 @@ exports.createLocalizationTools = function (ctx) {
             );
         }
     }
-    async function localizedBindingOptions() {
-        const config = localizationSettings(await read(inside('project-settings/framework.json')));
-        if (!config) throw Error('请先在项目设置登记支持语言');
-        return { locales: config.locales, defaultLocale: config.defaultLocale };
-    }
-    async function previewLocalizedBinding(args) {
-        const release = await read(inside('project-settings/generated/localization.json'));
-        const state = await localizationPreviewModules();
-        const sourceInfo = args.source
-            ? await Editor.Message.request('asset-db', 'query-asset-info', args.source)
-            : null;
-        const owner =
-            sourceInfo &&
-            state.find((item) => {
-                if (item.language) return false;
-                const local = path.relative(path.join(item.directory, item.root), sourceInfo.file);
-                return local && !local.startsWith('..') && !path.isAbsolute(local);
-            });
-        const namespace = args.namespace || owner?.namespace;
-        const definition = Object.values(release?.bundles ?? {}).find((item) => item.namespace === namespace);
-        if (!definition) throw Error('无法确定词条来源，请先生成；独立场景可开启跨包引用指定来源');
-        const locale = args.locale || release.defaultLocale;
-        if (!release.locales.includes(locale)) throw Error('项目未登记语言：' + locale);
-        if (!args.key) return { locale, text: '请填写语言键' };
-        const catalog = async (language) => {
-            const route = definition.catalogs[language];
-            const owner = state.find((item) => item.id === route.bundle);
-            if (!owner) throw Error('找不到语言包目录：' + route.bundle);
-            const value = await read(inside(path.join(owner.directory, owner.root, route.path + '.json')));
-            if (value.contract !== definition.contract || value.revision !== route.revision)
-                throw Error('语言目录已过期，请先生成');
-            return value;
-        };
-        const fallback = await catalog(release.defaultLocale);
-        const current = definition.catalogs[locale] ? await catalog(locale) : fallback;
-        const field = args.kind === 'sprite' ? 'assets' : 'texts';
-        const source = Object.prototype.hasOwnProperty.call(current[field], args.key) ? current : fallback;
-        if (!Object.prototype.hasOwnProperty.call(source[field], args.key)) throw Error('语言键不存在：' + args.key);
-        if (args.kind === 'sprite') {
-            const key = source.assets[args.key];
-            if (key.type !== 'SpriteFrame') throw Error('语言键不是图片');
-            const identities = await read(inside('project-settings/generated/resource-identities.json'));
-            const entry = Object.entries(identities.entries).find(
-                ([, item]) => item.active && item.id === key.id && item.type === 'SpriteFrame',
-            );
-            if (!entry) throw Error('找不到图片，请重新生成资源索引');
-            return { uuid: entry[0], locale: source.locale };
-        }
-        const text = source.texts[args.key].replace(/\{\{|\}\}|\{([a-zA-Z_][a-zA-Z0-9_.-]*)\}/g, (token, name) => {
-            if (!name) return token === '{{' ? '{' : '}';
-            const value = args.parameters?.[name];
-            if (typeof value !== 'string' && !(typeof value === 'number' && Number.isFinite(value)))
-                throw Error('缺少参数：' + name);
-            return String(value);
-        });
-        return { text, locale: source.locale };
-    }
-    async function localizationPreviewModules() {
-        const entries = await fs.readdir(inside('assets/game/modules'), { withFileTypes: true });
-        const result = [];
-        for (const entry of entries.filter((entry) => entry.isDirectory())) {
-            const { directory, manifest } = await moduleInfo(entry.name);
-            for (const [group, bundle] of Object.entries(layout.physicalBundles(manifest)))
-                result.push({ ...bundle, directory, namespace: `${manifest.id}/${group}` });
-        }
-        return result;
-    }
     async function cleanupLocalizationDirectories(args) {
         const { directory, manifest } = await moduleInfo(args.module),
             removed = [];
@@ -309,8 +242,6 @@ exports.createLocalizationTools = function (ctx) {
         createLocalization,
         previewLocalizationMigration,
         migrateLocalization,
-        previewLocalizedBinding,
-        localizedBindingOptions,
         cleanupLocalizationDirectories,
     };
 };
