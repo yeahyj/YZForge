@@ -1,6 +1,8 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
+  "namespace": "showcase/default",
   "locale": "zh-CN",
+  "contract": "sha256:724fc60bd9941b9f484066483f883a41998f047227e08177e2fc099b7a1255d3",
   "texts": {
     "resources.title": "资源与多语言",
     "resources.subtitle": "批量准备 · 实例复用 · 按需切换语言",
@@ -21,6 +23,11 @@
     "resources.cancelled": "本次准备已取消。"
   },
   "assets": {
-    "resources.logo": { "id": "showcase/default/sprite/icons/alpha/token", "type": "SpriteFrame" }
-  }
+    "resources.logo": {
+      "id": "showcase/default/sprite/icons/alpha/token",
+      "type": "SpriteFrame"
+    }
+  },
+  "font": null,
+  "revision": "sha256:1dd9eeb324f300af4dcc0ec8e58380381ef11b18f833c76b4df51f75a093e0ec"
 }

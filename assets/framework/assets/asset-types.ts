@@ -188,6 +188,8 @@ export interface TableRoute {
  * 当前运行时只选择一个 releaseId；切换发布版本需要重启 JS 运行时和引擎资源缓存。
  */
 export interface ContentRelease {
+    /** 按业务资源包生成的语言目录；只有 use 的资源包才加载内容。 */
+    readonly localization?: import('../localization/localization').LocalizationRelease;
     /**
      * 项目指定的发布版本 ID，来自发布设置；同一运行会话固定使用该值。
      */

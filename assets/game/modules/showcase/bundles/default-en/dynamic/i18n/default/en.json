@@ -1,6 +1,8 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
+  "namespace": "showcase/default",
   "locale": "en",
+  "contract": "sha256:724fc60bd9941b9f484066483f883a41998f047227e08177e2fc099b7a1255d3",
   "texts": {
     "resources.title": "Resources & Languages",
     "resources.subtitle": "Batch loading · Instance reuse · Language bundles",
@@ -20,6 +22,11 @@
     "resources.cancelled": "Preparation cancelled."
   },
   "assets": {
-    "resources.logo": { "id": "showcase/default/sprite/icons/beta/token", "type": "SpriteFrame" }
-  }
+    "resources.logo": {
+      "id": "showcase/default/sprite/icons/beta/token",
+      "type": "SpriteFrame"
+    }
+  },
+  "font": null,
+  "revision": "sha256:a91795dba56a24f3bf1955693f8d8202d1e634e5d2598ce0b7bed3482182811a"
 }

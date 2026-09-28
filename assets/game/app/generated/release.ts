@@ -24,6 +24,11 @@ export const release: ContentRelease = {
             namespace: 'showcase/extra',
             dependencies: [],
         },
+        'showcase-default-en': {
+            id: 'showcase-default-en',
+            namespace: 'showcase/default-en',
+            dependencies: [],
+        },
         'm-workshop': {
             id: 'm-workshop',
             namespace: 'workshop/default',
@@ -49,6 +54,10 @@ export const release: ContentRelease = {
         },
         'showcase/extra': {
             bundle: 'showcase-extra',
+            path: 'yz-index',
+        },
+        'showcase/default-en': {
+            bundle: 'showcase-default-en',
             path: 'yz-index',
         },
         'workshop/default': {
@@ -90,5 +99,27 @@ export const release: ContentRelease = {
                 dataRevision: 'sha256:f20a9e26454d58c2e41c097a1a52aa3402957cfce74659bfa92cb95fe08d477c',
             },
         ],
+    },
+    localization: {
+        defaultLocale: 'zh-CN',
+        locales: ['zh-CN', 'en'],
+        bundles: {
+            'm-showcase': {
+                namespace: 'showcase/default',
+                contract: 'sha256:724fc60bd9941b9f484066483f883a41998f047227e08177e2fc099b7a1255d3',
+                catalogs: {
+                    'zh-CN': {
+                        bundle: 'm-showcase',
+                        path: 'dynamic/i18n/default/zh-cn',
+                        revision: 'sha256:1dd9eeb324f300af4dcc0ec8e58380381ef11b18f833c76b4df51f75a093e0ec',
+                    },
+                    en: {
+                        bundle: 'showcase-default-en',
+                        path: 'dynamic/i18n/default/en',
+                        revision: 'sha256:a91795dba56a24f3bf1955693f8d8202d1e634e5d2598ce0b7bed3482182811a',
+                    },
+                },
+            },
+        },
     },
 };

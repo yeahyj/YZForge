@@ -6,11 +6,22 @@
   "bundles": {
     "default": {
       "id": "m-showcase",
-      "root": "bundles/default"
+      "root": "bundles/default",
+      "localization": {
+        "source": "config-source/showcase/localization-default.xlsx",
+        "variants": {
+          "zh-CN": "default",
+          "en": "default-en"
+        }
+      }
     },
     "extra": {
       "id": "showcase-extra",
       "root": "bundles/extra"
+    },
+    "default-en": {
+      "id": "showcase-default-en",
+      "root": "bundles/default-en"
     }
   },
   "views": {

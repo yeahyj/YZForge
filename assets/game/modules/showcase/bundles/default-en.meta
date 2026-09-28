@@ -1,0 +1,14 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "ce405de3-ccd9-4a47-a00d-3f286abbc0b6",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "isBundle": true,
+    "bundleName": "showcase-default-en",
+    "priority": 1,
+    "bundleConfigID": "yzforge-resources"
+  }
+}

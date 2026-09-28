@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, relative, resolve } from 'node:path';
 import { register } from 'node:module';
 import { compileTables } from './config.mjs';
+import { compileLocalization } from './localization.mjs';
 import { lifecycleCheck, validateModules, codeBoundaryCheck } from './checks.mjs';
 import settingsTools from './settings.cjs';
 import gameConfigTools from './game-config.cjs';
@@ -342,7 +343,17 @@ async function generateLocked(
             runtime.validateIndex(index, `${module.id}/${group}`);
             output[target] = JSON.stringify(index, null, 2) + '\n';
         }
-    const release = { releaseId: settings.releaseId, bundles, namespaces, tables: tables.routes };
+    const localization = compileLocalization(root, projectModules, settings, sources, registry);
+    Object.assign(output, localization.output);
+    output['project-settings/generated/localization.json'] =
+        JSON.stringify(localization.release ?? null, null, 2) + '\n';
+    const release = {
+        releaseId: settings.releaseId,
+        bundles,
+        namespaces,
+        tables: tables.routes,
+        ...(localization.release ? { localization: localization.release } : {}),
+    };
     if (typeof release.releaseId !== 'string' || !release.releaseId) throw Error('framework.json requires a releaseId');
     output['assets/game/app/generated/release.ts'] =
         `// 自动生成的发布快照；切换发布版本需要重启游戏运行时。\nimport type { ContentRelease } from '../../../framework/assets/asset-types';\n/** 当前发布的 Bundle、动态索引及配置路由；由 App 装配使用，运行中不修改。 */\nexport const release: ContentRelease = ${JSON.stringify(release, null, 2)};\n`;
@@ -424,6 +435,7 @@ async function generateLocked(
         moduleCount: projectModules.length,
         resources: registry.size,
         tables: tables.reports,
+        localization: localization.reports,
         checkedOutputs: Object.keys(output).length,
         platform: platform ?? 'preview',
         previewOnly: tables.previewOnly,

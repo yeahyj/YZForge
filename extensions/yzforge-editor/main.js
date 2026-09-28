@@ -491,6 +491,17 @@ async function previewDelete(args, creation) {
                     next: { ...workbook.config, enabled: false },
                 });
             }
+        for (const workbook of state.localizationWorkbooks ?? [])
+            if (
+                Object.values(manifest.bundles).some((bundle) => bundle.localization?.source === workbook.source) &&
+                workbook.config.enabled
+            )
+                workbooks.push({
+                    source: workbook.source,
+                    hash: workbook.hash,
+                    previous: workbook.config,
+                    next: { ...workbook.config, enabled: false },
+                });
         for (const table of state.tables.tables.filter((table) => table.formatVersion !== 2))
             if (table.id.startsWith(manifest.id + '.')) refs.push(`请先将旧配置表 ${table.id} 迁移为 XLSX 配置页`);
     } else if (kind === 'view' || kind === 'prefab') {
@@ -526,6 +537,11 @@ async function previewDelete(args, creation) {
         if (!bundle) throw Error('未找到资源包');
         targets.push(inside(path.join(directory, bundle.root)));
         ids.push(`${manifest.id}/${args.id}/`, bundle.id);
+        if (bundle.localization)
+            refs.push(`此业务包拥有多语言工作簿 ${bundle.localization.source}，请先迁移或停用其声明`);
+        for (const [base, definition] of Object.entries(manifest.bundles))
+            if (base !== args.id && Object.values(definition.localization?.variants ?? {}).includes(args.id))
+                refs.push(`语言资源包仍被 ${base} 的多语言声明使用`);
         for (const table of state.tables.tables)
             if (
                 table.id.startsWith(manifest.id + '.') &&
@@ -627,6 +643,23 @@ async function previewDelete(args, creation) {
     // XLSX references live in typed cells, not plain-text files or Creator's asset reference graph.
     for (const diagnostic of state.workbookDiagnostics ?? []) refs.push('配置表无法检查：' + diagnostic.message);
     const workbookTool = await workbookTools();
+    for (const item of state.localizationWorkbooks ?? []) {
+        if (
+            !item.config.enabled ||
+            (kind === 'module' &&
+                Object.values(manifest.bundles).some((bundle) => bundle.localization?.source === item.source))
+        )
+            continue;
+        for (const row of item.localization.assets)
+            for (const [locale, value] of Object.entries(row.values)) {
+                if (
+                    uuids.has(value.split('@')[0]) ||
+                    uuids.has(value) ||
+                    (value.startsWith('@') && ids.some((id) => value.slice(1).includes(id)))
+                )
+                    refs.push(`${item.source}: ${row.key}/${locale} 引用待删除资源`);
+            }
+    }
     for (const item of state.workbooks) {
         if (
             !item.config.enabled ||
@@ -664,6 +697,10 @@ async function previewDelete(args, creation) {
             JSON.stringify({
                 manifest,
                 workbooks,
+                localizationWorkbooks: (state.localizationWorkbooks ?? []).map(({ source, hash }) => ({
+                    source,
+                    hash,
+                })),
                 kind,
                 id: args.id,
                 files: await Promise.all(
@@ -843,6 +880,7 @@ const actions = {
                     'calendar',
                     'bindingPrefixes',
                     'wechatPerformanceUnit',
+                    'localization',
                 ].includes(key)
             )
                 throw Error(`不支持此设置：${key}`);
@@ -890,6 +928,19 @@ const actions = {
             target = inside(args.target);
         if (!source || !source.url.startsWith('db://assets/game/') || !rel(target).startsWith('assets/game/'))
             throw Error('只能移动当前游戏资源');
+        const state = await exports.methods.state();
+        const ownership = (file) =>
+            state.modules
+                .flatMap((module) =>
+                    Object.entries(module.bundles).map(([group, bundle]) => ({
+                        id: `${module.id}/${group}`,
+                        directory: inside(`assets/game/modules/${module.id}/${bundle.root}`),
+                    })),
+                )
+                .filter((item) => file.startsWith(item.directory + path.sep))
+                .sort((a, b) => b.directory.length - a.directory.length)[0]?.id;
+        if (ownership(source.file) !== ownership(target))
+            throw Error('跨资源包移动会改变资源身份，请通过显式迁移更新语言映射和所有引用；普通移动只允许同包改名');
         await ensureFolder(path.dirname(target));
         await Editor.Message.request('asset-db', 'move-asset', source.url, url(target));
         const result = await Editor.Message.request('asset-db', 'query-asset-info', url(target));
@@ -898,6 +949,18 @@ const actions = {
         return result;
     },
 };
+Object.assign(
+    actions,
+    require('./localization').createLocalizationTools({
+        root,
+        inside,
+        read,
+        moduleInfo,
+        saveJson,
+        workbookTools,
+        actions: () => actions,
+    }),
+);
 Object.assign(
     actions,
     require('./workbench').createWorkbench({
@@ -976,7 +1039,8 @@ function assetChanged(...args) {
         !text.includes('assets/game/modules/') ||
         text.includes('/generated/') ||
         text.includes('/yz-index.json') ||
-        text.includes('/dynamic/config/')
+        text.includes('/dynamic/config/') ||
+        text.includes('/dynamic/i18n/')
     )
         return;
     scheduleGeneration();
@@ -1084,6 +1148,12 @@ exports.methods = {
             settings: await read(inside('project-settings/framework.json')),
             tables: { tables: sources.tables },
             workbooks,
+            localizationWorkbooks: sources.localizationWorkbooks.map(({ source, hash, config, localization }) => ({
+                source,
+                hash,
+                config,
+                localization,
+            })),
             workbookDiagnostics: sources.diagnostics,
             orphans,
             history,

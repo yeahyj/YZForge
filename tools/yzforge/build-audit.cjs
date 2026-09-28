@@ -12,7 +12,34 @@ exports.auditProjectBuild = async function (project, destination, platform) {
             if (error.code === 'ENOENT') return {};
             throw error;
         });
-    return exports.auditBuild(destination, { ...settings.default, ...settings.platforms?.[platform] });
+    const result = await exports.auditBuild(destination, { ...settings.default, ...settings.platforms?.[platform] });
+    const localization = await fs
+        .readFile(path.join(project, 'project-settings/generated/localization.json'), 'utf8')
+        .then(JSON.parse)
+        .catch((error) => {
+            if (error.code === 'ENOENT') return null;
+            throw error;
+        });
+    if (localization) {
+        const graph = new Map(result.bundleDependencies.map((entry) => [entry.bundle, entry.dependencies]));
+        const reachable = (from, to, visited = new Set()) => {
+            if (from === to) return true;
+            if (visited.has(from)) return false;
+            visited.add(from);
+            return (graph.get(from) ?? []).some((id) => reachable(id, to, visited));
+        };
+        const checked = [];
+        for (const [base, definition] of Object.entries(localization.bundles))
+            for (const [locale, route] of Object.entries(definition.catalogs)) {
+                checked.push({ base, locale, bundle: route.bundle, present: graph.has(route.bundle) });
+                if (!graph.has(route.bundle))
+                    result.problems.push(`构建缺少语言资源包：${definition.namespace}/${locale} → ${route.bundle}`);
+                if (route.bundle !== base && reachable(base, route.bundle))
+                    result.problems.push(`业务资源包静态依赖专用语言包：${base} → ${route.bundle}`);
+            }
+        result.localization = checked;
+    }
+    return result;
 };
 /** 审计磁盘上的实际构建文件；字节数为未压缩输出，不冒充网络首屏流量或平台最终压缩包大小。 */
 exports.auditBuild = async function (destination, budgets = {}) {

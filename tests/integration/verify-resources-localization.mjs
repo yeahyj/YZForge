@@ -43,10 +43,10 @@ try {
     console.log(
         await run(`
 cc.profiler.hideStats();check(app.i18n.locale==='zh-CN','Initial language wrong');
-check(!app.assets.inspect().bundles.some(b=>b.includes('extra')),'English bundle loaded eagerly');
+check(!app.assets.inspect().bundles.some(b=>b.includes('default-en')),'English bundle loaded eagerly');
 record('showcase.showcase-page').instance.view._bindBtnResources.node.emit(cc.Button.EventType.CLICK);
 await until(()=>page()?.interactive);await until(()=>!!page().instance.view._bindSprLogo.spriteFrame);
-const v=page().instance.view;check(v._bindLblTitle.string===app.i18n.t('resources.title'),'Initial title wrong');
+const v=page().instance.view;check(v._bindLblTitle.string==='资源与多语言','Initial title wrong');
 return {stage:'initial',locale:app.i18n.locale,bundles:app.assets.inspect().bundles};`),
     );
 
@@ -74,13 +74,13 @@ await click('_bindBtnRelease');check(v.pool.inspect().idle===3&&nodes.every(n=>!
 check(scopes.every(s=>s.signal.aborted),'Old borrow scopes survived');
 for(let i=0;i<3;i++)await click('_bindBtnSpawn');
 check(v.leases.every(l=>nodes.includes(l.node)&&!scopes.includes(l.scope)),'Nodes not reused with new lifetimes');
-await click('_bindBtnLoad');check(v._bindLblOutput.string===app.i18n.t('resources.loaded'),'Resource batch not ready');
+await click('_bindBtnLoad');check(v._bindLblOutput.string==='本批资源已就绪，退出页面时归还。','Resource batch not ready');
 const sprite=v._bindSprLogo.spriteFrame;
 await click('_bindBtnLanguage');await until(()=>v._bindSprLogo.spriteFrame!==sprite);
 check(app.i18n.locale==='en'&&v._bindLblTitle.string==='Resources & Languages','English not applied');
-check(v._bindLblInfo.string.includes(app.i18n.t('resources.fallback')),'Default text fallback missing');
-check(app.assets.inspect().bundles.some(b=>b.includes('extra')),'English bundle missing');
-check(app.assets.inspect().resources.some(r=>r.key.includes('locales/en')),'English catalog not retained');
+check(v._bindLblInfo.string.includes('缺失翻译时保留默认语言内容。'),'Default text fallback missing');
+check(app.assets.inspect().bundles.some(b=>b.includes('default-en')),'English bundle missing');
+check(app.assets.inspect().resources.some(r=>r.key.includes('i18n/default/en')),'English catalog not retained');
 return {stage:'pool-batch-language',pool:v.pool.inspect(),locale:app.i18n.locale};`),
     );
     console.log(await screenshot('resources-localization-english.png'));
@@ -90,13 +90,13 @@ return {stage:'pool-batch-language',pool:v.pool.inspect(),locale:app.i18n.locale
 const v=page().instance.view,reports=[],originalError=console.error;
 console.error=(...args)=>{if(args[0]==='[YZForge]'&&args[1]?.code==='I18N_PREVIOUS_CLEANUP_FAILED'){reports.push(args[1]);return;}originalError.apply(console,args);};
 try{
-app.i18n.current.scope.defer(()=>{throw Error('Injected old catalog cleanup failure');});
+Array.from(app.i18n.handles)[0].snapshot.scope.defer(()=>{throw Error('Injected old catalog cleanup failure');});
 await app.i18n.setLocale('zh-CN',page().show.scope);
-check(reports.length===1&&reports[0].details.previousLocale==='en','Cleanup failure not reported separately');
+check(reports.length===1,'Cleanup failure not reported separately');
 }finally{console.error=originalError;}
-await until(()=>!app.assets.inspect().resources.some(r=>r.key.includes('locales/en')));
-check(app.i18n.locale==='zh-CN'&&v._bindLblTitle.string===app.i18n.t('resources.title'),'Committed language switch failed');
-const owner=page().show.scope.child('resource-failure-check'),key=app.i18n.asset('resources.logo','SpriteFrame');
+await until(()=>!app.assets.inspect().resources.some(r=>r.key.includes('i18n/default/en')));
+check(app.i18n.locale==='zh-CN'&&v._bindLblTitle.string==='资源与多语言','Committed language switch failed');
+const owner=page().show.scope.child('resource-failure-check'),key={id:'showcase/default/sprite/icons/alpha/token',type:'SpriteFrame'};
 const snapshot=()=>JSON.stringify(app.assets.inspect().resources.map(r=>({key:r.key,users:r.users})).sort((a,b)=>a.key.localeCompare(b.key)));
 const baseline=snapshot();let failure;
 try{await app.assets.loadMany({good:key,bad:{id:'showcase/default/sprite/does-not-exist',type:'SpriteFrame'}},owner,{concurrency:1});}catch(e){failure=e;}
@@ -104,6 +104,35 @@ check(failure&&snapshot()===baseline,'Failed batch affected existing resources')
 let cancelled;try{await app.assets.loadMany({first:key,second:key},owner,{concurrency:1,onProgress:p=>{if(p.completed===1)owner.cancel();}});}catch(e){cancelled=e;}
 await owner.close();check(cancelled?.code==='OPERATION_CANCELLED'&&snapshot()===baseline,'Cancelled batch leaked');
 return {stage:'batch-rollback-and-catalog-cleanup',failure:failure.code,cancelled:cancelled.code,cleanupReported:reports[0].code};`),
+    );
+
+    // 初次图片绑定尚在准备时切换语言，旧快照的取消不能结束页面或丢失绑定。
+    console.log(
+        await run(`
+const p=page(),owner=p.show.scope.child('initial-binding-race'),node=new cc.Node('LocalizationRace');
+const sprite=node.addComponent(cc.Sprite),language=await p.show.i18n.in(owner).use('m-showcase');
+const definition=language.handle.definition,key={namespace:definition.namespace,contract:definition.contract,key:'resources.logo',type:'SpriteFrame'};
+const originalLoad=app.assets.load;let started=false,delayed=false;
+app.assets.load=async function(key,lifetime){
+if(!delayed&&key.type==='SpriteFrame'&&lifetime.inspect().label.startsWith(owner.label)){
+delayed=true;await originalLoad.call(this,key,lifetime);
+await new Promise((resolve,reject)=>{lifetime.signal.throwIfAborted();lifetime.defer(lifetime.signal.onAbort(reject));started=true;});
+}
+return originalLoad.call(this,key,lifetime);
+};
+try{
+const binding=language.bindSprite(sprite,key).then(value=>({value}),error=>({error}));
+await until(()=>started);await app.i18n.setLocale('en',p.show.scope);
+const result=await binding;check(!result.error,'Initial sprite binding cancelled by locale switch: '+result.error);
+check(!owner.signal.aborted&&sprite.spriteFrame===p.instance.view._bindSprLogo.spriteFrame,'Retry did not bind current language');
+const handles=Array.from(app.i18n.handles).filter(h=>h.active&&h.definition.namespace===definition.namespace);
+check(handles.length>=4,'Missing page and pool language handles');
+check(new Set(handles.map(h=>h.reader.current)).size===1&&new Set(handles.map(h=>h.reader.fallback)).size===1,'Page and pool copied language dictionaries');
+await app.i18n.setLocale('zh-CN',p.show.scope);
+check(sprite.spriteFrame===p.instance.view._bindSprLogo.spriteFrame,'Retried binding missed subsequent switch');
+}finally{app.assets.load=originalLoad;await owner.close();node.destroy();}
+check(sprite.spriteFrame===null,'Closed binding did not restore original sprite');
+return {stage:'initial-binding-retry-and-shared-catalogs',locale:app.i18n.locale};`),
     );
 
     // 真正的 GameComponent 激活任务结束前，池不得复用或销毁节点。
@@ -192,7 +221,9 @@ return {stage:'cleanup',resources:app.assets.inspect().resources.length};`),
     );
     const errors = await editor('return require("electron").BrowserWindow.fromId(args.id).__resourceErrors;', { id });
     assert.deepEqual(errors, [], '新增运行时错误日志');
-    console.log('PASS: 批量资源回收、真实输入、Prefab 复用与父级任务屏障、语言提交与清理异常、回退和页面清理');
+    console.log(
+        'PASS: 批量资源回收、真实输入、Prefab 复用与父级任务屏障、首次绑定重试、字典共享、语言提交与清理异常、回退和页面清理',
+    );
 } finally {
     try {
         if (originalDevice)

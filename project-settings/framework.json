@@ -26,5 +26,12 @@
     "offsetMinutes": 0,
     "weekStartsOn": 1,
     "resetMinute": 0
+  },
+  "localization": {
+    "defaultLocale": "zh-CN",
+    "locales": [
+      "zh-CN",
+      "en"
+    ]
   }
 }

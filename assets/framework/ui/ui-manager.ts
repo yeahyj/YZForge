@@ -10,6 +10,7 @@ import { ModuleContext, ModuleManager } from '../modules/module-manager';
 import { TimeService } from '../time/time-service';
 import { UIView, ViewShowContext } from './ui-view';
 import { Actions } from '../core/actions';
+import { ScopedLocalization } from '../localization/localized-ui';
 
 /** 框架支持的完整界面类别；Part 不属于 UI 页面栈。 */
 export type ViewKind = 'page' | 'popup' | 'overlay' | 'toast' | 'loading';
@@ -472,6 +473,7 @@ export class UIManager {
             ...taskContext(scope, isCurrent),
             actions: new Actions(scope.lifetime, isCurrent),
             assets: scopedAssets,
+            i18n: new ScopedLocalization(instance.context.i18n, scopedAssets, scope.lifetime, isCurrent),
             config: instance.context.config.in(scope),
             audio: instance.context.audio.in(scope),
             ui: this.viewUI(record, scope.lifetime, isCurrent),

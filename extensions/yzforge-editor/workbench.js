@@ -64,10 +64,16 @@ exports.createWorkbench = function (ctx) {
             );
         } else {
             ({ manifest } = await moduleInfo(request.module));
-            if (manifest.code?.mode === 'none' && !['bundle', 'table'].includes(kind))
+            if (manifest.code?.mode === 'none' && !['bundle', 'table', 'localization'].includes(kind))
                 throw Error('当前模块只有资源与配置，请选择带业务代码的模块来创建脚本或界面');
             const prefix = `assets/game/modules/${manifest.id}`;
-            if (kind === 'bundle') {
+            if (kind === 'localization') {
+                const plan = await ctx.actions().planLocalization(request);
+                Object.assign(request, plan.request);
+                paths.push(...plan.paths);
+                folders.push(...plan.folders);
+                updates.push(...plan.updates);
+            } else if (kind === 'bundle') {
                 request.id = request.id === 'default' ? 'default' : naming.slug(request.id);
                 if (manifest.bundles[request.id]) throw Error('资源包已存在');
                 folders.push(
@@ -163,6 +169,7 @@ exports.createWorkbench = function (ctx) {
             generated.add('assets/game/app/generated/' + name);
         generated.add('project-settings/generated/generated-files.json');
         generated.add('project-settings/generated/resource-identities.json');
+        generated.add('project-settings/generated/localization.json');
         for (const file of generated) if (!paths.includes(file) && !updates.includes(file)) updates.push(file);
         if (['module', 'bundle'].includes(kind)) updates.push('settings/v2/packages/builder.json');
         for (const file of [...paths, ...updates]) {
@@ -228,23 +235,25 @@ exports.createWorkbench = function (ctx) {
         if (preview.conflicts.length) throw Error('文件已存在：\n' + preview.conflicts.join('\n'));
         const request = preview.request,
             kind = request.kind;
-        if (!['module', 'bundle', 'table'].includes(kind)) {
+        if (!['module', 'bundle', 'table', 'localization'].includes(kind)) {
             const { manifest } = await moduleInfo(request.module);
             if (manifest.code?.mode === 'none')
                 throw Error('当前模块只有资源与配置，请选择带业务代码的模块来创建脚本或界面');
         }
         const method =
-            kind === 'module'
-                ? 'createModule'
-                : kind === 'bundle'
-                  ? 'createBundle'
-                  : kind === 'table'
-                    ? 'createTableTemplate'
-                    : ['service', 'component'].includes(kind)
-                      ? 'createScript'
-                      : ['part', 'prefab'].includes(kind)
-                        ? 'createPrefab'
-                        : 'createView';
+            kind === 'localization'
+                ? 'createLocalization'
+                : kind === 'module'
+                  ? 'createModule'
+                  : kind === 'bundle'
+                    ? 'createBundle'
+                    : kind === 'table'
+                      ? 'createTableTemplate'
+                      : ['service', 'component'].includes(kind)
+                        ? 'createScript'
+                        : ['part', 'prefab'].includes(kind)
+                          ? 'createPrefab'
+                          : 'createView';
         const result = await ctx.creation.run(preview, () => ctx.actions()[method](request));
         return { ...result, files: preview.files };
     }

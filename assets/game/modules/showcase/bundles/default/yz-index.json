@@ -37,11 +37,6 @@
       "path": "dynamic/icons/beta/token/spriteFrame",
       "type": "SpriteFrame"
     },
-    "showcase/default/json/locales/zh-cn": {
-      "bundle": "m-showcase",
-      "path": "dynamic/locales/zh-cn",
-      "type": "JsonAsset"
-    },
     "showcase/default/prefab/prefabs/badge-part": {
       "bundle": "m-showcase",
       "path": "dynamic/prefabs/BadgePart",

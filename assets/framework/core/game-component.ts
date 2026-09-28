@@ -2,6 +2,7 @@ import { _decorator, Component, isValid, Node } from 'cc';
 import type { ScopedAssets } from '../assets/asset-manager';
 import type { ScopedConfig } from '../config/config-manager';
 import type { ScopedAudio } from '../audio/audio-manager';
+import { ScopedLocalization } from '../localization/localized-ui';
 import { Actions } from './actions';
 import type { ModuleContext } from '../modules/module-manager';
 import type { ScopedTime, TimeService } from '../time/time-service';
@@ -13,6 +14,8 @@ const { ccclass } = _decorator;
  * 组件或 Part 的一次业务激活上下文；禁用或宿主结束时取消，重新激活得到新上下文。
  */
 export interface ActivationContext extends TaskContext {
+    /** 本次激活的多语言使用入口；实例池复用不会保留上次绑定。 */
+    readonly i18n: ScopedLocalization;
     /** 本次激活的资源入口；禁用后归还，重新激活使用新的入口。 */
     readonly assets: ScopedAssets;
     /** 本次激活的配置入口，跨模块公开表同样按合同加载。 */
@@ -215,6 +218,7 @@ export class GameComponent extends Component {
         const activation: ActivationContext = Object.freeze({
             ...taskContext(scope, current),
             assets: this.ctx.assets.in(scope.lifetime),
+            i18n: new ScopedLocalization(this.ctx.i18n, this.ctx.assets.in(scope.lifetime), scope.lifetime, current),
             config: this.ctx.config.in(scope.lifetime),
             audio: this.ctx.audio.in(scope.lifetime),
             actions: new Actions(scope.lifetime, current),

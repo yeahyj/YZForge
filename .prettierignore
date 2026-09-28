@@ -12,6 +12,7 @@ funplay-cocos-mcp.config.json
 assets/game/modules/**/res/config/**
 assets/game/modules/**/bundles/*/config/**
 assets/game/modules/**/bundles/*/dynamic/config/**
+assets/game/modules/**/bundles/*/dynamic/i18n/**
 assets/**/yz-index.json
 assets/game/modules/**/module.json
 config-source/tables.json

@@ -1,24 +1,58 @@
-import type { AssetKey, AssetKind } from '../assets/asset-types';
+import type { AssetAddress, AssetKey, AssetKind, BundleRef } from '../assets/asset-types';
+import { bundleId } from '../assets/asset-types';
+import { LeaseCache } from '../assets/lease-cache';
 import { untilCancelled } from '../core/cancellation';
-import { FrameworkError, invariant, reportError } from '../core/errors';
-import { runTask, Scope, type Lifetime } from '../core/scope';
+import { FrameworkError, invariant, OperationCancelled, reportError } from '../core/errors';
+import { Scope, type Lifetime } from '../core/scope';
 
-/** 语言目录指向现有资源包中的 JSON；不会静态引用或提前加载图片、字体、音频。 */
-export interface LocalizationOptions {
-    readonly defaultLocale: string;
-    readonly catalogs: Readonly<Record<string, AssetKey<'JsonAsset'>>>;
-}
 export type TextParameters = Readonly<Record<string, string | number>>;
-export interface LocaleCatalog {
-    readonly formatVersion: 1;
-    readonly locale: string;
-    readonly texts: Readonly<Record<string, string>>;
-    readonly assets?: Readonly<Record<string, AssetKey>>;
+/** 工作簿生成的文案键；参数名参与类型检查，import 不加载资源。 */
+export interface TextKey<P extends string = string> {
+    readonly namespace: string;
+    readonly key: string;
+    readonly contract: string;
+    readonly parameters: readonly P[];
 }
-type Snapshot = { locale: string; catalog: LocaleCatalog; scope: Scope };
-type Listener = { active: boolean; owner: Lifetime; callback: (locale: string) => void; off(): void };
+export interface LocalizedAssetKey<K extends AssetKind = AssetKind> {
+    readonly namespace: string;
+    readonly key: string;
+    readonly contract: string;
+    readonly type: K;
+}
+export type TextArguments<P extends string> = [P] extends [never]
+    ? [values?: TextParameters]
+    : [values: Readonly<Record<P, string | number>>];
+export interface LocaleRoute {
+    readonly bundle: string;
+    readonly path: string;
+    readonly revision: string;
+}
+export interface LocalizationDefinition {
+    readonly namespace: string;
+    readonly contract: string;
+    readonly catalogs: Readonly<Record<string, LocaleRoute>>;
+}
+/** 自动生成在 ContentRelease 中，业务无需装配语言目录。 */
+export interface LocalizationRelease {
+    readonly defaultLocale: string;
+    readonly locales: readonly string[];
+    readonly bundles: Readonly<Record<string, LocalizationDefinition>>;
+}
+export interface LocaleCatalog {
+    readonly formatVersion: 2;
+    readonly namespace: string;
+    readonly locale: string;
+    readonly contract: string;
+    readonly revision: string;
+    readonly texts: Readonly<Record<string, string>>;
+    readonly assets: Readonly<Record<string, AssetKey>>;
+    readonly font: AssetKey<'Font'> | null;
+}
 const has = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
-const kinds: readonly string[] = [
+const object = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === 'object' && !Array.isArray(value);
+const pattern = /\{\{|\}\}|\{([a-zA-Z_][a-zA-Z0-9_.-]*)\}/g;
+const kinds = [
     'Prefab',
     'SpriteFrame',
     'Texture2D',
@@ -31,321 +65,518 @@ const kinds: readonly string[] = [
     'Font',
     'SceneAsset',
 ];
-const parameterPattern = /\{\{|\}\}|\{([a-zA-Z_][a-zA-Z0-9_.-]*)\}/g;
-function object(value: unknown): value is Record<string, unknown> {
-    return !!value && typeof value === 'object' && !Array.isArray(value);
+export function textParameters(text: string): string[] {
+    const result = new Set<string>();
+    text.replace(pattern, (token, name: string | undefined) => {
+        if (name) result.add(name);
+        return token;
+    });
+    return Array.from(result).sort();
 }
-/** 校验外部语言目录并复制冻结；同一文件中的资源只是逻辑 Key，不在此加载。 */
-export function parseLocaleCatalog(input: unknown, locale: string): LocaleCatalog {
+export function parseLocaleCatalog(input: unknown, definition: LocalizationDefinition, locale: string): LocaleCatalog {
+    const route = definition.catalogs[locale];
     invariant(
-        object(input) && input.formatVersion === 1 && input.locale === locale && object(input.texts),
+        object(input) &&
+            input.formatVersion === 2 &&
+            input.namespace === definition.namespace &&
+            input.locale === locale &&
+            input.contract === definition.contract &&
+            input.revision === route?.revision &&
+            object(input.texts) &&
+            object(input.assets),
         'I18N_CATALOG_INVALID',
-        `语言目录格式或语言标识不匹配：${locale}`,
+        `语言目录版本或归属不匹配：${definition.namespace}/${locale}`,
     );
     const texts: Record<string, string> = Object.create(null) as Record<string, string>;
     for (const [key, value] of Object.entries(input.texts)) {
-        invariant(
-            key.length > 0 && typeof value === 'string',
-            'I18N_TEXT_INVALID',
-            `文案必须为字符串：${locale}/${key}`,
-        );
+        invariant(key.length > 0 && typeof value === 'string', 'I18N_TEXT_INVALID', `${locale}/${key}`);
         texts[key] = value;
     }
-    invariant(input.assets === undefined || object(input.assets), 'I18N_ASSETS_INVALID', locale);
-    const assets: Record<string, AssetKey> = Object.create(null) as Record<string, AssetKey>;
-    for (const [key, value] of Object.entries(input.assets ?? {})) {
+    const asset = (value: unknown): AssetKey => {
         invariant(
-            key.length > 0 &&
-                object(value) &&
+            object(value) &&
                 typeof value.id === 'string' &&
                 value.id.length > 0 &&
                 typeof value.type === 'string' &&
                 kinds.includes(value.type),
             'I18N_ASSET_INVALID',
-            `资源 Key 无效：${locale}/${key}`,
+            locale,
         );
-        assets[key] = Object.freeze({ id: value.id, type: value.type as AssetKind });
-    }
-    return Object.freeze({ formatVersion: 1, locale, texts: Object.freeze(texts), assets: Object.freeze(assets) });
-}
-function parameters(text: string): string {
-    const names = new Set<string>();
-    text.replace(parameterPattern, (token, name: string | undefined) => {
-        if (name) names.add(name);
-        return token;
+        return Object.freeze({ id: value.id, type: value.type as AssetKind });
+    };
+    const assets = Object.fromEntries(Object.entries(input.assets).map(([key, value]) => [key, asset(value)]));
+    const font = input.font === null ? null : asset(input.font);
+    invariant(font === null || font.type === 'Font', 'I18N_FONT_INVALID', locale);
+    return Object.freeze({
+        formatVersion: 2,
+        namespace: definition.namespace,
+        locale,
+        contract: definition.contract,
+        revision: route.revision,
+        texts: Object.freeze(texts),
+        assets: Object.freeze(assets),
+        font: font as AssetKey<'Font'> | null,
     });
-    return Array.from(names).sort().join(',');
 }
-function compatible(catalog: LocaleCatalog, fallback: LocaleCatalog): void {
-    for (const [key, value] of Object.entries(catalog.texts))
-        if (has(fallback.texts, key))
-            invariant(
-                parameters(value) === parameters(fallback.texts[key]),
-                'I18N_PARAMETERS_MISMATCH',
-                `翻译参数与默认语言不一致：${catalog.locale}/${key}`,
-            );
-    for (const [key, value] of Object.entries(catalog.assets ?? {}))
-        if (has(fallback.assets ?? {}, key))
-            invariant(
-                value.type === fallback.assets![key].type,
-                'I18N_ASSET_TYPE',
-                `翻译资源类型与默认语言不一致：${catalog.locale}/${key}`,
-            );
+function compatible(current: LocaleCatalog, fallback: LocaleCatalog): void {
+    for (const [key, value] of Object.entries(current.texts))
+        invariant(
+            has(fallback.texts, key) &&
+                textParameters(value).join(',') === textParameters(fallback.texts[key]).join(','),
+            'I18N_PARAMETERS_MISMATCH',
+            `${current.namespace}/${current.locale}/${key}`,
+        );
+    for (const [key, value] of Object.entries(current.assets))
+        invariant(fallback.assets[key]?.type === value.type, 'I18N_ASSET_TYPE', `${current.namespace}/${key}`);
 }
-
-/**
- * 按需加载语言 JSON，文本查询同步，切换采用最新请求并在完整加载后提交。
- * 当前语言缺少条目时回退默认语言；图片等通过资源 Key 交给原有资源生命周期管理。
- */
-export class Localization {
-    private readonly scope: Scope;
-    private readonly options?: LocalizationOptions;
-    private readonly listeners = new Set<Listener>();
-    private current?: Snapshot;
-    private fallback?: LocaleCatalog;
-    private fallbackLoading?: Promise<LocaleCatalog>;
-    private pending?: Scope;
-    private initialization?: Promise<void>;
-    /**
-     * App 注入 assets.load；独立测试可注入纯 JSON 加载器。
-     * 不配置时不加载语言资源；首次配置由 AppOptions.localization 提供。
-     */
+/** 准备好的目录快照；直接取出的资源键仍通过原有 assets API 持有。 */
+export class LocaleReader {
     constructor(
-        owner: Lifetime,
-        private readonly load: (key: AssetKey<'JsonAsset'>, owner: Lifetime) => Promise<unknown>,
-        options?: LocalizationOptions,
-    ) {
-        if (options) {
-            invariant(
-                typeof options.defaultLocale === 'string' &&
-                    object(options.catalogs) &&
-                    has(options.catalogs, options.defaultLocale),
-                'I18N_OPTIONS_INVALID',
-                '默认语言必须登记目录',
-            );
-            const catalogs: Record<string, AssetKey<'JsonAsset'>> = Object.create(null) as Record<
-                string,
-                AssetKey<'JsonAsset'>
-            >;
-            for (const [locale, key] of Object.entries(options.catalogs)) {
-                invariant(
-                    /^[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*$/.test(locale) &&
-                        key?.type === 'JsonAsset' &&
-                        typeof key.id === 'string' &&
-                        key.id.length > 0,
-                    'I18N_OPTIONS_INVALID',
-                    `语言或目录 Key 无效：${locale}`,
-                );
-                catalogs[locale] = Object.freeze({ id: key.id, type: 'JsonAsset' });
-            }
-            this.options = Object.freeze({ defaultLocale: options.defaultLocale, catalogs: Object.freeze(catalogs) });
-        }
-        this.scope = owner.child('localization');
-        this.scope.signal.onAbort(() => {
-            for (const listener of Array.from(this.listeners)) listener.off();
-        });
-        this.scope.defer(() => {
-            this.current = undefined;
-            this.fallback = undefined;
-            this.fallbackLoading = undefined;
-        });
-    }
-    /** 当前已成功提交的语言；尚未初始化时为 undefined。 */
-    get locale(): string | undefined {
-        return this.current?.locale;
-    }
-    /** 已登记语言的稳定快照。 */
-    get locales(): readonly string[] {
-        return Object.freeze(Object.keys(this.options?.catalogs ?? {}));
-    }
-    /** App 创建期间加载默认语言；无配置时不执行，失败可重新调用。 */
-    initialize(): Promise<void> {
-        if (!this.options || this.current) return Promise.resolve();
-        return (this.initialization ??= this.setLocale(this.options.defaultLocale, this.scope.lifetime).finally(() => {
-            this.initialization = undefined;
-        }));
-    }
-    /**
-     * 加载并切换语言。未提交的连续请求只接受最后一次；提交前取消/失败保留现有语言。
-     * 提交后旧目录的清理异常单独上报，不撤销成功结果；返回仍等待清理结束。
-     * owner 只管理本次切换，成功后的语言由应用持有；不自动写存档或读取设备语言。
-     */
-    setLocale(locale: string, owner: Lifetime): Promise<void> {
-        this.scope.signal.throwIfAborted();
-        owner.signal.throwIfAborted();
-        invariant(this.options && has(this.options.catalogs, locale), 'I18N_LOCALE_UNKNOWN', `语言未登记：${locale}`);
-        this.pending?.cancel();
-        this.pending = undefined;
-        if (this.current?.locale === locale) return Promise.resolve();
-        const scope = this.scope.child(`locale:${locale}`);
-        this.pending = scope;
-        const detach = owner.signal.onAbort(() => scope.cancel());
-        let committed = false,
-            failureCleanup = false;
-        const job = runTask(
-            this.scope,
-            async () => {
-                scope.signal.throwIfAborted();
-                const fallback = await untilCancelled(this.defaultCatalog(), scope.signal);
-                const catalog =
-                    locale === this.options!.defaultLocale
-                        ? fallback
-                        : parseLocaleCatalog(await this.load(this.options!.catalogs[locale], scope.lifetime), locale);
-                scope.signal.throwIfAborted();
-                compatible(catalog, fallback);
-                const previous = this.current;
-                this.current = { locale, catalog, scope };
-                committed = true;
-                this.pending = undefined;
-                detach();
-                for (const listener of Array.from(this.listeners)) {
-                    if (this.current.scope !== scope || this.scope.signal.aborted) break;
-                    if (listener.active && !listener.owner.signal.aborted) {
-                        try {
-                            this.notify(listener, locale);
-                        } catch (error) {
-                            reportError(error);
-                        }
-                    }
-                }
-                try {
-                    await previous?.scope.close();
-                } catch (error) {
-                    // 新语言已经提交并通知，旧目录的回收异常不能再冒充切换失败。
-                    reportError(
-                        new FrameworkError('I18N_PREVIOUS_CLEANUP_FAILED', '语言已切换，旧目录回收异常', {
-                            locale,
-                            previousLocale: previous?.locale,
-                            error,
-                        }),
-                    );
-                }
-            },
-            undefined,
-            'i18n.switch',
+        readonly locale: string,
+        private readonly current: LocaleCatalog,
+        private readonly fallback: LocaleCatalog,
+    ) {}
+    private check(key: { namespace: string; contract: string }): void {
+        invariant(
+            key.namespace === this.current.namespace && key.contract === this.current.contract,
+            'I18N_KEY_CONTRACT',
+            `多语言键与资源包或合同版本不匹配：${key.namespace}`,
         );
-        const completed = job
-            .catch(async (error) => {
-                failureCleanup = true;
-                if (!committed) {
-                    scope.cancel();
-                    try {
-                        await scope.close();
-                    } catch (cleanup) {
-                        throw new FrameworkError('I18N_CLEANUP_FAILED', '语言切换失败且回收异常', { error, cleanup });
-                    }
-                }
-                throw error;
-            })
-            .finally(() => {
-                detach();
-                if (this.pending === scope) this.pending = undefined;
-            });
-        // 即使调用者立即取消，应用关闭仍等候底层加载及其资源回收。
-        void this.scope.track(
-            completed.then(
-                () => {},
-                () => {},
-            ),
-            'i18n.cleanup',
-        );
-        return untilCancelled(completed, scope.signal).catch((error) => {
-            // 提交之后不再撤销成功结果；提交前的外部取消仍及时返回。
-            // 失败后的内部取消也不能掩盖原始目录错误。
-            if (committed || failureCleanup) return completed;
-            throw error;
-        });
     }
-    /** 同步取文案，缺失时返回 Key；支持 {name} 参数，{{ 和 }} 表示字面大括号。 */
-    t(key: string, values: TextParameters = {}): string {
-        const current = this.ready();
-        const text = has(current.texts, key) ? current.texts[key] : this.fallback!.texts[key];
-        if (text === undefined) return key;
-        return text.replace(parameterPattern, (token, name: string | undefined) => {
+    text<P extends string>(
+        key: TextKey<P>,
+        values: TextParameters = {},
+    ): { text: string; locale: string; font: AssetKey<'Font'> | null } {
+        this.check(key);
+        const catalog = has(this.current.texts, key.key) ? this.current : this.fallback;
+        invariant(has(catalog.texts, key.key), 'I18N_TEXT_MISSING', key.key);
+        const text = catalog.texts[key.key].replace(pattern, (token, name: string | undefined) => {
             if (!name) return token === '{{' ? '{' : '}';
             const value = has(values, name) ? values[name] : undefined;
             invariant(
                 typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)),
                 'I18N_PARAMETER_MISSING',
-                `文案参数缺失或无效：${key}/${name}`,
+                `${key.key}/${name}`,
             );
             return String(value);
         });
+        return { text, locale: catalog.locale, font: catalog.font ?? this.fallback.font };
     }
-    /** 判断当前语言或默认语言是否包含文案；空字符串也视为有效翻译。 */
-    has(key: string): boolean {
-        const current = this.ready();
-        return has(current.texts, key) || has(this.fallback!.texts, key);
+    t<P extends string>(key: TextKey<P>, ...args: TextArguments<NoInfer<P>>): string {
+        return this.text(key, args[0]).text;
     }
-    /** 返回当前语言或默认语言中的资源 Key；资源本身由 show.assets 等实际使用者加载。 */
-    asset<K extends AssetKind>(name: string, type: K): AssetKey<K> {
-        const current = this.ready();
-        const key = has(current.assets ?? {}, name) ? current.assets![name] : this.fallback!.assets?.[name];
-        invariant(key, 'I18N_ASSET_MISSING', `语言资源未登记：${name}`);
-        invariant(key.type === type, 'I18N_ASSET_TYPE', `语言资源类型不匹配：${name}/${type}`);
-        return key as AssetKey<K>;
+    asset<K extends AssetKind>(key: LocalizedAssetKey<K>): AssetKey<K> {
+        this.check(key);
+        const value = this.current.assets[key.key] ?? this.fallback.assets[key.key];
+        invariant(value?.type === key.type, 'I18N_ASSET_TYPE', key.key);
+        return value as AssetKey<K>;
     }
-    /** 立即通知当前语言，之后只在成功切换时通知；随 owner 或应用结束自动解绑。 */
-    subscribe(callback: (locale: string) => void, owner: Lifetime): () => void {
+}
+/** @internal prepare 不改界面，validate 在提交前读取最新参数，commit 返回同步回滚函数。 */
+export interface PreparedLocaleBinding {
+    validate(): void;
+    commit(): () => void;
+}
+export interface LocaleBinding {
+    readonly active: () => boolean;
+    prepare(reader: LocaleReader, owner: Lifetime): Promise<PreparedLocaleBinding>;
+}
+type Bound = {
+    binding: LocaleBinding;
+    owner: Lifetime;
+    active: boolean;
+    scope?: Scope;
+    prepared?: PreparedLocaleBinding;
+    stop(): void;
+};
+type Snapshot = {
+    scope: Scope;
+    reader: LocaleReader;
+    detach(): void;
+    bindings: Map<Bound, { scope: Scope; prepared: PreparedLocaleBinding }>;
+};
+type Pending = { scope: Scope; done: Promise<void> };
+
+/** 按资源包使用的目录，随 owner 结束注销。 */
+export class LocaleHandle {
+    private snapshot?: Snapshot;
+    private readonly bindings = new Set<Bound>();
+    readonly scope: Scope;
+    constructor(
+        private readonly manager: Localization,
+        readonly definition: LocalizationDefinition,
+        owner: Lifetime,
+    ) {
+        this.scope = owner.child(`i18n:${definition.namespace}`);
+    }
+    get active(): boolean {
+        return !this.scope.signal.aborted;
+    }
+    get reader(): LocaleReader {
         this.scope.signal.throwIfAborted();
+        invariant(this.snapshot, 'I18N_NOT_READY', this.definition.namespace);
+        return this.snapshot.reader;
+    }
+    get locale(): string {
+        return this.reader.locale;
+    }
+    t<P extends string>(key: TextKey<P>, ...args: TextArguments<NoInfer<P>>): string {
+        return this.reader.text(key, args[0]).text;
+    }
+    asset<K extends AssetKind>(key: LocalizedAssetKey<K>): AssetKey<K> {
+        return this.reader.asset(key);
+    }
+    /** @internal 引擎适配层通过此接口参与整个切换事务。 */
+    async bind(binding: LocaleBinding, owner: Lifetime): Promise<{ refresh(): void; dispose(): void }> {
         owner.signal.throwIfAborted();
-        let detach = () => {};
-        const listener: Listener = {
-            callback,
-            owner,
-            active: true,
-            off: () => {
-                if (!listener.active) return;
-                listener.active = false;
-                this.listeners.delete(listener);
-                detach();
-            },
+        const bound: Bound = { binding, owner, active: true, stop: () => {} };
+        const usable = () => bound.active && this.active && !owner.signal.aborted && binding.active();
+        const detach = owner.signal.onAbort(() => bound.stop());
+        bound.stop = () => {
+            bound.active = false;
+            this.bindings.delete(bound);
+            detach();
+            if (bound.scope) this.manager.retire(bound.scope);
         };
-        this.listeners.add(listener);
-        detach = owner.signal.onAbort(listener.off);
         try {
-            if (this.current) this.notify(listener, this.current.locale);
+            while (usable()) {
+                await this.manager.settled(owner);
+                const snapshot = this.snapshot!;
+                const scope = snapshot.scope.child('binding');
+                const abort = owner.signal.onAbort(() => scope.cancel());
+                try {
+                    const prepared = await binding.prepare(snapshot.reader, scope.lifetime);
+                    if (!usable()) throw new OperationCancelled();
+                    if (this.snapshot !== snapshot || this.manager.switching) {
+                        await scope.close();
+                        continue;
+                    }
+                    prepared.validate();
+                    prepared.commit();
+                    bound.scope = scope;
+                    bound.prepared = prepared;
+                    this.bindings.add(bound);
+                    return {
+                        refresh: () => {
+                            if (usable()) {
+                                bound.prepared!.validate();
+                                bound.prepared!.commit();
+                            }
+                        },
+                        dispose: bound.stop,
+                    };
+                } catch (error) {
+                    await scope.close();
+                    // 切换提交会回收旧快照；首次绑定尚未登记，需在新快照下重新准备。
+                    if (error instanceof OperationCancelled && usable() && this.snapshot !== snapshot) continue;
+                    throw error;
+                } finally {
+                    abort();
+                }
+            }
+            throw new OperationCancelled();
         } catch (error) {
-            listener.off();
+            bound.stop();
             throw error;
         }
-        return listener.off;
     }
-    private notify(listener: Listener, locale: string): void {
-        const result: unknown = listener.callback(locale);
-        if (result && typeof (result as Promise<unknown>).then === 'function') {
-            void Promise.resolve(result).catch(reportError);
-            throw new FrameworkError('I18N_LISTENER_ASYNC', '语言订阅须同步；异步资源更新请登记到 show.run/actions');
-        }
-    }
-    private ready(): LocaleCatalog {
-        this.scope.signal.throwIfAborted();
-        invariant(this.current && this.fallback, 'I18N_NOT_READY', '请配置并初始化多语言后查询');
-        return this.current.catalog;
-    }
-    private defaultCatalog(): Promise<LocaleCatalog> {
-        if (this.fallbackLoading) return this.fallbackLoading;
-        const scope = this.scope.child('default-locale');
-        const locale = this.options!.defaultLocale;
-        const work = runTask(
-            this.scope,
-            async () => {
-                const catalog = parseLocaleCatalog(
-                    await this.load(this.options!.catalogs[locale], scope.lifetime),
-                    locale,
-                );
-                scope.signal.throwIfAborted();
-                this.fallback = catalog;
-                return catalog;
-            },
-            undefined,
-            'i18n.default',
-        );
-        this.fallbackLoading = work.catch(async (error) => {
-            this.fallbackLoading = undefined;
+    /** @internal */
+    async prepare(locale: string, transaction: Lifetime): Promise<Snapshot> {
+        const scope = this.scope.child(locale);
+        const detach = transaction.signal.onAbort(() => scope.cancel());
+        scope.defer(detach);
+        try {
+            const reader = await this.manager.read(this.definition, locale, scope.lifetime);
+            const bindings = new Map<Bound, { scope: Scope; prepared: PreparedLocaleBinding }>();
+            const results = await Promise.allSettled(
+                Array.from(this.bindings).map(async (bound) => {
+                    if (!bound.active || bound.owner.signal.aborted || !bound.binding.active()) return;
+                    const child = scope.child('binding');
+                    const off = bound.owner.signal.onAbort(() => child.cancel());
+                    child.defer(off);
+                    try {
+                        const prepared = await bound.binding.prepare(reader, child.lifetime);
+                        if (bound.active && !bound.owner.signal.aborted && bound.binding.active())
+                            bindings.set(bound, { scope: child, prepared });
+                        else await child.close();
+                    } catch (error) {
+                        if (!bound.active || bound.owner.signal.aborted || !bound.binding.active()) {
+                            await child.close();
+                            return;
+                        }
+                        throw error;
+                    }
+                }),
+            );
+            scope.signal.throwIfAborted();
+            const failed = results.find((result) => result.status === 'rejected');
+            if (failed?.status === 'rejected') throw failed.reason;
+            return { scope, reader, bindings, detach };
+        } catch (error) {
             await scope.close();
             throw error;
+        }
+    }
+    /** @internal */
+    validate(snapshot: Snapshot): void {
+        for (const [bound, item] of snapshot.bindings)
+            if (bound.active && !bound.owner.signal.aborted && bound.binding.active()) item.prepared.validate();
+    }
+    /** @internal */
+    apply(snapshot: Snapshot, undo: (() => void)[]): void {
+        for (const [bound, item] of snapshot.bindings)
+            if (bound.active && !bound.owner.signal.aborted && bound.binding.active())
+                undo.push(item.prepared.commit());
+    }
+    /** @internal */
+    accept(snapshot: Snapshot): Scope | undefined {
+        snapshot.detach();
+        const previous = this.snapshot;
+        this.snapshot = snapshot;
+        for (const [bound, item] of snapshot.bindings) {
+            if (bound.active && !bound.owner.signal.aborted && bound.binding.active()) {
+                bound.scope = item.scope;
+                bound.prepared = item.prepared;
+            } else this.manager.retire(item.scope);
+        }
+        return previous?.scope;
+    }
+}
+
+/** use 按需加载当前和默认目录，不初始化其他业务模块。 */
+export class Localization {
+    private readonly scope: Scope;
+    private readonly handles = new Set<LocaleHandle>();
+    private readonly catalogs: LeaseCache<{ catalog: LocaleCatalog; scope: Scope }>;
+    private readonly requests = new Map<string, { definition: LocalizationDefinition; locale: string }>();
+    private readonly compatibleCatalogs = new WeakMap<LocaleCatalog, WeakSet<LocaleCatalog>>();
+    private pending?: Pending;
+    private epoch = 0;
+    private selected?: string;
+    constructor(
+        owner: Lifetime,
+        private readonly load: (address: AssetAddress<'JsonAsset'>, owner: Lifetime) => Promise<unknown>,
+        readonly release?: LocalizationRelease,
+    ) {
+        this.scope = owner.child('localization');
+        this.catalogs = new LeaseCache(
+            (id) => {
+                const { definition, locale } = this.requests.get(id)!;
+                const route = definition.catalogs[locale];
+                // 加载期限独立于任一页面；租约全部归还或 App 结束后才回收。
+                const scope = this.scope.child(`catalog:${definition.namespace}/${locale}`);
+                const work = (async () => {
+                    try {
+                        const input = await this.load(
+                            { bundle: route.bundle, path: route.path, type: 'JsonAsset' },
+                            scope.lifetime,
+                        );
+                        scope.signal.throwIfAborted();
+                        return { catalog: parseLocaleCatalog(input, definition, locale), scope };
+                    } catch (error) {
+                        await this.cleanup([scope]);
+                        throw error;
+                    }
+                })();
+                this.track(work);
+                return work;
+            },
+            () => {},
+            (value) => this.cleanup([value.scope]),
+        );
+        if (release) {
+            invariant(
+                release.locales.includes(release.defaultLocale) &&
+                    new Set(release.locales).size === release.locales.length,
+                'I18N_OPTIONS_INVALID',
+                '默认语言必须包含在支持语言中',
+            );
+            for (const definition of Object.values(release.bundles))
+                invariant(
+                    has(definition.catalogs, release.defaultLocale),
+                    'I18N_OPTIONS_INVALID',
+                    definition.namespace,
+                );
+        }
+        this.selected = release?.defaultLocale;
+    }
+    get locale(): string | undefined {
+        return this.selected;
+    }
+    get locales(): readonly string[] {
+        return this.release?.locales ?? [];
+    }
+    get switching(): boolean {
+        return !!this.pending;
+    }
+    /** @internal 等待最新切换，失败后仍可使用原语言。 */
+    async settled(owner: Lifetime): Promise<void> {
+        while (this.pending)
+            await untilCancelled(
+                this.pending.done.catch(() => {}),
+                owner.signal,
+            );
+        owner.signal.throwIfAborted();
+        this.scope.signal.throwIfAborted();
+    }
+    async use(bundle: BundleRef, owner: Lifetime): Promise<LocaleHandle> {
+        this.scope.signal.throwIfAborted();
+        owner.signal.throwIfAborted();
+        const definition = this.release?.bundles[bundleId(bundle)];
+        invariant(definition, 'I18N_BUNDLE_UNKNOWN', `资源包没有多语言声明：${bundleId(bundle)}`);
+        const handle = new LocaleHandle(this, definition, owner);
+        const off = this.scope.signal.onAbort(() => handle.scope.cancel());
+        handle.scope.defer(off);
+        handle.scope.defer(this.scope.defer(() => handle.scope.close()));
+        let finishing = false;
+        const work = (async () => {
+            try {
+                for (;;) {
+                    await this.settled(handle.scope.lifetime);
+                    const epoch = this.epoch;
+                    const prepared = await handle.prepare(this.selected!, this.scope.lifetime);
+                    if (epoch !== this.epoch || this.pending) {
+                        await prepared.scope.close();
+                        continue;
+                    }
+                    handle.scope.signal.throwIfAborted();
+                    handle.accept(prepared);
+                    this.handles.add(handle);
+                    handle.scope.defer(handle.scope.signal.onAbort(() => this.handles.delete(handle)));
+                    return handle;
+                }
+            } catch (error) {
+                finishing = true;
+                await handle.scope.close();
+                throw error;
+            }
+        })();
+        this.track(work);
+        return untilCancelled(work, handle.scope.signal).catch((error) => {
+            // 内部失败触发的清理也会取消句柄，不能用取消错误掩盖原始加载/校验错误。
+            if (finishing) return work;
+            throw error;
         });
-        return this.fallbackLoading;
+    }
+    /** 成功表示所有已绑定目录、文本、字体与图片一起提交，失败保留旧状态。 */
+    setLocale(locale: string, owner: Lifetime): Promise<void> {
+        this.scope.signal.throwIfAborted();
+        owner.signal.throwIfAborted();
+        invariant(this.release?.locales.includes(locale), 'I18N_LOCALE_UNKNOWN', locale);
+        this.pending?.scope.cancel();
+        this.pending = undefined;
+        ++this.epoch;
+        if (locale === this.selected) return Promise.resolve();
+        const scope = this.scope.child(`switch:${locale}`);
+        const detach = owner.signal.onAbort(() => scope.cancel());
+        let committed = false,
+            finishing = false;
+        const stages = new Map<LocaleHandle, Snapshot>();
+        const pending: Pending = { scope, done: Promise.resolve() };
+        this.pending = pending;
+        const work = Promise.resolve().then(async () => {
+            try {
+                const results = await Promise.allSettled(
+                    Array.from(this.handles)
+                        .filter((handle) => handle.active)
+                        .map(async (handle) => {
+                            try {
+                                stages.set(handle, await handle.prepare(locale, scope.lifetime));
+                            } catch (error) {
+                                if (handle.active) throw error;
+                            }
+                        }),
+                );
+                scope.signal.throwIfAborted();
+                const failed = results.find((result) => result.status === 'rejected');
+                if (failed?.status === 'rejected') throw failed.reason;
+                for (const [handle, stage] of stages) if (handle.active) handle.validate(stage);
+                const undo: (() => void)[] = [];
+                try {
+                    for (const [handle, stage] of stages) if (handle.active) handle.apply(stage, undo);
+                } catch (error) {
+                    for (const rollback of undo.reverse()) {
+                        try {
+                            rollback();
+                        } catch (cleanup) {
+                            reportError(cleanup);
+                        }
+                    }
+                    throw error;
+                }
+                this.selected = locale;
+                committed = true;
+                detach();
+                if (this.pending === pending) this.pending = undefined;
+                const old: Scope[] = [];
+                for (const [handle, stage] of stages) {
+                    if (handle.active) {
+                        const previous = handle.accept(stage);
+                        if (previous) old.push(previous);
+                    } else old.push(stage.scope);
+                }
+                await this.cleanup(old);
+            } catch (error) {
+                await this.cleanup(Array.from(stages.values()).map((stage) => stage.scope));
+                throw error;
+            } finally {
+                finishing = true;
+                detach();
+                if (this.pending === pending) this.pending = undefined;
+                await scope.close();
+            }
+        });
+        pending.done = work;
+        this.track(work);
+        return untilCancelled(work, scope.signal).catch((error) => {
+            if (committed || finishing) return work;
+            throw error;
+        });
+    }
+    /** @internal */
+    async read(definition: LocalizationDefinition, locale: string, owner: Lifetime): Promise<LocaleReader> {
+        const load = async (selected: string) => {
+            const route = definition.catalogs[selected];
+            const id = JSON.stringify([
+                definition.namespace,
+                definition.contract,
+                selected,
+                route.bundle,
+                route.path,
+                route.revision,
+            ]);
+            this.requests.set(id, { definition, locale: selected });
+            return (await this.catalogs.acquire(id, owner)).catalog;
+        };
+        const fallback = await load(this.release!.defaultLocale);
+        owner.signal.throwIfAborted();
+        // 仅未声明目录才回退；已声明目录下载失败必须向上传递。
+        const current = locale === fallback.locale || !has(definition.catalogs, locale) ? fallback : await load(locale);
+        owner.signal.throwIfAborted();
+        if (current !== fallback && !this.compatibleCatalogs.get(current)?.has(fallback)) {
+            compatible(current, fallback);
+            let checked = this.compatibleCatalogs.get(current);
+            if (!checked) this.compatibleCatalogs.set(current, (checked = new WeakSet()));
+            checked.add(fallback);
+        }
+        return new LocaleReader(locale, current, fallback);
+    }
+    private track(work: Promise<unknown>): void {
+        const observed = work.then(
+            () => {},
+            () => {},
+        );
+        if (!this.scope.signal.aborted) void this.scope.track(observed, 'i18n.work');
+    }
+    /** @internal */
+    retire(scope: Scope): void {
+        this.track(this.cleanup([scope]));
+    }
+    private async cleanup(scopes: readonly Scope[]): Promise<void> {
+        for (const result of await Promise.allSettled(scopes.map((scope) => scope.close())))
+            if (result.status === 'rejected')
+                reportError(
+                    new FrameworkError('I18N_PREVIOUS_CLEANUP_FAILED', '多语言资源回收异常', { error: result.reason }),
+                );
     }
 }

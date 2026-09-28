@@ -8,6 +8,7 @@ exports.ready = function () {
         val = (id) => el(id).value.trim();
     let state,
         createPlan,
+        languagePlan,
         creationRollbackPlan,
         deletePlan,
         workbookDraft,
@@ -117,6 +118,9 @@ exports.ready = function () {
             creationRollbackPlan.conflicts.length > 0 ||
             creationRollbackPlan.references.length > 0;
         el('create').disabled = busy || !createPlan || createPlan.conflicts.length > 0;
+        el('createLanguage').disabled = busy || !languagePlan || languagePlan.conflicts.length > 0;
+        el('previewLanguage').disabled = busy || !val('languageBundle') || !val('languageLocale');
+        el('openLanguageWorkbook').disabled = busy || !current()?.bundles[val('languageBundle')]?.localization?.source;
         el('previewCreate').disabled = busy || !state || !val('newName');
         el('delete').disabled = busy || !deletePlan || deletePlan.references.length > 0;
         el('previewDelete').disabled =
@@ -195,6 +199,45 @@ exports.ready = function () {
         el('tableEmpty').textContent = workbookDraft ? '' : '此模块还没有工作簿。前往“创建内容”，选择“配置表 · XLSX”。';
         updateCreationActions();
     };
+    const languageChanged = () => {
+        languagePlan = undefined;
+        const declaration = current()?.bundles[val('languageBundle')]?.localization;
+        el('languageSource').textContent = declaration?.source ?? '此业务资源包尚未配置多语言。';
+        const workbook = state.localizationWorkbooks?.find((item) => item.source === declaration?.source);
+        const content = el('languageStatus');
+        content.replaceChildren();
+        if (workbook) {
+            const table = document.createElement('table');
+            const head = document.createElement('tr');
+            for (const title of ['语言', '存放位置', '文案', '资源']) {
+                const th = document.createElement('th');
+                th.textContent = title;
+                head.appendChild(th);
+            }
+            table.appendChild(head);
+            for (const locale of state.settings.localization?.locales ?? []) {
+                const tr = document.createElement('tr');
+                const count = (kind) =>
+                    workbook.localization[kind].filter((row) =>
+                        Object.prototype.hasOwnProperty.call(row.values, locale),
+                    ).length;
+                for (const value of [
+                    locale,
+                    declaration.variants[locale] ?? '回退默认语言',
+                    `${count('texts')} / ${workbook.localization.texts.length}`,
+                    `${count('assets')} / ${workbook.localization.assets.length}`,
+                ]) {
+                    const td = document.createElement('td');
+                    td.textContent = value;
+                    tr.appendChild(td);
+                }
+                table.appendChild(tr);
+            }
+            content.appendChild(table);
+        }
+        renderFiles('languagePreview', [], '选择业务包与语言，预览将创建或更新的文件。');
+        updateCreationActions();
+    };
     const moduleChanged = () => {
         const m = current(),
             bundles = Object.entries(m?.bundles ?? {}).map(([g, b]) => [g, `${g} · ${b.id}`]);
@@ -249,6 +292,22 @@ exports.ready = function () {
             state.workbooks.filter((w) => w.config.module === m?.id).map((w) => [w.source, w.source]),
         );
         loadWorkbook();
+        const dedicated = new Set(
+            Object.entries(m?.bundles ?? {}).flatMap(([base, bundle]) =>
+                Object.values(bundle.localization?.variants ?? {}).filter((group) => group !== base),
+            ),
+        );
+        options(
+            'languageBundle',
+            Object.keys(m?.bundles ?? {})
+                .filter((group) => !dedicated.has(group))
+                .map((group) => [group, group]),
+        );
+        options(
+            'languageLocale',
+            (state.settings.localization?.locales ?? []).map((locale) => [locale, locale]),
+        );
+        languageChanged();
         invalidateCreate();
     };
     const deletion = () => {
@@ -334,6 +393,8 @@ exports.ready = function () {
                 weekStart: s.calendar.weekStartsOn,
                 dayBoundary: `${String(Math.floor(s.calendar.resetMinute / 60)).padStart(2, '0')}:${String(s.calendar.resetMinute % 60).padStart(2, '0')}`,
                 wechatClockUnit: s.wechatPerformanceUnit,
+                defaultLocale: s.localization?.defaultLocale ?? '',
+                supportedLocales: s.localization?.locales.join(', ') ?? '',
             }))
                 el(id).value = v;
             el('audioChannels').replaceChildren();
@@ -595,6 +656,33 @@ exports.ready = function () {
     });
     on('previewTables', () => run('previewTables', {}, false));
     on('exportTables', () => run('generate'));
+    for (const id of ['languageBundle', 'languageLocale', 'languageStorage']) on(id, languageChanged, 'change');
+    on('previewLanguage', async () => {
+        const plan = await run(
+            'previewCreate',
+            {
+                kind: 'localization',
+                module: val('module'),
+                bundle: val('languageBundle'),
+                locale: val('languageLocale'),
+                storage: val('languageStorage'),
+            },
+            false,
+        );
+        if (!plan) return;
+        languagePlan = plan;
+        renderFiles('languagePreview', plan.files, '没有需要创建的内容。');
+        updateCreationActions();
+    });
+    on('createLanguage', async () => {
+        if (!languagePlan) throw Error('请先预览创建范围');
+        await run('create', { request: languagePlan.request, signature: languagePlan.signature });
+    });
+    on('openLanguageWorkbook', () =>
+        run('openWorkbook', { source: current().bundles[val('languageBundle')].localization.source }, false),
+    );
+    on('validateLanguages', () => run('previewTables', {}, false));
+    on('generateLanguages', () => run('generate'));
     on('recalculate', () => run('recalculate', { source: val('workbook') }, false));
     on('ensurePresets', () => run('ensurePresets'));
     on('bundleSettings', () => run('openBundleSettings', {}, false));
@@ -609,6 +697,17 @@ exports.ready = function () {
             cleanupTimeoutMs: Number(val('cleanupTimeout')),
             maxAudioVoices: Number(val('maxVoices')),
             wechatPerformanceUnit: val('wechatClockUnit'),
+            ...(val('supportedLocales')
+                ? {
+                      localization: {
+                          defaultLocale: val('defaultLocale'),
+                          locales: val('supportedLocales')
+                              .split(',')
+                              .map((locale) => locale.trim())
+                              .filter(Boolean),
+                      },
+                  }
+                : {}),
             calendar: {
                 ...state.settings.calendar,
                 offsetMinutes: Number(val('utcOffset')),

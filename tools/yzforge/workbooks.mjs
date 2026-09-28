@@ -5,6 +5,7 @@ import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { SaxesParser } from 'saxes';
 import { files, json, safePath, withProjectLock } from './project.mjs';
+import { parseLocalizationWorkbook } from './localization.mjs';
 
 export const workbookVersion = 2;
 const columns = ['kind', 'id', 'sheet', 'bundle', 'primaryKey', 'enabled', 'field', 'name', 'value', 'unique'];
@@ -160,6 +161,19 @@ export async function readWorkbook(root, source) {
     const bytes = await readFile(target),
         book = new ExcelJS.Workbook();
     await book.xlsx.load(bytes);
+    if (book.getWorksheet('__localization')) {
+        const meta = book.getWorksheet('__localization');
+        if (meta.rowCount > 2 || (meta.rowCount === 2 && meta.getCell('A2').value !== 'enabled'))
+            throw Error(`${source}: 多语言声明含不支持的设置`);
+        return {
+            kind: 'localization',
+            source,
+            hash: hash(bytes),
+            config: { kind: 'localization', enabled: bool(meta.getCell('B2').value) },
+            localization: parseLocalizationWorkbook(book, source),
+            book,
+        };
+    }
     const config = parseConfig(book, source);
     const sheets = book.worksheets
         .filter((sheet) => !sheet.name.startsWith('__'))
@@ -173,6 +187,7 @@ export async function readWorkbook(root, source) {
     return { source, hash: hash(bytes), config, sheets, enums: enumsOf(book, config.module, source), book };
 }
 export async function workbookSources(root, { tolerant = false } = {}) {
+    const localizationWorkbooks = [];
     const workbooks = [],
         diagnostics = [],
         pending = [];
@@ -194,7 +209,8 @@ export async function workbookSources(root, { tolerant = false } = {}) {
             pending.push({ source, error });
             continue;
         }
-        workbooks.push(item);
+        if (item.kind === 'localization') localizationWorkbooks.push(item);
+        else workbooks.push(item);
     }
     const auxiliary = new Set(
         workbooks.flatMap((item) => item.config.inputs ?? []).map((input) => resolve(root, input).toLowerCase()),
@@ -233,7 +249,7 @@ export async function workbookSources(root, { tolerant = false } = {}) {
         if (tables.some((item) => item.id === table.id)) throw Error(`新旧配置来源重复：${table.id}，请完成迁移`);
         tables.push({ ...table, formatVersion: 1 });
     }
-    return { tables, enums, workbooks, diagnostics };
+    return { tables, enums, workbooks, localizationWorkbooks, diagnostics };
 }
 export async function createWorkbook(
     root,
@@ -305,6 +321,8 @@ async function writeWorkbookConfigLocked(root, source, config, expectedHash) {
     const target = await safePath(root, source),
         current = await readWorkbook(root, source);
     if (!expectedHash || current.hash !== expectedHash) throw Error(`${source}: 文件已变化，请刷新预览`);
+    if (current.kind === 'localization')
+        return writeLocalizationWorkbookLocked(root, source, { enabled: config.enabled }, expectedHash);
     const bytes = await readFile(target),
         zip = await JSZip.loadAsync(bytes);
     const sheets = elements(await zip.file('xl/workbook.xml').async('string'), 'sheet');
@@ -376,4 +394,99 @@ export async function formulaResults(root, mapping, preview = false) {
             throw Error(`${mapping.source}: 公式结果未验证或已陈旧，请在面板重算后导出`, { cause: error });
         throw error;
     }
+}
+
+/** 只追加语言列/更新启用声明，原有文本及无关 ZIP 内容保持不变。 */
+export async function writeLocalizationWorkbook(root, source, patch, expectedHash) {
+    return withProjectLock(root, () => writeLocalizationWorkbookLocked(root, source, patch, expectedHash));
+}
+async function writeLocalizationWorkbookLocked(root, source, patch, expectedHash) {
+    const current = await readWorkbook(root, source),
+        target = await safePath(root, source);
+    if (current.kind !== 'localization' || !expectedHash || current.hash !== expectedHash)
+        throw Error(`${source}: 工作簿已变化，请刷新预览`);
+    const bytes = await readFile(target),
+        zip = await JSZip.loadAsync(bytes),
+        touched = new Set();
+    const sheets = elements(await zip.file('xl/workbook.xml').async('string'), 'sheet');
+    const relations = elements(await zip.file('xl/_rels/workbook.xml.rels').async('string'), 'Relationship');
+    const columnName = (n) => {
+        let result = '';
+        for (; n > 0; n = Math.floor((n - 1) / 26)) result = String.fromCharCode(65 + ((n - 1) % 26)) + result;
+        return result;
+    };
+    const additions = [...new Set(patch.locales ?? [])].filter(
+        (locale) => !current.localization.locales.includes(locale),
+    );
+    if (additions.some((locale) => typeof locale !== 'string' || !/^[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*$/.test(locale)))
+        throw Error('语言列无效');
+    for (const name of [
+        ...(additions.length ? ['texts', 'assets'] : []),
+        ...(patch.enabled !== undefined ? ['__localization'] : []),
+    ]) {
+        const sheet = sheets.find((sheet) => sheet.name === name),
+            relation = relations.find((item) => item.Id === sheet?.['r:id']);
+        if (!relation || relation.TargetMode === 'External') throw Error('不支持的工作簿关系');
+        const entry = relation.Target.startsWith('/')
+            ? relation.Target.slice(1)
+            : posix.normalize(posix.join('xl', relation.Target));
+        if (!entry.startsWith('xl/worksheets/') || !zip.file(entry)) throw Error('不支持的工作簿路径');
+        let xml = await zip.file(entry).async('string');
+        if (/<(?:\w+:)?(?:mergeCells|tableParts)\b/.test(xml))
+            throw Error(`${name} 包含合并或表格结构，无法安全追加语言列`);
+        if (name === '__localization') {
+            if (typeof patch.enabled !== 'boolean') throw Error('enabled 必须为布尔值');
+            xml = xml
+                .replace(/<sheetData(?:\s[^>]*)?>[\s\S]*?<\/sheetData>/, () =>
+                    sheetData([
+                        ['formatVersion', 1],
+                        ['enabled', patch.enabled],
+                    ]),
+                )
+                .replace(/<dimension\s+ref="[^"]*"\s*\/>/, '<dimension ref="A1:B2"/>');
+        } else {
+            const count = current.book.getWorksheet(name).getRow(1).cellCount;
+            if (!/<row\b[^>]*\br="1"[^>]*>[\s\S]*?<\/row>/.test(xml)) throw Error('无法定位语言表头');
+            const cells = additions
+                .map(
+                    (locale, i) =>
+                        `<c r="${columnName(count + i + 1)}1" t="inlineStr"><is><t>${escapeXML(locale)}</t></is></c>`,
+                )
+                .join('');
+            xml = xml
+                .replace(
+                    /(<row\b[^>]*\br="1"[^>]*>)([\s\S]*?)(<\/row>)/,
+                    (_all, start, data, end) => start + data + cells + end,
+                )
+                .replace(
+                    /<dimension\s+ref="[^"]*"\s*\/>/,
+                    `<dimension ref="A1:${columnName(count + additions.length)}${current.book.getWorksheet(name).rowCount}"/>`,
+                );
+        }
+        touched.add(entry);
+        zip.file(entry, xml);
+    }
+    const next = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+        verification = await JSZip.loadAsync(next),
+        before = await JSZip.loadAsync(bytes);
+    for (const name of Object.keys(before.files))
+        if (!touched.has(name) && !before.files[name].dir)
+            if (
+                !Buffer.from(await before.file(name).async('nodebuffer')).equals(
+                    await verification.file(name).async('nodebuffer'),
+                )
+            )
+                throw Error(`工作簿无关内容发生变化：${name}`);
+    const parsed = new ExcelJS.Workbook();
+    await parsed.xlsx.load(next);
+    parseLocalizationWorkbook(parsed, source);
+    const backup = await safePath(root, `.yzforge/workbook-history/${Date.now()}-${randomUUID()}.xlsx`);
+    await mkdir(dirname(backup), { recursive: true });
+    await copyFile(target, backup);
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    await writeFile(temporary, next, { flag: 'wx' });
+    if (hash(await readFile(target)) !== expectedHash) throw Error(`${source}: 保存期间源文件改变，保留临时文件及备份`);
+    await rename(temporary, target);
+    const result = await readWorkbook(root, source);
+    return { source, hash: result.hash, config: result.config, backup: relative(root, backup).replaceAll('\\', '/') };
 }

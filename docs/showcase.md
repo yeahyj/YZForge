@@ -61,4 +61,4 @@ node tests/integration/verify-ui-components.mjs http://127.0.0.1:7456/
 
 ## 示例的清理边界
 
-示例模块为 `showcase`、`workshop`、`lobby`、`profile`、`common`；框架代码和工作台不依赖它们。`app/start-game.ts` 打开公开首屏，`app/localization.ts` 登记示例语言目录，模块页面通过 `show.ui` 跳转。清理示例时解除启动调用和语言配置的示例资源引用，再删除示例模块，保留启动入口及应用装配。完整顺序与保留内容见 [复制项目与清理示例](copy-project.md)。
+示例模块为 `showcase`、`workshop`、`lobby`、`profile`、`common`；框架代码和工作台不依赖它们。`app/start-game.ts` 打开公开首屏，语言目录由模块资源包声明自动生成，模块页面通过 `show.ui` 跳转。清理示例时解除启动调用，再删除示例模块，保留启动入口及应用装配。完整顺序与保留内容见 [复制项目与清理示例](copy-project.md)。

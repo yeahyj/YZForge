@@ -8,7 +8,6 @@ import { release } from '../app/generated/release';
 import { runtimeOptions } from '../app/generated/options';
 import { startGame } from '../app/start-game';
 import { sdkIntegrations, sdkPlatforms } from '../app/sdk-integrations';
-import { localization } from '../app/localization';
 const { ccclass, property } = _decorator;
 /**
  * 项目启动根节点：装配框架、调用业务入口并显示启动状态。
@@ -34,7 +33,6 @@ export class GameRoot extends AppEntry {
             settings,
             sdkIntegrations,
             sdkPlatforms,
-            localization,
             root: this.node,
             uiRoot: this.uiRoot,
             release,

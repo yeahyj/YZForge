@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { relative, resolve, extname } from 'node:path';
 import { json, files } from './project.mjs';
+import { localizationOutputPaths } from './localization.mjs';
 const kinds = {
     Prefab: 'prefab',
     SceneAsset: 'scene',
@@ -56,7 +57,16 @@ export async function scanCatalog(root, modules, metadata, sources) {
     );
     const issues = [],
         owners = new Map(),
-        generatedTables = new Set();
+        generatedTables = new Set(
+            localizationOutputPaths(root, modules).map((file) => resolve(root, file).toLowerCase()),
+        );
+    // 等待编辑器归档的旧语言输出也属于生成器，不能在改变存放位置后被重新认领为普通资源。
+    const generated = await json(resolve(root, 'project-settings/generated/generated-files.json')).catch((error) => {
+        if (error.code === 'ENOENT') return {};
+        throw error;
+    });
+    for (const file of Object.keys(generated))
+        if (/\/dynamic\/i18n\/[^/]+\/[^/]+\.json$/.test(file)) generatedTables.add(resolve(root, file).toLowerCase());
     for (const module of modules) {
         for (const [id, registration] of Object.entries(module.assets ?? {})) {
             const key = registration.uuid + (registration.atlasFrame ? `#${registration.atlasFrame}` : '');

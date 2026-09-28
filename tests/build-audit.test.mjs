@@ -40,3 +40,31 @@ test('build audit measures actual output groups, duplicate bytes and configured 
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test('语言构建审计核对专用包存在性与实际的传递依赖', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yzforge-language-build-'));
+    assert.ok(root.startsWith(resolve(tmpdir()) + sep));
+    try {
+        await mkdir(join(root, 'project-settings/generated'), { recursive: true });
+        await mkdir(join(root, 'output/base'), { recursive: true });
+        await mkdir(join(root, 'output/bridge'), { recursive: true });
+        await writeFile(
+            join(root, 'project-settings/generated/localization.json'),
+            JSON.stringify({
+                bundles: { base: { namespace: 'shop/default', catalogs: { en: { bundle: 'lang-en' } } } },
+            }),
+        );
+        await writeFile(join(root, 'output/base/config.json'), JSON.stringify({ name: 'base', deps: ['bridge'] }));
+        await writeFile(join(root, 'output/bridge/config.json'), JSON.stringify({ name: 'bridge', deps: ['lang-en'] }));
+        const missing = await audit.auditProjectBuild(root, join(root, 'output'), 'web-mobile');
+        assert.equal(missing.problems.length, 2);
+        assert.ok(missing.problems.some((problem) => problem.includes('缺少语言资源包')));
+        assert.ok(missing.problems.some((problem) => problem.includes('静态依赖')));
+        await mkdir(join(root, 'output/english'));
+        await writeFile(join(root, 'output/english/config.json'), JSON.stringify({ name: 'lang-en', deps: [] }));
+        await writeFile(join(root, 'output/base/config.json'), JSON.stringify({ name: 'base', deps: [] }));
+        assert.deepEqual((await audit.auditProjectBuild(root, join(root, 'output'), 'web-mobile')).problems, []);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});

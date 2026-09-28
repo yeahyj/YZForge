@@ -1,6 +1,29 @@
 'use strict';
+exports.localizationSettings = function (settings) {
+    const config = settings.localization;
+    if (config === undefined) return undefined;
+    if (
+        !config ||
+        Object.keys(config).some((key) => !['defaultLocale', 'locales'].includes(key)) ||
+        !Array.isArray(config.locales) ||
+        !config.locales.length ||
+        !config.locales.includes(config.defaultLocale) ||
+        new Set(config.locales).size !== config.locales.length
+    )
+        throw Error('多语言设置需要默认语言和不重复的支持语言列表');
+    for (const locale of config.locales) {
+        if (
+            typeof locale !== 'string' ||
+            !/^[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*$/.test(locale) ||
+            Intl.getCanonicalLocales(locale)[0] !== locale
+        )
+            throw Error(`语言标识必须为标准写法，例如 zh-CN、en：${locale}`);
+    }
+    return { defaultLocale: config.defaultLocale, locales: [...config.locales] };
+};
 /** Shared by Creator and the command line; no engine or project-specific defaults. */
 exports.runtimeOptions = function (settings) {
+    exports.localizationSettings(settings);
     if (!settings || settings.formatVersion !== 1) throw Error('Unsupported framework settings version');
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(settings.appId || ''))
         throw Error('appId must be a stable application identifier');

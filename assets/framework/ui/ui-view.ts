@@ -3,6 +3,7 @@ import type { AssetKey } from '../assets/asset-types';
 import type { ScopedAssets } from '../assets/asset-manager';
 import type { ScopedConfig } from '../config/config-manager';
 import type { ScopedAudio } from '../audio/audio-manager';
+import type { ScopedLocalization } from '../localization/localized-ui';
 import type { ModuleContext } from '../modules/module-manager';
 import type { ScopedTime } from '../time/time-service';
 import { invariant } from '../core/errors';
@@ -30,6 +31,8 @@ type ReadonlyParams<P> = P extends object ? Readonly<P> : P;
  * 异步任务应捕获这一次 show，不要在完成时再读取另一轮显示的上下文。
  */
 export interface ViewShowContext<Params, Result> extends TaskContext {
+    /** 本次显示的语言目录与 UI 绑定，隐藏、挂起或关闭时自动结束。 */
+    readonly i18n: ScopedLocalization;
     /** 当前显示的 UI 入口：局部弹窗跟随 show，页面导航继承外部会话；旧显示不能再次使用。 */
     readonly ui: ViewUI;
     /** 本次展示的命名操作：latest 查询、exclusive 防重复、serial 顺序执行。 */

@@ -24,13 +24,11 @@ import { BadgeStore } from '../badges/badge-store';
 import { HttpClient, type HttpClientOptions, type HttpTransport } from '../network/http-client';
 import { createPlatformHttpTransport } from '../network/transports';
 import type { RuntimeDiagnostics } from './diagnostics';
-import { Localization, type LocalizationOptions } from '../localization/localization';
+import { Localization } from '../localization/localization';
 /**
  * 应用启动装配参数。通常由项目设置和生成的发布清单构建，交给 AppEntry.appOptions。
  */
 export interface AppOptions {
-    /** 可选语言目录，复用资源 Key 和 Bundle 路由；默认语言在业务启动前准备。 */
-    readonly localization?: LocalizationOptions;
     /** 当前构建的配置快照；存档仍仅使用 appId，不按此配置拆分。 */
     readonly settings?: GameConfig;
     /** 项目显式登记的渠道组合接入；JSON integration 通过稳定名称选择。 */
@@ -224,7 +222,6 @@ export class App {
                 partial = value;
             });
             await app.sdk.initialize();
-            await app.i18n.initialize();
             return app;
         } catch (error) {
             try {
@@ -280,8 +277,8 @@ export class App {
         this.assets = new Assets(input.release, this.scope);
         this.i18n = new Localization(
             this.scope,
-            async (key, owner) => (await this.assets.load(key, owner)).json,
-            input.localization,
+            async (address, owner) => (await this.assets.loadAddress(address, owner)).json,
+            input.release.localization,
         );
         this.config = new ConfigManager(this.assets);
         this.assets.attachConfig(this.config);
