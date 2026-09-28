@@ -2,7 +2,7 @@
   "formatVersion": 2,
   "namespace": "showcase/default",
   "locale": "zh-CN",
-  "contract": "sha256:724fc60bd9941b9f484066483f883a41998f047227e08177e2fc099b7a1255d3",
+  "contract": "sha256:4c884e918c8c0f46d4f7933b8e80fe3fed04ada0f1f372413203559c287fa8a5",
   "texts": {
     "resources.title": "资源与多语言",
     "resources.subtitle": "批量准备 · 实例复用 · 按需切换语言",
@@ -20,14 +20,29 @@
     "resources.loaded": "本批资源已就绪，退出页面时归还。",
     "resources.pool": "池内 {size} · 闲置 {idle} · 借出 {borrowed}",
     "resources.token": "实例 #{id}",
-    "resources.cancelled": "本次准备已取消。"
+    "resources.cancelled": "本次准备已取消。",
+    "example.title": "多语言示例",
+    "example.subtitle": "代码动态绑定 · 编辑器固定配置",
+    "example.dynamicText": "01  动态文字",
+    "example.counter": "你已点击 {count} 次",
+    "example.increment": "点击 +1",
+    "example.dynamicImage": "02  动态图片加载",
+    "example.load": "加载 / 重新绑定图片",
+    "example.staticText": "03  编辑器配置的文字",
+    "example.welcome": "欢迎，{name}！",
+    "example.staticImage": "04  编辑器配置的图片",
+    "example.help": "前两项查看页面脚本；后两项查看节点上的文字绑定 / 图片绑定组件。"
   },
   "assets": {
     "resources.logo": {
       "id": "showcase/default/sprite/icons/alpha/token",
       "type": "SpriteFrame"
+    },
+    "example.greeting": {
+      "id": "showcase/default-zh-cn/sprite/images/greeting",
+      "type": "SpriteFrame"
     }
   },
   "font": null,
-  "revision": "sha256:1dd9eeb324f300af4dcc0ec8e58380381ef11b18f833c76b4df51f75a093e0ec"
+  "revision": "sha256:1ffdc736f559f74c842a2a1c0e82e8349ab6c721d041830d982f41bff21b742e"
 }

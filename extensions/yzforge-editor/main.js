@@ -9,6 +9,7 @@ const { formatScript } = require('../../tools/yzforge/format.cjs');
 const bindings = require('../../tools/yzforge/bindings.cjs');
 const naming = require('../../tools/yzforge/naming.cjs');
 const bundleConfig = require('./bundle-config');
+const localizationLayout = require('../../tools/yzforge/localization-layout.cjs');
 const { pathToFileURL } = require('url');
 const workbookTools = () => {
     const file = path.join(root(), 'tools/yzforge/workbooks.mjs');
@@ -217,6 +218,7 @@ async function createBundle(args) {
         id: group === 'default' ? `m-${manifest.id}` : `${manifest.id}-${group}`,
         root: `bundles/${group}`,
     };
+    if (localizationLayout.physicalBundles(manifest)[group]) throw Error('此分组已由语言包使用');
     await bundleFolder(directory, definition);
     await ensureFolder(path.join(directory, definition.root, 'dynamic'));
     await ensureFolder(path.join(directory, definition.root, 'static'));
@@ -434,7 +436,7 @@ async function createTableTemplate(args) {
     const { manifest } = await moduleInfo(args.module),
         id = naming.slug(args.id),
         bundle = args.bundle || 'default';
-    if (!manifest.bundles[bundle]) throw Error('请选择模块已有资源包');
+    if (!localizationLayout.businessBundles(manifest)[bundle]) throw Error('请选择模块已有业务资源包');
     const source = `config-source/${manifest.id}/${id}.xlsx`;
     const tool = await workbookTools();
     const result = await tool.createWorkbook(root(), source, {
@@ -532,6 +534,36 @@ async function previewDelete(args, creation) {
         if (nextManifest.assets && resourceId) delete nextManifest.assets[resourceId];
         if (kind === 'view' && Object.values(nextManifest.views).some((other) => other.prefab === view.prefab))
             refs.push('其他界面也使用此 Prefab');
+    } else if (kind === 'language' || kind === 'localization') {
+        const [base, locale] = args.id.split('/');
+        const declaration = manifest.bundles[base]?.localization;
+        if (!declaration?.locales) throw Error('未找到语言声明，请先迁移旧目录');
+        if (kind === 'language' && !declaration.locales[locale]) throw Error('此语言尚未启用');
+        if (kind === 'language' && locale === state.settings.localization.defaultLocale)
+            throw Error('默认语言不能单独停用；可停用整个业务包的多语言');
+        const selected =
+            kind === 'language' ? [[locale, declaration.locales[locale]]] : Object.entries(declaration.locales);
+        for (const [language, variant] of selected) {
+            const target = localizationLayout.languageBundle(manifest, base, language, variant);
+            targets.push(inside(path.join(directory, target.root)));
+            ids.push(`${manifest.id}/${target.group}/`, target.id);
+            const contract = path.join(directory, `contracts/generated/resources-${target.group}.ts`);
+            if (syncFs.existsSync(contract)) targets.push(contract);
+        }
+        if (kind === 'language') delete nextManifest.bundles[base].localization.locales[locale];
+        else {
+            const workbook = state.localizationWorkbooks.find((item) => item.source === declaration.source);
+            if (!workbook) throw Error('找不到源工作簿');
+            workbooks.push({
+                source: workbook.source,
+                hash: workbook.hash,
+                previous: workbook.config,
+                next: { ...workbook.config, enabled: false },
+            });
+            delete nextManifest.bundles[base].localization;
+            const contract = path.join(directory, `contracts/generated/localization-${base}.ts`);
+            if (syncFs.existsSync(contract)) targets.push(contract);
+        }
     } else if (kind === 'bundle') {
         const bundle = manifest.bundles[args.id];
         if (!bundle) throw Error('未找到资源包');
@@ -615,8 +647,16 @@ async function previewDelete(args, creation) {
             file.endsWith('module.json')
         )
             continue;
-        if (!/\.(ts|json|csv)$/.test(file)) continue;
+        if (!/\.(ts|json|csv|prefab|scene)$/.test(file)) continue;
         const content = await fs.readFile(file, 'utf8');
+        if (kind === 'localization' && /\.(prefab|scene)$/.test(file)) {
+            const records = JSON.parse(content);
+            if (
+                Array.isArray(records) &&
+                records.some((item) => item?.namespace === `${manifest.id}/${args.id}` && item.key)
+            )
+                refs.push(`${rel(file)} 的原生组件仍绑定此业务包多语言`);
+        }
         for (const id of ids) if (content.includes(id)) refs.push(`${rel(file)} 包含对 ${id} 的引用`);
         if (file.endsWith('.ts')) {
             const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true);
@@ -652,6 +692,12 @@ async function previewDelete(args, creation) {
             continue;
         for (const row of item.localization.assets)
             for (const [locale, value] of Object.entries(row.values)) {
+                const [base, removedLocale] = (args.id ?? '').split('/');
+                if (
+                    item.source === manifest.bundles[base]?.localization?.source &&
+                    (kind === 'localization' || (kind === 'language' && locale === removedLocale))
+                )
+                    continue;
                 if (
                     uuids.has(value.split('@')[0]) ||
                     uuids.has(value) ||
@@ -932,7 +978,7 @@ const actions = {
         const ownership = (file) =>
             state.modules
                 .flatMap((module) =>
-                    Object.entries(module.bundles).map(([group, bundle]) => ({
+                    Object.entries(localizationLayout.physicalBundles(module)).map(([group, bundle]) => ({
                         id: `${module.id}/${group}`,
                         directory: inside(`assets/game/modules/${module.id}/${bundle.root}`),
                     })),
@@ -958,6 +1004,10 @@ Object.assign(
         moduleInfo,
         saveJson,
         workbookTools,
+        bundleFolder,
+        ensureFolder,
+        url,
+        journal,
         actions: () => actions,
     }),
 );
@@ -1039,6 +1089,7 @@ function assetChanged(...args) {
         !text.includes('assets/game/modules/') ||
         text.includes('/generated/') ||
         text.includes('/yz-index.json') ||
+        text.includes('/yz-locale.json') ||
         text.includes('/dynamic/config/') ||
         text.includes('/dynamic/i18n/')
     )
@@ -1176,6 +1227,18 @@ exports.methods = {
                 pendingGeneration = true;
             }
             try {
+                // 先拦截工作台资源变更，不能等创建完文件、开始生成时才发现构建正在占用项目。
+                if (
+                    [
+                        'create',
+                        'createLocalization',
+                        'migrateLocalization',
+                        'cleanupLocalizationDirectories',
+                        'deleteModule',
+                        'restore',
+                    ].includes(action)
+                )
+                    await gameConfigTools.assertUnlocked(root());
                 const value = await actions[action](args);
                 if (
                     [
@@ -1187,6 +1250,7 @@ exports.methods = {
                         'updateSettings',
                         'moveAsset',
                         'migrateModule',
+                        'migrateLocalization',
                         'rollbackCreation',
                     ].includes(action)
                 ) {

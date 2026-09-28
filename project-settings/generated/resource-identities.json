@@ -91,6 +91,12 @@
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/VirtualListLabPage.prefab"
     },
+    "3d12663b-ba91-464d-82c7-d633747950a8": {
+      "id": "showcase/default/prefab/ui/localization-lab-page",
+      "type": "Prefab",
+      "active": true,
+      "source": "assets/game/modules/showcase/bundles/default/dynamic/ui/LocalizationLabPage.prefab"
+    },
     "43a42794-2e19-48a8-90de-d13471a55b56": {
       "id": "showcase/default/audio/audio/chime",
       "type": "AudioClip",
@@ -181,6 +187,24 @@
       "active": true,
       "source": "assets/game/modules/lobby/bundles/default/dynamic/ui/Dashboard.prefab"
     },
+    "9505d170-d74f-48b5-a438-02d586d11077": {
+      "id": "showcase/default-en/image/images/greeting",
+      "type": "ImageAsset",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/en/dynamic/images/greeting.png"
+    },
+    "9505d170-d74f-48b5-a438-02d586d11077@6c48a": {
+      "id": "showcase/default-en/texture/images/greeting",
+      "type": "Texture2D",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/en/dynamic/images/greeting.png"
+    },
+    "9505d170-d74f-48b5-a438-02d586d11077@f9941": {
+      "id": "showcase/default-en/sprite/images/greeting",
+      "type": "SpriteFrame",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/en/dynamic/images/greeting.png"
+    },
     "970df49b-3931-4db7-a142-41f2ac134736": {
       "id": "showcase/default/prefab/ui/time-lab-page",
       "type": "Prefab",
@@ -216,6 +240,24 @@
       "type": "SpriteFrame",
       "active": true,
       "source": "assets/game/modules/showcase/bundles/default/dynamic/icons/beta/token.png"
+    },
+    "d3246fa4-a314-4e26-b918-74bdf89848c1": {
+      "id": "showcase/default-zh-cn/image/images/greeting",
+      "type": "ImageAsset",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/zh-CN/dynamic/images/greeting.png"
+    },
+    "d3246fa4-a314-4e26-b918-74bdf89848c1@6c48a": {
+      "id": "showcase/default-zh-cn/texture/images/greeting",
+      "type": "Texture2D",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/zh-CN/dynamic/images/greeting.png"
+    },
+    "d3246fa4-a314-4e26-b918-74bdf89848c1@f9941": {
+      "id": "showcase/default-zh-cn/sprite/images/greeting",
+      "type": "SpriteFrame",
+      "active": true,
+      "source": "assets/game/modules/showcase/localization/default/zh-CN/dynamic/images/greeting.png"
     },
     "ec1281e5-c39e-43e6-a8b5-3c4e7ca1257e": {
       "id": "showcase/default/prefab/ui/showcase-page",

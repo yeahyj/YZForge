@@ -80,7 +80,7 @@ await click('_bindBtnLanguage');await until(()=>v._bindSprLogo.spriteFrame!==spr
 check(app.i18n.locale==='en'&&v._bindLblTitle.string==='Resources & Languages','English not applied');
 check(v._bindLblInfo.string.includes('缺失翻译时保留默认语言内容。'),'Default text fallback missing');
 check(app.assets.inspect().bundles.some(b=>b.includes('default-en')),'English bundle missing');
-check(app.assets.inspect().resources.some(r=>r.key.includes('i18n/default/en')),'English catalog not retained');
+check(app.assets.inspect().resources.some(r=>r.key.includes('default-en')&&r.key.includes('yz-locale')),'English catalog not retained');
 return {stage:'pool-batch-language',pool:v.pool.inspect(),locale:app.i18n.locale};`),
     );
     console.log(await screenshot('resources-localization-english.png'));
@@ -94,7 +94,7 @@ Array.from(app.i18n.handles)[0].snapshot.scope.defer(()=>{throw Error('Injected 
 await app.i18n.setLocale('zh-CN',page().show.scope);
 check(reports.length===1,'Cleanup failure not reported separately');
 }finally{console.error=originalError;}
-await until(()=>!app.assets.inspect().resources.some(r=>r.key.includes('i18n/default/en')));
+await until(()=>!app.assets.inspect().resources.some(r=>r.key.includes('default-en')&&r.key.includes('yz-locale')));
 check(app.i18n.locale==='zh-CN'&&v._bindLblTitle.string==='资源与多语言','Committed language switch failed');
 const owner=page().show.scope.child('resource-failure-check'),key={id:'showcase/default/sprite/icons/alpha/token',type:'SpriteFrame'};
 const snapshot=()=>JSON.stringify(app.assets.inspect().resources.map(r=>({key:r.key,users:r.users})).sort((a,b)=>a.key.localeCompare(b.key)));

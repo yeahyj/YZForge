@@ -48,7 +48,7 @@ try {
     await panel('el("refresh").click();');
     await until('return root.dataset.busy!=="true";');
     await panel(
-        'set("module",input.fixture);root.querySelector("[data-tab=localization]").click();set("languageBundle","default");set("languageLocale","en");set("languageStorage","dedicated");el("previewLanguage").click();',
+        'set("module",input.fixture);root.querySelector("[data-tab=localization]").click();set("languageBundle","default");set("languageLocale","en");el("previewLanguage").click();',
         { fixture },
     );
     await until('return !el("createLanguage").disabled;');
@@ -59,15 +59,33 @@ try {
     const saved = await state(),
         module = saved.modules.find((item) => item.id === fixture),
         source = module.bundles.default.localization.source;
-    assert.equal(module.bundles.default.localization.variants.en, 'default-en');
+    assert.deepEqual(module.bundles.default.localization.locales.en, {});
+    assert.deepEqual(Object.keys(module.bundles), ['default']);
+    assert.equal(await panel('return !!el("languageStorage");'), false);
+    assert.deepEqual(await panel('return Array.from(el("bundle").options,o=>o.value);'), ['default']);
     assert.ok(!saved.workbooks.some((item) => item.source === source));
     assert.ok((await panel('return el("languageStatus").textContent;')).includes('0 / 1'));
     assert.equal(
         saved.localizationWorkbooks.find((item) => item.source === source).localization.texts[0].values.en,
         undefined,
     );
-    const preview = await action('previewDelete', { module: fixture, kind: 'bundle', id: 'default-en' });
-    assert.ok(preview.references.some((item) => item.includes('语言')));
+    await assert.rejects(
+        action('previewCreate', { kind: 'table', module: fixture, bundle: 'default-en', id: 'invalid' }),
+        /业务资源包/,
+    );
+    await assert.rejects(
+        action('previewDelete', { module: fixture, kind: 'language', id: 'default/zh-CN' }),
+        /默认语言不能/,
+    );
+    const preview = await action('previewDelete', { module: fixture, kind: 'language', id: 'default/en' });
+    assert.deepEqual(preview.references, []);
+    const stopped = await action('deleteModule', preview);
+    assert.ok(!(await state()).modules.find((item) => item.id === fixture).bundles.default.localization.locales.en);
+    await action('restore', { id: stopped.restoreId });
+    assert.deepEqual(
+        (await state()).modules.find((item) => item.id === fixture).bundles.default.localization.locales.en,
+        {},
+    );
     const deletion = await action('previewDelete', { module: fixture, kind: 'module' });
     assert.deepEqual(deletion.references, []);
     const deleted = await action('deleteModule', deletion);

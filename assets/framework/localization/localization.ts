@@ -143,6 +143,20 @@ export class LocaleReader {
             `多语言键与资源包或合同版本不匹配：${key.namespace}`,
         );
     }
+    /** 原生检查器中的字符串键在已加载合同内解析；业务代码优先使用生成的类型键。 */
+    textKey(name: string): TextKey<string> {
+        invariant(has(this.fallback.texts, name), 'I18N_TEXT_MISSING', name);
+        return {
+            namespace: this.fallback.namespace,
+            contract: this.fallback.contract,
+            key: name,
+            parameters: textParameters(this.fallback.texts[name]),
+        };
+    }
+    assetKey<K extends AssetKind>(name: string, type: K): LocalizedAssetKey<K> {
+        invariant(this.fallback.assets[name]?.type === type, 'I18N_ASSET_TYPE', name);
+        return { namespace: this.fallback.namespace, contract: this.fallback.contract, key: name, type };
+    }
     text<P extends string>(
         key: TextKey<P>,
         values: TextParameters = {},
@@ -345,6 +359,14 @@ export class LocaleHandle {
 
 /** use 按需加载当前和默认目录，不初始化其他业务模块。 */
 export class Localization {
+    /** 将编辑器保存的业务命名空间转换为发布清单中的业务包。 */
+    bundle(namespace: string): BundleRef {
+        const match = Object.entries(this.release?.bundles ?? {}).find(
+            ([, definition]) => definition.namespace === namespace,
+        );
+        invariant(match, 'I18N_NAMESPACE_MISSING', namespace);
+        return { id: match[0] };
+    }
     private readonly scope: Scope;
     private readonly handles = new Set<LocaleHandle>();
     private readonly catalogs: LeaseCache<{ catalog: LocaleCatalog; scope: Scope }>;

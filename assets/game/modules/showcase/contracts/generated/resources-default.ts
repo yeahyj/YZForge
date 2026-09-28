@@ -45,6 +45,8 @@ export const ShowcaseRes = {
         uiGuidePage: { id: 'showcase/default/prefab/ui/guide-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/inspect-overlay。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiInspectOverlay: { id: 'showcase/default/prefab/ui/inspect-overlay', type: 'Prefab' },
+        /** Prefab：showcase/default/prefab/ui/localization-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
+        uiLocalizationLabPage: { id: 'showcase/default/prefab/ui/localization-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/network-lab-page。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */
         uiNetworkLabPage: { id: 'showcase/default/prefab/ui/network-lab-page', type: 'Prefab' },
         /** Prefab：showcase/default/prefab/ui/notice-toast。传给 assets.load，预制体用 instantiate，图片可用 setSprite。 */

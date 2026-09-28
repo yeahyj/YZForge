@@ -3,6 +3,8 @@ import { extname, relative, resolve } from 'node:path';
 import { register } from 'node:module';
 import { compileTables } from './config.mjs';
 import { compileLocalization } from './localization.mjs';
+import localizationLayout from './localization-layout.cjs';
+import { validateLocalizedBindings } from './localized-bindings.mjs';
 import { lifecycleCheck, validateModules, codeBoundaryCheck } from './checks.mjs';
 import settingsTools from './settings.cjs';
 import gameConfigTools from './game-config.cjs';
@@ -88,7 +90,7 @@ async function generateLocked(
 ) {
     const settings = await json(resolve(root, 'project-settings/framework.json'));
     const appOptions = settingsTools.runtimeOptions(settings);
-    const projectModules = await modules(root);
+    const projectModules = (await modules(root)).map(localizationLayout.expandModule);
     const issues = await lifecycleCheck(root);
     if (issues.length) throw Error(issues.join('\n'));
     const meta = await metadata(root),
@@ -236,7 +238,7 @@ async function generateLocked(
         }
         output[`${generatedRoot}/bundles.ts`] =
             `// 自动生成的 Bundle 引用。\n/** ${module.id} 的资源包引用；openBundle 只准备包，内部资源和配置仍按需加载。 */\nexport const ${pascal(module.id)}Bundles = {\n${Object.entries(
-                module.bundles,
+                localizationLayout.businessBundles(module),
             )
                 .map(
                     ([name, bundle]) =>
@@ -344,6 +346,7 @@ async function generateLocked(
             output[target] = JSON.stringify(index, null, 2) + '\n';
         }
     const localization = compileLocalization(root, projectModules, settings, sources, registry);
+    await validateLocalizedBindings(root, meta, localization);
     Object.assign(output, localization.output);
     output['project-settings/generated/localization.json'] =
         JSON.stringify(localization.release ?? null, null, 2) + '\n';

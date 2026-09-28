@@ -58,14 +58,7 @@ module.exports = `<main id="workbench">
 <article data-page="bindings" hidden><div class="page-head"><div><h1>自动绑定</h1><p>按命名规则连接节点，无需拖拽引用。</p></div></div><div class="card"><h2>选择预制体</h2>${select('binding', '界面或部件')}<div class="card-actions">${button('bind', '扫描并更新绑定', 'class="primary"')}</div><p id="bindingEmpty" class="hint"></p></div><div class="card"><h2>节点命名示例</h2><div class="examples"><code>btn_confirm <span>Button</span></code><code>lbl_title <span>Label</span></code><code>spr_icon <span>Sprite</span></code></div><p>增删节点或改名后重新扫描。嵌套预制体保留各自的绑定边界。</p><p>已有预制体可在“创建内容”选择 Part 或通用预制体接入。</p><details><summary>查看已登记的绑定</summary><pre id="bindingInfo"></pre></details></div></article>
 <article data-page="tables" hidden><div class="page-head"><div><h1>配置表</h1><p>在工作簿中维护数据，在这里选择导出目标并校验。</p></div><span id="tableDirty" class="dirty"></span></div><div class="card"><div class="grid">${select('workbook', '当前工作簿')}${select('table', '导出表')}</div><div class="card-actions">${button('openWorkbook', '打开工作簿', 'class="quiet"')}${button('previewTables', '预览校验')}</div><div id="tableEmpty" class="hint"></div></div><div class="card"><h2>导出设置</h2><div class="grid">${select('workbookBundle', '工作簿默认资源包')}${select('tableBundle', '此表的资源包')}${select('sheet', '数据工作表')}${select('primaryKey', '主键字段')}</div><div class="checks">${field('workbookEnabled', '启用工作簿', 'checkbox')}${field('tableEnabled', '启用此表', 'checkbox')}${field('tablePublic', '公开类型合同，供其他模块使用', 'checkbox')}</div><div class="card-actions">${button('saveTable', '保存设置', 'class="primary"')}${button('exportTables', '校验并导出')}</div></div><details class="card"><summary>公式与高级声明</summary><p>正式导出使用经过重算校验的结果；工作簿中的缓存仅用于预览。</p>${button('formulaEnvironment', '检测公式环境')}${button('recalculate', '重新计算公式')}<p>__config 定义索引、约束、分片及工作簿联动；__enums 定义可用于类型行的枚举。</p><pre id="tableInfo"></pre></details></article>
 <article data-page="localization" hidden><div class="page-head"><div><h1>多语言</h1><p>每个业务资源包维护自己的文案和语言资源，切换时只准备正在使用的内容。</p></div></div>
-<div class="card"><h2>语言资源包</h2><div class="grid">${select('languageBundle', '业务资源包')}${select('languageLocale', '语言')}${select(
-    'languageStorage',
-    '存放方式',
-    [
-        ['base', '放在业务资源包内'],
-        ['dedicated', '创建专用语言资源包'],
-    ],
-)}</div><p class="hint">专用包只属于此业务包的一种语言。首次创建会同时登记默认语言；未翻译的内容回退默认语言。</p><div class="card-actions">${button('previewLanguage', '预览创建')}${button('createLanguage', '创建并生成', 'class="primary" disabled')}</div><div id="languagePreview" class="file-list empty">选择业务包与语言，预览将创建或更新的文件。</div></div>
+<div class="card"><h2>语言资源包</h2><div class="grid">${select('languageBundle', '业务资源包')}${select('languageLocale', '语言')}</div><p class="hint">统一保存到 localization/业务包/语言，每种语言一个 Bundle。首次创建会同时启用默认语言；缺译回退默认语言。停用与恢复请使用“删除与恢复”页，翻译列会保留。</p><div class="card-actions">${button('previewLanguage', '预览创建')}${button('createLanguage', '创建并生成', 'class="primary" disabled')}${button('previewLanguageMigration', '预览旧目录迁移')}${button('migrateLanguage', '迁移并生成', 'disabled')}</div><div id="languagePreview" class="file-list empty">选择业务包与语言，预览将创建或更新的文件。</div></div>
 <div class="card"><h2>翻译与资源映射</h2><p id="languageSource" class="hint"></p><div id="languageStatus"></div><div class="card-actions">${button('openLanguageWorkbook', '打开多语言工作簿')}${button('validateLanguages', '校验预览', 'class="quiet"')}${button('generateLanguages', '校验并生成')}</div><p class="hint">texts 页填写文案，assets 页填写图片、字体和音频的资源 UUID 或公开资源键。空单元格表示缺译，#EMPTY 表示有意留空。语言列由创建操作安全追加，不覆盖已有翻译。</p></div></article>
 <article data-page="settings" hidden><div class="page-head"><div><h1>项目设置</h1><p>统一维护交付方式和框架默认行为。</p></div><span id="settingsDirty" class="dirty"></span></div><div class="card"><h2>Bundle 公共配置</h2><p>代码与资源分别使用独立配置。支持分包的小游戏使用分包交付。</p>${button('ensurePresets', '检查配置')}${button('bundleSettings', '打开 Creator 配置', 'class="quiet"')}<details><summary>配置详情</summary><pre id="presets"></pre></details></div><div class="card"><h2>多语言</h2><div class="grid">${field('defaultLocale', '默认语言', 'text', 'placeholder="zh-CN"')}${field('supportedLocales', '支持语言（逗号分隔）', 'text', 'placeholder="zh-CN, en"')}</div><p class="hint">先保存支持语言，再到多语言页为业务资源包添加语言。语言列与默认文案均会在生成时检查。</p></div><div class="card"><h2>业务日历</h2><div class="grid">${select(
     'utcOffset',
@@ -100,6 +93,8 @@ module.exports = `<main id="workbench">
     [
         ['module', '整个模块'],
         ['bundle', '资源包'],
+        ['language', '停用一种语言（保留翻译列）'],
+        ['localization', '停用业务包多语言'],
         ['view', '界面及配套脚本'],
         ['prefab', '部件 / 通用预制体及脚本'],
         ['script', '手写脚本'],

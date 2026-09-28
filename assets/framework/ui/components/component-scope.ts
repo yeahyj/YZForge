@@ -5,12 +5,14 @@ import { FrameworkError, invariant, reportError } from '../../core/errors';
 import type { ModuleContext } from '../../modules/module-manager';
 import { Scope, type Lifetime } from '../../core/scope';
 import type { ScopedTime, TimeService } from '../../time/time-service';
+import { ScopedLocalization } from '../../localization/localized-ui';
 
 /** @internal 原生 UI 扩展的一次启用期；资源和框架时间由现有实例绑定流程注入。 */
 export interface ComponentContext {
     readonly scope: Lifetime;
     readonly assets?: ScopedAssets;
     readonly time?: ScopedTime;
+    readonly i18n?: ScopedLocalization;
 }
 
 /**
@@ -84,6 +86,14 @@ export class ComponentScope implements ComponentBinding {
             scope: scope.lifetime,
             assets: this.module?.assets.in(scope.lifetime),
             time: this.time?.in(scope),
+            i18n: this.module
+                ? new ScopedLocalization(
+                      this.module.i18n,
+                      this.module.assets.in(scope.lifetime),
+                      scope.lifetime,
+                      () => this.activation === scope,
+                  )
+                : undefined,
         });
         scope.signal.onAbort(() => {
             void this.__deactivate().catch(reportError);

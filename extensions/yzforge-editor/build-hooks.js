@@ -104,27 +104,27 @@ exports.onAfterBuild = async function (options, result) {
             languageCatalogs = [],
             problems = [];
         for (const module of definitions) {
-            for (const [base, bundle] of Object.entries(module.bundles))
-                for (const [locale, group] of Object.entries(bundle.localization?.variants ?? {})) {
-                    const target = module.bundles[group];
-                    const url = `db://assets/game/modules/${module.id}/${target.root}/dynamic/i18n/${base}/${locale.toLowerCase()}.json`;
-                    const info = await Editor.Message.request('asset-db', 'query-asset-info', url);
-                    const locations = info ? result.getAssetPathInfo(info.uuid) : [];
-                    if (
-                        !info ||
-                        !result.containsAsset(info.uuid) ||
-                        !locations.some((location) => location.bundleName === target.id)
-                    )
-                        problems.push(`语言目录未保留在指定资源包：${module.id}/${base}/${locale} → ${target.id}`);
-                    languageCatalogs.push({
-                        namespace: `${module.id}/${base}`,
-                        locale,
-                        bundle: target.id,
-                        uuid: info?.uuid,
-                        locations,
-                    });
-                }
-            for (const bundle of Object.values(module.bundles)) {
+            const physical = require('../../tools/yzforge/localization-layout.cjs').physicalBundles(module);
+            for (const target of Object.values(physical).filter((bundle) => bundle.language)) {
+                const { base, locale } = target.language;
+                const url = `db://assets/game/modules/${module.id}/${target.root}/yz-locale.json`;
+                const info = await Editor.Message.request('asset-db', 'query-asset-info', url);
+                const locations = info ? result.getAssetPathInfo(info.uuid) : [];
+                if (
+                    !info ||
+                    !result.containsAsset(info.uuid) ||
+                    !locations.some((location) => location.bundleName === target.id)
+                )
+                    problems.push(`语言目录未保留在指定资源包：${module.id}/${base}/${locale} → ${target.id}`);
+                languageCatalogs.push({
+                    namespace: `${module.id}/${base}`,
+                    locale,
+                    bundle: target.id,
+                    uuid: info?.uuid,
+                    locations,
+                });
+            }
+            for (const bundle of Object.values(physical)) {
                 const output = configs.get(bundle.id);
                 if (!output) problems.push('资源 Bundle 未出现在构建中：' + bundle.id);
                 else

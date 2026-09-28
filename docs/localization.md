@@ -5,13 +5,30 @@
 ## 在工作台维护
 
 1. 打开 **YZForge → 项目工作台 → 项目设置**，保存默认语言和支持语言，例如 `zh-CN, en`。
-2. 进入 **多语言**，选择模块、业务资源包、语言和存放方式。
-3. **预览创建**后执行 **创建并生成**。可以放在业务包内部，也可以创建专用语言包。
+2. 进入 **多语言**，选择模块、业务资源包和语言。
+3. **预览创建**后执行 **创建并生成**。默认语言和其他语言统一放到 `localization/业务包/语言`，每种语言一个 Bundle。
 4. 打开生成的 Excel，填写文案与资源映射，再选择 **校验并生成**。面板显示各语言的翻译数量和存放位置。
 
 首次创建同时登记默认语言。以后增加语言，先保存项目支持语言，再到多语言页执行创建。已有工作簿会安全追加空语言列，保留原有文本、格式和其他工作表；不会复制默认文案冒充翻译。写入会核对文件摘要、保留备份并使用临时文件替换，外部编辑导致预览过期时拒绝覆盖。
 
-已有语言的存放位置不由“创建”覆盖。调整包归属需要显式迁移和重新校验。普通资源改名应通过 Creator/工作台完成，不手改 `.meta`。同包改名保留 UUID 和物理资源逻辑键；跨包移动被拦截，需同步更新资源身份和所有引用后迁移，不能只拖动文件再忽略生成错误。
+旧项目使用 **预览旧目录迁移 → 迁移并生成**。工具通过 Creator 移动目录和语言文件，保留 UUID、已有语言包 ID 和资源分组；迁移记录保存在 `.yzforge/editor-history`，随后清理已确认无内容、无引用的旧空目录。普通资源改名仍通过 Creator/工作台完成，不手改 `.meta`。同包改名保留资源键；跨包移动需要显式更新身份和所有引用。
+
+```text
+assets/game/modules/showcase/
+├─ bundles/default/                      普通业务包，保持原位置
+├─ localization/default/                 普通分组目录
+│  ├─ zh-CN/                             中文 Bundle
+│  └─ en/                                英文 Bundle
+│     ├─ dynamic/images/greeting.png      示例图片，按需编目和加载
+│     ├─ static/                         仅供此包内资源静态引用
+│     ├─ yz-index.json                   自动生成的物理资源索引
+│     └─ yz-locale.json                  自动生成的文案、字体和图片映射
+└─ contracts/generated/localization-default.ts
+
+config-source/showcase/localization-default.xlsx   全部语言共用的源工作簿
+```
+
+`localization` 和业务包分组目录均不标记 Bundle，真正的包根目录互不嵌套。`dynamic`、`static` 沿用框架已有含义；图片、字体、音频分类按需要创建。只有文案也使用相同目录，无需放入占位图片。
 
 ## 唯一归属声明
 
@@ -32,12 +49,14 @@
   "root": "bundles/default",
   "localization": {
     "source": "config-source/showcase/localization-default.xlsx",
-    "variants": { "zh-CN": "default", "en": "default-en" }
+    "locales": { "zh-CN": {}, "en": {} }
   }
 }
 ```
 
-`default-en` 是同一模块下正常的资源 Bundle，其归属由上面的映射推导。一个专用包不能同时承载两个业务包/两种语言，也不能作为另一个基包、包含普通配置表或业务界面。公共图片、字体仍可引用现有公共资源键。
+实际语言 Bundle 由此声明派生，不再重复登记在普通 `bundles` 中。默认物理 ID 为 `模块-业务包-语言`（小写），目录保留标准语言大小写。`locales.en` 内可由迁移工具保存 `id`、`group` 以保留旧身份；平时通过面板维护即可。普通页面、配置表和预制体的目标只显示业务包。
+
+公共中性图片、字体仍放普通公共包；专属语言字体等可以跨业务包引用**同语言**公共包的资源键。跨语言直接引用被拒绝，缺译使用明确的默认语言回退。
 
 ## 工作簿格式
 
@@ -61,6 +80,20 @@
 图片、字体和音频文件仍由 Creator 管理。不要在业务预制体里静态引用全部语言资源；生成的语言目录只保存键，不形成所有语言包的静态依赖。
 
 ## 页面与组件
+
+### 编辑器固定配置
+
+在 Label 所在节点添加 **YZForge → 多语言 → 文字绑定（LocalizedLabel）**；在 Sprite 所在节点添加 **图片绑定（LocalizedSprite）**。两者沿用原生检查器，填写：
+
+- **业务资源包**：如 `showcase/default`。
+- **语言键**：Excel 的原始 key，如 `example.welcome` 或 `example.greeting`。
+- 文字可填写 **固定参数**，如 `name = YZForge`；变化的计数使用下面的代码绑定。
+
+组件自动接入框架显示期限。固定配置只保存语言键，图片仍按当前语言通过 Assets 加载。挂载到框架 UI、托管 Prefab/Part 或 `app.bindScene` 管理的节点即可，无需另写页面绑定代码。
+
+选择节点后，在 **预览语言** 填 `zh-CN` / `en`，勾选 **更新预览**；检查器显示只读文字或 SpriteFrame 预览。预览字段不序列化，不改原 Label / Sprite，不把预览语言写进运行配置。默认文本、字体、占位图仍由原生组件设置。生成时会检查已保存组件中的命名空间、语言键、图片类型和固定参数，并定位到文件与节点。
+
+### 代码动态绑定
 
 目录、强类型文案键和语言资源键由生成器生成到 `contracts/generated/localization-业务包.ts`，路由自动进入 ContentRelease。**GameRoot 不导入或登记业务语言目录。** App 启动只选择默认语言，首次 `use` 才准备该业务包的当前与默认目录。
 
@@ -113,21 +146,37 @@ UIView 用 `show.i18n`，GameComponent 用 `activation.i18n`。实例池和虚�
 
 工作簿、目录 JSON、强类型键、路由属于同一套生成流程，输出使用现有事务与恢复机制。目录携带合同版本和内容版本；正式构建先校验生成结果，旧目录不能与新路由混用。生成目录不会再次被当作普通动态 JSON 编目。
 
-删除预览检查语言归属、UUID/逻辑键引用。删除整个模块会安全停用其工作簿，恢复时还原原配置；存在其他模块语言引用时阻止删除。删除单个基包或专用语言包前需先解除/迁移语言声明。
+**删除与恢复 → 停用一种语言** 会预览并备份该语言目录与生成键，解除该语言声明，保留 Excel 翻译列；该列暂不参与资源存在性检查，运行时回退默认语言。可从原删除记录恢复资源、UUID 和声明。默认语言不能单独停用。
 
-构建审计读取实际输出，检查语言包是否缺失、基包是否静态依赖专用语言包，同时保留现有体积和重复文件报告。引擎 Bundle 缓存按现有规则保持；发布更新需要重启运行时，不在同一运行会话混换发布清单。
+**停用业务包多语言** 同时归档其语言包、停用工作簿；若页面代码或原生组件仍使用这些键，预览会阻止操作。删除整个模块同样停用对应工作簿，恢复时还原配置。跨业务包共用资源仍须通过引用检查，不能删除其他使用者正在依赖的内容。
+
+构建审计读取实际输出，检查语言包是否缺失，并遍历所有包的传递依赖：普通业务包不能静态依赖任何语言包，不同语言包不能相互静态依赖，同语言公共资源允许共用。引擎 Bundle 记录按现有规则保持；关闭使用期限会归还实际资源与字典持有，已请求 Bundle 的列表不代表资源仍被持有。
 
 当前实现不包含 ICU 复数、地区数字/日期格式、富文本自动转义和 RTL 排版；字体文件必须包含实际展示字符。
 
 ## 示例与验证
 
-Bootstrap 首页 → **资源准备、实例池与多语言**：中文目录在 `showcase/default`，英文目录在专用 `showcase/default-en`；英文缺一条翻译以演示默认语言回退。文案来源是 `config-source/showcase/localization-default.xlsx`。按钮、图标和池内实例随语言一起更新，归还的实例不保留旧绑定。
+Bootstrap 首页 → **多语言示例 · 动态与编辑器配置**：
 
-实现见 [ResourceLabPage.ts](../assets/game/modules/showcase/code/ui/ResourceLabPage.ts)。
+| 示例     | 查看位置                     | 行为                                              |
+| -------- | ---------------------------- | ------------------------------------------------- |
+| 动态文字 | `LocalizationLabPage.ts`     | 点击累加参数，中英文切换保留当前计数              |
+| 动态图片 | 同上，`bindSprite`           | 按需加载、重新绑定，切换后更新图片                |
+| 固定文字 | Prefab 的 `StaticText` 节点  | 原生 `LocalizedLabel` 保存键与固定参数            |
+| 固定图片 | Prefab 的 `StaticImage` 节点 | 原生 `LocalizedSprite` 保存键，与动态示例共用资源 |
+
+示例 Prefab 为 `assets/game/modules/showcase/bundles/default/dynamic/ui/LocalizationLabPage.prefab`。图片位于 `localization/default/zh-CN` 和 `localization/default/en`，文案来自 `config-source/showcase/localization-default.xlsx`。
+
+原 **资源准备、实例池与多语言** 页继续演示批量准备、实例池和缺译回退；归还实例不保留旧绑定。
+
+实现见 [LocalizationLabPage.ts](../assets/game/modules/showcase/code/ui/LocalizationLabPage.ts) 和 [ResourceLabPage.ts](../assets/game/modules/showcase/code/ui/ResourceLabPage.ts)。
 
 ```sh
 npm run verify
-node tests/integration/verify-resources-localization.mjs http://127.0.0.1:7457/
+node tests/integration/verify-localization-examples.mjs http://127.0.0.1:7456/
+node tests/integration/verify-localization-inspector.mjs
+node tests/integration/verify-localization-workbench.mjs
+node tests/integration/verify-resources-localization.mjs http://127.0.0.1:7456/
 ```
 
 预览端口以当前 Creator 的预览地址为准。

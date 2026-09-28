@@ -66,7 +66,8 @@ export async function scanCatalog(root, modules, metadata, sources) {
         throw error;
     });
     for (const file of Object.keys(generated))
-        if (/\/dynamic\/i18n\/[^/]+\/[^/]+\.json$/.test(file)) generatedTables.add(resolve(root, file).toLowerCase());
+        if (/\/dynamic\/i18n\/[^/]+\/[^/]+\.json$|\/yz-locale\.json$/.test(file))
+            generatedTables.add(resolve(root, file).toLowerCase());
     for (const module of modules) {
         for (const [id, registration] of Object.entries(module.assets ?? {})) {
             const key = registration.uuid + (registration.atlasFrame ? `#${registration.atlasFrame}` : '');
@@ -149,21 +150,6 @@ export async function scriptDependencies(modules, metadata) {
             if (meta?.uuid) classes.set(meta.uuid, module.id);
         }
     }
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-    const decode = (input) => {
-        if (input.length !== 22 && input.length !== 23) return input;
-        const start = input.length === 22 ? 2 : 5;
-        let hex = input.slice(0, start);
-        for (let i = start; i + 1 < input.length; i += 2) {
-            const a = chars.indexOf(input[i]),
-                b = chars.indexOf(input[i + 1]);
-            if (a < 0 || b < 0) return input;
-            hex += (a >> 2).toString(16) + (((a & 3) << 2) | (b >> 4)).toString(16) + (b & 15).toString(16);
-        }
-        return hex.length === 32
-            ? `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-            : input;
-    };
     async function direct(uuid) {
         if (parsed.has(uuid)) return parsed.get(uuid);
         const file = assets.get(uuid),
@@ -173,7 +159,7 @@ export async function scriptDependencies(modules, metadata) {
             function walk(value) {
                 if (!value || typeof value !== 'object') return;
                 if (typeof value.__type__ === 'string') {
-                    const module = classes.get(value.__type__) ?? classes.get(decode(value.__type__));
+                    const module = classes.get(value.__type__) ?? classes.get(decodeUuid(value.__type__));
                     if (module) result.modules.add(module);
                 }
                 if (typeof value.__uuid__ === 'string') result.assets.add(value.__uuid__.split('@')[0]);
@@ -197,4 +183,21 @@ export async function scriptDependencies(modules, metadata) {
         await visit(uuid.split('@')[0]);
         return [...result].sort();
     };
+}
+
+/** Creator 脚本类型在序列化文件中的压缩 UUID；保持未知类型原样。 */
+export function decodeUuid(input) {
+    if (typeof input !== 'string' || (input.length !== 22 && input.length !== 23)) return input;
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    const start = input.length === 22 ? 2 : 5;
+    let hex = input.slice(0, start);
+    for (let i = start; i + 1 < input.length; i += 2) {
+        const a = chars.indexOf(input[i]),
+            b = chars.indexOf(input[i + 1]);
+        if (a < 0 || b < 0) return input;
+        hex += (a >> 2).toString(16) + (((a & 3) << 2) | (b >> 4)).toString(16) + (b & 15).toString(16);
+    }
+    return hex.length === 32
+        ? `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+        : input;
 }

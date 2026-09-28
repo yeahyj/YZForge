@@ -1,0 +1,21 @@
+{
+  "formatVersion": 2,
+  "namespace": "showcase/default-en",
+  "assets": {
+    "showcase/default-en/image/images/greeting": {
+      "bundle": "showcase-default-en",
+      "path": "dynamic/images/greeting",
+      "type": "ImageAsset"
+    },
+    "showcase/default-en/texture/images/greeting": {
+      "bundle": "showcase-default-en",
+      "path": "dynamic/images/greeting/texture",
+      "type": "Texture2D"
+    },
+    "showcase/default-en/sprite/images/greeting": {
+      "bundle": "showcase-default-en",
+      "path": "dynamic/images/greeting/spriteFrame",
+      "type": "SpriteFrame"
+    }
+  }
+}

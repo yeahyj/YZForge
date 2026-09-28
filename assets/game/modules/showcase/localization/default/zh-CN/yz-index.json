@@ -1,0 +1,21 @@
+{
+  "formatVersion": 2,
+  "namespace": "showcase/default-zh-cn",
+  "assets": {
+    "showcase/default-zh-cn/image/images/greeting": {
+      "bundle": "showcase-default-zh-cn",
+      "path": "dynamic/images/greeting",
+      "type": "ImageAsset"
+    },
+    "showcase/default-zh-cn/texture/images/greeting": {
+      "bundle": "showcase-default-zh-cn",
+      "path": "dynamic/images/greeting/texture",
+      "type": "Texture2D"
+    },
+    "showcase/default-zh-cn/sprite/images/greeting": {
+      "bundle": "showcase-default-zh-cn",
+      "path": "dynamic/images/greeting/spriteFrame",
+      "type": "SpriteFrame"
+    }
+  }
+}

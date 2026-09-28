@@ -24,6 +24,11 @@ export const release: ContentRelease = {
             namespace: 'showcase/extra',
             dependencies: [],
         },
+        'showcase-default-zh-cn': {
+            id: 'showcase-default-zh-cn',
+            namespace: 'showcase/default-zh-cn',
+            dependencies: [],
+        },
         'showcase-default-en': {
             id: 'showcase-default-en',
             namespace: 'showcase/default-en',
@@ -54,6 +59,10 @@ export const release: ContentRelease = {
         },
         'showcase/extra': {
             bundle: 'showcase-extra',
+            path: 'yz-index',
+        },
+        'showcase/default-zh-cn': {
+            bundle: 'showcase-default-zh-cn',
             path: 'yz-index',
         },
         'showcase/default-en': {
@@ -106,17 +115,17 @@ export const release: ContentRelease = {
         bundles: {
             'm-showcase': {
                 namespace: 'showcase/default',
-                contract: 'sha256:724fc60bd9941b9f484066483f883a41998f047227e08177e2fc099b7a1255d3',
+                contract: 'sha256:4c884e918c8c0f46d4f7933b8e80fe3fed04ada0f1f372413203559c287fa8a5',
                 catalogs: {
                     'zh-CN': {
-                        bundle: 'm-showcase',
-                        path: 'dynamic/i18n/default/zh-cn',
-                        revision: 'sha256:1dd9eeb324f300af4dcc0ec8e58380381ef11b18f833c76b4df51f75a093e0ec',
+                        bundle: 'showcase-default-zh-cn',
+                        path: 'yz-locale',
+                        revision: 'sha256:1ffdc736f559f74c842a2a1c0e82e8349ab6c721d041830d982f41bff21b742e',
                     },
                     en: {
                         bundle: 'showcase-default-en',
-                        path: 'dynamic/i18n/default/en',
-                        revision: 'sha256:a91795dba56a24f3bf1955693f8d8202d1e634e5d2598ce0b7bed3482182811a',
+                        path: 'yz-locale',
+                        revision: 'sha256:3f96b9878d0d9b29a33791faf232fe297b40c68980d64c87f20adb84223b2c49',
                     },
                 },
             },

@@ -212,6 +212,17 @@ export const views: readonly ViewDefinition[] = [
         duplicate: 'reject',
     },
     {
+        id: 'showcase.localization-lab-page',
+        module: 'showcase',
+        prefab: {
+            id: 'showcase/default/prefab/ui/localization-lab-page',
+            type: 'Prefab',
+        },
+        kind: 'page',
+        cache: 'none',
+        duplicate: 'reject',
+    },
+    {
         id: 'workshop.workflow-page',
         module: 'workshop',
         prefab: {

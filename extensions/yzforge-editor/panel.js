@@ -1,4 +1,5 @@
 'use strict';
+const { businessBundles } = require('../../tools/yzforge/localization-layout.cjs');
 exports.template = require('./panel-template');
 exports.style = require('fs').readFileSync(require('path').join(__dirname, 'panel.css'), 'utf8');
 exports.$ = { workbench: '#workbench' };
@@ -9,6 +10,7 @@ exports.ready = function () {
     let state,
         createPlan,
         languagePlan,
+        languageMigrationPlan,
         creationRollbackPlan,
         deletePlan,
         workbookDraft,
@@ -119,6 +121,11 @@ exports.ready = function () {
             creationRollbackPlan.references.length > 0;
         el('create').disabled = busy || !createPlan || createPlan.conflicts.length > 0;
         el('createLanguage').disabled = busy || !languagePlan || languagePlan.conflicts.length > 0;
+        const legacyLanguage = Object.values(current()?.bundles ?? {}).some((bundle) => bundle.localization?.variants);
+        el('previewLanguageMigration').hidden = !legacyLanguage;
+        el('migrateLanguage').hidden = !legacyLanguage;
+        el('previewLanguageMigration').disabled = busy || !legacyLanguage;
+        el('migrateLanguage').disabled = busy || !languageMigrationPlan;
         el('previewLanguage').disabled = busy || !val('languageBundle') || !val('languageLocale');
         el('openLanguageWorkbook').disabled = busy || !current()?.bundles[val('languageBundle')]?.localization?.source;
         el('previewCreate').disabled = busy || !state || !val('newName');
@@ -201,6 +208,8 @@ exports.ready = function () {
     };
     const languageChanged = () => {
         languagePlan = undefined;
+        languageMigrationPlan = undefined;
+        el('migrateLanguage').disabled = true;
         const declaration = current()?.bundles[val('languageBundle')]?.localization;
         el('languageSource').textContent = declaration?.source ?? '此业务资源包尚未配置多语言。';
         const workbook = state.localizationWorkbooks?.find((item) => item.source === declaration?.source);
@@ -223,7 +232,9 @@ exports.ready = function () {
                     ).length;
                 for (const value of [
                     locale,
-                    declaration.variants[locale] ?? '回退默认语言',
+                    declaration.locales?.[locale]
+                        ? `localization/${val('languageBundle')}/${locale}`
+                        : (declaration.variants?.[locale] ?? '回退默认语言'),
                     `${count('texts')} / ${workbook.localization.texts.length}`,
                     `${count('assets')} / ${workbook.localization.assets.length}`,
                 ]) {
@@ -240,7 +251,7 @@ exports.ready = function () {
     };
     const moduleChanged = () => {
         const m = current(),
-            bundles = Object.entries(m?.bundles ?? {}).map(([g, b]) => [g, `${g} · ${b.id}`]);
+            bundles = Object.entries(businessBundles(m ?? { bundles: {} })).map(([g, b]) => [g, `${g} · ${b.id}`]);
         el('moduleTag').textContent =
             m?.code?.mode === 'none'
                 ? '资源模块'
@@ -316,17 +327,29 @@ exports.ready = function () {
         el('deleteItemOptions').hidden = kind === 'module';
         options(
             'deleteItem',
-            kind === 'bundle'
-                ? Object.entries(m?.bundles ?? {}).map(([id, b]) => [id, `${id} · ${b.id}`])
-                : kind === 'view'
-                  ? Object.keys(m?.views ?? {}).map((id) => [id, id])
-                  : kind === 'prefab'
-                    ? Object.entries(m?.components ?? {}).map(([id, value]) => [id, value.className])
-                    : (state?.scripts ?? [])
-                          .filter(
-                              (f) => f.startsWith(`assets/game/modules/${m?.id}/code/`) && !f.includes('/generated/'),
-                          )
-                          .map((f) => [f, f.replace(`assets/game/modules/${m?.id}/`, '')]),
+            kind === 'language'
+                ? Object.entries(m?.bundles ?? {}).flatMap(([base, bundle]) =>
+                      Object.keys(bundle.localization?.locales ?? {}).map((locale) => [
+                          `${base}/${locale}`,
+                          `${base} · ${locale}`,
+                      ]),
+                  )
+                : kind === 'localization'
+                  ? Object.entries(m?.bundles ?? {})
+                        .filter(([, bundle]) => bundle.localization)
+                        .map(([base]) => [base, base])
+                  : kind === 'bundle'
+                    ? Object.entries(m?.bundles ?? {}).map(([id, b]) => [id, `${id} · ${b.id}`])
+                    : kind === 'view'
+                      ? Object.keys(m?.views ?? {}).map((id) => [id, id])
+                      : kind === 'prefab'
+                        ? Object.entries(m?.components ?? {}).map(([id, value]) => [id, value.className])
+                        : (state?.scripts ?? [])
+                              .filter(
+                                  (f) =>
+                                      f.startsWith(`assets/game/modules/${m?.id}/code/`) && !f.includes('/generated/'),
+                              )
+                              .map((f) => [f, f.replace(`assets/game/modules/${m?.id}/`, '')]),
         );
         invalidateDelete();
         updateCreationActions();
@@ -656,7 +679,7 @@ exports.ready = function () {
     });
     on('previewTables', () => run('previewTables', {}, false));
     on('exportTables', () => run('generate'));
-    for (const id of ['languageBundle', 'languageLocale', 'languageStorage']) on(id, languageChanged, 'change');
+    for (const id of ['languageBundle', 'languageLocale']) on(id, languageChanged, 'change');
     on('previewLanguage', async () => {
         const plan = await run(
             'previewCreate',
@@ -665,7 +688,6 @@ exports.ready = function () {
                 module: val('module'),
                 bundle: val('languageBundle'),
                 locale: val('languageLocale'),
-                storage: val('languageStorage'),
             },
             false,
         );
@@ -683,6 +705,24 @@ exports.ready = function () {
     );
     on('validateLanguages', () => run('previewTables', {}, false));
     on('generateLanguages', () => run('generate'));
+    on('previewLanguageMigration', async () => {
+        languageMigrationPlan = await run('previewLocalizationMigration', { module: current().id }, false);
+        el('migrateLanguage').disabled = !languageMigrationPlan;
+        if (languageMigrationPlan)
+            renderFiles(
+                'languagePreview',
+                languageMigrationPlan.moves.map((move) => ({ path: `${move.from} → ${move.to}`, operation: 'update' })),
+                '',
+            );
+    });
+    on('migrateLanguage', async () => {
+        if (!languageMigrationPlan) throw Error('请先预览迁移范围');
+        const plan = languageMigrationPlan;
+        languageMigrationPlan = undefined;
+        el('migrateLanguage').disabled = true;
+        await run('migrateLocalization', { module: plan.module, signature: plan.signature });
+        await run('cleanupLocalizationDirectories', { module: plan.module });
+    });
     on('recalculate', () => run('recalculate', { source: val('workbook') }, false));
     on('ensurePresets', () => run('ensurePresets'));
     on('bundleSettings', () => run('openBundleSettings', {}, false));

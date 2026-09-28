@@ -3,6 +3,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const { createHash } = require('crypto');
 const naming = require('../../tools/yzforge/naming.cjs');
+const { businessBundles, physicalBundles } = require('../../tools/yzforge/localization-layout.cjs');
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 exports.createWorkbench = function (ctx) {
     const {
@@ -75,7 +76,7 @@ exports.createWorkbench = function (ctx) {
                 updates.push(...plan.updates);
             } else if (kind === 'bundle') {
                 request.id = request.id === 'default' ? 'default' : naming.slug(request.id);
-                if (manifest.bundles[request.id]) throw Error('资源包已存在');
+                if (physicalBundles(manifest)[request.id]) throw Error('资源包或语言分组已存在');
                 folders.push(
                     `${prefix}/bundles/${request.id}`,
                     `${prefix}/bundles/${request.id}/dynamic`,
@@ -84,7 +85,7 @@ exports.createWorkbench = function (ctx) {
                 updates.push(`${prefix}/module.json`);
             } else if (kind === 'table') {
                 request.id = naming.slug(request.id);
-                if (!manifest.bundles[request.bundle]) throw Error('请选择已有资源包');
+                if (!businessBundles(manifest)[request.bundle]) throw Error('请选择已有业务资源包');
                 add(`config-source/${manifest.id}/${request.id}.xlsx`);
                 updates.push(
                     `${prefix}/${manifest.bundles[request.bundle].root}/dynamic/config/${request.id}.json`,
@@ -96,7 +97,7 @@ exports.createWorkbench = function (ctx) {
                 if (['service', 'component'].includes(kind))
                     add(`${prefix}/code/${kind === 'service' ? 'services' : 'components'}/${named.className}.ts`);
                 else {
-                    const bundle = manifest.bundles[request.bundle];
+                    const bundle = businessBundles(manifest)[request.bundle];
                     if (!bundle) throw Error('请选择已有资源包');
                     const generic = ['part', 'prefab'].includes(kind),
                         code = `${prefix}/code/${generic ? 'components' : 'ui'}`;
@@ -360,13 +361,14 @@ exports.createWorkbench = function (ctx) {
         const tool = await workbookTools(),
             current = await tool.readWorkbook(root(), args.source);
         const { manifest } = await moduleInfo(args.config.module);
-        if (!manifest.bundles[args.config.bundle]) throw Error('请选择模块已有资源包');
+        const allowed = businessBundles(manifest);
+        if (!allowed[args.config.bundle]) throw Error('请选择模块已有业务资源包');
         for (const table of args.config.tables) {
             const sheet = current.sheets.find((sheet) => sheet.name === table.sheet);
             if (!sheet || !sheet.fields.includes(table.primaryKey)) throw Error(`请选择工作表及其主键：${table.id}`);
-            if (table.bundle && !manifest.bundles[table.bundle]) throw Error(`无效目标资源包：${table.bundle}`);
+            if (table.bundle && !allowed[table.bundle]) throw Error(`无效目标资源包：${table.bundle}`);
             for (const group of Object.values(table.shards?.targets ?? {}))
-                if (group && !manifest.bundles[group]) throw Error(`无效分片目标：${group}`);
+                if (group && !allowed[group]) throw Error(`无效分片目标：${group}`);
         }
         return tool.writeWorkbookConfig(root(), args.source, args.config, args.hash);
     }

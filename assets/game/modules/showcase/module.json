@@ -9,19 +9,18 @@
       "root": "bundles/default",
       "localization": {
         "source": "config-source/showcase/localization-default.xlsx",
-        "variants": {
-          "zh-CN": "default",
-          "en": "default-en"
+        "locales": {
+          "zh-CN": {},
+          "en": {
+            "id": "showcase-default-en",
+            "group": "default-en"
+          }
         }
       }
     },
     "extra": {
       "id": "showcase-extra",
       "root": "bundles/extra"
-    },
-    "default-en": {
-      "id": "showcase-default-en",
-      "root": "bundles/default-en"
     }
   },
   "views": {
@@ -168,6 +167,15 @@
       "duplicate": "reject",
       "className": "showcase.ResourceLabPage",
       "binding": "code/ui/generated/ResourceLabPageBinding.ts"
+    },
+    "localization-lab-page": {
+      "visibility": "internal",
+      "prefab": "showcase/default/prefab/ui/localization-lab-page",
+      "kind": "page",
+      "cache": "none",
+      "duplicate": "reject",
+      "className": "showcase.LocalizationLabPage",
+      "binding": "code/ui/generated/LocalizationLabPageBinding.ts"
     }
   },
   "audio": {},

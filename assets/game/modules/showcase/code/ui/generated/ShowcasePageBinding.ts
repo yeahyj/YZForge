@@ -9,7 +9,7 @@ const { ccclass, property } = _decorator;
 export class ShowcasePageBinding extends UIView<ShowcasePageParams, ShowcasePageResult> {
     /** @internal 编辑器核对本次生成是否已编译，不用于业务逻辑。 */
     static readonly __yzforgeBindingSignature: string =
-        '64d1510be5a1e8c2f3768bf26956b07832e3ea846d5e2057a94b3e4b6f08e6d1';
+        'cda6a7946c57180bfb6843e8d2bcafeb20854226f9337f9bec15691914d5560e';
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Button, visible: false })
     private _bindBtnBack: Button | null = null;
@@ -49,6 +49,16 @@ export class ShowcasePageBinding extends UIView<ShowcasePageParams, ShowcasePage
      */
     protected get nodeBadge(): Node {
         return this.requireBinding(this._bindNodeBadge, 'node_badge');
+    }
+    /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
+    @property({ type: Button, visible: false })
+    private _bindBtnLocalization: Button | null = null;
+    /**
+     * 自动绑定节点 btn_localization 的 Button；节点改名、替换组件后通过工作台更新绑定。
+     * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
+     */
+    protected get btnLocalization(): Button {
+        return this.requireBinding(this._bindBtnLocalization, 'btn_localization');
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Button, visible: false })
@@ -166,6 +176,7 @@ export class ShowcasePageBinding extends UIView<ShowcasePageParams, ShowcasePage
         void this.nodeContent;
         void this.btnWorkflow;
         void this.nodeBadge;
+        void this.btnLocalization;
         void this.btnUi;
         void this.btnData;
         void this.btnTime;

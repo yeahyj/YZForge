@@ -3,6 +3,7 @@ import { dirname, relative, resolve } from 'node:path';
 import ExcelJS from 'exceljs';
 import { digest, identifier, pascal, safePath } from './project.mjs';
 import settingsTools from './settings.cjs';
+import localizationLayout from './localization-layout.cjs';
 
 const has = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const empty = (value) => value === null || value === undefined || value === '';
@@ -131,20 +132,9 @@ export async function createLocalizationWorkbook(root, source, locales, rows) {
 export function localizationOutputPaths(root, modules) {
     return modules.flatMap((module) =>
         Object.entries(module.bundles).flatMap(([base, bundle]) =>
-            Object.entries(bundle.localization?.variants ?? {}).map(([locale, group]) => {
-                if (!module.bundles[group]) throw Error(`${module.id}/${base}: 语言存放包不存在 ${group}`);
-                return forward(
-                    relative(
-                        root,
-                        resolve(
-                            module.directory,
-                            module.bundles[group].root,
-                            'dynamic/i18n',
-                            base,
-                            `${locale.toLowerCase()}.json`,
-                        ),
-                    ),
-                );
+            Object.entries(bundle.localization?.locales ?? {}).map(([locale, variant]) => {
+                const target = localizationLayout.languageBundle(module, base, locale, variant);
+                return forward(relative(root, resolve(module.directory, target.root, 'yz-locale.json')));
             }),
         ),
     );
@@ -155,29 +145,27 @@ export function localizationDeclarations(modules, settings) {
     const declarations = [],
         owners = new Map(),
         sources = new Set();
-    for (const module of modules)
+    for (const module of modules.map(localizationLayout.expandModule))
         for (const [base, bundle] of Object.entries(module.bundles)) {
             const declaration = bundle.localization;
             if (!declaration) continue;
             if (!config) throw Error('请先在项目设置登记默认语言与支持语言');
             if (
-                Object.keys(declaration).some((name) => !['source', 'variants'].includes(name)) ||
+                Object.keys(declaration).some((name) => !['source', 'locales'].includes(name)) ||
                 typeof declaration.source !== 'string' ||
                 !declaration.source.startsWith(`config-source/${module.id}/`) ||
                 !declaration.source.endsWith('.xlsx') ||
                 sources.has(declaration.source)
             )
                 throw Error(`${module.id}/${base}: 工作簿归属无效或重复`);
-            if (
-                !declaration.variants ||
-                typeof declaration.variants !== 'object' ||
-                Array.isArray(declaration.variants) ||
-                !has(declaration.variants, config.defaultLocale)
-            )
+            if (!has(declaration.locales, config.defaultLocale))
                 throw Error(`${module.id}/${base}: 必须配置默认语言存放位置`);
             sources.add(declaration.source);
-            for (const [locale, group] of Object.entries(declaration.variants)) {
-                if (!config.locales.includes(locale) || !module.bundles[group])
+            const variants = {};
+            for (const [locale, variant] of Object.entries(declaration.locales)) {
+                const { group } = localizationLayout.languageBundle(module, base, locale, variant);
+                variants[locale] = group;
+                if (!config.locales.includes(locale))
                     throw Error(`${module.id}/${base}: 语言或资源包未登记 ${locale}/${group}`);
                 if (group !== base) {
                     const id = `${module.id}/${group}`;
@@ -188,7 +176,7 @@ export function localizationDeclarations(modules, settings) {
                         throw Error(`${id}: 已有业务界面，不能作为专用语言包`);
                 }
             }
-            declarations.push({ module, base, bundle, ...declaration });
+            declarations.push({ module, base, bundle, source: declaration.source, variants });
         }
     return { config, declarations, owners };
 }
@@ -242,18 +230,17 @@ export function compileLocalization(root, modules, settings, sources, registry) 
             if (!entry || entry[1].type !== type) throw Error(`${source}: ${locale} 资源不存在或类型不符：${value}`);
             const [id] = entry,
                 owner = owners.get(id.split('/').slice(0, 2).join('/'));
-            if (owner && (owner.module !== module.id || owner.base !== base || owner.locale !== locale))
-                throw Error(`${source}: 不能引用其他语言专用包：${value}`);
+            if (owner && owner.locale !== locale) throw Error(`${source}: 不能引用其他语言专用包：${value}`);
             return { id, type };
         };
         for (const locale of data.locales) {
-            // 即使尚未启用该语言，也校验已填写的资源引用。
+            // 停用的语言保留翻译列与资源记录，恢复归档包后再参与资源校验。
             const assets = {},
                 texts = {};
             let font = null;
             for (const row of data.texts) if (has(row.values, locale)) texts[row.key] = row.values[locale];
             for (const row of data.assets)
-                if (has(row.values, locale)) {
+                if (variants[locale] && has(row.values, locale)) {
                     const key = resolveAsset(row.values[locale], row.type, locale);
                     if (row.key === '$font') font = key;
                     else assets[row.key] = key;
@@ -271,7 +258,7 @@ export function compileLocalization(root, modules, settings, sources, registry) 
             if (!group) continue;
             const catalog = { formatVersion: 2, namespace, locale, contract, texts, assets, font };
             const revision = digest(catalog);
-            const path = `dynamic/i18n/${base}/${locale.toLowerCase()}`;
+            const path = 'yz-locale';
             definition.catalogs[locale] = { bundle: module.bundles[group].id, path, revision };
             output[`${forward(relative(root, module.directory))}/${module.bundles[group].root}/${path}.json`] =
                 JSON.stringify({ ...catalog, revision }, null, 2) + '\n';

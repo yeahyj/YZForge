@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import JSZip from 'jszip';
 import ExcelJS from 'exceljs';
 import { scanCatalog } from '../tools/yzforge/catalog.mjs';
+import layout from '../tools/yzforge/localization-layout.cjs';
 import {
     compileLocalization,
     createLocalizationWorkbook,
@@ -46,9 +47,8 @@ async function fixture(t, rows) {
             default: {
                 id: 'shop',
                 root: 'bundles/default',
-                localization: { source, variants: { 'zh-CN': 'default', en: 'default-en' } },
+                localization: { source, locales: { 'zh-CN': {}, en: { id: 'shop-en' } } },
             },
-            'default-en': { id: 'shop-en', root: 'bundles/default-en' },
         },
     };
     const registry = new Map([
@@ -60,7 +60,7 @@ async function fixture(t, rows) {
     const compile = async () => compileLocalization(root, [module], settings, await workbookSources(root), registry);
     return { root, source, module, registry, compile };
 }
-test('独立工作簿类型，同包/专用包路由和类型合同自动生成；完整保留原文', async (t) => {
+test('独立工作簿统一派生语言包路由和类型合同；完整保留原文', async (t) => {
     const f = await fixture(t),
         sources = await workbookSources(f.root);
     assert.equal(sources.tables.length, 0);
@@ -69,8 +69,8 @@ test('独立工作簿类型，同包/专用包路由和类型合同自动生成�
     const result = await f.compile(),
         definition = result.release.bundles.shop;
     assert.equal(definition.catalogs.en.bundle, 'shop-en');
-    const zh = JSON.parse(result.output['assets/game/modules/shop/bundles/default/dynamic/i18n/default/zh-cn.json']);
-    const en = JSON.parse(result.output['assets/game/modules/shop/bundles/default-en/dynamic/i18n/default/en.json']);
+    const zh = JSON.parse(result.output['assets/game/modules/shop/localization/default/zh-CN/yz-locale.json']);
+    const en = JSON.parse(result.output['assets/game/modules/shop/localization/default/en/yz-locale.json']);
     assert.equal(zh.texts.hello, '  你好 {name}\n世界  ');
     assert.equal(en.texts.empty, '');
     assert.ok(!('fallback' in en.texts));
@@ -129,7 +129,7 @@ test('XLSX 读回后拒绝稀疏、空白或非法语言表头，允许正文缺
     }
     const f = await fixture(t),
         result = await f.compile();
-    const en = JSON.parse(result.output['assets/game/modules/shop/bundles/default-en/dynamic/i18n/default/en.json']);
+    const en = JSON.parse(result.output['assets/game/modules/shop/localization/default/en/yz-locale.json']);
     assert.ok(!Object.hasOwn(en.texts, 'fallback'));
     assert.equal(en.texts.empty, '');
 });
@@ -138,13 +138,8 @@ test('资源必须存在且类型吻合；不同语言专用包不能互相引�
     f.registry.get('shop/default-en/sprite/logo').type = 'Font';
     await assert.rejects(f.compile(), /不存在或类型不符/);
     f.registry.get('shop/default-en/sprite/logo').type = 'SpriteFrame';
-    f.module.bundles['other-en'] = { id: 'other-en', root: 'bundles/other-en' };
-    f.module.bundles.default.localization.variants.en = 'other-en';
-    f.module.bundles['default-en'].localization = {
-        source: 'config-source/shop/other.xlsx',
-        variants: { 'zh-CN': 'default-en', en: 'other-en' },
-    };
-    assert.throws(() => localizationDeclarations([f.module], settings), /专用语言包只能/);
+    f.module.bundles.default.localization.locales.en.group = 'default-zh-cn';
+    assert.throws(() => localizationDeclarations([f.module], settings), /分组.*冲突/);
 });
 test('安全追加语言列保留旧翻译与无关 ZIP 内容，过期预览不能覆盖文件', async (t) => {
     const f = await fixture(t),
@@ -207,7 +202,7 @@ test('调整语言包位置后，待归档的旧目录不会被重新编目为�
         ['old-catalog', { source: join(f.root, oldCatalog), importer: 'json' }],
         [
             'current-catalog',
-            { source: join(f.module.directory, 'bundles/default-en/dynamic/i18n/default/en.json'), importer: 'json' },
+            { source: join(f.module.directory, 'localization/default/en/yz-locale.json'), importer: 'json' },
         ],
         [
             'business-json',
@@ -217,4 +212,44 @@ test('调整语言包位置后，待归档的旧目录不会被重新编目为�
     const identities = await scanCatalog(f.root, [f.module], metadata, await workbookSources(f.root));
     assert.deepEqual(Object.keys(identities.entries), ['business-json']);
     assert.deepEqual(Object.keys(f.module.assets), ['shop/default/json/i18n/rules']);
+});
+
+test('同语言公共资源可跨业务包复用，其他语言资源必须显式回退', async (t) => {
+    const f = await fixture(t);
+    const declaration = f.module.bundles.default.localization;
+    const common = {
+        id: 'common',
+        bundles: {
+            default: {
+                id: 'common',
+                root: 'bundles/default',
+                localization: {
+                    source: 'config-source/common/localization-default.xlsx',
+                    locales: { 'zh-CN': {}, en: {} },
+                },
+            },
+        },
+        directory: join(f.root, 'assets/game/modules/common'),
+    };
+    await createLocalizationWorkbook(f.root, common.bundles.default.localization.source, ['zh-CN', 'en'], {
+        texts: [['hello', '', '你好', 'Hello']],
+        assets: [],
+    });
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.readFile(join(f.root, f.source));
+    book.getWorksheet('assets').getCell('E3').value = '@common/default-en/font/shared';
+    await writeFile(join(f.root, f.source), Buffer.from(await book.xlsx.writeBuffer()));
+    f.registry.set('common/default-en/font/shared', { uuid: 'shared', type: 'Font' });
+    let sources = await workbookSources(f.root);
+    const good = compileLocalization(f.root, [f.module, common], settings, sources, f.registry);
+    assert.equal(
+        JSON.parse(good.output['assets/game/modules/shop/localization/default/en/yz-locale.json']).font.id,
+        'common/default-en/font/shared',
+    );
+    book.getWorksheet('assets').getCell('D3').value = '@common/default-en/font/shared';
+    await writeFile(join(f.root, f.source), Buffer.from(await book.xlsx.writeBuffer()));
+    sources = await workbookSources(f.root);
+    assert.throws(() => compileLocalization(f.root, [f.module, common], settings, sources, f.registry), /其他语言/);
+    delete declaration.locales.en;
+    assert.ok(!Object.values(layout.physicalBundles(f.module)).some((bundle) => bundle.language?.locale === 'en'));
 });

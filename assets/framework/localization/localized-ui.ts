@@ -49,6 +49,10 @@ export class ScopedLocalization {
         const handle = await this.manager.use(bundle, this.owner);
         return new LocalizedBundle(handle, this.assets, this.current);
     }
+    /** 供原生组件解析保存的业务包命名空间。 */
+    useNamespace(namespace: string): Promise<LocalizedBundle> {
+        return this.use(this.manager.bundle(namespace));
+    }
     setLocale(locale: string): Promise<void> {
         return this.manager.setLocale(locale, this.owner);
     }
@@ -62,6 +66,12 @@ export class LocalizedBundle {
     ) {}
     get locale(): string {
         return this.handle.locale;
+    }
+    textKey(name: string): TextKey<string> {
+        return this.handle.reader.textKey(name);
+    }
+    assetKey<K extends AssetKind>(name: string, type: K): LocalizedAssetKey<K> {
+        return this.handle.reader.assetKey(name, type);
     }
     t<P extends string>(key: TextKey<P>, ...args: TextArguments<NoInfer<P>>): string {
         return this.handle.reader.text(key, args[0]).text;

@@ -29,13 +29,20 @@ exports.auditProjectBuild = async function (project, destination, platform) {
             return (graph.get(from) ?? []).some((id) => reachable(id, to, visited));
         };
         const checked = [];
+        const languages = new Map();
         for (const [base, definition] of Object.entries(localization.bundles))
             for (const [locale, route] of Object.entries(definition.catalogs)) {
+                languages.set(route.bundle, locale);
                 checked.push({ base, locale, bundle: route.bundle, present: graph.has(route.bundle) });
                 if (!graph.has(route.bundle))
                     result.problems.push(`构建缺少语言资源包：${definition.namespace}/${locale} → ${route.bundle}`);
-                if (route.bundle !== base && reachable(base, route.bundle))
-                    result.problems.push(`业务资源包静态依赖专用语言包：${base} → ${route.bundle}`);
+            }
+        for (const from of graph.keys())
+            for (const [target, locale] of languages) {
+                if (from === target || !reachable(from, target)) continue;
+                if (!languages.has(from)) result.problems.push(`业务资源包静态依赖语言包：${from} → ${target}`);
+                else if (languages.get(from) !== locale)
+                    result.problems.push(`语言包静态依赖其他语言：${from} → ${target}`);
             }
         result.localization = checked;
     }

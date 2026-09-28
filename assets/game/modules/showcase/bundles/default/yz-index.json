@@ -101,6 +101,14 @@
         "showcase"
       ]
     },
+    "showcase/default/prefab/ui/localization-lab-page": {
+      "bundle": "m-showcase",
+      "path": "dynamic/ui/LocalizationLabPage",
+      "type": "Prefab",
+      "requiredCodeModules": [
+        "showcase"
+      ]
+    },
     "showcase/default/prefab/ui/network-lab-page": {
       "bundle": "m-showcase",
       "path": "dynamic/ui/NetworkLabPage",

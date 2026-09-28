@@ -140,6 +140,16 @@ export function validateModules(modules) {
                 throw Error(`Invalid bundle root: ${bundle.root}`);
             bundleIds.add(bundle.id);
         }
+        const bundleRoot = (value) =>
+            resolve(module.directory ?? '.', value)
+                .replaceAll('\\', '/')
+                .toLowerCase();
+        const roots = Object.values(module.bundles).map((bundle) => bundleRoot(bundle.root));
+        if (module.code?.mode === 'bundled') roots.push(bundleRoot(module.code.root ?? 'code'));
+        for (let i = 0; i < roots.length; i++)
+            for (let j = 0; j < roots.length; j++)
+                if (i !== j && (roots[i] === roots[j] || roots[j].startsWith(roots[i] + '/')))
+                    throw Error(`${module.id}: Bundle 根目录不能嵌套或重叠`);
         for (const [name, view] of Object.entries(module.views ?? {})) {
             identifier(name);
             const id = `${module.id}.${name}`;

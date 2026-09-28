@@ -5,6 +5,4 @@ export const ShowcaseBundles = {
     default: { id: 'm-showcase' },
     /** extra 资源包，Bundle ID 为 showcase-extra；可作为 config.load 的 bundle 选项。 */
     extra: { id: 'showcase-extra' },
-    /** default-en 资源包，Bundle ID 为 showcase-default-en；可作为 config.load 的 bundle 选项。 */
-    defaultEn: { id: 'showcase-default-en' },
 } as const;

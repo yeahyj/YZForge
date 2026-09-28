@@ -2,7 +2,7 @@
   "formatVersion": 2,
   "namespace": "showcase/default",
   "locale": "en",
-  "contract": "sha256:724fc60bd9941b9f484066483f883a41998f047227e08177e2fc099b7a1255d3",
+  "contract": "sha256:4c884e918c8c0f46d4f7933b8e80fe3fed04ada0f1f372413203559c287fa8a5",
   "texts": {
     "resources.title": "Resources & Languages",
     "resources.subtitle": "Batch loading · Instance reuse · Language bundles",
@@ -19,14 +19,29 @@
     "resources.loaded": "Resources are ready and held until this page closes.",
     "resources.pool": "Total {size} · Idle {idle} · Borrowed {borrowed}",
     "resources.token": "Instance #{id}",
-    "resources.cancelled": "Preparation cancelled."
+    "resources.cancelled": "Preparation cancelled.",
+    "example.title": "Localization examples",
+    "example.subtitle": "Code bindings · Inspector bindings",
+    "example.dynamicText": "01  Dynamic text",
+    "example.counter": "You clicked {count} times",
+    "example.increment": "Click +1",
+    "example.dynamicImage": "02  Dynamic image",
+    "example.load": "Load / rebind image",
+    "example.staticText": "03  Inspector text",
+    "example.welcome": "Welcome, {name}!",
+    "example.staticImage": "04  Inspector image",
+    "example.help": "See the page script for the first two; inspect the binding components for the last two."
   },
   "assets": {
     "resources.logo": {
       "id": "showcase/default/sprite/icons/beta/token",
       "type": "SpriteFrame"
+    },
+    "example.greeting": {
+      "id": "showcase/default-en/sprite/images/greeting",
+      "type": "SpriteFrame"
     }
   },
   "font": null,
-  "revision": "sha256:a91795dba56a24f3bf1955693f8d8202d1e634e5d2598ce0b7bed3482182811a"
+  "revision": "sha256:3f96b9878d0d9b29a33791faf232fe297b40c68980d64c87f20adb84223b2c49"
 }

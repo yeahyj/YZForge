@@ -45,6 +45,19 @@ const zh = catalog('zh-CN', { title: '你好 {name}', fallback: '默认', empty:
 const en = catalog('en', { title: 'Hi {name}', empty: '' }, 'latin');
 const ja = catalog('ja', { title: 'こんにちは {name}' });
 const data: Record<string, unknown> = { zh, en, ja };
+test('检查器字符串键在当前发布合同中解析，未知命名空间和键明确失败', async () => {
+    const f = fixture();
+    assert.deepEqual(f.i18n.bundle('shop/default'), { id: 'shop' });
+    assert.throws(() => f.i18n.bundle('missing/default'), /missing/);
+    const handle = await f.i18n.use(f.i18n.bundle('shop/default'), f.owner);
+    const text = handle.reader.textKey('title');
+    assert.deepEqual(text.parameters, ['name']);
+    assert.equal(handle.reader.t(text, { name: '编辑器' }), '你好 编辑器');
+    assert.equal(handle.reader.assetKey('logo', 'SpriteFrame').contract, 'v1');
+    assert.throws(() => handle.reader.textKey('missing'), /missing/);
+    assert.throws(() => handle.reader.assetKey('logo', 'Font'), /logo/);
+    await f.root.close();
+});
 function fixture(loader?: (path: string, owner: Scope['lifetime']) => Promise<unknown>) {
     const root = new Scope('app'),
         owner = root.child('page'),
