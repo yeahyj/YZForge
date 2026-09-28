@@ -639,6 +639,21 @@ async function previewDelete(args, creation) {
     const ts = require(path.join(root(), 'node_modules/typescript'));
     const config = ts.readConfigFile(inside('tsconfig.json'), ts.sys.readFile);
     const compiler = ts.parseJsonConfigFileContent(config.config, ts.sys, root());
+    const languageSources =
+        kind === 'localization'
+            ? ((await read(inside('project-settings/generated/localization.json')))?.sources ?? {})
+            : {};
+    const languageBindings =
+        kind === 'localization'
+            ? await import(pathToFileURL(path.join(root(), 'tools/yzforge/localized-bindings.mjs')).href)
+            : null;
+    const nativeLanguageTypes = new Set(['yzforge.LocalizedLabel', 'yzforge.LocalizedSprite']);
+    if (kind === 'localization')
+        for (const script of ['localized-label', 'localized-sprite']) {
+            const meta = await read(inside(`assets/framework/localization/${script}.ts.meta`));
+            nativeLanguageTypes.add(meta.uuid);
+            nativeLanguageTypes.add(Editor.Utils.UUID.compressUUID(meta.uuid, false));
+        }
     for (const file of await listFiles(inside('assets/game'))) {
         if (
             owned.has(file.toLowerCase()) ||
@@ -651,9 +666,20 @@ async function previewDelete(args, creation) {
         const content = await fs.readFile(file, 'utf8');
         if (kind === 'localization' && /\.(prefab|scene)$/.test(file)) {
             const records = JSON.parse(content);
+            const sourceUuid = (await read(file + '.meta'))?.uuid;
             if (
                 Array.isArray(records) &&
-                records.some((item) => item?.namespace === `${manifest.id}/${args.id}` && item.key)
+                records.some(
+                    (item) =>
+                        nativeLanguageTypes.has(item?.__type__) &&
+                        item.key &&
+                        languageBindings.localizedNamespace(
+                            records,
+                            item,
+                            languageSources[sourceUuid],
+                            languageSources,
+                        ) === `${manifest.id}/${args.id}`,
+                )
             )
                 refs.push(`${rel(file)} 的原生组件仍绑定此业务包多语言`);
         }

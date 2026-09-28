@@ -40,6 +40,11 @@ const create = async (request) => {
     assert.deepEqual(plan.conflicts, []);
     return action('create', { request: plan.request, signature: plan.signature });
 };
+assert.equal(
+    await editor('return await Editor.Message.request("scene", "query-dirty");'),
+    false,
+    '请先保存当前场景或预制体；此回归需要创建、删除和恢复测试资产，未保存时不开始创建',
+);
 await editor('await Editor.Panel.open("yzforge-editor");return true;');
 await until('return root.dataset.busy!=="true";');
 await create({ kind: 'module', id: fixture, delivery: 'none', displayName: '多语言工作台验证' });

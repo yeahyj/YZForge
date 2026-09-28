@@ -53,6 +53,10 @@ export class ScopedLocalization {
     useNamespace(namespace: string): Promise<LocalizedBundle> {
         return this.use(this.manager.bundle(namespace));
     }
+    /** 原生组件使用源预制体/场景的业务包，而非调用方模块。 */
+    sourceNamespace(source: string): string {
+        return this.manager.sourceNamespace(source);
+    }
     setLocale(locale: string): Promise<void> {
         return this.manager.setLocale(locale, this.owner);
     }

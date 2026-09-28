@@ -10,6 +10,8 @@ export interface ComponentBinding {
     __bind(context: ModuleContext, instance: Scope, time: TimeService): void;
     /** 允许本次显示工作，undefined 表示同步停用。 */
     __allow(owner: Scope | undefined): void;
+    /** 等待本次启用的必要显示资源；界面准备期间调用，不等待持续运行的业务任务。 */
+    __ready?(): Promise<void>;
     /** 等待旧工作及清理全部完成。 */
     __deactivate(): Promise<void>;
 }

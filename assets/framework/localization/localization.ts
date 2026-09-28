@@ -37,6 +37,8 @@ export interface LocalizationRelease {
     readonly defaultLocale: string;
     readonly locales: readonly string[];
     readonly bundles: Readonly<Record<string, LocalizationDefinition>>;
+    /** 原始 Prefab/Scene UUID 到业务词条库，生成器按物理归属登记。 */
+    readonly sources?: Readonly<Record<string, string>>;
 }
 export interface LocaleCatalog {
     readonly formatVersion: 2;
@@ -359,6 +361,16 @@ export class LocaleHandle {
 
 /** use 按需加载当前和默认目录，不初始化其他业务模块。 */
 export class Localization {
+    /** 根据源资源解析自动归属；无法确定时明确报错，不搜索其他包的同名键。 */
+    sourceNamespace(source: string): string {
+        const namespace = this.release?.sources?.[source];
+        invariant(
+            namespace,
+            'I18N_SOURCE_MISSING',
+            `无法确定多语言来源：${source || '无源资源'}，请生成或指定跨包来源`,
+        );
+        return namespace;
+    }
     /** 将编辑器保存的业务命名空间转换为发布清单中的业务包。 */
     bundle(namespace: string): BundleRef {
         const match = Object.entries(this.release?.bundles ?? {}).find(

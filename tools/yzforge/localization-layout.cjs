@@ -1,4 +1,5 @@
 'use strict';
+const path = require('path');
 const valid = (value) => typeof value === 'string' && /^[a-z][a-z0-9-]*$/.test(value);
 /** 业务声明是唯一来源；语言包的目录、资源分组和归属在这里统一派生。 */
 function languageBundle(module, base, locale, variant = {}) {
@@ -48,3 +49,12 @@ exports.languageBundle = languageBundle;
 exports.businessBundles = businessBundles;
 exports.physicalBundles = physicalBundles;
 exports.expandModule = (module) => ({ ...module, bundles: physicalBundles(module) });
+/** 由源资源所在目录确定业务归属；不以实例的宿主模块猜测公共预制体的词条来源。 */
+exports.sourceNamespace = (source, modules) => {
+    for (const module of modules)
+        for (const [group, bundle] of Object.entries(businessBundles(module))) {
+            const local = path.relative(path.resolve(module.directory, bundle.root), source);
+            if (local && !local.startsWith('..') && !path.isAbsolute(local)) return `${module.id}/${group}`;
+        }
+    return '';
+};

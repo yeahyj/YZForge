@@ -1,7 +1,8 @@
 import { Component, isValid } from 'cc';
 import type { ScopedAssets } from '../../assets/asset-manager';
 import { registerComponentBinding, type ComponentBinding } from '../../core/component-binding';
-import { FrameworkError, invariant, reportError } from '../../core/errors';
+import { FrameworkError, invariant, OperationCancelled, reportError } from '../../core/errors';
+import { untilCancelled } from '../../core/cancellation';
 import type { ModuleContext } from '../../modules/module-manager';
 import { Scope, type Lifetime } from '../../core/scope';
 import type { ScopedTime, TimeService } from '../../time/time-service';
@@ -29,12 +30,13 @@ export class ComponentScope implements ComponentBinding {
     private owner?: Scope;
     private activation?: Scope;
     private draining?: Promise<void>;
+    private preparation?: { scope: Scope; done: Promise<void> };
     private enabled = false;
     private disposed = false;
 
     constructor(
         private readonly component: Component,
-        private readonly automatic: (context: ComponentContext) => void,
+        private readonly automatic: (context: ComponentContext) => void | Promise<void>,
     ) {
         registerComponentBinding(component, this);
     }
@@ -70,6 +72,29 @@ export class ComponentScope implements ComponentBinding {
         this.disable();
     }
 
+    /** 只等待自动绑定的首份显示内容；停用或复用时重新核对当前启用期。 */
+    async __ready(): Promise<void> {
+        for (;;) {
+            if (this.draining) await this.draining;
+            this.owner?.signal.throwIfAborted();
+            this.activate();
+            const pending = this.preparation;
+            if (!pending) return;
+            try {
+                await untilCancelled(pending.done, pending.scope.signal);
+            } catch (error) {
+                if (
+                    !(error instanceof OperationCancelled) ||
+                    !pending.scope.signal.aborted ||
+                    this.owner?.signal.aborted
+                )
+                    throw error;
+            }
+            if (this.preparation === pending || this.disposed || !this.enabled || !this.component.enabledInHierarchy)
+                return;
+        }
+    }
+
     private activate(): void {
         if (
             this.context ||
@@ -99,7 +124,15 @@ export class ComponentScope implements ComponentBinding {
             void this.__deactivate().catch(reportError);
         });
         try {
-            if (!this.binding || this.binding.signal.aborted) this.automatic(this.context);
+            if (!this.binding || this.binding.signal.aborted) {
+                const done = this.automatic(this.context);
+                if (done) {
+                    this.preparation = { scope, done };
+                    void done.catch((error) => {
+                        if (!(error instanceof OperationCancelled)) reportError(error);
+                    });
+                }
+            }
         } catch (error) {
             this.enabled = false;
             void this.__deactivate().catch(reportError);
@@ -148,6 +181,7 @@ export class ComponentScope implements ComponentBinding {
         if (!scopes.size) return Promise.resolve();
         this.context = undefined;
         this.activation = undefined;
+        this.preparation = undefined;
         this.draining = Promise.resolve().then(async () => {
             const results = await Promise.allSettled(Array.from(scopes, (scope) => scope.close()));
             const failures = results.filter((result) => result.status === 'rejected');

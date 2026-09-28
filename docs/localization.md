@@ -85,13 +85,21 @@ config-source/showcase/localization-default.xlsx   全部语言共用的源工�
 
 在 Label 所在节点添加 **YZForge → 多语言 → 文字绑定（LocalizedLabel）**；在 Sprite 所在节点添加 **图片绑定（LocalizedSprite）**。两者沿用原生检查器，填写：
 
-- **业务资源包**：如 `showcase/default`。
 - **语言键**：Excel 的原始 key，如 `example.welcome` 或 `example.greeting`。
 - 文字可填写 **固定参数**，如 `name = YZForge`；变化的计数使用下面的代码绑定。
+- **跨包引用** 默认关闭，框架按源预制体/场景所在的业务资源包自动确定词条库。引用其他包时再打开并填写 **词条来源**，如 `common/default`。
+
+源资源 UUID 与业务包的对应关系随发布清单生成；共享/嵌套预制体被其他模块使用时仍保留源资源归属。移动资源后重新生成即可，不按调用方模块或全项目同名 key 猜测。未放入业务资源包的独立场景需要显式选择词条来源。已有预制体保存的 `namespace` 仍作为跨包覆盖兼容，关闭“跨包引用”即可改为自动。
 
 组件自动接入框架显示期限。固定配置只保存语言键，图片仍按当前语言通过 Assets 加载。挂载到框架 UI、托管 Prefab/Part 或 `app.bindScene` 管理的节点即可，无需另写页面绑定代码。
 
-选择节点后，在 **预览语言** 填 `zh-CN` / `en`，勾选 **更新预览**；检查器显示只读文字或 SpriteFrame 预览。预览字段不序列化，不改原 Label / Sprite，不把预览语言写进运行配置。默认文本、字体、占位图仍由原生组件设置。生成时会检查已保存组件中的命名空间、语言键、图片类型和固定参数，并定位到文件与节点。
+选择节点后，**预览语言** 下拉显示项目默认和已配置语言，选择后直接更新预制体/场景视图中的原生 Label 文字和 Sprite 图片；修改语言键、固定参数及撤销编辑也自动刷新。新增项目语言后重新选中节点即可读取最新选项。切换选中节点、禁用或删除绑定时还原原始内容。预览保持节点原有尺寸；Label 的自动扩展模式临时按原边框裁剪，Sprite 临时使用自定义尺寸，实际运行仍沿用原生尺寸模式。
+
+画面预览兼容 Creator 3.8 保存时先复制节点再序列化的流程：保存、撤销快照和脚本重载均读取原始属性，不写入临时文字、图片引用、尺寸模式或预览语言。原生字体、颜色和其他样式保持原配置；预览期间对原生组件所做的真实编辑仍会保留。生成时检查已保存组件中的自动归属/显式来源、语言键、图片类型和固定参数，并定位到文件与节点。
+
+框架 UI 首次显示、恢复显示时，会等待当前启用的原生语言绑定完成，成功后才显示并开放交互；准备期间保留上一页，失败或取消不提交新页面。动态新增或重新启用的语言组件会先隐藏自身 Label/Sprite，准备完成后恢复原来的启用状态，避免短暂显示旧文字或旧图片。运行中切换语言继续保留旧内容，待所有新内容准备完成后统一提交。
+
+预览选了 `en` 不会导致中文运行时先请求英文包。业务 Sprite 不应直接静态引用语言包内图片；需要固定英文 Logo 等不随语言切换的内容时，将其作为普通资源使用。目前构建按已登记语言包输出，没有独立的“本次构建仅包含指定语言”选项，不能直接删除英文构建文件代替配置停用。
 
 ### 代码动态绑定
 
@@ -175,6 +183,7 @@ Bootstrap 首页 → **多语言示例 · 动态与编辑器配置**：
 npm run verify
 node tests/integration/verify-localization-examples.mjs http://127.0.0.1:7456/
 node tests/integration/verify-localization-inspector.mjs
+node tests/integration/verify-localization-ready.mjs http://127.0.0.1:7456/
 node tests/integration/verify-localization-workbench.mjs
 node tests/integration/verify-resources-localization.mjs http://127.0.0.1:7456/
 ```

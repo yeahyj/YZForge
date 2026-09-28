@@ -58,6 +58,14 @@ test('检查器字符串键在当前发布合同中解析，未知命名空间�
     assert.throws(() => handle.reader.assetKey('logo', 'Font'), /logo/);
     await f.root.close();
 });
+test('源资源归属独立于宿主模块，未知来源不能猜测同名词条', async () => {
+    const root = new Scope('source');
+    const i18n = new Localization(root, async () => zh, { ...release, sources: { shared: 'shop/default' } });
+    assert.equal(i18n.sourceNamespace('shared'), 'shop/default');
+    assert.throws(() => i18n.sourceNamespace('unknown'), { code: 'I18N_SOURCE_MISSING' });
+    assert.throws(() => i18n.sourceNamespace(''), { code: 'I18N_SOURCE_MISSING' });
+    await root.close();
+});
 function fixture(loader?: (path: string, owner: Scope['lifetime']) => Promise<unknown>) {
     const root = new Scope('app'),
         owner = root.child('page'),

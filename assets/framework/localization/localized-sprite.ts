@@ -12,7 +12,7 @@ export class LocalizedSprite extends LocalizedComponent {
         return 'sprite';
     }
     protected async localize(context: ComponentContext): Promise<void> {
-        const bundle = await context.i18n!.useNamespace(this.namespace);
+        const bundle = await context.i18n!.useNamespace(this.resolveNamespace(context));
         await bundle.bindSprite(this.getComponent(Sprite)!, bundle.assetKey(this.key, 'SpriteFrame'));
     }
 }

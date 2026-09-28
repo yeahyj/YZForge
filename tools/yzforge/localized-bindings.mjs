@@ -1,18 +1,34 @@
 import { relative } from 'node:path';
 import { json } from './project.mjs';
 import { decodeUuid } from './catalog.mjs';
+import layout from './localization-layout.cjs';
+
+/** 与运行时一致：最近源预制体优先，普通场景回退文件归属。 */
+export function localizedNamespace(records, component, namespace = '', sources = {}) {
+    if (component.namespace) return component.namespace;
+    const dereference = (value) => (value?.__id__ === undefined ? value : records[value.__id__]);
+    const visited = new Set();
+    for (let node = dereference(component.node); node && !visited.has(node); node = dereference(node._parent)) {
+        visited.add(node);
+        const source = dereference(node._prefab)?.asset?.__uuid__;
+        if (source) return sources[decodeUuid(source)] ?? '';
+    }
+    return namespace;
+}
 
 /** 检查原生组件保存的字符串键，错误在生成/构建前定位到预制体和节点。 */
-export function validateLocalizedRecords(records, classes, catalogs) {
+export function validateLocalizedRecords(records, classes, catalogs, namespace = '', sources = {}) {
     if (!Array.isArray(records)) throw Error('无效的 Creator 序列化记录');
     const dereference = (value) => (value?.__id__ === undefined ? value : records[value.__id__]);
     for (const component of records) {
         if (!component || typeof component !== 'object') continue;
         const kind = classes.get(component.__type__) ?? classes.get(decodeUuid(component.__type__));
         if (!kind || (!component.key && !component.namespace)) continue;
-        const label = `${dereference(component.node)?._name ?? '节点'}/${component.key || '(空键)'}`;
-        const catalog = catalogs.get(component.namespace);
-        if (!catalog) throw Error(`${label}: 未登记多语言业务包 ${component.namespace}`);
+        const node = dereference(component.node);
+        const label = `${node?._name ?? '节点'}/${component.key || '(空键)'}`;
+        const resolved = localizedNamespace(records, component, namespace, sources);
+        const catalog = catalogs.get(resolved);
+        if (!catalog) throw Error(`${label}: 未登记多语言业务包 ${resolved || '自动归属失败，请指定跨包来源'}`);
         if (kind === 'sprite') {
             if (catalog.assets[component.key]?.type !== 'SpriteFrame')
                 throw Error(`${label}: 找不到 SpriteFrame 语言键`);
@@ -31,7 +47,7 @@ export function validateLocalizedRecords(records, classes, catalogs) {
     }
 }
 
-export async function validateLocalizedBindings(root, metadata, localization) {
+export async function validateLocalizedBindings(root, metadata, localization, modules = []) {
     const classes = new Map([
         ['yzforge.LocalizedLabel', 'text'],
         ['yzforge.LocalizedSprite', 'sprite'],
@@ -47,10 +63,17 @@ export async function validateLocalizedBindings(root, metadata, localization) {
         const catalog = JSON.parse(content);
         if (catalog.locale === localization.release?.defaultLocale) catalogs.set(catalog.namespace, catalog);
     }
+    const sources = {};
+    for (const [uuid, asset] of metadata) {
+        if (uuid.includes('@') || !['prefab', 'scene'].includes(asset.importer)) continue;
+        const namespace = layout.sourceNamespace(asset.source, modules);
+        if (catalogs.has(namespace)) sources[uuid] = namespace;
+    }
+    if (localization.release) localization.release.sources = sources;
     for (const [uuid, asset] of metadata) {
         if (uuid.includes('@') || !['prefab', 'scene'].includes(asset.importer)) continue;
         try {
-            validateLocalizedRecords(await json(asset.source), classes, catalogs);
+            validateLocalizedRecords(await json(asset.source), classes, catalogs, sources[uuid], sources);
         } catch (error) {
             throw Error(`${relative(root, asset.source)}: ${error.message}`, { cause: error });
         }

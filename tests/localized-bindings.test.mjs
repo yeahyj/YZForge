@@ -61,3 +61,21 @@ test('语言键、类型、固定参数错误定位到节点；不扫描无关�
     );
     validateLocalizedRecords([{ __type__: 'ordinary', namespace: 'missing', key: 'unknown' }, null], classes, catalogs);
 });
+
+test('空来源按源资源自动解析；嵌套公共预制体保留自身归属，显式覆盖优先', () => {
+    const auto = label({ namespace: '' });
+    validateLocalizedRecords(auto, classes, catalogs, 'shop/default');
+    assert.throws(() => validateLocalizedRecords(auto, classes, catalogs, ''), /自动归属失败/);
+    const shared = label({ namespace: '' });
+    shared[1]._prefab = { __id__: 3 };
+    shared.push({ asset: { __uuid__: 'shared-prefab' } });
+    validateLocalizedRecords(shared, classes, catalogs, 'other/default', { 'shared-prefab': 'shop/default' });
+    assert.throws(() => validateLocalizedRecords(shared, classes, catalogs, 'shop/default', {}), /自动归属失败/);
+    // 挂在嵌套预制体子节点上的组件可能没有自己的 asset UUID，必须沿父链解析。
+    delete shared[1]._prefab;
+    shared[1]._parent = { __id__: 4 };
+    shared.push({ _prefab: { __id__: 3 } });
+    validateLocalizedRecords(shared, classes, catalogs, 'other/default', { 'shared-prefab': 'shop/default' });
+    shared[0].namespace = 'shop/default';
+    validateLocalizedRecords(shared, classes, catalogs, 'other/default', {});
+});

@@ -19,6 +19,30 @@ import {
     writeWorkbookConfig,
 } from '../tools/yzforge/workbooks.mjs';
 const settings = { localization: { defaultLocale: 'zh-CN', locales: ['zh-CN', 'en', 'ja'] } };
+test('自动归属按声明目录边界解析，排除语言包、相似目录和模块代码', () => {
+    const directory = join(tmpdir(), 'source-module');
+    const modules = [
+        {
+            id: 'shared',
+            directory,
+            bundles: {
+                default: { id: 'shared', root: 'bundles/default', localization: { locales: { 'zh-CN': {} } } },
+                extra: { id: 'shared-extra', root: 'bundles/extra' },
+            },
+        },
+    ];
+    assert.equal(
+        layout.sourceNamespace(join(directory, 'bundles/default/dynamic/Popup.prefab'), modules),
+        'shared/default',
+    );
+    assert.equal(layout.sourceNamespace(join(directory, 'bundles/extra/static/Part.prefab'), modules), 'shared/extra');
+    for (const suffix of [
+        'bundles/default-old/Part.prefab',
+        'localization/default/zh-CN/Part.prefab',
+        'code/Part.prefab',
+    ])
+        assert.equal(layout.sourceNamespace(join(directory, suffix), modules), '');
+});
 async function fixture(t, rows) {
     const root = await mkdtemp(join(tmpdir(), 'yzforge-i18n-'));
     t.after(() => rm(root, { recursive: true, force: true }));

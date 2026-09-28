@@ -531,16 +531,26 @@ export class UIManager {
             'onShow',
         );
         if (record.termination || scope.signal.aborted || record.pagePending) return;
-        this.prepareActivation(record);
+        await this.prepareActivation(record);
+        if (record.termination || scope.signal.aborted) return;
         this.activateShow(record);
     }
-    private prepareActivation(record: RecordView): void {
+    private async prepareActivation(record: RecordView): Promise<void> {
         const scope = scopeOwner(record.show!.scope);
         for (const component of record.instance!.components) {
             scope.signal.throwIfAborted();
-            component.__allow(scope);
+            if (component.__ready) component.__allow(scope);
         }
+        await untilCancelled(
+            Promise.all(record.instance!.components.map((component) => component.__ready?.() ?? Promise.resolve())),
+            scope.signal,
+        );
         scope.signal.throwIfAborted();
+        // 业务 Part 的 onActivate/onTick 在必要显示资源就绪后才启动。
+        for (const component of record.instance!.components) {
+            scope.signal.throwIfAborted();
+            if (!component.__ready) component.__allow(scope);
+        }
     }
     private activateShow(record: RecordView): void {
         const instance = record.instance!;
@@ -820,8 +830,8 @@ export class UIManager {
             check();
             if (!pending.target || pending.target.termination)
                 throw new OperationCancelled('The target page ended before navigation committed');
-            // 子组件的同步激活也可能失败，必须在暂停旧页面之前验证完成。
-            this.prepareActivation(pending.target);
+            // 子组件的语言和图片也须就绪，失败时保留旧页面。
+            await this.prepareActivation(pending.target);
             check();
         } catch (error) {
             if (pending.target && !pending.target.termination && !(error instanceof OperationCancelled))
