@@ -61,11 +61,22 @@ export interface HttpClientOptions {
 export class HttpError extends FrameworkError {
     /** 非 2xx 响应携带状态码，其余错误为 undefined。 */
     readonly status?: number;
+    /** 非 2xx 响应；按需读取，不参与默认错误序列化。 */
+    declare readonly response?: HttpResponse;
     /** 创建网络错误；常见 code 为 HTTP_TIMEOUT、HTTP_NETWORK、HTTP_STATUS、HTTP_DECODE。 */
-    constructor(code: string, message: string, status?: number) {
+    constructor(code: string, message: string, status?: number, response?: HttpResponse) {
         super(code, message, status === undefined ? {} : { status });
         this.name = 'HttpError';
         this.status = status;
+        if (response)
+            Object.defineProperty(this, 'response', {
+                value: Object.freeze({
+                    status: response.status,
+                    headers: headers(response.headers),
+                    body: response.body,
+                }),
+                enumerable: false,
+            });
     }
 }
 /** 将对象编码为 JSON 请求体及 Content-Type，可与 url/method 合并；不改变调用者对象。 */
@@ -205,9 +216,19 @@ export class HttpClient {
                         typeof response.body !== 'string'
                     )
                         throw new HttpError('HTTP_NETWORK', '传输返回了无效响应');
-                    if (response.status < 200 || response.status >= 300)
-                        throw new HttpError('HTTP_STATUS', `HTTP 状态 ${response.status}`, response.status);
-                    return Object.freeze({ ...response, headers: headers(response.headers) });
+                    const normalized = Object.freeze({
+                        status: response.status,
+                        headers: headers(response.headers),
+                        body: response.body,
+                    });
+                    if (normalized.status < 200 || normalized.status >= 300)
+                        throw new HttpError(
+                            'HTTP_STATUS',
+                            `HTTP 状态 ${normalized.status}`,
+                            normalized.status,
+                            normalized,
+                        );
+                    return normalized;
                 } catch (error) {
                     if (scope.signal.aborted) throw scope.signal.reason;
                     if (error instanceof HttpError) throw error;

@@ -111,7 +111,17 @@ config-source/showcase/localization-default.xlsx   可选，仅维护全部语�
 
 应用后的内容是真实资源数据，重新选中节点或重启编辑器不会自动还原。修改词条或固定参数后再次点击应用即可。组件不再提供自动预览、每帧预览检查或保存拦截，面板操作完全位于编辑器扩展。运行时仍根据保存的语言键和全局语言绑定，不把面板选择当成游戏启动语言。
 
-框架 UI 首次显示、恢复显示时，会等待当前启用的原生语言绑定完成，成功后才显示并开放交互；准备期间保留上一页，失败或取消不提交新页面。动态新增或重新启用的语言组件会先隐藏自身 Label/Sprite，准备完成后恢复原来的启用状态，避免短暂显示旧文字或旧图片。运行中切换语言继续保留旧内容，待所有新内容准备完成后统一提交。
+框架 UI 首次显示、恢复显示时，会等待当前启用的原生语言绑定完成，成功后才显示并开放交互；准备期间保留上一页，失败或取消不提交新页面。已经接入宿主的语言组件重新启用时会先隐藏自身 Label/Sprite，准备完成后恢复原来的启用状态。运行中切换语言继续保留旧内容，待所有新内容准备完成后统一提交。
+
+运行中用 `addComponent` 新增组件，需要显式接入，框架不会每帧扫描节点。先在 inactive 节点上设置组件和语言键，将节点挂在当前界面内，再接入：
+
+```ts
+await show.assets.bindComponents(node); // 只绑定新增组件，重复调用安全
+node.active = true;
+await show.assets.bindComponents(node); // 等待本次启用的语言资源就绪
+```
+
+通过 Assets 创建的实例同样可用其所属 Scope 的资源入口；实例池使用 `ctx.assets.in(lease.scope)`。普通场景先调用 `app.bindScene`，之后使用返回的宿主 Scope。嵌套框架实例保留自己的宿主，不把已有组件转交给另一实例。未接入就启用的语言组件会报告 `I18N_HOST_MISSING`，保留原显示内容，之后仍可显式接入。
 
 发布前将界面应用为项目默认语言并保存。默认语言图片/字体成为预制体的基础依赖；其他语言玩家可能同时加载这份基础资源与当前语言资源。这是手动应用方案接受的取舍。构建前会定位遗留的其他语言直接引用，面板更新不改变打包语言列表；目前构建按已登记语言包输出，没有独立的“本次构建仅包含指定语言”选项。
 
@@ -145,6 +155,17 @@ binding.refresh();
 ```
 
 生成的参数名参与 TypeScript 检查。`language.t(key, params)` 同步取文案，`language.asset(key)` 返回当前资源键。普通业务服务可用 `app.i18n.use(Bundle, owner)` 获得目录；实际资源继续用 `assets.load(key, owner)` 加载。语言资源键与物理 AssetKey 分开，不能直接把前者传给 Assets。
+
+`bindText` 支持普通 Label 和 MarqueeLabel；滚动文字直接传公开组件，不要绑定它内部的 Label。CountdownLabel 使用 `bindCountdownFormat(timer, key)`，文案中的 `{hh}`、`{mm}`、`{ss}`、`{seconds}` 由计时器填写，其他参数照常传值或回调。切换语言会立即刷新文字及字体，不改变截止时间，计时结束后也能刷新且不重复触发完成事件。模板绑定期间不能再传自定义 `format`。
+
+```ts
+await language.bindText(this.compMarquee, GameI18n.text.notice);
+// 词条示例：中文“剩余 {seconds} 秒”，英文“{seconds} seconds left”。
+await language.bindCountdownFormat(this.lblCountdown, GameI18n.text.remaining);
+this.lblCountdown.startFor(30);
+```
+
+原生 LocalizedLabel 面板绑定适用于普通 Label；CountdownLabel 和 MarqueeLabel 使用上述代码入口，不叠加 LocalizedLabel。语言图片用 Sprite + LocalizedSprite 或 `bindSprite`；AsyncSprite 已自行管理加载，不能同时接受语言图片绑定。这些冲突会在生成检查和运行绑定时明确报错。
 
 UIView 用 `show.i18n`，GameComponent 用 `activation.i18n`。实例池和虚拟列表使用 `show.i18n.in(lease.scope)` / 条目自己的使用期限。绑定在隐藏、挂起、失活或归还时注销并恢复目标原始属性；同一 Label 或 Sprite 只能有一个多语言绑定，重新绑定会使旧句柄失效。不要用实例或节点销毁期限代替显示/条目期限。
 

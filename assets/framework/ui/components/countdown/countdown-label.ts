@@ -1,6 +1,6 @@
 import { _decorator, Component, game, Game, Label } from 'cc';
 import { EDITOR } from 'cc/env';
-import { type ErrorReporter, OperationCancelled, reportError } from '../../../core/errors';
+import { type ErrorReporter, invariant, OperationCancelled, reportError } from '../../../core/errors';
 import { type Lifetime, type TaskContext, runTask } from '../../../core/scope';
 import type { ScopedTime } from '../../../time/time-service';
 import { ComponentScope } from '../component-scope';
@@ -44,7 +44,32 @@ export class CountdownLabel extends Label {
     @property({ type: [Component.EventHandler], displayName: '计时完成事件' }) completedEvents: InstanceType<
         typeof Component.EventHandler
     >[] = [];
-    private refreshCurrent?: () => void;
+    private refreshCurrent?: (force?: boolean) => void;
+    private customFormat = false;
+    private formatUsers = 0;
+    private readonly templateFormatter = (seconds: number) => this.formatText(seconds);
+    /** @internal 语言模板与自定义 formatter 互斥；返回幂等释放函数。 */
+    retainTextFormat(): () => void {
+        invariant(!this.customFormat, 'COUNTDOWN_FORMAT_CONFLICT', '计时已使用自定义 format，不能同时绑定语言模板');
+        this.formatUsers++;
+        let live = true;
+        return () => {
+            if (live) {
+                live = false;
+                this.formatUsers--;
+            }
+        };
+    }
+    /** 更新显示模板并立即刷新；不重启计时，也不重复发送完成事件。 */
+    setTextFormat(value: string): void {
+        this.textFormat = value;
+        this.refreshCurrent?.(true);
+    }
+    private formatText(seconds: number): string {
+        const [hh, mm, ss] = formatCountdown(seconds).split(':');
+        const tokens: Record<string, string> = { hh, mm, ss, seconds: String(seconds) };
+        return this.textFormat.replace(/\{(hh|mm|ss|seconds)\}/g, (_, key: string) => tokens[key]);
+    }
     /** 使用 Inspector 中的时长重新开始，可直接连接 Button.clickEvents。 */
     restart(): void {
         this.startFor(this.duration);
@@ -57,15 +82,10 @@ export class CountdownLabel extends Label {
     }
     /** 从绝对 UTC 毫秒截止时刻开始；服务端活动计时通常调用这一方法。 */
     startUntil(deadlineMs: number): void {
-        const activation = this.lifetime.requireContext(),
-            template = this.textFormat;
+        const activation = this.lifetime.requireContext();
         this.bind(activation.scope, activation.time ?? deviceTime, {
             deadlineMs,
-            format: (seconds) => {
-                const [hh, mm, ss] = formatCountdown(seconds).split(':');
-                const tokens: Record<string, string> = { hh, mm, ss, seconds: String(seconds) };
-                return template.replace(/\{(hh|mm|ss|seconds)\}/g, (_, key: string) => tokens[key]);
-            },
+            format: this.templateFormatter,
             onComplete: () => Component.EventHandler.emitEvents(this.completedEvents, this),
         });
     }
@@ -82,6 +102,11 @@ export class CountdownLabel extends Label {
      */
     bind(owner: Lifetime, time: CountdownTime, options: CountdownOptions): CountdownHandle {
         options = { ...options };
+        invariant(
+            !options.format || options.format === this.templateFormatter || this.formatUsers === 0,
+            'COUNTDOWN_FORMAT_CONFLICT',
+            '已有语言模板绑定，不能同时传自定义 format',
+        );
         countdownSeconds(options.deadlineMs, time.nowMs());
         const report = options.onError ?? reportError;
         let off = () => {},
@@ -89,23 +114,27 @@ export class CountdownLabel extends Label {
             last = -1;
         const scope = this.lifetime.begin(owner, 'countdown', () => {
             off();
-            game.off(Game.EVENT_SHOW, refresh);
+            game.off(Game.EVENT_SHOW, refreshNow);
             this.refreshCurrent = undefined;
+            this.customFormat = false;
         });
-        const refresh = () => {
-            if (!this.lifetime.current(scope) || ended) return;
+        this.customFormat = !!options.format && options.format !== this.templateFormatter;
+        const refresh = (force = false) => {
+            if (!this.lifetime.current(scope) || (ended && !force)) return;
             try {
-                const seconds = countdownSeconds(options.deadlineMs, time.nowMs());
-                if (seconds !== last) {
-                    const text = (options.format ?? formatCountdown)(seconds);
+                const seconds = ended ? 0 : countdownSeconds(options.deadlineMs, time.nowMs());
+                if (seconds !== last || force) {
+                    const text = (options.format ?? (this.formatUsers ? this.templateFormatter : formatCountdown))(
+                        seconds,
+                    );
                     if (!this.lifetime.current(scope)) return;
                     this.string = text;
                     last = seconds;
                 }
-                if (seconds === 0) {
+                if (seconds === 0 && !ended) {
                     ended = true;
                     off();
-                    game.off(Game.EVENT_SHOW, refresh);
+                    game.off(Game.EVENT_SHOW, refreshNow);
                     if (options.onComplete)
                         void runTask(scope, options.onComplete).catch((error: unknown) => {
                             if (!(error instanceof OperationCancelled)) report(error);
@@ -118,10 +147,11 @@ export class CountdownLabel extends Label {
             }
         };
         this.refreshCurrent = refresh;
-        off = time.onChanged(refresh);
-        game.on(Game.EVENT_SHOW, refresh);
+        const refreshNow = () => refresh(true);
+        off = time.onChanged(refreshNow);
+        game.on(Game.EVENT_SHOW, refreshNow);
         refresh();
-        return Object.freeze({ refresh, dispose: () => scope.close() });
+        return Object.freeze({ refresh: refreshNow, dispose: () => scope.close() });
     }
     /** @internal 每帧读取框架时间，仅剩余秒数变化时写 Label；不使用 dt 累加。 */
     update(): void {

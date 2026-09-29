@@ -129,6 +129,8 @@ const utc8Text = show.time.calendar.format(show.time.nowMs(), 'datetime', 480);
 
 注入 `TimeOptions.source` 后，框架默认在前台首次校时，并在质量到期前刷新；失败指数退避，后台停止请求，恢复时重试。`autoSync: false` 可交给登录流程完全控制。自动校时不保证网络成功；严格判断仍检查 `requireNowMs()`，不得把过期样本当作可信时间。应用查询日期不会各自发起网络请求。
 
+时间源收到统一的 `TaskContext`：响应 `signal`，在 `task.scope.defer` 中登记资源清理，写入使用同步 `task.commit`。采样超时或取消会结束调用方等待，但不配合取消的底层操作仍保留资源直到真实任务退出；App 完整关闭会等待它们，迟到结果不能提交校时。
+
 ```ts
 // 跨业务日：UTC+8，每日 04:00 切换；注册后先通知当前业务日。
 show.time.onBoundary('day', (event, task) => {

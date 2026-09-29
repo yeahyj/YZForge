@@ -14,6 +14,68 @@ import {
 } from '../assets/framework/ui/components/guide/guide-focus';
 import { deferred, flush } from './fake-clock';
 
+test('引导：旧定义不能覆盖新版进度，同版保持完成，升级允许从头开始', async () => {
+    const owner = new Scope('versions');
+    let saved: GuideCheckpoint = { version: 2, status: 'completed' },
+        calls = 0,
+        writes = 0;
+    const runner = new GuideRunner({
+        read: () => saved,
+        write: (_id, next) => {
+            saved = next;
+            writes++;
+        },
+    });
+    const definition = {
+        id: 'intro',
+        version: 1,
+        steps: [
+            {
+                id: 'step',
+                run: () => {
+                    calls++;
+                },
+            },
+        ],
+    };
+    assert.throws(() => runner.start(definition, owner), { code: 'GUIDE_PROGRESS_NEWER' });
+    assert.equal(owner.inspect().children.length, 0);
+    assert.equal(calls, 0);
+    assert.equal(writes, 0);
+    assert.deepEqual(saved, { version: 2, status: 'completed' });
+    await runner.start({ ...definition, version: 2 }, owner).result;
+    assert.equal(calls, 0);
+    await runner.start({ ...definition, version: 3 }, owner).result;
+    assert.equal(calls, 1);
+    assert.deepEqual(saved, { version: 3, status: 'completed' });
+    await owner.close();
+});
+
+test('引导：运行期间出现的新版存档也不能被旧步骤完成或跳过覆盖', async () => {
+    for (const skip of [false, true]) {
+        const owner = new Scope('versions'),
+            gate = deferred();
+        let saved: GuideCheckpoint = { version: 1, status: 'running', nextStep: 'step' };
+        const runner = new GuideRunner({
+            read: () => saved,
+            write: (_id, next) => {
+                saved = next;
+            },
+        });
+        const handle = runner.start(
+            { id: 'intro', version: 1, allowSkip: true, steps: [{ id: 'step', run: () => gate.promise }] },
+            owner,
+        );
+        await flush();
+        saved = { version: 2, status: 'completed' };
+        if (skip) handle.skip();
+        gate.resolve();
+        await assert.rejects(handle.result, { code: 'GUIDE_PROGRESS_NEWER' });
+        assert.deepEqual(saved, { version: 2, status: 'completed' });
+        await owner.close();
+    }
+});
+
 test('引导：按稳定步骤恢复，清理结束后才保存和启动下一步', async () => {
     const owner = new Scope('guide'),
         gate = deferred(),

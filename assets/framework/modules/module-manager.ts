@@ -547,6 +547,7 @@ export class ModuleManager {
                     'MODULE_HANDLE_ENDED',
                     ref.id,
                 );
+            const methods = new Map<PropertyKey, { original: unknown; wrapped: (...args: unknown[]) => unknown }>();
             const guarded =
                 api && typeof api === 'object'
                     ? // 代理使用独立目标，冻结的业务 API 也允许返回受生命周期保护的方法。
@@ -554,28 +555,31 @@ export class ModuleManager {
                           get(_target, property) {
                               check();
                               const value = Reflect.get(api as object, property, api);
-                              return typeof value === 'function'
-                                  ? (...args: unknown[]) => {
-                                        check();
-                                        // 调用前登记屏障，保证方法同步部分触发关闭时也不会提前释放服务。
-                                        // 只跟踪公开方法返回的工作；内部脱离返回链的任务仍须显式登记。
-                                        let complete!: (value: unknown) => void;
-                                        let fail!: (error: unknown) => void;
-                                        const running = new Promise<unknown>((resolve, reject) => {
-                                            complete = resolve;
-                                            fail = reject;
-                                        });
-                                        void current.scope.track(running, `api:${String(property)}`);
-                                        try {
-                                            const result: unknown = Reflect.apply(value, api, args);
-                                            complete(result);
-                                            return result;
-                                        } catch (error) {
-                                            fail(error);
-                                            throw error;
-                                        }
-                                    }
-                                  : value;
+                              if (typeof value !== 'function') return value;
+                              const cached = methods.get(property);
+                              if (cached && cached.original === value) return cached.wrapped;
+                              const wrapped = (...args: unknown[]) => {
+                                  check();
+                                  // 调用前登记屏障，保证方法同步部分触发关闭时也不会提前释放服务。
+                                  // 只跟踪公开方法返回的工作；内部脱离返回链的任务仍须显式登记。
+                                  let complete!: (value: unknown) => void;
+                                  let fail!: (error: unknown) => void;
+                                  const running = new Promise<unknown>((resolve, reject) => {
+                                      complete = resolve;
+                                      fail = reject;
+                                  });
+                                  void current.scope.track(running, `api:${String(property)}`);
+                                  try {
+                                      const result: unknown = Reflect.apply(value, api, args);
+                                      complete(result);
+                                      return result;
+                                  } catch (error) {
+                                      fail(error);
+                                      throw error;
+                                  }
+                              };
+                              methods.set(property, { original: value, wrapped });
+                              return wrapped;
                           },
                           has(_target, property) {
                               check();

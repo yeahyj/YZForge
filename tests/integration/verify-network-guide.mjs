@@ -129,8 +129,8 @@ try {
             { id, width, height, zoom: suffix === 'tablet' ? 0.5 : 1 },
         );
         await run(
-            `const option=document.querySelector('#view-select [data-device="'+args.device+'"]');if(!option)throw Error('Device profile missing');option.click();await wait(120);click('showcase.tutorial-lab-page','_bindBtnReset');await wait(30);click('showcase.tutorial-lab-page','_bindBtnStart');const focus=record('showcase.tutorial-lab-page').instance.view._bindNodeFocus.getComponent('yzforge.GuideFocusOverlay');await until(()=>focus.session?.step?.focused);return true;`,
-            { device },
+            `const option=document.querySelector('#view-select [data-device="'+args.device+'"]');if(option)option.click();else cc.screen.windowSize=new cc.Size(args.width,args.height);await wait(120);click('showcase.tutorial-lab-page','_bindBtnReset');await wait(30);click('showcase.tutorial-lab-page','_bindBtnStart');const focus=record('showcase.tutorial-lab-page').instance.view._bindNodeFocus.getComponent('yzforge.GuideFocusOverlay');await until(()=>focus.session?.step?.focused);return true;`,
+            { device, width, height },
         );
         console.log(await capture(`guide-focus-device-${suffix}.png`));
         console.log(

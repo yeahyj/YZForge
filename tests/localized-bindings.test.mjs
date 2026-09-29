@@ -5,6 +5,9 @@ import { decodeUuid } from '../tools/yzforge/catalog.mjs';
 const classes = new Map([
     ['label-class', 'text'],
     ['sprite-class', 'sprite'],
+    ['countdown-class', 'countdown'],
+    ['marquee-class', 'marquee'],
+    ['async-class', 'async-sprite'],
 ]);
 const catalogs = new Map([
     [
@@ -27,6 +30,25 @@ const label = (input = {}) => [
     { _name: 'Title' },
     { name: 'name', value: '玩家' },
 ];
+
+test('生成时拒绝多个组件争抢同一文字或图片，并指出可用的绑定入口', () => {
+    for (const [type, expected] of [
+        ['countdown-class', /bindCountdownFormat/],
+        ['marquee-class', /MarqueeLabel/],
+    ]) {
+        const records = label();
+        records.push({ __type__: type, node: { __id__: 1 } });
+        assert.throws(() => validateLocalizedRecords(records, classes, catalogs), expected);
+    }
+    const nested = label();
+    nested[1]._parent = { __id__: 3 };
+    nested.push({ _name: 'Marquee' }, { __type__: 'marquee-class', node: { __id__: 3 } });
+    assert.throws(() => validateLocalizedRecords(nested, classes, catalogs), /内部 Label/);
+    const image = label({ __type__: 'sprite-class', key: 'logo' });
+    image.push({ __type__: 'async-class', node: { __id__: 1 } });
+    assert.throws(() => validateLocalizedRecords(image, classes, catalogs), /AsyncSprite/);
+    validateLocalizedRecords([{ __type__: 'countdown-class' }], classes, catalogs);
+});
 test('原生绑定生成前检查支持参数对象引用和合法空文案', () => {
     validateLocalizedRecords(label(), classes, catalogs);
     validateLocalizedRecords(label({ key: 'blank', parameters: [] }), classes, catalogs);

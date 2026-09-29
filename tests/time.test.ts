@@ -2,9 +2,83 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { calendar } from '../assets/framework/time/calendar';
 import { TimeService } from '../assets/framework/time/time-service';
-import { Scope } from '../assets/framework/core/scope';
+import { Scope, type TaskContext } from '../assets/framework/core/scope';
 import { deferred, FakeClock, flush } from './fake-clock';
 const ms = calendar.parseISO;
+
+test('time sources never start after cancellation and receive a borrowed task context', async () => {
+    for (let delay = 0; delay < 10; delay++) {
+        const owner = new Scope('time'),
+            caller = owner.child('caller'),
+            clock = new FakeClock();
+        const time = new TimeService(clock, owner, {
+            autoSync: false,
+            sampleCount: 1,
+            source: {
+                sample: async (requestId, task) => {
+                    assert.equal(task.signal.aborted, false);
+                    assert.equal('close' in task.scope, false);
+                    assert.throws(() => task.commit(async () => {}), { code: 'ASYNC_COMMIT' });
+                    return { requestId, receivedAtMs: clock.wall, sentAtMs: clock.wall };
+                },
+            },
+        });
+        const checked = time.sync(caller).catch((error: unknown) => {
+            assert.equal((error as { code: string }).code, 'OPERATION_CANCELLED');
+        });
+        for (let i = 0; i < delay; i++) await Promise.resolve();
+        caller.cancel();
+        await checked;
+        await owner.close();
+    }
+});
+
+test('time sample timeout releases the waiter but retains resources until the physical task drains', async () => {
+    const owner = new Scope('time'),
+        caller = new Scope('caller'),
+        clock = new FakeClock(),
+        gate = deferred();
+    let cleaned = false,
+        task!: TaskContext,
+        lateCommit = false;
+    const time = new TimeService(clock, owner, {
+        autoSync: false,
+        sampleCount: 1,
+        requestTimeoutMs: 20,
+        source: {
+            sample: async (requestId, context) => {
+                task = context;
+                task.scope.defer(() => {
+                    cleaned = true;
+                });
+                await gate.promise;
+                assert.equal(cleaned, false);
+                task.commit(() => {
+                    lateCommit = true;
+                });
+                return { requestId, receivedAtMs: clock.wall, sentAtMs: clock.wall };
+            },
+        },
+    });
+    const checked = assert.rejects(time.sync(caller), { code: 'TIME_SYNC_FAILED' });
+    await flush();
+    clock.advance(21);
+    await checked;
+    assert.equal(cleaned, false);
+    assert.equal(task.signal.aborted, true);
+    let closed = false;
+    const closing = owner.close().then(() => {
+        closed = true;
+    });
+    await flush();
+    assert.equal(closed, false);
+    gate.resolve();
+    await closing;
+    assert.equal(cleaned, true);
+    assert.equal(lateCommit, false);
+    assert.equal(time.snapshot().quality, 'stale');
+    await caller.close();
+});
 test('calendar callbacks use project rules with explicit per-subscription overrides', async () => {
     const owner = new Scope('calendar-defaults'),
         clock = new FakeClock();

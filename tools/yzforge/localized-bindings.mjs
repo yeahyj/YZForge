@@ -23,9 +23,23 @@ export function validateLocalizedRecords(records, classes, catalogs, namespace =
     for (const component of records) {
         if (!component || typeof component !== 'object') continue;
         const kind = classes.get(component.__type__) ?? classes.get(decodeUuid(component.__type__));
-        if (!kind || (!component.key && !component.namespace)) continue;
+        if (!['text', 'sprite'].includes(kind) || (!component.key && !component.namespace)) continue;
         const node = dereference(component.node);
         const label = `${node?._name ?? '节点'}/${component.key || '(空键)'}`;
+        const has = (target, type) =>
+            target &&
+            records.some(
+                (item) =>
+                    item &&
+                    dereference(item.node) === target &&
+                    (classes.get(item.__type__) ?? classes.get(decodeUuid(item.__type__)) ?? item.__type__) === type,
+            );
+        if (kind === 'text' && has(node, 'countdown'))
+            throw Error(`${label}: CountdownLabel 不能叠加 LocalizedLabel，请使用 bindCountdownFormat 绑定计时格式`);
+        if (kind === 'text' && (has(node, 'marquee') || has(dereference(node?._parent), 'marquee')))
+            throw Error(`${label}: 滚动文字请使用 bindText(MarqueeLabel, key)，不要绑定内部 Label`);
+        if (kind === 'sprite' && has(node, 'async-sprite'))
+            throw Error(`${label}: AsyncSprite 与 LocalizedSprite 会争抢图片，请使用普通 Sprite 进行语言绑定`);
         const resolved = localizedNamespace(records, component, namespace, sources);
         const catalog = catalogs.get(resolved);
         if (!catalog) throw Error(`${label}: 未登记多语言业务包 ${resolved || '自动归属失败，请指定跨包来源'}`);
@@ -71,11 +85,17 @@ export async function validateLocalizedBindings(root, metadata, localization, mo
     const classes = new Map([
         ['yzforge.LocalizedLabel', 'text'],
         ['yzforge.LocalizedSprite', 'sprite'],
+        ['yzforge.CountdownLabel', 'countdown'],
+        ['yzforge.MarqueeLabel', 'marquee'],
+        ['yzforge.AsyncSprite', 'async-sprite'],
     ]);
     for (const [uuid, asset] of metadata) {
         const file = relative(root, asset.source).replaceAll('\\', '/');
         if (file === 'assets/framework/localization/localized-label.ts') classes.set(uuid, 'text');
         if (file === 'assets/framework/localization/localized-sprite.ts') classes.set(uuid, 'sprite');
+        if (file === 'assets/framework/ui/components/countdown/countdown-label.ts') classes.set(uuid, 'countdown');
+        if (file === 'assets/framework/ui/components/marquee/marquee-label.ts') classes.set(uuid, 'marquee');
+        if (file === 'assets/framework/ui/components/async-sprite/async-sprite.ts') classes.set(uuid, 'async-sprite');
     }
     const catalogs = new Map();
     for (const [path, content] of Object.entries(localization.output)) {

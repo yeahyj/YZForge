@@ -94,7 +94,14 @@ export class GuideRunner {
             );
             ids.add(step.id);
         }
+        const checkVersion = (saved: GuideCheckpoint | undefined) =>
+            invariant(
+                !saved || saved.version <= definition.version,
+                'GUIDE_PROGRESS_NEWER',
+                '存档中的引导版本较新，旧版本不能运行或覆盖这份进度',
+            );
         const saved = this.progress?.read(definition.id);
+        checkVersion(saved);
         const checkpoint = saved?.version === definition.version ? saved : undefined;
         let index = checkpoint?.status === 'running' ? steps.findIndex((step) => step.id === checkpoint.nextStep) : 0;
         invariant(index >= 0, 'GUIDE_PROGRESS_INVALID', '检查点步骤不存在，请迁移进度或递增引导版本');
@@ -102,7 +109,10 @@ export class GuideRunner {
         let stop: 'cancelled' | 'skipped' | undefined;
         let state: 'running' | 'draining' | 'ended' = 'running';
         let current: string | undefined;
-        const write = (value: GuideCheckpoint) => this.progress?.write(definition.id, Object.freeze(value));
+        const write = (value: GuideCheckpoint) => {
+            checkVersion(this.progress?.read(definition.id));
+            this.progress?.write(definition.id, Object.freeze(value));
+        };
         const execute = async (): Promise<GuideResult> => {
             try {
                 if (checkpoint && checkpoint.status !== 'running') return { status: checkpoint.status };

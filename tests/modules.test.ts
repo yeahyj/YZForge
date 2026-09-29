@@ -1,10 +1,45 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { ModuleManager } from '../assets/framework/modules/module-manager';
 import { Scope } from '../assets/framework/core/scope';
 import { FakeClock, deferred, flush } from './fake-clock';
 const context = (id: string, scope: Scope, createSession: (owner: Scope, label: string) => Scope) =>
     ({ id, scope, createSession }) as any;
+
+test('module methods keep callback identity, follow replacements and reject calls after release', async () => {
+    const owner = new Scope('callbacks'),
+        emitter = new EventEmitter();
+    const api = {
+        calls: 0,
+        changed() {
+            this.calls++;
+        },
+    };
+    const manager = new ModuleManager(
+        [{ id: 'work', dependencies: [], factory: () => ({ api }) }],
+        new FakeClock(),
+        context,
+    );
+    const handle = await manager.use<typeof api>({ id: 'work' }, owner);
+    const callback = handle.api.changed;
+    assert.equal(callback, handle.api.changed);
+    emitter.on('change', handle.api.changed);
+    emitter.emit('change');
+    emitter.off('change', handle.api.changed);
+    emitter.emit('change');
+    assert.equal(api.calls, 1);
+    api.changed = function () {
+        this.calls += 10;
+    };
+    assert.notEqual(handle.api.changed, callback);
+    assert.equal(handle.api.changed, handle.api.changed);
+    handle.api.changed();
+    assert.equal(api.calls, 11);
+    await handle.release();
+    assert.throws(callback, { code: 'MODULE_HANDLE_ENDED' });
+    await owner.close();
+});
 
 test('public asynchronous calls retain services until physical completion during release', async () => {
     const owner = new Scope('caller'),

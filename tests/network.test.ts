@@ -4,6 +4,7 @@ import { Scope } from '../assets/framework/core/scope';
 import { CancellationSource } from '../assets/framework/core/cancellation';
 import {
     HttpClient,
+    HttpError,
     jsonBody,
     type HttpResponse,
     type TransportRequest,
@@ -11,6 +12,30 @@ import {
 import { createWechatTransport, createXhrTransport } from '../assets/framework/network/transports';
 import { deferred, flush } from './fake-clock';
 const ok = (body = '{}'): HttpResponse => ({ status: 200, headers: {}, body });
+
+test('网络：非 2xx 保留只读响应供业务读取，默认序列化不带正文或响应头', async () => {
+    const scope = new Scope('status');
+    const response = { status: 429, headers: { 'Retry-After': '30' }, body: '{"code":"RATE_LIMIT"}' };
+    const client = new HttpClient({ transport: { send: async () => response } });
+    await assert.rejects(
+        client.json({ url: 'https://example.test', headers: { Authorization: 'secret' } }, scope, () => {
+            assert.fail('成功响应解码器不能收到 HTTP 错误');
+        }),
+        (error: unknown) => {
+            assert.ok(error instanceof HttpError);
+            assert.equal(error.status, 429);
+            assert.equal(error.response?.headers['retry-after'], '30');
+            assert.equal(JSON.parse(error.response!.body).code, 'RATE_LIMIT');
+            response.headers['Retry-After'] = '100';
+            assert.equal(error.response?.headers['retry-after'], '30');
+            assert.ok(Object.isFrozen(error.response));
+            assert.ok(Object.isFrozen(error.response!.headers));
+            assert.equal(/RATE_LIMIT|retry-after|secret/.test(JSON.stringify(error)), false);
+            return true;
+        },
+    );
+    await scope.close();
+});
 
 test('网络：URL 编码、大小写无关请求头、JSON 验证、空正文', async () => {
     const scope = new Scope('request');

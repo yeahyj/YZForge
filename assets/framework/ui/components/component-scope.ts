@@ -21,6 +21,10 @@ export interface ComponentContext {
  * 禁用同步取消，复用等待物理任务与异步清理，只有最后一次绑定可以回写。
  */
 export class ComponentScope implements ComponentBinding {
+    /** 是否已接入框架宿主；独立原生组件的本地功能不要求宿主。 */
+    get bound(): boolean {
+        return !!this.instance;
+    }
     context?: ComponentContext;
     binding?: Scope;
     private readonly bindings = new Set<Scope>();

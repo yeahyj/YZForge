@@ -48,7 +48,7 @@ try {
   const observed=pending.catch(e=>{throw e;});observed.catch(()=>{});
   await until(()=>started);await wait(100);
   check(!opened&&!page().interactive,'Page returned before native images ready');
-  check(page().instance.node.getComponent(cc.UIOpacity).opacity===0,'Preparing page became visible');
+  check(page().instance.container.getComponent(cc.UIOpacity).opacity===0,'Preparing page became visible');
   check(original.interactive&&!original.suspended,'Previous page hidden while language loads');
   check(!find(page().instance.node,'StaticImage').getComponent(cc.Sprite).enabled,'Unready image renderer exposed');
   release();await observed;

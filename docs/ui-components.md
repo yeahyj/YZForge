@@ -15,6 +15,8 @@
 
 Switch、SafeWidget、滚动文本以及按钮 run、倒计时可在普通节点使用。AsyncSprite 的 spriteFrame 是普通原生接口；按逻辑资源名 setSource 时需要模块的 Assets，框架 UI/Part 自动注入，手工场景使用已有 app.bindScene。不会另起 resources.load 或全局资源单例绕过框架持有规则。
 
+运行时在托管实例内新增组件，用 `await show.assets.bindComponents(node)` 接入；它跳过已绑定组件并等待当前启用组件的必要资源。建议在 inactive 节点上完成配置和接入，启用后再次等待准备。实例池使用当前借用 Scope，普通场景使用 bindScene 返回的 Scope。接口不支持跨宿主转移已绑定组件。
+
 ## Switch：只做子节点切换
 
 在父节点挂 Switch，Inspector 配置“显示的子节点索引”，默认 [0]。直接子节点可自由命名，不需要 ToggleContainer，也不限制只能显示一个。
@@ -74,6 +76,8 @@ timer.restart();                 // 使用 Inspector 中的 duration
 
 普通独立节点读取设备时间，框架实例自动使用现有 TimeService。根据绝对截止时刻计算，不靠 dt 累减；每秒变化才更新文字。前台恢复与校时立即重算。completedEvents 每次计时只触发一次，时钟回拨不会重复；重新开始会取消旧的待执行完成通知。禁用时取消订阅与完成任务，再次启用按 autoStart 配置启动。
 
+运行中修改模板用 `timer.setTextFormat(value)`，会在同一秒立即刷新且不重启计时。多语言使用 `language.bindCountdownFormat(timer, key)`，不要叠加 LocalizedLabel，也不要同时传自定义 format；计时占位符与用法见[多语言](localization.md#代码动态绑定)。
+
 ## MarqueeLabel：固定宽度，超宽自动滚动
 
 挂在空 UI 节点，UITransform 的宽高就是可见区域。填 string、字体、字号、行高、颜色；速度 speed 是每秒设计像素，pauseDuration 是首尾各停留的秒数。默认单行、左对齐、往返滚动：读完末尾后平滑返回开头。短文本和空文本保持静止，换行会转为空格。
@@ -89,6 +93,8 @@ text.restart();// 从开头重新播放
 ```
 
 string、字体、字号或容器宽度变化会重新测量并从开头开始。普通赋值下一帧生效，需要同帧测量可调用 refresh。只改文字子节点的位置，不改根节点尺寸或位置，能配合外部 Widget；稳定滚动不重新生成文字贴图。禁用隐藏自有文字且不再更新，重新启用按 autoPlay 从开头播放。
+
+多语言直接用 `language.bindText(marquee, key)`，会同步更新公开文本、字体和内部显示；绑定结束恢复原值。不要修改内部 Label 或叠加 LocalizedLabel，否则刷新时存在多个文字写入者，生成和运行绑定会拒绝这种组合。
 
 这个组件采用容器组合，因为 [Cocos Mask 只裁剪子节点，不能和 Label 放在同一个渲染节点](https://docs.cocos.com/creator/3.8/manual/en/ui-system/components/editor/mask.html)。组件会自动创建文本子节点，使用方不必搭层级。Mask 与 MarqueeText 由组件管理，不要再在根节点叠加 Sprite/Label。字体资源使用原生 Label 的字体行为，编辑器只预览内容，不播放滚动。
 

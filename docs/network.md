@@ -76,7 +76,9 @@ const response = await http.request({ url: '/profile' }, owner);
 | `HTTP_DECODE`          | JSON 语法或结构校验失败              |
 | `OPERATION_CANCELLED`  | owner 结束或被 latest 取代           |
 
-错误详情不复制 URL、请求头或响应正文。响应中敏感内容的展示和日志由业务控制。
+非 2xx 响应仍抛出 `HttpError`，保留原有 `code = HTTP_STATUS` 和 `status`。可通过 `error.response` 读取服务端错误正文及小写响应头，例如 `error.response?.headers['retry-after']`、`JSON.parse(error.response.body)`；解码与后续业务处理由调用方决定。响应和响应头为只读副本。
+
+错误的 message/details 和默认 JSON 序列化不复制 URL、请求凭据、响应头或响应正文，`response` 是不可枚举属性。响应内容是否展示或记录由业务显式决定。
 
 ## 可运行示例
 

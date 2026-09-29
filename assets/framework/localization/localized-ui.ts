@@ -1,4 +1,6 @@
-import { isValid, Label, Sprite } from 'cc';
+import { Component, isValid, js, Label, Sprite } from 'cc';
+import { MarqueeLabel } from '../ui/components/marquee/marquee-label';
+import type { CountdownLabel } from '../ui/components/countdown/countdown-label';
 import type { ScopedAssets } from '../assets/asset-manager';
 import type { AssetKind, BundleRef } from '../assets/asset-types';
 import { invariant, reportError } from '../core/errors';
@@ -25,8 +27,14 @@ export interface LocalizedTextBinding<P extends string> extends LocalizedBinding
 type Parameters<P extends string> =
     Readonly<Record<P, string | number>> | ((reader: LocaleReader) => Readonly<Record<P, string | number>>);
 type Slot = { dispose(): void };
-const texts = new WeakMap<Label, Slot>();
+type TextTarget = Label | MarqueeLabel;
+type CountdownToken = 'hh' | 'mm' | 'ss' | 'seconds';
+const texts = new WeakMap<TextTarget, Slot>();
 const sprites = new WeakMap<Sprite, Slot>();
+function instanceOf(target: Component, name: string): boolean {
+    const type = js.getClassByName(name);
+    return !!type && target instanceof type;
+}
 
 /** show/activation/列表项期限内的入口；in 可用于独立的实例借用期限。 */
 export class ScopedLocalization {
@@ -84,23 +92,82 @@ export class LocalizedBundle {
         return this.handle.asset(key);
     }
     async bindText<P extends string>(
-        target: Label,
+        target: TextTarget,
         key: TextKey<P>,
         ...args: [P] extends [never] ? [values?: Parameters<P>] : [values: Parameters<NoInfer<P>>]
     ): Promise<LocalizedTextBinding<P>> {
-        invariant(isValid(target, true), 'I18N_TARGET_INVALID', 'Label 已销毁');
-        let values = args[0];
+        invariant(isValid(target, true), 'I18N_TARGET_INVALID', '文字组件已销毁');
+        invariant(
+            !instanceOf(target, 'yzforge.CountdownLabel'),
+            'I18N_TARGET_CONFLICT',
+            '倒计时请使用 bindCountdownFormat',
+        );
+        invariant(
+            !(
+                target instanceof Label &&
+                (target.node.getComponent(MarqueeLabel) || target.node.parent?.getComponent(MarqueeLabel))
+            ),
+            'I18N_TARGET_CONFLICT',
+            '滚动文字请绑定 MarqueeLabel 公开组件，不要绑定内部 Label',
+        );
+        return this.bindTextTarget(target, key, args[0]);
+    }
+    /** 只绑定计时显示模板，不重启计时。hh/mm/ss/seconds 由倒计时填入；其他参数可传回调。 */
+    async bindCountdownFormat<P extends string>(
+        target: CountdownLabel,
+        key: TextKey<P>,
+        ...args: [Exclude<P, CountdownToken>] extends [never]
+            ? [values?: Parameters<Exclude<P, CountdownToken>>]
+            : [values: Parameters<Exclude<NoInfer<P>, CountdownToken>>]
+    ): Promise<LocalizedBinding> {
+        invariant(isValid(target, true), 'I18N_TARGET_INVALID', '倒计时组件已销毁');
+        invariant(instanceOf(target, 'yzforge.CountdownLabel'), 'I18N_TARGET_INVALID', '目标必须是 CountdownLabel');
+        const values = args[0];
+        return this.bindTextTarget(
+            target,
+            key,
+            (reader) =>
+                ({
+                    ...(typeof values === 'function' ? values(reader) : values),
+                    hh: '{hh}',
+                    mm: '{mm}',
+                    ss: '{ss}',
+                    seconds: '{seconds}',
+                }) as Readonly<Record<P, string | number>>,
+            true,
+        );
+    }
+    private async bindTextTarget<P extends string>(
+        target: TextTarget,
+        key: TextKey<P>,
+        values: Parameters<P> | undefined,
+        format = false,
+    ): Promise<LocalizedTextBinding<P>> {
+        invariant(isValid(target, true), 'I18N_TARGET_INVALID', '文字组件已销毁');
+        const countdown = format ? (target as CountdownLabel) : undefined;
+        const read = () => ({
+            text: countdown ? countdown.textFormat : target.string,
+            font: target.font,
+            system: target instanceof Label ? target.useSystemFont : !target.font,
+        });
+        const write = (state: ReturnType<typeof read>) => {
+            target.font = state.font;
+            if (target instanceof Label) target.useSystemFont = state.system;
+            if (countdown) countdown.setTextFormat(state.text);
+            else target.string = state.text;
+            if (target instanceof MarqueeLabel) target.refresh();
+        };
         const get = (reader: LocaleReader): TextParameters =>
             typeof values === 'function' ? values(reader) : (values ?? {});
         texts.get(target)?.dispose();
-        const original = { text: target.string, font: target.font, system: target.useSystemFont };
+        const original = read();
+        const releaseFormat = countdown?.retainTextFormat();
         const binding = await this.bind(
             target,
             texts,
             () => {
-                target.font = original.font;
-                target.useSystemFont = original.system;
-                target.string = original.text;
+                releaseFormat?.();
+                write(original);
             },
             async (reader, owner) => {
                 const resolved = reader.text(key, get(reader));
@@ -111,21 +178,18 @@ export class LocalizedBundle {
                         text = reader.text(key, get(reader)).text;
                     },
                     commit: () => {
-                        const before = { text: target.string, font: target.font, system: target.useSystemFont };
-                        target.font = font;
-                        target.useSystemFont = resolved.font ? false : original.system;
-                        target.string = text;
+                        const before = read();
+                        write({ text, font, system: resolved.font ? false : original.system });
                         return () => {
-                            if (isValid(target, true)) {
-                                target.font = before.font;
-                                target.useSystemFont = before.system;
-                                target.string = before.text;
-                            }
+                            if (isValid(target, true)) write(before);
                         };
                     },
                 };
             },
-        );
+        ).catch((error: unknown) => {
+            releaseFormat?.();
+            throw error;
+        });
         return {
             ...binding,
             update: (next) => {
@@ -142,6 +206,11 @@ export class LocalizedBundle {
     }
     async bindSprite(target: Sprite, key: LocalizedAssetKey<'SpriteFrame'>): Promise<LocalizedBinding> {
         invariant(isValid(target, true), 'I18N_TARGET_INVALID', 'Sprite 已销毁');
+        invariant(
+            !instanceOf(target, 'yzforge.AsyncSprite'),
+            'I18N_TARGET_CONFLICT',
+            '语言图片请使用 Sprite；AsyncSprite 自行管理图片加载',
+        );
         sprites.get(target)?.dispose();
         const original = target.spriteFrame;
         return this.bind(
@@ -165,7 +234,7 @@ export class LocalizedBundle {
             },
         );
     }
-    private async bind<T extends Label | Sprite>(
+    private async bind<T extends Component>(
         target: T,
         slots: WeakMap<T, Slot>,
         restore: () => void,

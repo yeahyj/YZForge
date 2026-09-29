@@ -18,7 +18,7 @@ import { Events } from './events';
 import { Scope, Lifetime } from './scope';
 import { FrameworkError } from './errors';
 import { GameLog } from './game-log';
-import { componentBindings } from './component-binding';
+import { componentBindings, ComponentHost, allowInstanceComponents } from './component-binding';
 import { BootFlow } from './boot';
 import { BadgeStore } from '../badges/badge-store';
 import { HttpClient, type HttpClientOptions, type HttpTransport } from '../network/http-client';
@@ -319,14 +319,13 @@ export class App {
                     'INSTANCE_MODULE_REQUIRED',
                     'Provide the business host moduleId or instantiate through ctx.assets',
                 );
-            if (id)
-                for (const component of components) {
-                    component.__bind(this.modules.contextForBinding(id), scope, this.time);
-                    if (active) component.__allow(scope);
-                }
+            if (id) {
+                const host = new ComponentHost(node, this.modules.contextForBinding(id), scope, this.time);
+                if (active) host.allow(scope);
+            }
         };
         this.assets.activateInstance = (node, scope) => {
-            for (const component of componentBindings(node)) component.__allow(scope);
+            allowInstanceComponents(node, scope);
         };
         this.ui = new UIManager(
             input.uiRoot,

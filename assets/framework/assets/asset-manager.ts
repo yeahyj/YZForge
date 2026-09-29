@@ -22,6 +22,7 @@ import {
 import type { AssetManager as EngineAssetManager } from 'cc';
 import type { ConfigManager, ScopedConfig } from '../config/config-manager';
 import { untilCancelled } from '../core/cancellation';
+import { bindAdditionalComponents } from '../core/component-binding';
 import { FrameworkError, invariant, reportError } from '../core/errors';
 import { Scope, Lifetime, scopeOwner } from '../core/scope';
 import {
@@ -571,6 +572,15 @@ export class ScopedAssets {
      */
     in(scope: Lifetime): ScopedAssets {
         return new ScopedAssets(this.manager, scope, this.namespace, this.moduleId);
+    }
+    /**
+     * 显式接入已挂在框架实例下的新增组件；重复调用不会重新绑定原组件。
+     * UI 使用 await show.assets.bindComponents(node)，普通实例使用其 scope。
+     * 建议先在 inactive 节点上添加组件、接入后启用，再次 await 此方法等待语言等准备完成。
+     */
+    bindComponents(root: Node): Promise<void> {
+        invariant(isValid(root, true), 'COMPONENT_HOST_MISSING', '节点已销毁');
+        return bindAdditionalComponents(root, this.scope, this.moduleId);
     }
     /**
      * 查询资源在 Bundle 中的路径，不加载目标资源；查询索引本身可能产生加载。

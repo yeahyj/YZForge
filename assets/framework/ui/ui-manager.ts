@@ -4,7 +4,7 @@ import { AssetKey } from '../assets/asset-types';
 import { untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, OperationCancelled, reportError } from '../core/errors';
-import { componentBindings, type ComponentBinding } from '../core/component-binding';
+import { ComponentHost, type ComponentBinding } from '../core/component-binding';
 import { runTask, Scope, taskContext, TaskContext, Lifetime, scopeOwner } from '../core/scope';
 import { ModuleContext, ModuleManager } from '../modules/module-manager';
 import { TimeService } from '../time/time-service';
@@ -171,8 +171,10 @@ export interface NavigationRequest {
 }
 type Instance = {
     node: Node;
+    container: Node;
     view: UIView<unknown, unknown>;
     components: ComponentBinding[];
+    host: ComponentHost;
     scope: Scope;
     context: ModuleContext;
     definition: ViewDefinition;
@@ -185,6 +187,7 @@ type RecordView = {
     operation: Scope;
     params: unknown;
     instance?: Instance;
+    loadingScope?: Scope;
     show?: ViewShowContext<unknown, unknown>;
     preparing: Promise<void>;
     closing?: Promise<void>;
@@ -385,6 +388,7 @@ export class UIManager {
                 record.instance = instance;
             } else {
                 const scope = new Scope(`view-instance:${key.id}`, this.report);
+                record.loadingScope = scope;
                 try {
                     const prefab = await this.assets.load(definition.prefab, scope);
                     if (record.termination) throw new OperationCancelled();
@@ -393,33 +397,56 @@ export class UIManager {
                     scope.defer(() => destroyNode(node));
                     const view = node.getComponent(UIView) as UIView<unknown, unknown> | null;
                     invariant(view, 'UI_VIEW_MISSING', `${key.id} root requires a UIView`);
+                    const container = new Node(`view:${key.id}`);
+                    container.active = false;
+                    container.layer = node.layer;
+                    scope.defer(() => destroyNode(container));
+                    const layer = this.layers.get(definition.kind)!;
+                    layer.getComponent(Widget)!.updateAlignment();
+                    const transform = container.addComponent(UITransform);
+                    const parentTransform = layer.getComponent(UITransform)!;
+                    transform.setAnchorPoint(parentTransform.anchorPoint);
+                    transform.setContentSize(parentTransform.contentSize);
+                    container.addComponent(UIOpacity).opacity = 0;
+                    layer.addChild(container);
+                    const widget = container.addComponent(Widget);
+                    widget.isAlignTop = widget.isAlignBottom = widget.isAlignLeft = widget.isAlignRight = true;
+                    widget.top = widget.bottom = widget.left = widget.right = 0;
+                    widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+                    widget.updateAlignment();
+                    const host = new ComponentHost(node, context, scope, this.time);
                     instance = {
                         node,
+                        container,
                         view,
                         scope,
                         context,
                         definition,
-                        components: componentBindings(node),
+                        components: host.components,
+                        host,
                         disposed: false,
                     };
                     record.instance = instance;
+                    record.loadingScope = undefined;
                     view.__bind(context, (error) => {
                         void this.requestClose(record, { status: 'failed', error, cleanupPending: false }).catch(
                             this.report,
                         );
                     });
-                    for (const component of instance.components) component.__bind(context, scope, this.time);
-                    this.layers.get(definition.kind)!.addChild(node);
+                    container.addChild(node);
                     if ((definition.modal ?? definition.kind === 'popup') && !node.getComponent(BlockInputEvents))
                         node.addComponent(BlockInputEvents);
                     this.gate(instance, false);
                     node.active = true;
+                    container.active = true;
                     this.gate(instance, false);
                     // Cocos activates the whole subtree synchronously before this call returns.
                     await view.__create({ scope: scope.lifetime, ctx: context });
                 } catch (error) {
                     if (!record.instance) await scope.close();
                     throw error;
+                } finally {
+                    record.loadingScope = undefined;
                 }
             }
             if (record.termination) return;
@@ -520,37 +547,21 @@ export class UIManager {
             },
         });
         record.show = context;
+        instance.host.begin(scope);
         record.suspended = false;
         instance.view.__bind(instance.context, (error) => {
             void this.requestClose(record, { status: 'failed', error, cleanupPending: false }).catch(this.report);
         });
         instance.node.active = true;
         this.gate(instance, false);
-        await scope.track(
-            Promise.resolve().then(() => instance.view.__show(context)),
-            'onShow',
-        );
+        await runTask(scope, () => instance.view.__show(context), isCurrent, 'onShow');
         if (record.termination || scope.signal.aborted || record.pagePending) return;
         await this.prepareActivation(record);
         if (record.termination || scope.signal.aborted) return;
         this.activateShow(record);
     }
     private async prepareActivation(record: RecordView): Promise<void> {
-        const scope = scopeOwner(record.show!.scope);
-        for (const component of record.instance!.components) {
-            scope.signal.throwIfAborted();
-            if (component.__ready) component.__allow(scope);
-        }
-        await untilCancelled(
-            Promise.all(record.instance!.components.map((component) => component.__ready?.() ?? Promise.resolve())),
-            scope.signal,
-        );
-        scope.signal.throwIfAborted();
-        // 业务 Part 的 onActivate/onTick 在必要显示资源就绪后才启动。
-        for (const component of record.instance!.components) {
-            scope.signal.throwIfAborted();
-            if (!component.__ready) component.__allow(scope);
-        }
+        await record.instance!.host.prepare();
     }
     private activateShow(record: RecordView): void {
         const instance = record.instance!;
@@ -602,11 +613,12 @@ export class UIManager {
         if (record.instance) {
             this.gate(record.instance, false);
             record.instance.view.__interactive(undefined);
-            for (const component of record.instance.components) component.__allow(undefined);
+            record.instance.host.allow(undefined);
         }
         if (record.show) scopeOwner(record.show.scope).cancel();
         // Cancels an in-flight module wait without destroying an already delivered module API.
         record.operation.cancel();
+        record.loadingScope?.cancel();
         const stop = foregroundDeadline(this.clock, this.cleanupTimeoutMs, () => {
             record.faultPending = true;
             this.blocked.add(record.definition.id);
@@ -676,7 +688,7 @@ export class UIManager {
         record.interactive = false;
         this.gate(instance, false);
         instance.view.__interactive(undefined);
-        for (const component of instance.components) component.__allow(undefined);
+        instance.host.allow(undefined);
         if (!show) return;
         scopeOwner(show.scope).cancel();
         const results = await scopeOwner(show.scope).drainTasks();
@@ -701,8 +713,7 @@ export class UIManager {
     }
     private gate(instance: Instance, visible: boolean): void {
         if (!isValid(instance.node, true)) return;
-        const opacity = instance.node.getComponent(UIOpacity) ?? instance.node.addComponent(UIOpacity);
-        opacity.opacity = visible ? 255 : 0;
+        if (isValid(instance.container, true)) instance.container.getComponent(UIOpacity)!.opacity = visible ? 255 : 0;
         if (visible) instance.node.resumeSystemEvents(true);
         else instance.node.pauseSystemEvents(true);
     }

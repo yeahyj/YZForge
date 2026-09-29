@@ -124,7 +124,7 @@ await original.call(this,show);ready();await gate;};
 try{const home=record('showcase.showcase-page');const pending=home.show.ui.pushPage({id:'showcase.data-lab-page',kind:'page'},undefined);
 await prepared;const target=record('showcase.data-lab-page');
 check(denied==='UI_NAVIGATION_NOT_READY','onShow reentered navigation');
-check(!target.interactive&&target.instance.node.getComponent(cc.UIOpacity).opacity===0&&home.interactive,'Uncommitted target became interactive');
+check(!target.interactive&&target.instance.container.getComponent(cc.UIOpacity).opacity===0&&home.interactive,'Uncommitted target became interactive');
 release();check((await pending).status==='opened','Prepared target did not commit');
 return {reentryRejected:true,stagedHidden:true};
 }finally{release();C.prototype.onShow=original;}`);

@@ -1,6 +1,7 @@
 import { _decorator, Component, type Asset, isValid, UIRenderer, Node } from 'cc';
 import { EDITOR } from 'cc/env';
 import { runTask } from '../core/scope';
+import { FrameworkError, reportError } from '../core/errors';
 import { ComponentScope, type ComponentContext } from '../ui/components/component-scope';
 const { ccclass, property } = _decorator;
 
@@ -44,14 +45,28 @@ export class LocalizedComponent extends Component {
         this.namespace = value.trim();
     }
     protected readonly lifetime = new ComponentScope(this, (context) => {
-        if (!context.i18n || !this.key) return;
+        if (!this.key) return;
+        if (!context.i18n) {
+            reportError(
+                new FrameworkError(
+                    'I18N_HOST_MISSING',
+                    `${this.node.name}: 请先在框架实例下调用 assets.bindComponents(node)，或由 App.bindScene 接入场景`,
+                ),
+            );
+            return;
+        }
         this.hideRenderer();
         context.scope.signal.onAbort(() => this.hideRenderer());
         // 交给组件就绪屏障；页面显示前等待首份语言内容，失败向打开方传播。
         return runTask(context.scope, async () => {
-            await this.localize(context);
-            context.scope.signal.throwIfAborted();
-            if (this.lifetime.context === context) this.showRenderer();
+            try {
+                await this.localize(context);
+                context.scope.signal.throwIfAborted();
+                if (this.lifetime.context === context) this.showRenderer();
+            } catch (error) {
+                if (!context.scope.signal.aborted) this.showRenderer();
+                throw error;
+            }
         });
     });
     private rendererState?: { renderer: UIRenderer; enabled: boolean };
@@ -83,7 +98,7 @@ export class LocalizedComponent extends Component {
     /** @internal 框架注入宿主后才准备语言资源。 */
     onEnable(): void {
         if (!EDITOR) {
-            this.hideRenderer();
+            if (this.lifetime.bound) this.hideRenderer();
             this.lifetime.enable();
         }
     }

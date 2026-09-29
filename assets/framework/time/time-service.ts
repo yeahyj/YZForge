@@ -444,9 +444,10 @@ export class TimeService {
             const captured = round;
             round.promise = Promise.resolve()
                 .then(() => this.collect(captured))
-                .finally(async () => {
+                .finally(() => {
                     if (this.round === captured) this.round = undefined;
-                    await scope.close();
+                    // 超时/取消只结束等待；真实采样排空前，子 Scope 仍由服务持有。
+                    void scope.close().catch(this.report);
                     this.scheduleWake();
                 });
         }
@@ -482,17 +483,7 @@ export class TimeService {
                 const requestId = `${round.serial}:${index}`;
                 const m0 = this.clock.monotonicMs();
                 const reply = await untilCancelled(
-                    Promise.resolve().then(() =>
-                        this.settings.source!.sample(requestId, {
-                            scope: request,
-                            signal: request.signal,
-                            commit: (action) => {
-                                if (request.signal.aborted) return false;
-                                action();
-                                return true;
-                            },
-                        }),
-                    ),
+                    runTask(request, (task) => this.settings.source!.sample(requestId, task), undefined, 'time-sample'),
                     request.signal,
                 );
                 const m3 = this.clock.monotonicMs();
@@ -514,7 +505,7 @@ export class TimeService {
                 if (!(error instanceof OperationCancelled)) this.report(error);
             } finally {
                 stop();
-                await request.close();
+                void request.close().catch(this.report);
             }
         }
         round.scope.signal.throwIfAborted();

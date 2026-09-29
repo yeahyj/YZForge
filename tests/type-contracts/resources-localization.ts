@@ -1,6 +1,9 @@
 import type { Assets } from '../../assets/framework/assets/asset-manager';
 import type { Localization } from '../../assets/framework/localization/localization';
 import type { TextKey, LocalizedAssetKey } from '../../assets/framework/localization/localization';
+import type { LocalizedBundle } from '../../assets/framework/localization/localized-ui';
+import type { CountdownLabel } from '../../assets/framework/ui/components/countdown/countdown-label';
+import type { MarqueeLabel } from '../../assets/framework/ui/components/marquee/marquee-label';
 import type { Lifetime } from '../../assets/framework/core/scope';
 import type { AudioClip, Node, Prefab, SpriteFrame } from 'cc';
 declare const assets: Assets;
@@ -9,7 +12,19 @@ declare const parent: Node;
 declare const i18n: Localization;
 declare const title: TextKey<'name'>;
 declare const logo: LocalizedAssetKey<'SpriteFrame'>;
+declare const bundle: LocalizedBundle;
+declare const countdown: CountdownLabel;
+declare const marquee: MarqueeLabel;
+declare const remaining: TextKey<'seconds'>;
+declare const namedRemaining: TextKey<'name' | 'seconds'>;
 async function contracts(): Promise<void> {
+    await bundle.bindText(marquee, title, { name: '玩家' });
+    await bundle.bindCountdownFormat(countdown, remaining);
+    await bundle.bindCountdownFormat(countdown, namedRemaining, { name: '玩家' });
+    // @ts-expect-error 除计时占位符外，业务参数仍必填。
+    await bundle.bindCountdownFormat(countdown, namedRemaining);
+    // @ts-expect-error 参数名不能拼错。
+    await bundle.bindCountdownFormat(countdown, namedRemaining, { wrong: '玩家' });
     const loaded = await assets.loadMany(
         { prefab: { id: 'a', type: 'Prefab' }, sound: { id: 'b', type: 'AudioClip' } },
         owner,
