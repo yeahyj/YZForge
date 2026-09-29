@@ -11,10 +11,7 @@
         "source": "config-source/showcase/localization-default.xlsx",
         "locales": {
           "zh-CN": {},
-          "en": {
-            "id": "showcase-default-en",
-            "group": "default-en"
-          }
+          "en": {}
         }
       }
     },

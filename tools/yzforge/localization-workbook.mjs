@@ -12,17 +12,13 @@ export function parseLocalizationWorkbook(book, source) {
     if (
         !meta ||
         meta.getCell('A1').value !== 'formatVersion' ||
-        ![1, 2].includes(meta.getCell('B1').value) ||
+        meta.getCell('B1').value !== 2 ||
         book.getWorksheet('__config')
     )
         throw Error(`${source}: 多语言工作簿声明无效或与普通配置表混用`);
-    const legacy = book.getWorksheet('assets');
-    legacy?.eachRow((row, n) => {
-        if (n > 1 && row.values.some((value) => !empty(value)))
-            throw Error(
-                `${source}: assets 页仍有旧资源映射，请将资源迁移到各语言 dynamic 的相同相对路径，并移除资源页`,
-            );
-    });
+    for (const sheet of book.worksheets)
+        if (sheet.name !== 'texts' && !sheet.name.startsWith('__'))
+            throw Error(`${source}: 不支持的多语言工作表 ${sheet.name}，文案应放在 texts 页`);
     const output = { texts: [], locales: [] };
     for (const [sheetName, headers] of [['texts', ['key', 'comment']]]) {
         const sheet = book.getWorksheet(sheetName);
@@ -74,7 +70,7 @@ export function parseLocalizationWorkbook(book, source) {
 export async function createLocalizationWorkbook(root, source, locales, rows) {
     if (!source.startsWith('config-source/') || !source.endsWith('.xlsx'))
         throw Error('多语言源文件必须位于 config-source');
-    if (rows?.assets?.length) throw Error('多语言资源使用相对路径，不再写入工作簿');
+    if (Object.keys(rows ?? {}).some((key) => key !== 'texts')) throw Error('多语言工作簿只接受 texts 文案');
     const book = new ExcelJS.Workbook();
     book.creator = 'YZForge';
     book.addWorksheet('__localization').addRows([['formatVersion', 2]]);

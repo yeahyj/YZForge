@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { extname, relative, resolve } from 'node:path';
 import ExcelJS from 'exceljs';
 import { digest, identifier, pascal, safePath } from './project.mjs';
@@ -10,42 +9,6 @@ const commentText = (value) =>
         .replace(/\*\//g, '* /')
         .replace(/[\r\n\u2028\u2029]+/g, ' ');
 
-/** RFC4180-style CSV parser: quoted commas/newlines and doubled quotes are preserved. */
-export function parseCSV(input) {
-    const rows = [],
-        row = [];
-    let value = '',
-        quoted = false,
-        closed = false;
-    input = input.replace(/^\uFEFF/, '');
-    for (let i = 0; i <= input.length; i++) {
-        const char = input[i];
-        if (quoted) {
-            if (char === '"' && input[i + 1] === '"') {
-                value += '"';
-                i++;
-            } else if (char === '"') {
-                quoted = false;
-                closed = true;
-            } else if (char === undefined) throw Error('Unterminated CSV quote');
-            else value += char;
-        } else if (char === '"' && value === '' && !closed) quoted = true;
-        else if (char === ',' || char === '\n' || char === '\r' || char === undefined) {
-            row.push(value);
-            value = '';
-            closed = false;
-            if (char !== ',') {
-                rows.push([...row]);
-                row.length = 0;
-                if (char === '\r' && input[i + 1] === '\n') i++;
-            }
-        } else {
-            if (closed || char === '"') throw Error('Unexpected character after CSV quote');
-            value += char;
-        }
-    }
-    return rows;
-}
 export function fieldType(text, context) {
     if (typeof text !== 'string') throw Error('Field type must be text');
     let source = text.trim(),
@@ -65,18 +28,11 @@ export function fieldType(text, context) {
         const match = /^(enum|ref|asset)<([^<>]+)>$/.exec(source);
         if (!match) throw Error(`Unsupported field type: ${text}`);
         if (match[1] === 'enum') {
-            if (context?.version === 2) {
-                const id = match[2].includes('.') ? match[2] : `${context.module}.${match[2]}`;
-                const enumeration = context.enums.get(id);
-                if (!enumeration || (enumeration.module !== context.module && !enumeration.public))
-                    throw Error(`Unknown or private named enum: ${id}`);
-                schema = { kind: 'enum', values: Object.values(enumeration.members), enumId: id };
-            } else {
-                const values = match[2].split(',').map((value) => value.trim());
-                if (values.some((value) => !value) || new Set(values).size !== values.length)
-                    throw Error(`Invalid enum: ${text}`);
-                schema = { kind: 'enum', values };
-            }
+            const id = match[2].includes('.') ? match[2] : `${context?.module}.${match[2]}`;
+            const enumeration = context?.enums.get(id);
+            if (!enumeration || (enumeration.module !== context.module && !enumeration.public))
+                throw Error(`Unknown or private named enum: ${id}`);
+            schema = { kind: 'enum', values: Object.values(enumeration.members), enumId: id };
         } else if (match[1] === 'asset') {
             if (
                 ![
@@ -161,11 +117,10 @@ async function readRows(root, mapping, preview) {
     const path = await safePath(root, mapping.source);
     if (!mapping.source.replaceAll('\\', '/').startsWith('config-source/'))
         throw Error('Table source must be under config-source');
-    if (extname(path).toLowerCase() === '.csv') return parseCSV(await readFile(path, 'utf8'));
-    if (extname(path).toLowerCase() !== '.xlsx') throw Error('Only .xlsx and UTF-8 .csv are supported');
+    if (extname(path).toLowerCase() !== '.xlsx') throw Error('Only .xlsx workbooks are supported');
     const book = new ExcelJS.Workbook();
     await book.xlsx.readFile(path);
-    const sheet = mapping.sheet ? book.getWorksheet(mapping.sheet) : book.worksheets[0];
+    const sheet = book.getWorksheet(mapping.sheet);
     if (!sheet) throw Error(`Missing sheet ${mapping.sheet}`);
     const result = [];
     let verified;
@@ -176,10 +131,6 @@ async function readRows(root, mapping, preview) {
             if (cell.isMerged && r >= 5)
                 throw Error(`${mapping.source}:${sheet.name}!${cell.address}: merged data cells are not supported`);
             if (cell.type === ExcelJS.ValueType.Formula) {
-                if (mapping.formatVersion !== 2)
-                    throw Error(
-                        `${mapping.source}:${sheet.name}!${cell.address}: migrate legacy formulas to XLSX v2 first`,
-                    );
                 if (r < 5 || sheet.name.startsWith('__'))
                     throw Error(
                         `${mapping.source}:${sheet.name}!${cell.address}: formulas are only allowed in data cells`,
@@ -219,9 +170,7 @@ function typeScript(schema) {
             type = 'string';
             break;
         case 'enum':
-            type = schema.enumId
-                ? schema.enumId.replaceAll('.', '_')
-                : schema.values.map((value) => JSON.stringify(value)).join(' | ');
+            type = schema.enumId.replaceAll('.', '_');
             break;
         case 'ref':
             type = schema.keyKind === 'int' ? 'number' : 'string';
@@ -266,7 +215,6 @@ export async function compileTables(root, projectModules, runtime, registry, opt
             if (typeof name !== 'string' || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(name) || name in fields)
                 throw Error(`${mapping.source}: invalid/duplicate column ${name}`);
             const schema = fieldType(rows[1]?.[index], {
-                version: mapping.formatVersion,
                 module: module.id,
                 enums: source.enums,
             });
@@ -385,38 +333,23 @@ export async function compileTables(root, projectModules, runtime, registry, opt
         }
     }
     const targetTable = new Map(tables.map((table) => [table.mapping.id, table]));
-    const checkRef = (value, schema, own, group, field) => {
+    const checkRef = (value, schema, own, field) => {
         if (value === null) return;
         if (schema.kind === 'array') {
-            for (const item of value) checkRef(item, schema.element, own, group, field);
+            for (const item of value) checkRef(item, schema.element, own, field);
             return;
         }
         if (schema.kind !== 'ref') return;
         const target = targetTable.get(schema.target),
             match = target.all.find((item) => item.row[target.definition.primaryKey] === value);
         if (!match) throw Error(`${own.mapping.id}.${field}: missing foreign key ${schema.target}=${value}`);
-        const soft = own.mapping.formatVersion === 2 || own.mapping.references?.[field]?.mode === 'soft';
-        if (
-            !soft &&
-            match.group !== 'default' &&
-            target.module.bundles[match.group].id !== own.module.bundles[group].id
-        )
-            throw Error(`${own.mapping.id}.${field}: strong foreign keys cannot cross sibling resource bundles`);
-        if (
-            own.mapping.formatVersion !== 2 &&
-            target.module.id !== own.module.id &&
-            target.module.id !== 'shared' &&
-            !own.module.dependencies.includes(target.module.id)
-        )
-            throw Error(`${own.mapping.id}.${field}: declare module dependency on ${target.module.id}`);
     };
     for (const table of tables) {
         const { mapping, module, definition } = table;
-        for (const { row, group } of table.all)
-            for (const [name, schema] of Object.entries(definition.fields))
-                checkRef(row[name], schema, table, group, name);
+        for (const { row } of table.all)
+            for (const [name, schema] of Object.entries(definition.fields)) checkRef(row[name], schema, table, name);
         const name = pascal(mapping.id.split('.')[1]);
-        const generated = `${relative(root, module.directory).replaceAll('\\', '/')}/${module.layoutVersion === 2 ? (mapping.public ? 'contracts' : 'code') + '/' : ''}generated/config`;
+        const generated = `${relative(root, module.directory).replaceAll('\\', '/')}/${mapping.public ? 'contracts' : 'code'}/generated/config`;
         const framework = relative(resolve(root, generated), resolve(root, 'assets/framework')).replaceAll('\\', '/');
         const rowType = Object.entries(definition.fields)
             .map(([field, schema]) => {
@@ -476,7 +409,7 @@ export async function compileTables(root, projectModules, runtime, registry, opt
                 };
             runtime.parseTable(envelope, definition, dataRevision);
             const bundle = module.bundles[group],
-                path = `${module.layoutVersion === 2 ? 'dynamic/' : ''}config/${mapping.id.split('.')[1]}`;
+                path = `dynamic/config/${mapping.id.split('.')[1]}`;
             const target = relative(root, resolve(module.directory, bundle.root, `${path}.json`)).replaceAll('\\', '/');
             if (Object.keys(output).some((key) => key.toLowerCase() === target.toLowerCase()))
                 throw Error(`Output path collision: ${target}`);
@@ -493,16 +426,13 @@ export async function compileTables(root, projectModules, runtime, registry, opt
     for (const module of projectModules) {
         const own = tables.filter((table) => table.module.id === module.id);
         if (!own.length) continue;
-        const directory = `${relative(root, module.directory).replaceAll('\\', '/')}/${module.layoutVersion === 2 ? 'code/' : ''}generated/config`;
+        const directory = `${relative(root, module.directory).replaceAll('\\', '/')}/code/generated/config`;
         output[`${directory}/tables.ts`] =
             '// 自动生成的配置表引用集合，不包含 JSON 数据行。\n' +
             own
                 .map((table) => {
                     const name = pascal(table.mapping.id.split('.')[1]);
-                    const prefix =
-                        module.layoutVersion === 2 && table.mapping.public
-                            ? '../../../contracts/generated/config/'
-                            : './';
+                    const prefix = table.mapping.public ? '../../../contracts/generated/config/' : './';
                     return `import { ${name}Table } from '${prefix}${name}.table';`;
                 })
                 .join('\n') +

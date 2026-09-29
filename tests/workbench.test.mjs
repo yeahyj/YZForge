@@ -78,7 +78,7 @@ test('role suffixes are idempotent and missing or cyclic dependencies fail befor
     );
     assert.throws(() => naming.dependencies([{ id: 'a', dependencies: {} }], 'a', ['missing']));
 });
-test('v2 paths disambiguate basenames and v1 cannot accept hierarchical IDs', () => {
+test('resource paths disambiguate basenames and indexes reject unsupported versions', () => {
     const address = { type: 'SpriteFrame', bundle: 'm-inventory', path: 'dynamic/a/icon/spriteFrame' };
     const index = validateIndex(
         {
@@ -95,7 +95,7 @@ test('v2 paths disambiguate basenames and v1 cannot accept hierarchical IDs', ()
         code: 'ASSET_NAME_AMBIGUOUS',
     });
     assert.equal(resolveIndex(index, logicalKey('a/icon', 'SpriteFrame', index.namespace), true), address);
-    assert.throws(() => validateIndex({ ...index, formatVersion: 1 }, index.namespace));
+    assert.throws(() => validateIndex({ ...index, formatVersion: 99 }, index.namespace));
     assert.throws(() =>
         validateIndex(
             { ...index, aliases: { 'inventory/default/sprite/a': 'inventory/default/sprite/missing' } },
@@ -105,10 +105,10 @@ test('v2 paths disambiguate basenames and v1 cannot accept hierarchical IDs', ()
     assert.equal(
         resolveIndex(
             validateIndex(
-                { ...index, aliases: { 'inventory/default/sprite/legacy': 'inventory/default/sprite/a/icon' } },
+                { ...index, aliases: { 'inventory/default/sprite/shortcut': 'inventory/default/sprite/a/icon' } },
                 index.namespace,
             ),
-            logicalKey('legacy', 'SpriteFrame', index.namespace),
+            logicalKey('shortcut', 'SpriteFrame', index.namespace),
         ),
         address,
     );

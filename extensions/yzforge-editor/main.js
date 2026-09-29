@@ -110,9 +110,11 @@ async function moduleInfo(id, allowOrphan = false) {
     const directory = inside(`assets/game/modules/${id}`);
     const manifest = await read(path.join(directory, 'module.json')).catch((error) => {
         if (allowOrphan && error.code === 'ENOENT' && syncFs.statSync(directory).isDirectory())
-            return { id, orphan: true, dependencies: [], bundles: {}, views: {}, assets: {} };
+            return { id, layoutVersion: 2, orphan: true, dependencies: [], bundles: {}, views: {} };
         throw error;
     });
+    if (manifest.layoutVersion !== 2) throw Error(`${id}: 不支持的模块 layoutVersion`);
+    if ('assets' in manifest) throw Error(`${id}: module.json 不支持手工登记 assets，资源由 dynamic 目录生成`);
     return { directory, manifest };
 }
 async function bundleFolder(directory, definition, kind = 'resources') {
@@ -269,7 +271,7 @@ async function createView(args) {
     const code = path.join(directory, 'code/ui'),
         generated = path.join(code, 'generated');
     await ensureFolder(generated);
-    const uiFolder = `${manifest.layoutVersion === 2 ? 'dynamic/' : ''}ui`;
+    const uiFolder = 'dynamic/ui';
     await ensureFolder(path.join(directory, bundle.root, uiFolder));
     const files = {
         [path.join(code, `${className}.types.ts`)]:
@@ -296,8 +298,7 @@ async function createView(args) {
         url(path.join(directory, bundle.root, `${uiFolder}/${className}.prefab`)),
         content,
     );
-    const assetId = `${manifest.id}/${group}/prefab/${manifest.layoutVersion === 2 ? 'ui/' : ''}${id}`;
-    if (manifest.layoutVersion !== 2) (manifest.assets ??= {})[assetId] = { type: 'Prefab', uuid: prefab.uuid };
+    const assetId = `${manifest.id}/${group}/prefab/ui/${id}`;
     manifest.views[id] = {
         visibility: args.visibility ?? 'internal',
         prefab: assetId,
@@ -365,7 +366,7 @@ async function resourceIdentity(manifest, id) {
     const bundle = manifest.bundles[id.split('/')[1]];
     if (!bundle) return null;
     const target = inside(
-        `assets/game/modules/${manifest.id}/${bundle.root}/${manifest.layoutVersion === 2 ? 'dynamic/' : ''}ui/${view.className.split('.').pop()}.prefab`,
+        `assets/game/modules/${manifest.id}/${bundle.root}/dynamic/ui/${view.className.split('.').pop()}.prefab`,
     );
     const info = await Editor.Message.request('asset-db', 'query-asset-info', url(target));
     return info ? { uuid: info.uuid, type: 'Prefab' } : null;
@@ -398,39 +399,6 @@ function runTool(command, extra = []) {
             },
         ),
     );
-}
-async function registerAsset(args) {
-    const { directory, manifest } = await moduleInfo(args.module);
-    if (manifest.layoutVersion === 2) throw Error('动态资源由 dynamic 目录自动生成，无需手工登记');
-    const id = String(args.id),
-        parts = id.split('/');
-    if (parts.length !== 4 || parts[0] !== manifest.id || !manifest.bundles[parts[1]])
-        throw Error('资源逻辑标识应为 module/group/kind/name');
-    const info = await Editor.Message.request('asset-db', 'query-asset-info', args.uuid);
-    if (!info || !info.url.startsWith('db://assets/'))
-        throw Error('请选择当前项目的真实资源（图片请选 SpriteFrame 子资源）');
-    if (manifest.assets[id] && manifest.assets[id].uuid !== info.uuid)
-        throw Error('逻辑名已被其他 UUID 使用，请显式重命名');
-    if (args.atlasFrame && args.type !== 'SpriteFrame') throw Error('图集帧必须登记为 SpriteFrame');
-    manifest.assets[id] = {
-        uuid: info.uuid,
-        type: args.type,
-        ...(args.atlasFrame ? { atlasFrame: String(args.atlasFrame) } : {}),
-    };
-    await saveJson(path.join(directory, 'module.json'), manifest);
-    return { id, uuid: info.uuid, url: info.url };
-}
-async function tableMapping(args) {
-    const config = await read(inside('config-source/tables.json')),
-        value = args.mapping;
-    if (!value || typeof value.id !== 'string' || !value.source?.startsWith('config-source/'))
-        throw Error('请提供 tableId 和 config-source 内的源文件');
-    inside(value.source);
-    const index = config.tables.findIndex((table) => table.id === value.id);
-    if (index >= 0) config.tables[index] = value;
-    else config.tables.push(value);
-    await saveJson(inside('config-source/tables.json'), config);
-    return value;
 }
 async function createTableTemplate(args) {
     const { manifest } = await moduleInfo(args.module),
@@ -504,8 +472,6 @@ async function previewDelete(args, creation) {
                     previous: workbook.config,
                     next: { ...workbook.config, enabled: false },
                 });
-        for (const table of state.tables.tables.filter((table) => table.formatVersion !== 2))
-            if (table.id.startsWith(manifest.id + '.')) refs.push(`请先将旧配置表 ${table.id} 迁移为 XLSX 配置页`);
     } else if (kind === 'view' || kind === 'prefab') {
         const view = kind === 'view' ? manifest.views[args.id] : manifest.components?.[args.id];
         if (!view) throw Error('未找到界面');
@@ -531,13 +497,12 @@ async function previewDelete(args, creation) {
         ids.push(`${manifest.id}.${args.id}`, ...(resourceId ? [resourceId] : []));
         if (kind === 'view') delete nextManifest.views[args.id];
         else delete nextManifest.components[args.id];
-        if (nextManifest.assets && resourceId) delete nextManifest.assets[resourceId];
         if (kind === 'view' && Object.values(nextManifest.views).some((other) => other.prefab === view.prefab))
             refs.push('其他界面也使用此 Prefab');
     } else if (kind === 'language' || kind === 'localization') {
         const [base, locale] = args.id.split('/');
         const declaration = manifest.bundles[base]?.localization;
-        if (!declaration?.locales) throw Error('未找到语言声明，请先迁移旧目录');
+        if (!declaration?.locales) throw Error('未找到有效的语言声明');
         if (kind === 'language' && !declaration.locales[locale]) throw Error('此语言尚未启用');
         if (kind === 'language' && locale === state.settings.localization.defaultLocale)
             throw Error('默认语言不能单独停用；可停用整个业务包的多语言');
@@ -844,8 +809,6 @@ const actions = {
     createView,
     bindView,
     createScript,
-    registerAsset,
-    tableMapping,
     createTableTemplate,
     previewDelete,
     deleteModule,
@@ -967,12 +930,6 @@ const actions = {
         await saveJson(path.join(directory, 'module.json'), manifest);
         return manifest;
     },
-    async removeTable(args) {
-        const tables = await read(inside('config-source/tables.json'));
-        tables.tables = tables.tables.filter((table) => table.id !== args.id);
-        await saveJson(inside('config-source/tables.json'), tables);
-        return tables;
-    },
     async moveAsset(args) {
         const source = await Editor.Message.request('asset-db', 'query-asset-info', args.uuid),
             target = inside(args.target);
@@ -1038,24 +995,6 @@ Object.assign(
         creation,
         actions: () => actions,
         state: () => exports.methods.state(),
-    }),
-);
-Object.assign(
-    actions,
-    require('./migration').createMigration({
-        root,
-        inside,
-        rel,
-        url,
-        read,
-        moduleInfo,
-        listFiles,
-        ensureFolder,
-        saveJson,
-        writeScript,
-        bundleFolder,
-        workbookTools,
-        journal,
     }),
 );
 function scheduleGeneration() {
@@ -1239,8 +1178,6 @@ exports.methods = {
                     [
                         'create',
                         'createLocalization',
-                        'migrateLocalization',
-                        'cleanupLocalizationDirectories',
                         'applyLanguageUpdate',
                         'restoreLanguageUpdate',
                         'deleteModule',
@@ -1258,8 +1195,6 @@ exports.methods = {
                         'updateModule',
                         'updateSettings',
                         'moveAsset',
-                        'migrateModule',
-                        'migrateLocalization',
                         'rollbackCreation',
                     ].includes(action)
                 ) {

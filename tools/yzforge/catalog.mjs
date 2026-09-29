@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { relative, resolve, extname } from 'node:path';
 import { json, files } from './project.mjs';
-import { localizationOutputPaths } from './localization.mjs';
 const kinds = {
     Prefab: 'prefab',
     SceneAsset: 'scene',
@@ -57,25 +56,8 @@ export async function scanCatalog(root, modules, metadata, sources) {
     );
     const issues = [],
         owners = new Map(),
-        generatedTables = new Set(
-            localizationOutputPaths(root, modules).map((file) => resolve(root, file).toLowerCase()),
-        );
-    // 等待编辑器归档的旧语言输出也属于生成器，不能在改变存放位置后被重新认领为普通资源。
-    const generated = await json(resolve(root, 'project-settings/generated/generated-files.json')).catch((error) => {
-        if (error.code === 'ENOENT') return {};
-        throw error;
-    });
-    for (const file of Object.keys(generated))
-        if (/\/dynamic\/i18n\/[^/]+\/[^/]+\.json$|\/yz-locale\.json$/.test(file))
-            generatedTables.add(resolve(root, file).toLowerCase());
+        generatedTables = new Set();
     for (const module of modules) {
-        for (const [id, registration] of Object.entries(module.assets ?? {})) {
-            const key = registration.uuid + (registration.atlasFrame ? `#${registration.atlasFrame}` : '');
-            const current = entries[key];
-            if (current && current.id !== id) throw Error(`同一 UUID 被重复命名：${id} / ${current.id}`);
-            entries[key] ??= { id, type: registration.type, active: false };
-        }
-        if (module.layoutVersion !== 2) continue;
         module.assets = {};
         for (const [group, bundle] of Object.entries(module.bundles)) {
             const dynamic = resolve(module.directory, bundle.root, 'dynamic');
@@ -124,9 +106,6 @@ export async function scanCatalog(root, modules, metadata, sources) {
         }
     }
     if (issues.length) throw Error([...new Set(issues)].join('\n'));
-    for (const module of modules.filter((item) => item.layoutVersion !== 2))
-        for (const registration of Object.values(module.assets ?? {}))
-            if (entries[registration.uuid]) entries[registration.uuid].active = true;
     return {
         formatVersion: 2,
         entries: Object.fromEntries(Object.entries(entries).sort(([a], [b]) => a.localeCompare(b))),

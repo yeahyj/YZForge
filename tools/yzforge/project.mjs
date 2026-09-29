@@ -54,7 +54,13 @@ export async function modules(root) {
     );
     const unique = [...new Set(manifests)];
     return Promise.all(
-        unique.map(async (path) => ({ ...(await json(path)), directory: dirname(path), manifestPath: path })),
+        unique.map(async (path) => {
+            const manifest = await json(path);
+            if (manifest.layoutVersion !== 2) throw Error(`${path}: unsupported module layoutVersion`);
+            if ('assets' in manifest)
+                throw Error(`${path}: module.json 不支持手工登记 assets，资源由 dynamic 目录生成`);
+            return { ...manifest, directory: dirname(path), manifestPath: path };
+        }),
     );
 }
 export function identifier(value) {
@@ -144,7 +150,7 @@ async function saveTransaction(base, record) {
     await writeFile(file + '.tmp', JSON.stringify(record, null, 2));
     await rename(file + '.tmp', file);
 }
-/** 列出需要恢复的生成，旧版已结束日志不会被当成中断任务。 */
+/** 列出已准备或中断、需要恢复的生成事务。 */
 export async function pendingTransactions(root) {
     const base = await safePath(root, '.yzforge/changes');
     const names = await readdir(base).catch((error) => {

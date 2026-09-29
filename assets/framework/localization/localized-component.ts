@@ -8,7 +8,7 @@ const { ccclass, property } = _decorator;
 /** @internal 原生多语言绑定。编辑器中的内容更新由工作台负责。 */
 @ccclass('yzforge.LocalizedComponent')
 export class LocalizedComponent extends Component {
-    /** 空串自动解析源资源归属；旧字段继续兼容显式跨包引用。 */
+    /** 显式跨包来源；空串按源预制体或场景自动解析。 */
     @property({ visible: false })
     namespace = '';
     @property({ visible: false })

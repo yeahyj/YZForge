@@ -48,7 +48,7 @@ export function logicalKey(name: string, type: AssetKind, namespace?: string): A
 export function validateIndex(value: unknown, namespace: string): NamespaceIndex {
     const index = value as NamespaceIndex;
     invariant(
-        (index?.formatVersion === 1 || index?.formatVersion === 2) &&
+        index?.formatVersion === 2 &&
             index.namespace === namespace &&
             index.assets &&
             typeof index.assets === 'object' &&
@@ -59,7 +59,6 @@ export function validateIndex(value: unknown, namespace: string): NamespaceIndex
     for (const [id, address] of Object.entries(index.assets)) {
         invariant(address && typeof address === 'object', 'ASSET_ADDRESS_INVALID', id);
         logicalKey(id, address.type);
-        invariant(index.formatVersion !== 1 || id.split('/').length === 4, 'ASSET_INDEX_INVALID', id);
         invariant(
             id.startsWith(`${namespace}/`) &&
                 typeof address.bundle === 'string' &&

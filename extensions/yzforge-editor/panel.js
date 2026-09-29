@@ -10,7 +10,6 @@ exports.ready = function () {
     let state,
         createPlan,
         languagePlan,
-        languageMigrationPlan,
         languageUpdatePlan,
         creationRollbackPlan,
         deletePlan,
@@ -122,11 +121,6 @@ exports.ready = function () {
             creationRollbackPlan.references.length > 0;
         el('create').disabled = busy || !createPlan || createPlan.conflicts.length > 0;
         el('createLanguage').disabled = busy || !languagePlan || languagePlan.conflicts.length > 0;
-        const legacyLanguage = Object.values(current()?.bundles ?? {}).some((bundle) => bundle.localization?.variants);
-        el('previewLanguageMigration').hidden = !legacyLanguage;
-        el('migrateLanguage').hidden = !legacyLanguage;
-        el('previewLanguageMigration').disabled = busy || !legacyLanguage;
-        el('migrateLanguage').disabled = busy || !languageMigrationPlan;
         el('previewLanguage').disabled = busy || !val('languageBundle') || !val('languageLocale');
         el('openLanguageWorkbook').disabled = busy || !current()?.bundles[val('languageBundle')]?.localization?.source;
         el('languageTexts').disabled = busy || !!current()?.bundles[val('languageBundle')]?.localization?.source;
@@ -219,8 +213,6 @@ exports.ready = function () {
         languageUpdatePlan = undefined;
         renderFiles('languageUpdateFiles', [], '当前范围使用原生撤销，修改后正常保存；批量范围会直接保存所列文件。');
         languagePlan = undefined;
-        languageMigrationPlan = undefined;
-        el('migrateLanguage').disabled = true;
         const declaration = current()?.bundles[val('languageBundle')]?.localization;
         el('languageSource').textContent =
             declaration?.source ?? (declaration ? '纯资源多语言包，无需文案工作簿。' : '此业务资源包尚未配置多语言。');
@@ -792,24 +784,6 @@ exports.ready = function () {
         if (result) el('languageUpdateResult').textContent = result.message;
     });
     on('languageUpdateRecord', updateCreationActions, 'change');
-    on('previewLanguageMigration', async () => {
-        languageMigrationPlan = await run('previewLocalizationMigration', { module: current().id }, false);
-        el('migrateLanguage').disabled = !languageMigrationPlan;
-        if (languageMigrationPlan)
-            renderFiles(
-                'languagePreview',
-                languageMigrationPlan.moves.map((move) => ({ path: `${move.from} → ${move.to}`, operation: 'update' })),
-                '',
-            );
-    });
-    on('migrateLanguage', async () => {
-        if (!languageMigrationPlan) throw Error('请先预览迁移范围');
-        const plan = languageMigrationPlan;
-        languageMigrationPlan = undefined;
-        el('migrateLanguage').disabled = true;
-        await run('migrateLocalization', { module: plan.module, signature: plan.signature });
-        await run('cleanupLocalizationDirectories', { module: plan.module });
-    });
     on('recalculate', () => run('recalculate', { source: val('workbook') }, false));
     on('ensurePresets', () => run('ensurePresets'));
     on('bundleSettings', () => run('openBundleSettings', {}, false));

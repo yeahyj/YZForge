@@ -68,7 +68,7 @@ async function fixture(t, rows) {
             default: {
                 id: 'shop',
                 root: 'bundles/default',
-                localization: { source, locales: { 'zh-CN': {}, en: { id: 'shop-en' } } },
+                localization: { source, locales: { 'zh-CN': {}, en: {} } },
             },
         },
     };
@@ -96,7 +96,7 @@ test('独立工作簿统一派生语言包路由和类型合同；完整保留�
     assert.equal(sources.localizationWorkbooks.length, 1);
     const result = await f.compile(),
         definition = result.release.bundles.shop;
-    assert.equal(definition.catalogs.en.bundle, 'shop-en');
+    assert.equal(definition.catalogs.en.bundle, 'shop-default-en');
     const zh = JSON.parse(result.output['assets/game/modules/shop/localization/default/zh-CN/yz-locale.json']);
     const en = JSON.parse(result.output['assets/game/modules/shop/localization/default/en/yz-locale.json']);
     assert.equal(zh.texts.hello, '  你好 {name}\n世界  ');
@@ -132,7 +132,7 @@ test('缺少默认文案、占位符错配、数字/公式和生成名冲突均�
         ],
     ]) {
         await assert.rejects(async () => {
-            const f = await fixture(t, { texts: rows, assets: [] });
+            const f = await fixture(t, { texts: rows });
             await f.compile();
         }, /默认语言缺少|参数不一致|必须为纯文本|生成标识冲突/);
     }
@@ -167,7 +167,7 @@ test('资源按实际目录配对，类型和语言分组必须吻合', async (t
     f.registry.get('shop/default-en/sprite/logo').type = 'Font';
     await assert.rejects(f.compile(), /资源类型不一致/);
     f.registry.get('shop/default-en/sprite/logo').type = 'SpriteFrame';
-    f.module.bundles.default.localization.locales.en.group = 'default-zh-cn';
+    f.module.bundles['default-en'] = { id: 'duplicate', root: 'bundles/duplicate' };
     assert.throws(() => localizationDeclarations([f.module], settings), /分组.*冲突/);
 });
 test('安全追加语言列保留旧翻译与无关 ZIP 内容，过期预览不能覆盖文件', async (t) => {
@@ -219,30 +219,6 @@ test('语言工作簿不能同时伪装成普通配置表或被两个资源包�
     await assert.rejects(readWorkbook(f.root, f.source), /混用/);
 });
 
-test('调整语言包位置后，待归档的旧目录不会被重新编目为普通动态资源', async (t) => {
-    const f = await fixture(t);
-    const oldCatalog = 'assets/game/modules/shop/bundles/default/dynamic/i18n/default/en.json';
-    await mkdir(join(f.root, 'project-settings/generated'), { recursive: true });
-    await writeFile(
-        join(f.root, 'project-settings/generated/generated-files.json'),
-        JSON.stringify({ [oldCatalog]: 'old-output-digest' }),
-    );
-    const metadata = new Map([
-        ['old-catalog', { source: join(f.root, oldCatalog), importer: 'json' }],
-        [
-            'current-catalog',
-            { source: join(f.module.directory, 'localization/default/en/yz-locale.json'), importer: 'json' },
-        ],
-        [
-            'business-json',
-            { source: join(f.module.directory, 'bundles/default/dynamic/i18n/rules.json'), importer: 'json' },
-        ],
-    ]);
-    const identities = await scanCatalog(f.root, [f.module], metadata, await workbookSources(f.root));
-    assert.deepEqual(Object.keys(identities.entries), ['business-json']);
-    assert.deepEqual(Object.keys(f.module.assets), ['shop/default/json/i18n/rules']);
-});
-
 test('纯资源包不需要工作簿，已声明但丢失的工作簿仍报错', async (t) => {
     const f = await fixture(t);
     const empty = { tables: [], localizationWorkbooks: [] };
@@ -260,21 +236,25 @@ test('纯资源包不需要工作簿，已声明但丢失的工作簿仍报错',
     );
 });
 
-test('新工作簿只含文案，旧资源表不会被静默忽略', async (t) => {
+test('工作簿只含文案，拒绝未支持的版本和工作表', async (t) => {
     const f = await fixture(t),
         current = await readWorkbook(f.root, f.source);
-    assert.equal(current.book.getWorksheet('assets'), undefined);
+    assert.deepEqual(
+        current.book.worksheets.map((sheet) => sheet.name),
+        ['__localization', '__help', 'texts'],
+    );
     assert.equal(current.book.getWorksheet('__localization').getCell('B1').value, 2);
     await writeLocalizationWorkbook(f.root, f.source, { enabled: false }, current.hash);
     assert.equal((await readWorkbook(f.root, f.source)).book.getWorksheet('__localization').getCell('B1').value, 2);
     const book = new ExcelJS.Workbook();
     await book.xlsx.readFile(join(f.root, f.source));
-    book.addWorksheet('assets').addRows([
-        ['key', 'type', 'comment', 'zh-CN', 'en'],
-        ['logo', 'SpriteFrame', '', 'old-uuid'],
-    ]);
+    book.getWorksheet('__localization').getCell('B1').value = 99;
+    await book.xlsx.writeFile(join(f.root, f.source));
+    await assert.rejects(readWorkbook(f.root, f.source), /声明无效/);
+    book.getWorksheet('__localization').getCell('B1').value = 2;
+    book.addWorksheet('unexpected').addRow(['unsupported']);
     await writeFile(join(f.root, f.source), Buffer.from(await book.xlsx.writeBuffer()));
-    await assert.rejects(readWorkbook(f.root, f.source), /旧资源映射/);
+    await assert.rejects(readWorkbook(f.root, f.source), /不支持的多语言工作表/);
 });
 
 test('相对路径 key 跟随实际改名，缺少版本列入回退清单，默认版本必须完整', async (t) => {

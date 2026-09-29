@@ -16,7 +16,7 @@
 
 `common` 是示例选择的名字；公共表可以由任何模块公开。一个 Bundle 的 `dynamic` 自动编目，`static` 用于序列化引用；包根目录才是 Bundle。
 
-XLSX 源表为 `common/economy.xlsx`、`lobby/items.xlsx`、`workshop/tasks.xlsx`、`showcase/samples.xlsx`，均位于 `config-source/`。Samples 展示分片与跨工作表公式。旧 `lobby/items.csv` 没有登记，不参与导出，新内容使用 XLSX。
+XLSX 源表为 `common/economy.xlsx`、`lobby/items.xlsx`、`workshop/tasks.xlsx`、`showcase/samples.xlsx`，均位于 `config-source/`。Samples 展示分片与跨工作表公式。
 
 ## 验证与清理
 

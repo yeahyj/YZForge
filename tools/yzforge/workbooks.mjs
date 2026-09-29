@@ -57,7 +57,7 @@ export function configRows(config) {
 }
 function parseConfig(book, source) {
     const sheet = book.getWorksheet('__config');
-    if (!sheet) throw Error(`${source}: 缺少 __config；请先接入 XLSX 模板或迁移旧表`);
+    if (!sheet) throw Error(`${source}: 缺少 __config；请使用工作台创建的 XLSX 模板`);
     const header = columns.map((_, i) => text(sheet.getCell(1, i + 1).value));
     if (header.join('|') !== columns.join('|')) throw Error(`${source}: __config 表头与版本 2 模板不一致`);
     const settings = {},
@@ -191,12 +191,6 @@ export async function workbookSources(root, { tolerant = false } = {}) {
     const workbooks = [],
         diagnostics = [],
         pending = [];
-    let legacy = { tables: [] };
-    try {
-        legacy = await json(resolve(root, 'config-source/tables.json'));
-    } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-    }
     for (const target of (await files(resolve(root, 'config-source'), '.xlsx')).sort()) {
         if (target.split(/[\\/]/).pop().startsWith('~$')) continue;
         const source = relative(root, target).replaceAll('\\', '/');
@@ -204,8 +198,6 @@ export async function workbookSources(root, { tolerant = false } = {}) {
         try {
             item = await readWorkbook(root, source);
         } catch (error) {
-            if (legacy.tables.some((table) => table.source === source) && error.message.includes('缺少 __config'))
-                continue;
             pending.push({ source, error });
             continue;
         }
@@ -237,17 +229,10 @@ export async function workbookSources(root, { tolerant = false } = {}) {
                 id: table.id.includes('.') ? table.id : `${item.config.module}.${table.id}`,
                 source: item.source,
                 bundle: table.bundle ?? item.config.bundle,
-                formatVersion: workbookVersion,
-                workbookHash: item.hash,
                 inputs: item.config.inputs,
             });
             if (tables.at(-1).id.split('.')[0] !== item.config.module) throw Error(`${item.source}: 表归属不能跨模块`);
         }
-    }
-    // Legacy input exists only until an explicit migration; never silently merge two authorities.
-    for (const table of legacy.tables) {
-        if (tables.some((item) => item.id === table.id)) throw Error(`新旧配置来源重复：${table.id}，请完成迁移`);
-        tables.push({ ...table, formatVersion: 1 });
     }
     return { tables, enums, workbooks, localizationWorkbooks, diagnostics };
 }

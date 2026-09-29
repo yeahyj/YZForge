@@ -242,7 +242,7 @@ test('resource short names are resolved only in the selected namespace and kind'
     assert.throws(() => logicalKey('coin', 'SpriteFrame'), { code: 'ASSET_ID_INVALID' });
     const index = validateIndex(
         {
-            formatVersion: 1,
+            formatVersion: 2,
             namespace: 'battle/forest',
             assets: {
                 'battle/forest/sprite/coin': { type: 'SpriteFrame', bundle: 'forest', path: 'icons/coin/spriteFrame' },

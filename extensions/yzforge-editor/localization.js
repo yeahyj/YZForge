@@ -2,13 +2,11 @@
 const path = require('path');
 const fs = require('fs/promises');
 const { pathToFileURL } = require('url');
-const { createHash } = require('crypto');
 const layout = require('../../tools/yzforge/localization-layout.cjs');
 const { localizationSettings } = require('../../tools/yzforge/settings.cjs');
-const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 exports.createLocalizationTools = function (ctx) {
-    const { root, inside, read, moduleInfo, saveJson, workbookTools, bundleFolder, ensureFolder, url, journal } = ctx;
+    const { root, inside, read, moduleInfo, saveJson, workbookTools, bundleFolder, ensureFolder } = ctx;
     const tools = () => import(pathToFileURL(inside('tools/yzforge/localization-workbook.mjs')).href);
     async function planLocalization(args) {
         const { manifest } = await moduleInfo(args.module),
@@ -18,7 +16,6 @@ exports.createLocalizationTools = function (ctx) {
         if (!layout.businessBundles(manifest)[base]) throw Error('请选择业务资源包');
         if (!config.locales.includes(args.locale)) throw Error('请选择有效语言');
         const previous = manifest.bundles[base].localization;
-        if (previous?.variants) throw Error('请先迁移旧目录');
         const source =
             previous?.source ??
             (args.texts === true ? `config-source/${manifest.id}/localization-${base}.xlsx` : undefined);
@@ -58,8 +55,8 @@ exports.createLocalizationTools = function (ctx) {
             hash = workbook.hash;
             updates.push(source);
         } else if (source) paths.push(source);
-        for (const [locale, variant] of Object.entries(locales)) {
-            const target = layout.languageBundle(manifest, base, locale, variant);
+        for (const locale of Object.keys(locales)) {
+            const target = layout.languageBundle(manifest, base, locale);
             if (!previous?.locales?.[locale]) {
                 if (
                     await fs.stat(inside(`${prefix}/${target.root}`)).then(
@@ -105,8 +102,8 @@ exports.createLocalizationTools = function (ctx) {
         const { request } = await planLocalization(args);
         if (args.hash !== request.hash) throw Error('工作簿已变化，请重新预览');
         const { directory, manifest } = await moduleInfo(request.module);
-        for (const [locale, variant] of Object.entries(request.locales)) {
-            const target = layout.languageBundle(manifest, request.bundle, locale, variant);
+        for (const locale of Object.keys(request.locales)) {
+            const target = layout.languageBundle(manifest, request.bundle, locale);
             await bundleFolder(directory, target);
             await ensureFolder(path.join(directory, target.root, 'dynamic'));
             await ensureFolder(path.join(directory, target.root, 'static'));
@@ -125,135 +122,12 @@ exports.createLocalizationTools = function (ctx) {
         await saveJson(path.join(directory, 'module.json'), manifest);
         return { source: request.source, module: request.module, bundle: request.bundle, locale: request.locale };
     }
-    async function previewLocalizationMigration(args) {
-        const { directory, manifest } = await moduleInfo(args.module);
-        const next = structuredClone(manifest),
-            moves = [],
-            folders = [],
-            tracked = [];
-        for (const [base, bundle] of Object.entries(layout.businessBundles(manifest))) {
-            const old = bundle.localization;
-            if (!old?.variants) continue;
-            const locales = {};
-            for (const [locale, group] of Object.entries(old.variants)) {
-                const previous = manifest.bundles[group];
-                if (!previous || (group !== base && previous.localization)) throw Error('旧语言包归属冲突');
-                const variant = group === base ? {} : { id: previous.id, group };
-                const target = layout.languageBundle(manifest, base, locale, variant);
-                locales[locale] = variant;
-                const oldRoot = path.join(directory, previous.root),
-                    newRoot = path.join(directory, target.root);
-                if (
-                    await fs.stat(newRoot).then(
-                        () => true,
-                        (error) => {
-                            if (error.code === 'ENOENT') return false;
-                            throw error;
-                        },
-                    )
-                )
-                    throw Error('迁移目标已存在：' + target.root);
-                const oldCatalog = path.join(oldRoot, `dynamic/i18n/${base}/${locale.toLowerCase()}.json`);
-                const info = await Editor.Message.request('asset-db', 'query-asset-info', url(oldCatalog));
-                if (!info) throw Error('旧语言目录未导入：' + oldCatalog);
-                tracked.push([url(oldCatalog), info.uuid, digest(await fs.readFile(oldCatalog, 'utf8'))]);
-                if (group !== base) {
-                    if (moves.some((move) => move.from === url(oldRoot)))
-                        throw Error('一个旧语言包被多处共用，不能自动迁移');
-                    moves.push({ from: url(oldRoot), to: url(newRoot) });
-                    delete next.bundles[group];
-                } else folders.push({ ...target, directory });
-                moves.push({
-                    from: url(
-                        path.join(
-                            group === base ? oldRoot : newRoot,
-                            `dynamic/i18n/${base}/${locale.toLowerCase()}.json`,
-                        ),
-                    ),
-                    to: url(path.join(newRoot, 'yz-locale.json')),
-                });
-            }
-            next.bundles[base].localization = { source: old.source, locales };
-        }
-        if (!moves.length) throw Error('当前模块没有需要迁移的旧多语言目录');
-        layout.physicalBundles(next);
-        return { module: manifest.id, moves, folders, next, signature: digest({ manifest, moves, folders, tracked }) };
-    }
-    async function migrateLocalization(args) {
-        const plan = await previewLocalizationMigration(args);
-        if (args.signature !== plan.signature) throw Error('迁移条件已变化，请重新预览');
-        const { directory, manifest } = await moduleInfo(args.module);
-        const completed = [];
-        const record = await journal('localization-migration', { plan, previous: manifest });
-        try {
-            for (const folder of plan.folders) {
-                await bundleFolder(directory, folder);
-                for (const child of ['dynamic', 'static']) await ensureFolder(path.join(directory, folder.root, child));
-            }
-            for (const move of plan.moves) {
-                const target = inside(move.to.replace('db://', ''));
-                await ensureFolder(path.dirname(target));
-                const before = await Editor.Message.request('asset-db', 'query-asset-info', move.from);
-                await Editor.Message.request('asset-db', 'move-asset', move.from, move.to);
-                completed.push(move);
-                const after = await Editor.Message.request('asset-db', 'query-asset-info', move.to);
-                if (before.uuid !== after?.uuid) throw Error('迁移未保留资源 UUID');
-            }
-            await saveJson(path.join(directory, 'module.json'), plan.next);
-            return { module: args.module, moves: completed, record };
-        } catch (error) {
-            const conflicts = [];
-            for (const move of completed.reverse()) {
-                try {
-                    await ensureFolder(path.dirname(inside(move.from.replace('db://', ''))));
-                    await Editor.Message.request('asset-db', 'move-asset', move.to, move.from);
-                } catch (failure) {
-                    conflicts.push(failure.message);
-                }
-            }
-            await saveJson(path.join(directory, 'module.json'), manifest);
-            throw Error(
-                error.message +
-                    (conflicts.length ? '；恢复冲突：' + conflicts.join(', ') : '；资源移动已撤回，请检查新建的空目录'),
-                { cause: error },
-            );
-        }
-    }
-    async function cleanupLocalizationDirectories(args) {
-        const { directory, manifest } = await moduleInfo(args.module),
-            removed = [];
-        const db = (method, ...values) => Editor.Message.request('asset-db', method, ...values);
-        async function empty(target) {
-            const entries = await fs.readdir(target, { withFileTypes: true });
-            for (const entry of entries) {
-                if (entry.isSymbolicLink()) return false;
-                if (entry.isDirectory()) {
-                    if (!(await empty(path.join(target, entry.name)))) return false;
-                } else if (
-                    !entry.name.endsWith('.meta') ||
-                    !entries.some((other) => other.isDirectory() && other.name + '.meta' === entry.name)
-                )
-                    return false;
-            }
-            const info = await db('query-asset-info', url(target));
-            return !!info && !((await db('query-asset-users', info.uuid, 'all')) ?? []).some(Boolean);
-        }
-        for (const bundle of Object.values(layout.physicalBundles(manifest)))
-            for (const suffix of ['dynamic/i18n', 'dynamic/locales']) {
-                const target = inside(path.join(directory, bundle.root, suffix));
-                if ((await db('query-asset-info', url(target))) && (await empty(target))) {
-                    await db('delete-asset', url(target));
-                    removed.push(url(target));
-                }
-            }
-        return { removed };
-    }
     async function languageResourceState(modules) {
         const result = [];
         for (const module of modules)
             for (const [base, bundle] of Object.entries(layout.businessBundles(module)))
-                for (const [locale, variant] of Object.entries(bundle.localization?.locales ?? {})) {
-                    const target = layout.languageBundle(module, base, locale, variant);
+                for (const locale of Object.keys(bundle.localization?.locales ?? {})) {
+                    const target = layout.languageBundle(module, base, locale);
                     const catalog = await read(
                         inside(`assets/game/modules/${module.id}/${target.root}/yz-locale.json`),
                     ).catch((error) => {
@@ -272,8 +146,5 @@ exports.createLocalizationTools = function (ctx) {
         languageResourceState,
         planLocalization,
         createLocalization,
-        previewLocalizationMigration,
-        migrateLocalization,
-        cleanupLocalizationDirectories,
     };
 };

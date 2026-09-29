@@ -110,7 +110,7 @@ async function generateLocked(
     const paths = new Set();
     for (const module of projectModules) {
         const prefix = forward(relative(root, module.directory));
-        const generatedRoot = `${prefix}/${module.layoutVersion === 2 ? 'contracts/' : ''}generated`;
+        const generatedRoot = `${prefix}/contracts/generated`;
         const groups = new Map();
         for (const [group, definition] of Object.entries(module.bundles)) {
             const directory = await safePath(root, resolve(module.directory, definition.root));
@@ -311,7 +311,7 @@ async function generateLocked(
                 type: 'JsonAsset',
                 address: {
                     bundle: module.bundles[group].id,
-                    path: `${module.layoutVersion === 2 ? 'dynamic/' : ''}config/${mapping.id.split('.')[1]}`,
+                    path: `dynamic/config/${mapping.id.split('.')[1]}`,
                     type: 'JsonAsset',
                 },
             });
@@ -335,7 +335,7 @@ async function generateLocked(
                 if (keys[parts[2]]?.[name]) throw Error(`Generated resource identifier collision: ${id}`);
                 (keys[parts[2]] ??= {})[name] = { id, type: address.type };
             }
-            const generatedRoot = `${forward(relative(root, module.directory))}/${module.layoutVersion === 2 ? 'contracts/' : ''}generated`;
+            const generatedRoot = `${forward(relative(root, module.directory))}/contracts/generated`;
             output[`${generatedRoot}/resources-${group}.ts`] =
                 `// 根据 dynamic 目录及稳定资源身份自动生成，请勿逐项手动添加或修改。\n/** ${module.id}/${group} 的类型化动态资源键；只描述资源身份，import 不会加载对应内容。 */\nexport const ${pascal(module.id)}${group === 'default' ? '' : pascal(group)}Res = ${resourceKeysSource(keys)} as const;\n`;
             const aliases = Object.fromEntries(

@@ -85,7 +85,6 @@ export class CountdownLabel extends Label {
         const activation = this.lifetime.requireContext();
         this.bind(activation.scope, activation.time ?? deviceTime, {
             deadlineMs,
-            format: this.templateFormatter,
             onComplete: () => Component.EventHandler.emitEvents(this.completedEvents, this),
         });
     }
@@ -103,7 +102,7 @@ export class CountdownLabel extends Label {
     bind(owner: Lifetime, time: CountdownTime, options: CountdownOptions): CountdownHandle {
         options = { ...options };
         invariant(
-            !options.format || options.format === this.templateFormatter || this.formatUsers === 0,
+            !options.format || this.formatUsers === 0,
             'COUNTDOWN_FORMAT_CONFLICT',
             '已有语言模板绑定，不能同时传自定义 format',
         );
@@ -118,15 +117,13 @@ export class CountdownLabel extends Label {
             this.refreshCurrent = undefined;
             this.customFormat = false;
         });
-        this.customFormat = !!options.format && options.format !== this.templateFormatter;
+        this.customFormat = !!options.format;
         const refresh = (force = false) => {
             if (!this.lifetime.current(scope) || (ended && !force)) return;
             try {
                 const seconds = ended ? 0 : countdownSeconds(options.deadlineMs, time.nowMs());
                 if (seconds !== last || force) {
-                    const text = (options.format ?? (this.formatUsers ? this.templateFormatter : formatCountdown))(
-                        seconds,
-                    );
+                    const text = (options.format ?? this.templateFormatter)(seconds);
                     if (!this.lifetime.current(scope)) return;
                     this.string = text;
                     last = seconds;

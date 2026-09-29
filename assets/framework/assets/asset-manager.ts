@@ -275,7 +275,7 @@ export class Assets {
      */
     async loadAddress<K extends AssetKind>(address: AssetAddress<K>, scope: Lifetime): Promise<AssetTypes[K]> {
         scope.signal.throwIfAborted();
-        for (const id of address.requiredCodeModules ?? (address.codeModule ? [address.codeModule] : [])) {
+        for (const id of address.requiredCodeModules ?? []) {
             if (!this.codeReady(id)) await this.prepareCode(id, scope);
             invariant(
                 this.codeReady(id),
@@ -376,7 +376,7 @@ export class Assets {
         const instance = scope.child(`instance:${key.id}`);
         try {
             const address = await this.resolve(key, instance);
-            const moduleId = input.moduleId ?? address.codeModule;
+            const moduleId = input.moduleId;
             if (input.active !== false && moduleId)
                 invariant(
                     this.moduleReady(moduleId),

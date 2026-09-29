@@ -107,11 +107,6 @@ export interface AssetAddress<K extends AssetKind = AssetKind> {
      */
     readonly atlasFrame?: string;
     /**
-     * 兼容旧清单的单一代码模块 ID；新版依赖列表使用 requiredCodeModules。
-     * 也作为直接实例化时未指定 moduleId 的旧宿主回退值。
-     */
-    readonly codeModule?: string;
-    /**
      * 反序列化前必须注册的脚本模块 ID 列表，由生成器计算。
      * 只准备代码，不自动执行这些模块的业务工厂。
      */
@@ -149,9 +144,9 @@ export interface BundleDefinition {
  */
 export interface NamespaceIndex {
     /**
-     * 索引格式版本：1 使用单层资源名，2 支持多层相对路径及代码依赖信息。
+     * 当前索引格式，支持多层相对路径及代码依赖信息。
      */
-    readonly formatVersion: 1 | 2;
+    readonly formatVersion: 2;
     /**
      * 该索引所属的“模块/资源包”，例如 lobby/default。
      */

@@ -125,9 +125,7 @@ exports.createWorkbench = function (ctx) {
                             throw Error('请选择当前模块已有的预制体');
                         updates.push(rel(info.file));
                     } else
-                        add(
-                            `${prefix}/${bundle.root}/${manifest.layoutVersion === 2 ? 'dynamic/' : ''}${generic ? 'prefabs' : 'ui'}/${named.className}.prefab`,
-                        );
+                        add(`${prefix}/${bundle.root}/dynamic/${generic ? 'prefabs' : 'ui'}/${named.className}.prefab`);
                     updates.push(`${prefix}/module.json`);
                 }
             }
@@ -148,8 +146,7 @@ exports.createWorkbench = function (ctx) {
                     file.startsWith('project-settings/generated/'),
             ),
         );
-        const generatedRoot =
-            prefix + '/' + (kind === 'module' || manifest.layoutVersion === 2 ? 'contracts/' : '') + 'generated';
+        const generatedRoot = prefix + '/contracts/generated';
         for (const name of ['views.ts', 'bundles.ts']) generated.add(generatedRoot + '/' + name);
         if ((kind === 'module' && request.delivery !== 'none') || (kind !== 'module' && manifest.code?.mode !== 'none'))
             generated.add(prefix + '/code/generated/views.ts');
@@ -292,11 +289,7 @@ exports.createWorkbench = function (ctx) {
             const content = await scene('attachComponent', info.uuid, `${manifest.id}.${className}`);
             await Editor.Message.request('asset-db', 'save-asset', info.url, content);
         } else {
-            const folder = path.join(
-                directory,
-                bundle.root,
-                manifest.layoutVersion === 2 ? 'dynamic/prefabs' : 'prefabs',
-            );
+            const folder = path.join(directory, bundle.root, 'dynamic/prefabs');
             await ensureFolder(folder);
             const content = await scene(
                 'createPrefab',

@@ -76,7 +76,7 @@ timer.restart();                 // 使用 Inspector 中的 duration
 
 普通独立节点读取设备时间，框架实例自动使用现有 TimeService。根据绝对截止时刻计算，不靠 dt 累减；每秒变化才更新文字。前台恢复与校时立即重算。completedEvents 每次计时只触发一次，时钟回拨不会重复；重新开始会取消旧的待执行完成通知。禁用时取消订阅与完成任务，再次启用按 autoStart 配置启动。
 
-运行中修改模板用 `timer.setTextFormat(value)`，会在同一秒立即刷新且不重启计时。多语言使用 `language.bindCountdownFormat(timer, key)`，不要叠加 LocalizedLabel，也不要同时传自定义 format；计时占位符与用法见[多语言](localization.md#代码动态绑定)。
+`startFor`、`startUntil` 和 `bind` 默认都使用 `textFormat`。运行中修改模板用 `timer.setTextFormat(value)`，会在同一秒立即刷新且不重启计时。多语言使用 `language.bindCountdownFormat(timer, key)`，不要叠加 LocalizedLabel，也不要同时传自定义 format；计时占位符与用法见[多语言](localization.md#代码动态绑定)。
 
 ## MarqueeLabel：固定宽度，超宽自动滚动
 

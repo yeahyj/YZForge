@@ -11,16 +11,6 @@ const parameters = (text) =>
 
 export { parseLocalizationWorkbook, createLocalizationWorkbook } from './localization-workbook.mjs';
 
-export function localizationOutputPaths(root, modules) {
-    return modules.flatMap((module) =>
-        Object.entries(module.bundles).flatMap(([base, bundle]) =>
-            Object.entries(bundle.localization?.locales ?? {}).map(([locale, variant]) => {
-                const target = localizationLayout.languageBundle(module, base, locale, variant);
-                return forward(relative(root, resolve(module.directory, target.root, 'yz-locale.json')));
-            }),
-        ),
-    );
-}
 /** 基包是唯一归属源；专用语言包信息由这里反推，不写第二份声明。 */
 export function localizationDeclarations(modules, settings) {
     const config = settingsTools.localizationSettings(settings);
@@ -45,19 +35,17 @@ export function localizationDeclarations(modules, settings) {
                 throw Error(`${module.id}/${base}: 必须配置默认语言存放位置`);
             if (declaration.source) sources.add(declaration.source);
             const variants = {};
-            for (const [locale, variant] of Object.entries(declaration.locales)) {
-                const { group } = localizationLayout.languageBundle(module, base, locale, variant);
+            for (const locale of Object.keys(declaration.locales)) {
+                const { group } = localizationLayout.languageBundle(module, base, locale);
                 variants[locale] = group;
                 if (!config.locales.includes(locale))
                     throw Error(`${module.id}/${base}: 语言或资源包未登记 ${locale}/${group}`);
-                if (group !== base) {
-                    const id = `${module.id}/${group}`;
-                    if (owners.has(id) || module.bundles[group].localization)
-                        throw Error(`${id}: 专用语言包只能属于一个基包的一种语言`);
-                    owners.set(id, { base, locale, module: module.id });
-                    if (Object.values(module.views ?? {}).some((view) => view.prefab?.startsWith(id + '/')))
-                        throw Error(`${id}: 已有业务界面，不能作为专用语言包`);
-                }
+                const id = `${module.id}/${group}`;
+                if (owners.has(id) || module.bundles[group].localization)
+                    throw Error(`${id}: 专用语言包只能属于一个基包的一种语言`);
+                owners.set(id, { base, locale, module: module.id });
+                if (Object.values(module.views ?? {}).some((view) => view.prefab?.startsWith(id + '/')))
+                    throw Error(`${id}: 已有业务界面，不能作为专用语言包`);
             }
             declarations.push({ module, base, bundle, source: declaration.source, variants });
         }
