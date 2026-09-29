@@ -44,6 +44,7 @@ npm run test:showcase
 | [verify-preview.mjs](../tests/integration/verify-preview.mjs)                               | Bootstrap 已在 Game View 运行且保留大厅示例；检查 UI、结果与生命周期。                                                                           |
 | [verify-build.mjs](../tests/integration/verify-build.mjs)                                   | 保留大厅示例，用 `serve-build.mjs` 启动构建产物并传入 URL；可选第二个参数为工作台测试模块 ID，额外检查 Part 代码按需加载。                       |
 | [verify-runtime.mjs](../tests/integration/verify-runtime.mjs)                               | 参数传入 Web 运行 URL，保留大厅示例；在独立窗口执行底层运行时回归。                                                                              |
+| [verify-audio.mjs](../tests/integration/verify-audio.mjs)                                   | 参数传入预览或 Web 构建 URL，保留大厅音频示例；验证前后台恢复、BGM 并发容量、取消和失败后的名额及引用回收，不保存编辑场景。                      |
 | [verify-ui-cleanup.mjs](../tests/integration/verify-ui-cleanup.mjs)                         | 参数传入本机预览或 Web 构建 URL，保留展示模块；验证缓存界面清理失败后仍释放其他实例、UI 层和资源。                                               |
 | [verify-showcase.mjs](../tests/integration/verify-showcase.mjs)                             | 参数传入 Web 运行 URL，保留全部示例；检查业务、导航、分包、持有回收及屏幕适配。                                                                  |
 | [verify-virtual-list.mjs](../tests/integration/verify-virtual-list.mjs)                     | 参数传入预览或 Web 运行 URL；检查列表窗口、复用、定位、Part 清理及尺寸变化。                                                                     |
@@ -62,6 +63,7 @@ Web 构建检查示例：
 node tests/integration/serve-build.mjs build/web-mobile
 # 另一个终端，将下列地址替换为服务输出的本机 URL。
 node tests/integration/verify-runtime.mjs "http://127.0.0.1:实际端口/"
+node tests/integration/verify-audio.mjs "http://127.0.0.1:实际端口/"
 ```
 
 ## 构建与结果判定

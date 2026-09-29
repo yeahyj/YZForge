@@ -173,6 +173,57 @@ test('concurrent module users share initialization and have independent cancella
     assert.throws(escaped, { code: 'MODULE_HANDLE_ENDED' });
     await manager.close();
 });
+
+test('依赖完成前后的取消均不能启动已取消的业务工厂，依赖持有正常回收', async () => {
+    // 扫过依赖兑现、句柄交付和工厂排队附近的微任务边界，不绑定某一个 await 数量。
+    for (let delay = 0; delay < 24; delay++) {
+        const owner = new Scope(`cancel-handoff:${delay}`),
+            gate = deferred();
+        let startedAfterCancel = false,
+            dependencyReleased = false;
+        const errors: unknown[] = [];
+        const manager = new ModuleManager(
+            [
+                {
+                    id: 'dependency',
+                    dependencies: [],
+                    factory: async (ctx) => {
+                        ctx.scope.defer(() => {
+                            dependencyReleased = true;
+                        });
+                        await gate.promise;
+                        return { api: {} };
+                    },
+                },
+                {
+                    id: 'feature',
+                    dependencies: ['dependency'],
+                    factory: (ctx) => {
+                        startedAfterCancel ||= ctx.scope.signal.aborted;
+                        return { api: {} };
+                    },
+                },
+            ],
+            new FakeClock(),
+            context,
+            (error) => errors.push(error),
+        );
+        const pending = manager.use({ id: 'feature' }, owner).catch((error: unknown) => {
+            assert.equal((error as { code: string }).code, 'OPERATION_CANCELLED');
+        });
+        await flush();
+        gate.resolve();
+        for (let i = 0; i < delay; i++) await Promise.resolve();
+        owner.cancel();
+        await pending;
+        await owner.close();
+        await manager.close();
+        assert.equal(startedAfterCancel, false, `工厂在取消后执行，边界 ${delay}`);
+        assert.equal(dependencyReleased, true);
+        assert.deepEqual(manager.inspect(), []);
+        assert.deepEqual(errors, []);
+    }
+});
 test('external session holds a module after the originating handle releases', async () => {
     const owner = new Scope('flow');
     let stopped = false;

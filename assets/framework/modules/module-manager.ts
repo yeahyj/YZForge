@@ -1,7 +1,7 @@
 import { untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, reportError } from '../core/errors';
-import { Scope, Lifetime } from '../core/scope';
+import { Scope, Lifetime, runTask } from '../core/scope';
 import type { RuntimeDiagnostics } from '../core/diagnostics';
 import type { ScopedAssets } from '../assets/asset-manager';
 import type { ScopedConfig } from '../config/config-manager';
@@ -490,8 +490,13 @@ export class ModuleManager {
                 const dependencies: Record<string, unknown> = {};
                 for (const dependency of definition.dependencies)
                     dependencies[dependency] = (await this.use({ id: dependency }, scope, ref.id)).api;
-                const pending = Promise.resolve().then(() => factory(current.context, Object.freeze(dependencies)));
-                const result = await scope.track(pending);
+                // 依赖就绪到工厂执行之间也可能取消；先登记任务，并在真正调用前检查使用期。
+                const result = await runTask(
+                    scope,
+                    () => factory(current.context, Object.freeze(dependencies)),
+                    undefined,
+                    'module.factory',
+                );
                 scope.signal.throwIfAborted();
                 invariant(result && 'api' in result, 'MODULE_FACTORY_INVALID', `${ref.id} factory must return { api }`);
                 current.api = result.api;

@@ -81,6 +81,7 @@ export class AudioManager {
     private bgmSequence = 0;
     private bgm?: Playing;
     private pendingBgm?: Scope;
+    private bgmReservation?: Scope;
     private accepting = true;
     private readonly scope: Scope;
     private readonly stopState: () => void;
@@ -162,11 +163,16 @@ export class AudioManager {
             if (channel === 'bgm' && sequence !== this.bgmSequence)
                 throw new OperationCancelled('A newer BGM request won');
             invariant(
-                this.playing.size < this.maxVoices || (channel === 'bgm' && this.bgm),
+                this.playing.size + (this.bgmReservation ? 1 : 0) < this.maxVoices ||
+                    (channel === 'bgm' && (this.bgm || this.bgmReservation)),
                 'AUDIO_VOICE_LIMIT',
                 `Maximum simultaneous audio voices: ${this.maxVoices}`,
             );
-            if (channel === 'bgm' && this.bgm) await this.bgm.stop();
+            if (channel === 'bgm') {
+                // 停止旧 BGM 的异步收尾期间保留名额；较新的 BGM 可以接管此名额。
+                this.bgmReservation = scope;
+                if (this.bgm) await this.bgm.stop();
+            }
             scope.signal.throwIfAborted();
             invariant(this.accepting, 'APP_STOPPING', 'Audio is shutting down');
             if (channel === 'bgm' && sequence !== this.bgmSequence)
@@ -246,6 +252,7 @@ export class AudioManager {
                 resume: () => {
                     if (!voice.stopped) {
                         voice.pausedByUser = false;
+                        voice.pausedByHost = this.clock.background;
                         if (!this.clock.background) source!.play();
                     }
                 },
@@ -255,6 +262,7 @@ export class AudioManager {
             await scope.close();
             throw error;
         } finally {
+            if (this.bgmReservation === scope) this.bgmReservation = undefined;
             this.loading.delete(scope);
         }
     }

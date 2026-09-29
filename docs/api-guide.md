@@ -311,6 +311,8 @@ if (navigation.status === 'ignored') return;
 
 事件用于广播已经发生的事实。`eventKey<T>('module/event')` 定义合同，`ctx.events.on(key, handler, owner)` 订阅，`emit` 发布。发布不等待异步订阅者完成，不提供请求结果；需要结果或严格顺序时使用明确的模块方法。音频则通过 `ctx.audio.play(key, owner)` 取得独立播放句柄，播放期限由 owner 决定。
 
+音频句柄的 `resume()` 在后台调用时，会等待回到前台再继续；尚未解除的手动暂停不会被前后台切换覆盖。更换 BGM 在旧声音清理期间保留一个播放名额，较新的 BGM 可以接管该名额；并发音效仍受 `maxAudioVoices` 限制，取消或失败后名额归还。
+
 ## 红点、HTTP 与引导
 
 `ctx.badges` / `app.badges` 提供数量来源、sum/any 分组和 Scope 订阅，业务在状态保存成功后更新来源；UI 的 `Badge.bind` 使用 show、Part activation 或虚拟条目 item 的期限。见 [红点 API 与示例](badges.md)。
