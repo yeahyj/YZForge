@@ -25,7 +25,7 @@ const captured = await editor(
         if(path.isAbsolute(local) || local === '..' || local.startsWith('..' + path.sep)) throw Error('Outside project');
         return target;
     };
-    const history = require(path.join(root, 'extensions/yzforge-editor/creation.js')).createCreationHistory({inside});
+    const history = require(path.join(root, 'tools/yzforge/operations/creation.cjs')).createCreationHistory({inside});
     const url = 'db://' + args.file;
     if(await Editor.Message.request('asset-db', 'query-asset-info', url)) throw Error('Fixture already exists');
     const source = 'export const recoveryProbe = true;\n';

@@ -1,4 +1,4 @@
-// 当前 Creator 的真实引擎预览；隔离窗口，退出时恢复设备选项并销毁测试窗口。
+// 真实构建产物的隔离窗口；安全区由受控设备接口提供，退出时恢复并销毁窗口。
 import assert from 'node:assert/strict';
 import { call } from '../../tools/yzforge/mcp.mjs';
 import { preview, screenshot } from './preview.mjs';
@@ -28,8 +28,6 @@ const capture = async (name) => {
     await run('await wait(80);return true;');
     return screenshot(name);
 };
-let originalDevice;
-let originalLandscape;
 try {
     const end = Date.now() + 30000;
     while (
@@ -37,13 +35,6 @@ try {
         !(await preview('return !!app?.ui.inspect().views.some(v=>v.interactive);').catch(() => false))
     )
         await new Promise((resolve) => setTimeout(resolve, 100));
-    originalDevice = await preview(
-        'return document.querySelector("#view-select [data-device].selected")?.dataset.device;',
-    );
-    originalLandscape = await preview('return cc.screen.windowSize.width>cc.screen.windowSize.height;');
-    await preview(
-        'const option=document.querySelector(\'[data-device="Apple iPhone XR; 11"]\');if(option)option.click();await new Promise(resolve=>setTimeout(resolve,150));if(cc.screen.windowSize.width>cc.screen.windowSize.height)document.getElementById("btn-rotate").click();await new Promise(resolve=>setTimeout(resolve,150));return true;',
-    );
     await run(
         `record('showcase.showcase-page').instance.view._bindBtnUi.node.emit(cc.Button.EventType.CLICK);await until(()=>record('showcase.ui-lab-page')?.interactive);record('showcase.ui-lab-page').instance.view._bindBtnComponents.node.emit(cc.Button.EventType.CLICK);await until(()=>record('showcase.components-lab-page')?.interactive);return true;`,
     );
@@ -136,10 +127,13 @@ component.bind(owner,time,{deadlineMs:9000});check(listeners.size===1,'新计时
 component.bind(owner,time,{deadlineMs:1000});await owner.close();check(listeners.size===0,'宿主结束仍有时间监听');return true;`);
     console.log('PASS 倒计时：校时、前台恢复、一次完成、重新绑定与订阅清理');
     await run(`
-const safe=v.compSafe,widget=v.compSafe.getComponent(cc.Widget);click('_bindBtnSafe');await wait(50);check(safe.simulate,'未启用模拟');near(widget.top,72,'纵屏顶部补偿');near(widget.bottom,24,'底部补偿');for(let i=0;i<8;i++)safe.refresh();near(widget.top,72,'反复刷新累计');
+const safe=v.compSafe,widget=v.compSafe.getComponent(cc.Widget);click('_bindBtnSafe');await wait(50);check(safe.simulate,'未启用模拟');near(widget.top,0,'构建产物不应使用编辑器模拟上边距');near(widget.bottom,0,'构建产物不应使用编辑器模拟下边距');
+globalThis.__nativeSafeArea=cc.sys.getSafeAreaRect;globalThis.__testSafeInsets={top:72,bottom:24,left:0,right:0};
+cc.sys.getSafeAreaRect=()=>{const size=cc.view.getVisibleSize(),insets=globalThis.__testSafeInsets;return new cc.Rect(insets.left,insets.bottom,size.width-insets.left-insets.right,size.height-insets.top-insets.bottom);};
+safe.refresh();near(widget.top,72,'纵屏顶部补偿');near(widget.bottom,24,'底部补偿');for(let i=0;i<8;i++)safe.refresh();near(widget.top,72,'反复刷新累计');
 const make=(name,parent,w,h)=>{const node=new cc.Node(name);node.layer=parent.layer;node.addComponent(cc.UITransform).setContentSize(w,h);parent.addChild(node);return node;};
 const stretch=node=>{const w=node.addComponent(cc.Widget);w.isAlignLeft=w.isAlignRight=w.isAlignTop=w.isAlignBottom=true;w.left=w.right=w.top=w.bottom=0;w.alignMode=cc.Widget.AlignMode.ON_WINDOW_RESIZE;w.updateAlignment();return w;};
-const configure=component=>{component.simulate=true;component.previewTop=safe.previewTop;component.previewBottom=safe.previewBottom;component.refresh();};
+const configure=component=>component.refresh();
 const nested=make('SafeNestedTest',safe.node,100,100),nw=stretch(nested),ns=nested.addComponent(cc.js.getClassByName('yzforge.SafeWidget'));configure(ns);near(nw.top,0,'嵌套安全区重复补偿');near(nw.bottom,0,'嵌套底部重复补偿');
 const percent=make('SafePercentTest',v.node,720,1280),pw=stretch(percent);pw.isAbsoluteTop=false;pw.top=0.1;const ps=percent.addComponent(cc.js.getClassByName('yzforge.SafeWidget'));configure(ps);near(pw.top,0.1+72/1280,'百分比补偿');ps.setBaseOffsets({top:0.2});near(pw.top,0.2+72/1280,'基础边距修改');ps.enabled=false;near(pw.top,0.2,'禁用未恢复基础值');ps.enabled=true;near(pw.top,0.2+72/1280,'重新启用重复补偿');
 const scaled=make('SafeScaledTarget',v.node,360,640);scaled.setScale(2,2,1);const child=make('SafeScaledChild',scaled,360,640),cw=stretch(child),cs=child.addComponent(cc.js.getClassByName('yzforge.SafeWidget'));configure(cs);near(cw.top,36,'缩放参考节点换算');near(cw.bottom,12,'缩放底部换算');
@@ -148,9 +142,13 @@ const bare=new cc.Node('SafeRequiredComponents');bare.layer=v.node.layer;v.node.
 const offLists=[ns.globalOff,ns.referenceOff,ps.globalOff,ps.referenceOff,cs.globalOff,cs.referenceOff,bs.globalOff,bs.referenceOff];const targets=[nested,percent,scaled,bare];for(const node of targets)node.destroy();await wait(50);check(offLists.every(list=>list.length===0),'安全区监听未清理');v._bindScrollExamples.scrollToBottom(0);return true;`);
     console.log('PASS SafeWidget：不累计、嵌套、百分比、缩放目标、禁用恢复与监听清理');
     console.log(await capture('ui-components-safe-portrait.png'));
+    await editor(
+        'const w=require("electron").BrowserWindow.fromId(args.id);if(!w?.webContents.__yzforgeRuntimeCheck)throw Error("Wrong preview");w.setContentSize(1380,900);return true;',
+        { id },
+    );
     // Creator 的视口 x 取整，而相机居中保留小数；横屏固定竖版设计允许不到一个屏幕像素的差异。
     await run(
-        `click('_bindBtnSafe');await wait(30);document.getElementById('btn-rotate').click();await wait(250);click('_bindBtnSafe');await wait(50);const widget=v.compSafe.getComponent(cc.Widget),safe=v.compSafe;check(cc.screen.windowSize.width>cc.screen.windowSize.height,'未横屏');pixelNear(widget.left,72,'横屏左补偿');pixelNear(widget.right,24,'横屏右补偿');safe.symmetry=1;safe.refresh();pixelNear(widget.right,72,'横屏对称');safe.symmetry=0;safe.refresh();cc.game.emit(cc.Game.EVENT_SHOW);await wait(50);pixelNear(widget.left,72,'前台刷新错误');return true;`,
+        `await until(()=>cc.screen.windowSize.width>cc.screen.windowSize.height);await wait(250);globalThis.__testSafeInsets={top:0,bottom:0,left:72,right:24};const widget=v.compSafe.getComponent(cc.Widget),safe=v.compSafe;safe.refresh();pixelNear(widget.left,72,'横屏左补偿');pixelNear(widget.right,24,'横屏右补偿');safe.symmetry=1;safe.refresh();pixelNear(widget.right,72,'横屏对称');safe.symmetry=0;safe.refresh();cc.game.emit(cc.Game.EVENT_SHOW);await wait(50);pixelNear(widget.left,72,'前台刷新错误');return true;`,
     );
     console.log(await capture('ui-components-safe-landscape.png'));
     console.log('PASS 横竖屏窗口变化、可选左右对称与前台刷新');
@@ -169,16 +167,9 @@ await app.ui.back().completed;check(scopes.every(s=>s.closed),'页面关闭仍�
     console.error(await capture('ui-components-failure.png').catch(() => undefined));
     throw error;
 } finally {
-    if (originalDevice)
-        await preview(
-            'Array.from(document.querySelectorAll("#view-select [data-device]")).find(n=>n.dataset.device===args.device)?.click();return true;',
-            { device: originalDevice },
-        ).catch(() => {});
-    if (originalLandscape !== undefined)
-        await preview(
-            'await new Promise(resolve=>setTimeout(resolve,100));if((cc.screen.windowSize.width>cc.screen.windowSize.height)!==args.landscape)document.getElementById("btn-rotate").click();return true;',
-            { landscape: originalLandscape },
-        ).catch(() => {});
+    await preview(
+        'if(globalThis.__nativeSafeArea)cc.sys.getSafeAreaRect=globalThis.__nativeSafeArea;delete globalThis.__nativeSafeArea;delete globalThis.__testSafeInsets;return true;',
+    ).catch(() => {});
     await editor(
         'const w=require("electron").BrowserWindow.fromId(args.id);if(w?.webContents.__yzforgeRuntimeCheck)w.destroy();return true;',
         { id },

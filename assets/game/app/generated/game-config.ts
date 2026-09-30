@@ -1,5 +1,5 @@
 // 自动生成：GameSettings 已保存的选择 + project-settings/game-config.json 渠道参数。
-import { freezeGameConfig } from '../../../framework/platform/game-config';
+import { freezeGameConfig } from '../../../framework/app/game-config';
 /** 当前运行配置；地址与 SDK 参数在运行期间保持不变。 */
 export const gameConfig = freezeGameConfig({
     appVersion: '1.0.0',

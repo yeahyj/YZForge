@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveValue, savedBindings, writeSavedValue } from '../tools/yzforge/localization-apply.cjs';
-import { validateDefaultLanguageReferences } from '../tools/yzforge/localized-bindings.mjs';
-import { decodeUuid } from '../tools/yzforge/catalog.mjs';
+import { resolveValue, savedBindings, writeSavedValue } from '../tools/yzforge/operations/localization-apply.cjs';
+import { validateDefaultLanguageReferences } from '../tools/yzforge/validation/localized-bindings.mjs';
+import { decodeUuid } from '../tools/yzforge/project/catalog.mjs';
 
 const fallback = {
     locale: 'zh-CN',

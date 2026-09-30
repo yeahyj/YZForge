@@ -5,7 +5,7 @@ import type { AssetKey } from '../../../assets/asset-types';
 import { invariant, reportError } from '../../../core/errors';
 import { type Lifetime, type Scope, runTask } from '../../../core/scope';
 import { OperationCancelled } from '../../../core/errors';
-import { ComponentScope, type ComponentContext } from '../component-scope';
+import { ComponentScope, type ComponentContext } from '../../../components/component-scope';
 const { ccclass, property, disallowMultiple, menu } = _decorator;
 
 /** 图片显示状态；旧请求不会覆盖较新的图片或状态。 */

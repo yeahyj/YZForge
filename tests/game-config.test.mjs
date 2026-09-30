@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import config from '../tools/yzforge/game-config.cjs';
-import build from '../tools/yzforge/game-build.cjs';
+import config from '../tools/yzforge/project/game-config.cjs';
+import build from '../tools/yzforge/operations/game-build.cjs';
 
 const original = JSON.parse(await readFile(new URL('../project-settings/game-config.json', import.meta.url), 'utf8'));
 const selection = { appVersion: '1.0.0', channel: 'web_local', mode: 'debug', environment: 'dev' };

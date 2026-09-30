@@ -10,11 +10,12 @@ import {
     workbookSources,
     writeWorkbookConfig,
     formulaFingerprint,
-} from '../tools/yzforge/workbooks.mjs';
-import { scanCatalog, identityFile, scriptDependencies } from '../tools/yzforge/catalog.mjs';
-import { compileTables } from '../tools/yzforge/config.mjs';
-import { codeBoundaryCheck } from '../tools/yzforge/checks.mjs';
-import naming from '../tools/yzforge/naming.cjs';
+} from '../tools/yzforge/project/workbooks.mjs';
+import { scanCatalog, identityFile, scriptDependencies } from '../tools/yzforge/project/catalog.mjs';
+import { compileTables } from '../tools/yzforge/generators/config.mjs';
+import { codeBoundaryCheck } from '../tools/yzforge/validation/checks.mjs';
+import naming from '../tools/yzforge/project/naming.cjs';
+import { initializeState } from '../tools/yzforge/operations/initialize-state.mjs';
 import { logicalKey, validateIndex, resolveIndex } from '../assets/framework/assets/catalog.ts';
 import { validateValue } from '../assets/framework/config/schema.ts';
 import { parseTable } from '../assets/framework/config/config-table.ts';
@@ -40,13 +41,14 @@ async function fixture(fn) {
     assert.ok(root.startsWith(resolve(tmpdir()) + sep));
     const module = {
         id: 'inventory',
-        layoutVersion: 2,
+        layoutVersion: 3,
         dependencies: {},
         directory: resolve(root, 'assets/game/modules/inventory'),
         bundles: { default: { id: 'm-inventory', root: 'bundles/default' } },
         views: {},
     };
     try {
+        await initializeState(root);
         await fn(root, module);
     } finally {
         await rm(root, { recursive: true, force: true });
@@ -227,7 +229,7 @@ test('catalog excludes static resources, preserves UUID identity after moves, an
         });
         await assert.rejects(scanCatalog(root, [module], metadata, { tables: [] }), /旧资源 UUID/);
     }));
-test('value imports cannot pull private code into the main program; type-only imports are erased', () =>
+test('跨模块的值和类型都不能引用私有实现', () =>
     fixture(async (root, module) => {
         module.code = { mode: 'bundled', root: 'code', bundle: 'code-inventory', entryPath: 'entry' };
         await mkdir(resolve(module.directory, 'code'), { recursive: true });
@@ -242,12 +244,12 @@ test('value imports cannot pull private code into the main program; type-only im
             boot,
             "import { Service } from '../modules/inventory/code/Service'; export const value = Service;",
         );
-        await assert.rejects(codeBoundaryCheck(root, [module]), /私有模块实现/);
+        await assert.rejects(codeBoundaryCheck(root, [module]), /模块边界/);
         await writeFile(
             boot,
             "import type { Service } from '../modules/inventory/code/Service'; export type Value = Service;",
         );
-        await codeBoundaryCheck(root, [module]);
+        await assert.rejects(codeBoundaryCheck(root, [module]), /包含类型引用/);
         await mkdir(resolve(module.directory, 'code/generated'), { recursive: true });
         await writeFile(
             resolve(module.directory, 'code/generated/views.ts'),
@@ -257,7 +259,7 @@ test('value imports cannot pull private code into the main program; type-only im
             boot,
             "import { Views } from '../modules/inventory/code/generated/views'; export const value = Views.secret;",
         );
-        await assert.rejects(codeBoundaryCheck(root, [module]), /私有模块实现/);
+        await assert.rejects(codeBoundaryCheck(root, [module]), /模块边界/);
     }));
 
 test('cyclic nested prefab references retain every required code module regardless of scan order', () =>

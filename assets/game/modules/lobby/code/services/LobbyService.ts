@@ -1,7 +1,7 @@
 import type { ModuleContext } from '../../../../../framework/modules/module-manager';
 import type { Lifetime } from '../../../../../framework/core/scope';
 import type { ProfileApi, WalletSnapshot } from '../../../profile/public';
-import { EconomyTable } from '../../../common/contracts/generated/config/Economy.table';
+import { EconomyTable } from '../../../common/public';
 
 /** 大厅业务组合：通过账号模块公开 API 操作状态，通过公共配置合同读取奖励定义。 */
 export class LobbyService {

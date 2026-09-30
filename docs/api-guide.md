@@ -203,10 +203,10 @@ items.all();         // 只读行数组；当前导出器按主键排序
 
 ### 大厅读取战斗模块的表
 
-先在工作台配置页勾选该表的“允许其他模块引用此表合同”，保存并导出。生成的合同在战斗模块 `contracts/generated/config`，数据仍在原资源包。下面假设已创建公开的 `EnemiesTable`，在大厅 `code/ui` 脚本中：
+先在工作台配置页勾选该表的“允许其他模块引用此表合同”，保存并导出。生成的合同在战斗模块 `contracts/generated/config`，数据仍在原资源包。下面假设已创建公开的 `EnemiesTable`，在大厅 `code/ui/home-page` 脚本中：
 
 ```ts
-import { EnemiesTable } from '../../../battle/contracts/generated/config/Enemies.table';
+import { EnemiesTable } from '../../../../battle/public';
 
 const enemies = await show.config.load(EnemiesTable);
 show.commit(() => { this.lblName.string = enemies.require(101).name; });
@@ -219,7 +219,7 @@ show.commit(() => { this.lblName.string = enemies.require(101).name; });
 表所在包与调用方所在包不同不影响用法。只有同一张逻辑表导出了多个分片，或需要约束目标包时，才传 Bundle：
 
 ```ts
-import { BattleBundles } from '../../../battle/contracts/generated/bundles';
+import { BattleBundles } from '../../../../battle/public';
 
 const enemies = await show.config.load(EnemiesTable, { bundle: BattleBundles.extra });
 // 或先持有包，再读取其中的表；两种方式共用同一缓存。
@@ -234,7 +234,7 @@ const sameEnemies = await bundle.tables.load(EnemiesTable);
 公共数据放普通 `common` 模块的资源包并导出公开合同。它是可选的内容组织约定，没有第二套全局配置管理器。当前演示可直接运行：
 
 ```ts
-import { EconomyTable } from '../../../common/contracts/generated/config/Economy.table';
+import { EconomyTable } from '../../../../common/public';
 
 const economy = await show.config.load(EconomyTable);
 const reward = economy.require(1);
@@ -244,7 +244,7 @@ const reward = economy.require(1);
 
 ## 模块、UI 与事件通信
 
-模块引用放在 `public.ts`，资源键、ViewKey 等轻量合同放在 `contracts`。跨模块调用使用 `app.modules.use(ModuleRef, owner)` 返回的 `handle.api`。`defineModule` 把公开合同、内部服务与依赖 API 连接起来，工厂仍显式创建普通 Service：
+`public.ts` 是全部生成的唯一跨模块入口，统一导出模块引用和 `contracts` 下的公开合同。人工业务 API 放在 `contracts/api.ts`，公开界面类型放在 `contracts/<类名>.types.ts`。跨模块调用使用 `app.modules.use(ModuleRef, owner)` 返回的 `handle.api`。`defineModule` 把公开合同、内部服务与依赖 API 连接起来，工厂仍显式创建普通 Service：
 
 ```ts
 // LobbyServices 放在本模块 code，引用值不包含服务实例。
@@ -269,7 +269,7 @@ const service = this.ctx.services(LobbyServices).lobby;
 
 公开 API 方法开始前会登记调用，最后一份模块持有归还时等待这些方法返回的 Promise 结束，再销毁服务。方法内部脱离返回链的任务仍需显式登记；API 应优先返回只读数据，嵌套逃逸对象不自动代理。不要在方法里等待结束承载自己的模块。
 
-只有资源与配置的模块设置 `"code": { "mode": "none" }`，无需 `public.ts` 或空业务工厂。common 示例已采用此模式。引用公开表与资源合同无需业务依赖；资源模块不能声明业务服务、UI 或 Part 脚本。
+只有资源与配置的模块设置 `"code": { "mode": "none" }`，仍生成 `public.ts` 暴露资源和公开配置，但没有 ModuleRef、`code/` 或空业务工厂。common 示例已采用此模式。引用公开表与资源合同无需业务依赖；资源模块不能声明业务服务、UI 或 Part 脚本。
 
 “随应用启动加载”和“按需加载”控制的是代码何时可用。两种模式都在首次 `use` 或打开所属 UI 时按需初始化业务工厂；代码准备完成不代表业务已 ready。最后一份外部持有归还后清理该代业务实例，后续可再初始化。
 
@@ -305,7 +305,7 @@ if (navigation.status === 'ignored') return;
 
 启动和外部会话使用 `app.ui.pushPage(PageKey, 参数, owner)`，返回 `ViewHandle`，可以在这个外部所有者中等待页面结果。它要求显式所有者，并发准备时抛 `UI_NAVIGATION_BUSY`；页面业务优先使用 `show.ui`。`app.ui.open` 仅接受非 Page 的 Key。
 
-工作台新建界面默认内部；勾选“公开界面合同”才输出到 `contracts/generated/views.ts`，供启动入口或其他模块使用。同模块使用 `code/generated/views.ts` 的全部 Key。已有界面的 `module.json.views.<id>.visibility` 可设置 `public` / `internal` 后重新生成。Key 包含 `kind`，类型检查和运行时都校验层级；跨模块导入私有 Key 会被源码边界检查拒绝。界面公开合同的 import 不加载预制体，也不启动业务模块。
+工作台新建界面默认内部；勾选“公开界面合同”才输出到 `contracts/generated/views.ts`，再由 `public.ts` 导出供启动入口或其他模块使用。同模块使用 `code/generated/views.ts` 的全部 Key。已有界面的 `module.json.views.<id>.visibility` 可设置 `public` / `internal` 后重新生成。Key 包含 `kind`，类型检查和运行时都校验层级；跨模块导入私有 Key 会被源码边界检查拒绝。界面公开合同的 import 不加载预制体，也不启动业务模块。
 
 长期业务由模块 Service 持有。启动入口或账号会话显式 `app.modules.use(ModuleRef, owner)`，持续保留这份 Handle；Service 用 `ctx.time.onBoundary`、UI 用模块 API/事件订阅状态，关闭界面不影响仍被持有的 Service。`code.mode: eager` 只代表代码可用，不会自动保活模块。`app.flows` 是现有的运行时 Scope 名称，不要求项目有同名业务目录。
 

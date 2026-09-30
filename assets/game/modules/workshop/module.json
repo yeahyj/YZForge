@@ -1,14 +1,13 @@
 {
   "id": "workshop",
-  "layoutVersion": 2,
+  "layoutVersion": 3,
   "displayName": "任务奖励工作流",
   "dependencies": {
     "profile": "profile"
   },
   "bundles": {
     "default": {
-      "id": "m-workshop",
-      "root": "bundles/default"
+      "id": "m-workshop"
     }
   },
   "views": {
@@ -18,7 +17,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "workshop.WorkflowPage",
-      "binding": "code/ui/generated/WorkflowPageBinding.ts",
       "visibility": "public"
     },
     "claim-popup": {
@@ -27,22 +25,19 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "workshop.ClaimPopup",
-      "binding": "code/ui/generated/ClaimPopupBinding.ts",
       "visibility": "internal"
     }
   },
   "audio": {},
   "code": {
     "mode": "bundled",
-    "root": "code",
     "bundle": "code-workshop",
     "entryPath": "entry"
   },
   "components": {
     "task-part": {
       "uuid": "4ea13fd4-6f0d-41a3-a65e-f19f90d6b0c7",
-      "className": "workshop.TaskPart",
-      "binding": "code/components/generated/TaskPartBinding.ts"
+      "className": "workshop.TaskPart"
     }
   }
 }

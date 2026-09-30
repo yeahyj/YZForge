@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile, unlink, rmdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { call } from '../../tools/yzforge/mcp.mjs';
-import { readWorkbook, writeWorkbookConfig } from '../../tools/yzforge/workbooks.mjs';
+import { readWorkbook, writeWorkbookConfig } from '../../tools/yzforge/project/workbooks.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const fixture = 'language-path-check-' + Date.now().toString(36);
@@ -154,7 +154,7 @@ for(const info of infos){if(info.isDirectory&&fs.readdirSync(info.file).length)t
                 await unlink(resolve(root, source));
                 await rmdir(resolve(root, 'config-source', fixture));
             }
-            const file = resolve(root, 'project-settings/generated/resource-identities.json'),
+            const file = resolve(root, 'project-settings/state/resource-identities.json'),
                 identities = JSON.parse(await readFile(file, 'utf8'));
             for (const [uuid, entry] of Object.entries(identities.entries))
                 if (entry.id.startsWith(fixture + '/')) delete identities.entries[uuid];

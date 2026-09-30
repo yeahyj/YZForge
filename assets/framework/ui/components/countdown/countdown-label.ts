@@ -3,7 +3,7 @@ import { EDITOR } from 'cc/env';
 import { type ErrorReporter, invariant, OperationCancelled, reportError } from '../../../core/errors';
 import { type Lifetime, type TaskContext, runTask } from '../../../core/scope';
 import type { ScopedTime } from '../../../time/time-service';
-import { ComponentScope } from '../component-scope';
+import { ComponentScope } from '../../../components/component-scope';
 import { countdownSeconds, formatCountdown } from './countdown';
 const { ccclass, property, disallowMultiple, menu } = _decorator;
 /** 倒计时需要的最小时间接口；不传时独立节点使用 Date.now，框架节点自动使用校时服务。 */

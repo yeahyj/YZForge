@@ -1,5 +1,5 @@
 'use strict';
-const config = require('../../tools/yzforge/game-config.cjs');
+const config = require('../../tools/yzforge/project/game-config.cjs');
 
 /** Creator 预览设置钩子：把当前源配置摘要交给运行时，阻止使用过期的生成快照启动。 */
 exports.checkSettings = async function (settings) {

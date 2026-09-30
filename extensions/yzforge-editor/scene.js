@@ -1,7 +1,7 @@
 'use strict';
 const cc = require('cc');
 const { randomBytes } = require('crypto');
-const { scanBindings, bindingShape } = require('../../tools/yzforge/binding-scan.cjs');
+const { scanBindings, bindingShape } = require('../../tools/yzforge/generators/binding-scan.cjs');
 const serialize = (value) => {
     if (!global.cce?.Utils?.serialize) throw Error('Creator scene serializer is unavailable');
     const data = cce.Utils.serialize(value);

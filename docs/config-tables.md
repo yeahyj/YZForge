@@ -42,7 +42,7 @@ Sheet 按固定名称识别，不依赖排列顺序。数据表的目标包优�
 | `int[]` / `string[]` 等 | 一维 JSON 数组，如 `[1,2]`、`["a","b"]`                 |
 | `string?` / `int[]?` 等 | 末尾 `?` 允许整个值为 `null`；数组写在 `?` 之前         |
 
-日期使用 `string` 配合 `format: date` 或 `date-time` 约束，分别填写 `YYYY-MM-DD` 或含时区的 ISO 时间文本；没有独立的 `date` 字段类型。可用约束为数值 `min/max`、字符串或数组 `minLength/maxLength`、字符串 `format`。解析规则见 [config.mjs](../tools/yzforge/config.mjs)，运行时校验见 [schema.ts](../assets/framework/config/schema.ts)。
+日期使用 `string` 配合 `format: date` 或 `date-time` 约束，分别填写 `YYYY-MM-DD` 或含时区的 ISO 时间文本；没有独立的 `date` 字段类型。可用约束为数值 `min/max`、字符串或数组 `minLength/maxLength`、字符串 `format`。解析规则见 [config.mjs](../tools/yzforge/generators/config.mjs)，运行时校验见 [schema.ts](../assets/framework/config/schema.ts)。
 
 ## `__config` 与命名枚举
 
@@ -72,7 +72,7 @@ kind | id | sheet | bundle | primaryKey | enabled | field | name | value | uniqu
 
 同一枚举使用一致的整数或字符串存储值，成员名和值保持唯一，`public` 设置保持一致。同模块的工作簿不能重复定义同名枚举。字段使用 `enum<Quality>`；跨模块使用 `enum<common.Quality>`，目标枚举必须公开。生成结果是 `as const` 值对象及联合类型，业务可以使用 `Quality.Rare`。
 
-可直接参考 [任务表](../config-source/workshop/tasks.xlsx) 的枚举、外键与索引，以及 [Samples](../config-source/showcase/samples.xlsx) 的分片、资源引用和公式。工作簿配置的读写实现见 [workbooks.mjs](../tools/yzforge/workbooks.mjs)。
+可直接参考 [任务表](../config-source/workshop/tasks.xlsx) 的枚举、外键与索引，以及 [Samples](../config-source/showcase/samples.xlsx) 的分片、资源引用和公式。工作簿配置的读写实现见 [workbooks.mjs](../tools/yzforge/project/workbooks.mjs)。
 
 ## 公式与写回
 
@@ -85,7 +85,7 @@ npm run generate
 npm run check
 ```
 
-当前重算器使用 Windows 桌面 Excel COM，在独立副本中计算，不保存源工作簿。结果写入 `project-settings/generated/formulas` 并随源码提交。未改变输入时无需重复运行 Excel；工作簿、导出配置或声明的关联 XLSX 改变后重新计算。没有有效快照时正式导出失败，不会静默使用缓存。
+当前重算器使用 Windows 桌面 Excel COM，在独立副本中计算，不保存源工作簿。结果写入 `project-settings/snapshots/formulas` 并随源码提交。未改变输入时无需重复运行 Excel；工作簿、导出配置或声明的关联 XLSX 改变后重新计算。没有有效快照时正式导出失败，不会静默使用缓存。
 
 外部工作簿必须在 `input` 中声明；DDE/OLE 链接不支持，复杂或非确定性公式需要项目自行验收。WPS 和 LibreOffice 未提供重算适配器。
 
@@ -93,7 +93,7 @@ npm run check
 
 ## 生成与验证
 
-JSON 写入目标 Bundle 的 `dynamic/config`；公开表合同/类型位于 `contracts/generated/config`，私有表位于 `code/generated/config`。行数据不会编译成 TypeScript 常量。生成文件由工具管理，修改源表后重新生成。
+JSON 写入目标 Bundle 的 `dynamic/config`；公开表合同/类型位于 `contracts/generated/config`，私有表位于 `code/generated/config`。跨模块统一从目标模块 `public.ts` 导入；纯资源模块的表和枚举必须显式公开，不创建无用的 `code/generated`。行数据不会编译成 TypeScript 常量。生成文件由工具管理，修改源表后重新生成。
 
 运行时用 `show.config.load(Table)` 获取当前使用期内的只读表；多分片表必须显式指定 Bundle。外键只是主键值，资源引用也不等于已加载资源。加载、查询、持有和跨模块示例见 [API 使用指南](api-guide.md#配置表与生成的-ts-合同)。
 

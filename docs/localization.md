@@ -11,7 +11,9 @@
 
 首次创建同时登记默认语言。以后增加语言，先保存项目支持语言，再到多语言页执行创建。已有工作簿会安全追加空语言列，保留原有文本、格式和其他工作表；不会复制默认文案冒充翻译。纯资源包不创建占位 Excel；声明了工作簿但文件丢失时仍然报错。写入会核对文件摘要、保留备份并使用临时文件替换，外部编辑导致预览过期时拒绝覆盖。
 
-资源改名通过 Creator/工作台完成，不手改 `.meta`。普通业务资源保留稳定键；语言资源改名或移动会改变路径键，各语言及引用需要同步调整。
+语言资源使用工作台的 **语言资源改名**：选择现有键或路径前缀，填写新相对路径，预览后执行。工具同步各语言文件，保留 UUID，并更新目标模块语言契约的静态代码引用及原生图片绑定。已识别的动态键、字典别名和未解析的实例覆盖会阻止执行；其他动态拼接仍需业务核对。图集以整个图集路径改名，仅支持同目录移动，不能单独改名子帧。恢复记录会核对文件状态，保留后续人工修改。
+
+普通资源在同包内通过 Creator 移动，逻辑 ID 继续跟随 UUID；语言 key 则始终来自路径。不要手改 `.meta`。
 
 ```text
 assets/game/modules/showcase/
@@ -46,7 +48,6 @@ config-source/showcase/localization-default.xlsx   可选，仅维护全部语�
 ```json
 "default": {
   "id": "m-showcase",
-  "root": "bundles/default",
   "localization": {
     "source": "config-source/showcase/localization-default.xlsx",
     "locales": { "zh-CN": {}, "en": {} }
@@ -127,7 +128,7 @@ await show.assets.bindComponents(node); // 等待本次启用的语言资源就�
 
 ### 代码动态绑定
 
-目录、强类型文案键和语言资源键由生成器生成到 `contracts/generated/localization-业务包.ts`，路由自动进入 ContentRelease。**GameRoot 不导入或登记业务语言目录。** App 启动只选择默认语言，首次 `use` 才准备该业务包的当前与默认目录。
+目录、强类型文案键和语言资源键由生成器生成到 `contracts/generated/localization-业务包.ts`，并由模块 `public.ts` 统一导出，路由自动进入 ContentRelease。**GameRoot 不导入或登记业务语言目录。** App 启动只选择默认语言，首次 `use` 才准备该业务包的当前与默认目录。
 
 ```ts
 const language = await show.i18n.use(ShowcaseBundles.default);
@@ -212,7 +213,7 @@ Bootstrap 首页 → **多语言示例 · 动态与编辑器配置**：
 
 原 **资源准备、实例池与多语言** 页继续演示批量准备、实例池和缺译回退；归还实例不保留旧绑定。
 
-实现见 [LocalizationLabPage.ts](../assets/game/modules/showcase/code/ui/LocalizationLabPage.ts) 和 [ResourceLabPage.ts](../assets/game/modules/showcase/code/ui/ResourceLabPage.ts)。
+实现见 [LocalizationLabPage.ts](../assets/game/modules/showcase/code/ui/localization-lab-page/LocalizationLabPage.ts) 和 [ResourceLabPage.ts](../assets/game/modules/showcase/code/ui/resource-lab-page/ResourceLabPage.ts)。
 
 ```sh
 npm run verify

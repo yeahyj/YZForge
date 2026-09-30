@@ -1,8 +1,8 @@
 'use strict';
 const fs = require('fs/promises');
 const path = require('path');
-const config = require('../../tools/yzforge/game-config.cjs');
-const { withProjectLock } = require('../../tools/yzforge/project-lock.cjs');
+const config = require('../../tools/yzforge/project/game-config.cjs');
+const { withProjectLock } = require('../../tools/yzforge/project/project-lock.cjs');
 const root = () => Editor.Project.path;
 /** 即使当前渠道被删除，也先更新选项，允许从原生面板重新选择有效渠道。 */
 exports.refreshChannels = async function () {
@@ -10,7 +10,7 @@ exports.refreshChannels = async function () {
         await config.assertUnlocked(root());
         const source = await config.readSource(root());
         const file = path.join(root(), config.channelOptionsPath);
-        const content = await require('../../tools/yzforge/format.cjs').formatScript(
+        const content = await require('../../tools/yzforge/generators/format.cjs').formatScript(
             file,
             config.channelOptionsSource(source),
         );

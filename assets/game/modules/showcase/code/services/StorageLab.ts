@@ -1,4 +1,4 @@
-import { Storage, type StorageBackend, type StorageKey } from '../../../../../framework/platform/storage';
+import { Storage, type StorageBackend, type StorageKey } from '../../../../../framework/storage/storage';
 
 /** 故障实验专用内存后端；不会修改浏览器、小游戏或原生平台的真实存档。 */
 export class LabStorageBackend implements StorageBackend {

@@ -153,7 +153,7 @@ clear 关闭组件当前绑定，dispose 关闭指定绑定，均返回排空 Pr
 
 ## 示例与验证
 
-业务示例位于 [ComponentsLabPage](../assets/game/modules/showcase/code/ui/ComponentsLabPage.ts) 和同名预制体。换图、Switch、倒计时和长短文本切换可查看 Inspector 事件配置。
+业务示例位于 [ComponentsLabPage](../assets/game/modules/showcase/code/ui/components-lab-page/ComponentsLabPage.ts) 和同名预制体。换图、Switch、倒计时和长短文本切换可查看 Inspector 事件配置。
 
 ```sh
 npm run verify

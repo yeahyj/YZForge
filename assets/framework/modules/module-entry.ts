@@ -1,5 +1,6 @@
 import { _decorator, Component, instantiate } from 'cc';
-import { Assets, destroyNode } from '../assets/asset-manager';
+import { Assets } from '../assets/asset-manager';
+import { destroyNode } from '../assets/node-lifetime';
 import { invariant } from '../core/errors';
 import { Scope } from '../core/scope';
 import { ModuleDefinition, ModuleFactory } from './module-manager';

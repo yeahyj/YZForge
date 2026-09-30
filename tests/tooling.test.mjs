@@ -4,11 +4,11 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import ExcelJS from 'exceljs';
-import { fieldType, convert, compileTables } from '../tools/yzforge/config.mjs';
-import { configRows } from '../tools/yzforge/workbooks.mjs';
-import { validateModules, lifecycleCheck } from '../tools/yzforge/checks.mjs';
-import { within, writeBatch } from '../tools/yzforge/project.mjs';
-import settingsTools from '../tools/yzforge/settings.cjs';
+import { fieldType, convert, compileTables } from '../tools/yzforge/generators/config.mjs';
+import { configRows } from '../tools/yzforge/project/workbooks.mjs';
+import { validateModules, lifecycleCheck } from '../tools/yzforge/validation/checks.mjs';
+import { within, writeBatch } from '../tools/yzforge/project/project.mjs';
+import settingsTools from '../tools/yzforge/project/settings.cjs';
 import { logicalKey } from '../assets/framework/assets/catalog.ts';
 import { validateValue } from '../assets/framework/config/schema.ts';
 import { parseTable } from '../assets/framework/config/config-table.ts';
@@ -22,7 +22,7 @@ async function fixture(callback) {
         await mkdir(join(root, 'config-source/lobby'), { recursive: true });
         const module = {
             id: 'lobby',
-            layoutVersion: 2,
+            layoutVersion: 3,
             directory: join(root, 'assets/game/modules/lobby'),
             dependencies: {},
             bundles: {

@@ -76,7 +76,7 @@ await lease.release();
 
 ## 示例与验证
 
-Bootstrap 首页 → **资源准备、实例池与多语言**，可准备图片/音频/预制体、预热 3 个实例、借出与归还，观察同一实例编号复用。示例文件为 [ResourceLabPage.ts](../assets/game/modules/showcase/code/ui/ResourceLabPage.ts)。
+Bootstrap 首页 → **资源准备、实例池与多语言**，可准备图片/音频/预制体、预热 3 个实例、借出与归还，观察同一实例编号复用。示例文件为 [ResourceLabPage.ts](../assets/game/modules/showcase/code/ui/resource-lab-page/ResourceLabPage.ts)。
 
 ```sh
 node tests/integration/verify-resources-localization.mjs http://127.0.0.1:7456/

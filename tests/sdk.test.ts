@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Scope } from '../assets/framework/core/scope';
 import { OperationCancelled } from '../assets/framework/core/errors';
-import { freezeGameConfig, standaloneGameConfig } from '../assets/framework/platform/game-config';
-import { GameSdk, type SdkAdapter } from '../assets/framework/platform/sdk';
+import { freezeGameConfig, standaloneGameConfig } from '../assets/framework/app/game-config';
+import { GameSdk, type SdkAdapter } from '../assets/framework/sdk/sdk';
 import { deferred, flush } from './fake-clock';
 import {
     createMiniGameSdkAdapter,
@@ -11,7 +11,7 @@ import {
     resolveSdkRuntime,
     type MiniGameSdkHost,
     type MiniGameVideo,
-} from '../assets/framework/platform/sdk-adapters';
+} from '../assets/framework/sdk/sdk-adapters';
 
 const settings = (overrides = {}) =>
     freezeGameConfig({

@@ -3,8 +3,12 @@ const fs = require('fs/promises');
 const path = require('path');
 const { createHash, randomUUID } = require('crypto');
 const { pathToFileURL } = require('url');
-const layout = require('../../tools/yzforge/localization-layout.cjs');
-const { resolveValue, savedBindings, writeSavedValue } = require('../../tools/yzforge/localization-apply.cjs');
+const layout = require('../../tools/yzforge/project/localization-layout.cjs');
+const {
+    resolveValue,
+    savedBindings,
+    writeSavedValue,
+} = require('../../tools/yzforge/operations/localization-apply.cjs');
 const hash = (value) =>
     createHash('sha256')
         .update(typeof value === 'string' ? value : JSON.stringify(value))
@@ -35,7 +39,7 @@ exports.createLocalizationUpdates = function ({ inside, journal, moduleInfo }) {
             hash(release.locales) !== hash(settings.locales)
         )
             throw Error('语言配置已变化，请先校验并生成');
-        const identities = await read('project-settings/generated/resource-identities.json');
+        const identities = await read('project-settings/state/resource-identities.json');
         const byId = new Map(
             Object.entries(identities.entries)
                 .filter(([, value]) => value.active)
@@ -212,7 +216,7 @@ exports.createLocalizationUpdates = function ({ inside, journal, moduleInfo }) {
             (asset) => /\.(prefab|scene)$/.test(asset.url) && !asset.uuid.includes('@'),
         );
         const resolve = await resolver(args.locale);
-        const { decodeUuid } = await import(pathToFileURL(inside('tools/yzforge/catalog.mjs')).href);
+        const { decodeUuid } = await import(pathToFileURL(inside('tools/yzforge/project/catalog.mjs')).href);
         const classes = new Map([
             ['yzforge.LocalizedLabel', 'text'],
             ['yzforge.LocalizedSprite', 'sprite'],
@@ -221,7 +225,7 @@ exports.createLocalizationUpdates = function ({ inside, journal, moduleInfo }) {
             ['localized-label', 'text'],
             ['localized-sprite', 'sprite'],
         ]) {
-            const info = await db('query-asset-info', `db://assets/framework/localization/${scriptName}.ts`);
+            const info = await db('query-asset-info', `db://assets/framework/ui/localization/${scriptName}.ts`);
             if (!info) throw Error('缺少多语言绑定脚本');
             classes.set(info.uuid, kind);
         }

@@ -1,9 +1,12 @@
 {
   "id": "profile",
-  "layoutVersion": 2,
+  "layoutVersion": 3,
   "displayName": "示例账号服务",
   "dependencies": {},
   "bundles": {},
   "views": {},
-  "audio": {}
+  "audio": {},
+  "code": {
+    "mode": "eager"
+  }
 }

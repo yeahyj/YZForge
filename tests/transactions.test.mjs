@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import { writeBatch, pendingTransactions, previewTransaction, recoverTransaction } from '../tools/yzforge/project.mjs';
+import {
+    writeBatch,
+    pendingTransactions,
+    previewTransaction,
+    recoverTransaction,
+} from '../tools/yzforge/project/project.mjs';
 
 test('generation recovery restores only its own outputs and refuses changed previews', async () => {
     const root = await mkdtemp(join(tmpdir(), 'yzforge-journal-'));

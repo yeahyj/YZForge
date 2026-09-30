@@ -1,6 +1,6 @@
 import type { ModuleContext } from '../../../../../framework/modules/module-manager';
 import type { Lifetime } from '../../../../../framework/core/scope';
-import type { StorageKey } from '../../../../../framework/platform/storage';
+import type { StorageKey } from '../../../../../framework/storage/storage';
 import { invariant, reportError } from '../../../../../framework/core/errors';
 import type { WalletSnapshot } from '../../public';
 

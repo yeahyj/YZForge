@@ -5,20 +5,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSZip from 'jszip';
 import ExcelJS from 'exceljs';
-import { scanCatalog } from '../tools/yzforge/catalog.mjs';
-import layout from '../tools/yzforge/localization-layout.cjs';
+import { scanCatalog } from '../tools/yzforge/project/catalog.mjs';
+import { initializeState } from '../tools/yzforge/operations/initialize-state.mjs';
+import layout from '../tools/yzforge/project/localization-layout.cjs';
 import {
     compileLocalization,
     createLocalizationWorkbook,
     localizationDeclarations,
     languageResources,
-} from '../tools/yzforge/localization.mjs';
+} from '../tools/yzforge/generators/localization.mjs';
 import {
     readWorkbook,
     workbookSources,
     writeLocalizationWorkbook,
     writeWorkbookConfig,
-} from '../tools/yzforge/workbooks.mjs';
+} from '../tools/yzforge/project/workbooks.mjs';
 const settings = { localization: { defaultLocale: 'zh-CN', locales: ['zh-CN', 'en', 'ja'] } };
 test('自动归属按声明目录边界解析，排除语言包、相似目录和模块代码', () => {
     const directory = join(tmpdir(), 'source-module');
@@ -62,7 +63,7 @@ async function fixture(t, rows) {
     );
     const module = {
         id: 'shop',
-        layoutVersion: 2,
+        layoutVersion: 3,
         directory: join(root, 'assets/game/modules/shop'),
         bundles: {
             default: {
@@ -320,11 +321,12 @@ test('图集按子图片路径生成 key，默认字体可独立缺省', async (
 test('语言资源物理索引允许路径改名和同路径替换，不改变普通资源规则', async (t) => {
     const f = await fixture(t),
         module = layout.expandModule(f.module);
+    await initializeState(f.root);
     const source = join(f.module.directory, 'localization/default/en/dynamic/images/logo.png');
     const metadata = new Map([['old-uuid', { source, importer: 'sprite-frame', suffix: '/spriteFrame' }]]);
     const first = await scanCatalog(f.root, [module], metadata, { tables: [] });
     await mkdir(join(f.root, 'project-settings/generated'), { recursive: true });
-    await writeFile(join(f.root, 'project-settings/generated/resource-identities.json'), JSON.stringify(first));
+    await writeFile(join(f.root, 'project-settings/state/resource-identities.json'), JSON.stringify(first));
     metadata.get('old-uuid').source = source.replace('logo.png', 'renamed.png');
     const moved = await scanCatalog(f.root, [module], metadata, { tables: [] });
     assert.equal(moved.entries['old-uuid'].id, 'shop/default-en/sprite/images/renamed');

@@ -12,7 +12,7 @@
 - 每条记录模拟一次可取消的异步详情加载。快速滚动后，旧详情不会写进新条目。
 - 页脚显示当前窗口、实例数与待处理操作数；返回后再进入会创建新的列表会话。
 
-源码：[VirtualListLabPage.ts](../assets/game/modules/showcase/code/ui/VirtualListLabPage.ts)、[VirtualListItemPart.ts](../assets/game/modules/showcase/code/components/VirtualListItemPart.ts)。页面与条目预制体分别位于 showcase 模块的 `bundles/default/dynamic/ui` 和 `dynamic/prefabs`；节点修改后通过工作台更新绑定，不手改 `generated/*Binding.ts`。
+源码：[VirtualListLabPage.ts](../assets/game/modules/showcase/code/ui/virtual-list-lab-page/VirtualListLabPage.ts)、[VirtualListItemPart.ts](../assets/game/modules/showcase/code/components/virtual-list-item-part/VirtualListItemPart.ts)。页面与条目预制体分别位于 showcase 模块的 `bundles/default/dynamic/ui` 和 `dynamic/prefabs`；节点修改后通过工作台更新绑定，不手改 `generated/*Binding.ts`。
 
 ## 节点与布局所有权
 

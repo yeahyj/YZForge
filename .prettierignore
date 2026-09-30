@@ -9,13 +9,11 @@ funplay-cocos-mcp.config.json
 
 # These files are written by the framework generators.
 **/generated/**
-assets/game/modules/**/res/config/**
-assets/game/modules/**/bundles/*/config/**
 assets/game/modules/**/bundles/*/dynamic/config/**
-assets/game/modules/**/bundles/*/dynamic/i18n/**
 assets/**/yz-index.json
 assets/game/modules/**/module.json
-config-source/tables.json
+project-settings/state/**
+project-settings/snapshots/**
 project-settings/framework.json
 
 # Dependencies, outputs, local histories and external tool instructions.

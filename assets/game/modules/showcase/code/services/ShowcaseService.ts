@@ -1,5 +1,5 @@
 import type { ModuleContext } from '../../../../../framework/modules/module-manager';
-import { WorkshopChanged } from '../../../workshop/contracts/workflow';
+import { WorkshopChanged } from '../../../workshop/public';
 
 /** 首页观察跨模块事件和异步实验结果。日志在模块存活期间保留，页面关闭不清空。 */
 export class ShowcaseService {

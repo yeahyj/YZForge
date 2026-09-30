@@ -43,6 +43,7 @@
 
 预览首先进入“功能实验室”。建议先体验“正式业务流程 · 任务奖励”，再打开工作台的“示例工作流”，对照 Service、Presenter、Page 和 Part 的真实代码。其他入口展示 UI、资源、配置、时间、音频、存档与失败恢复。
 
+- [目录与依赖规则](docs/architecture.md)：模块布局、公开入口、文件所有权和工具职责。
 - [正式开发工作流](docs/development-workflow.md)：从创建模块到业务、渲染、绑定和验证。
 - [功能展示与验证入口](docs/showcase.md)：可交互示例、编辑器步骤和自动化验证。
 
@@ -65,7 +66,7 @@ assets/
    └─ modules/                   # 业务模块
 extensions/yzforge-editor/        # Creator 工作台
 config-source/                   # XLSX 源工作簿
-project-settings/                # 框架参数、资源身份和生成记录
+project-settings/                # 参数、state/ 持久状态、snapshots/ 及 generated/
 settings/                        # Creator 项目设置及 Bundle 预设
 tools/yzforge/                   # 生成、校验和构建工具
 tests/                           # 自动化测试
@@ -77,12 +78,12 @@ docs/                            # 使用文档
 ```text
 assets/game/modules/inventory/
 ├─ module.json                   # 模块声明、依赖、资源包及界面登记
-├─ public.ts                     # 对外提供的模块引用和 API 类型
-├─ contracts/generated/          # 资源 Key、明确公开的界面和配置合同
+├─ public.ts                     # 全生成，唯一跨模块入口
+├─ contracts/                    # 人工 api.ts、公开界面类型及 generated/ 合同
 ├─ code/
 │  ├─ InventoryModule.ts         # 模块服务装配
-│  ├─ ui/                        # 界面脚本及可选 Presenter
-│  ├─ components/                # Part 和普通组件
+│  ├─ ui/                        # 每个界面独立目录，含 Presenter 与 generated/Binding
+│  ├─ components/                # 每个 Part 或普通组件独立目录
 │  ├─ services/                  # 业务服务
 │  └─ generated/                 # 依赖引用和私有配置类型
 └─ bundles/

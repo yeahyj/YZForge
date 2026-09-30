@@ -1,7 +1,7 @@
 import type { Lifetime } from '../../assets/framework/core/scope';
 import type { ScopedAssets } from '../../assets/framework/assets/asset-manager';
 import type { AssetKey } from '../../assets/framework/assets/asset-types';
-import { GameComponent } from '../../assets/framework/core/game-component';
+import { GameComponent } from '../../assets/framework/components/game-component';
 import type { VirtualList, VirtualListItemContext } from '../../assets/framework/ui/components/virtual-list';
 
 declare const list: VirtualList;

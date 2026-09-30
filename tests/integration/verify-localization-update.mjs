@@ -44,8 +44,9 @@ try {
     fixture = await scene(`
 if(globalThis.__yzforgeManualLocaleCheck)throw Error('Another locale check is running');
 const parent=cce.Scene.rootNode;if(!parent)throw Error('Open a scene or prefab first');
-const root=new cc.Node('__locale_apply_check');root.layer=cc.Layers.Enum.UI_2D;root.setPosition(100000,100000);root.parent=parent;
+const root=new cc.Node('__locale_apply_check');root.layer=cc.Layers.Enum.UI_2D;root.parent=parent;
 root._objFlags|=cc.CCObject.Flags.DontSave|cc.CCObject.Flags.HideInHierarchy;
+root.addComponent(cc.Canvas); // 原生 Sprite 必须进入 Canvas 才会参与实际批处理渲染。
 const data={root};globalThis.__yzforgeManualLocaleCheck=data;
 for(const [kind,name,key]of[['text','yzforge.LocalizedLabel','example.welcome'],['sprite','yzforge.LocalizedSprite','images/greeting']]){
  const node=new cc.Node(kind);node.layer=root.layer;node.parent=root;
@@ -75,7 +76,12 @@ return {root:root.uuid,text:data.text.uuid,sprite:data.sprite.uuid};`);
     await until(() => panel('return root.dataset.busy!=="true";'));
     const english = await read();
     assert.ok(english.image);
-    await until(async () => (await read()).rendered);
+    // 工作台可独占窗口，Scene 隐藏时 Creator 暂停编辑帧；推进真实引擎帧再检查绘制数据。
+    await scene('cce.Engine.tickInEditMode(1 / 60); return true;');
+    await until(async () => {
+        await scene('cce.Engine.tickInEditMode(1 / 60); return true;');
+        return (await read()).rendered;
+    });
     await editor(`await Editor.Message.request('scene','undo');return true;`);
     assert.deepEqual({ ...(await read()), rendered: true }, { text: 'ORIGINAL', image: '', rendered: true });
     await editor(`await Editor.Message.request('scene','redo');return true;`);
@@ -106,9 +112,13 @@ try{const value=EditorExtends.serialize(asset);return typeof value==='string'?va
         url: fixtureUrl,
     });
     created = true;
+    for (const suffix of ['/bundles', '/bundles/default'])
+        await editor(`await Editor.Message.request('asset-db','create-asset',args.url,null);return true;`, {
+            url: fixtureUrl + suffix,
+        });
     const assets = await editor(
         `const result=[];for(const url of args.urls)result.push(await Editor.Message.request('asset-db','create-asset',url,args.content));return result.map(a=>({uuid:a.uuid,url:a.url}));`,
-        { urls: ['First', 'Second'].map((name) => `${fixtureUrl}/${name}.prefab`), content },
+        { urls: ['First', 'Second'].map((name) => `${fixtureUrl}/bundles/default/${name}.prefab`), content },
     );
     const persisted = await scene(
         `const asset=await new Promise((resolve,reject)=>cc.assetManager.loadAny(args.uuid,(e,a)=>e?reject(e):resolve(a)));return {text:asset.data.getComponentsInChildren(cc.Label)[0].string,image:asset.data.getComponentsInChildren(cc.Sprite)[0].spriteFrame?.uuid};`,
@@ -129,7 +139,7 @@ const directory=path.join(Editor.Project.path,'assets',args.name);
 const inside=value=>{const file=path.resolve(Editor.Project.path,value),local=path.relative(Editor.Project.path,file);if(local.startsWith('..')||path.isAbsolute(local))throw Error('Outside project');return file;};
 const records=[];globalThis.__yzforgeLocaleBatch={records,assets:args.assets};
 globalThis.__yzforgeLocaleBatch.tools=require(path.join(Editor.Project.path,'extensions/yzforge-editor/localization-update.js')).createLocalizationUpdates({
- inside,moduleInfo:async()=>({directory,manifest:{id:'locale-check',bundles:{default:{root:'.',id:'locale-check-default'}}}}),
+ inside,moduleInfo:async()=>({directory,manifest:{id:'locale-check',bundles:{default:{id:'locale-check-default'}}}}),
  journal:async(action,payload)=>{const id=Date.now()+'-'+require('crypto').randomBytes(4).toString('hex');const file=inside('.yzforge/editor-history/'+id+'.json');await fs.promises.mkdir(path.dirname(file),{recursive:true});await fs.promises.writeFile(file,JSON.stringify({id,action,...payload},null,2));records.push(file);return id;}
 });return true;`,
         { name: fixtureName, assets },

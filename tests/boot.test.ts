@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BootFlow } from '../assets/framework/core/boot';
+import { BootFlow } from '../assets/framework/app/boot';
 import { Scope } from '../assets/framework/core/scope';
 import { deferred, flush } from './fake-clock';
 

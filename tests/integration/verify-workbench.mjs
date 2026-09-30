@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, rename, readdir, mkdir } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { call } from '../../tools/yzforge/mcp.mjs';
-import { readWorkbook, writeWorkbookConfig } from '../../tools/yzforge/workbooks.mjs';
+import { readWorkbook, writeWorkbookConfig } from '../../tools/yzforge/project/workbooks.mjs';
 const root = resolve(import.meta.dirname, '../..');
 const module = 'workbench-check-' + Date.now().toString(36);
 const editor = async (code, args = {}) => (await call('execute_javascript', { context: 'editor', code, args })).data;
@@ -72,7 +72,7 @@ const serialized=cce.Utils.serialize(prefab);return {rootId,content:typeof seria
     assert.equal(binding.bound, 2);
     assert.deepEqual(binding.fields, ['lblTitle', 'compState']);
     const bindingSource = await readFile(
-        resolve(root, 'assets/game/modules', module, 'code/components/generated/ItemPartBinding.ts'),
+        resolve(root, 'assets/game/modules', module, 'code/components/item-part/generated/ItemPartBinding.ts'),
         'utf8',
     );
     assert.match(bindingSource, /get lblTitle\(\): CountdownLabel/);

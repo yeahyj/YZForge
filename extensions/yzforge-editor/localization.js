@@ -2,12 +2,12 @@
 const path = require('path');
 const fs = require('fs/promises');
 const { pathToFileURL } = require('url');
-const layout = require('../../tools/yzforge/localization-layout.cjs');
-const { localizationSettings } = require('../../tools/yzforge/settings.cjs');
+const layout = require('../../tools/yzforge/project/localization-layout.cjs');
+const { localizationSettings } = require('../../tools/yzforge/project/settings.cjs');
 
 exports.createLocalizationTools = function (ctx) {
     const { root, inside, read, moduleInfo, saveJson, workbookTools, bundleFolder, ensureFolder } = ctx;
-    const tools = () => import(pathToFileURL(inside('tools/yzforge/localization-workbook.mjs')).href);
+    const tools = () => import(pathToFileURL(inside('tools/yzforge/generators/localization-workbook.mjs')).href);
     async function planLocalization(args) {
         const { manifest } = await moduleInfo(args.module),
             base = args.bundle;

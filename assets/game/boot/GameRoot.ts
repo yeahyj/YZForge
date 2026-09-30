@@ -1,8 +1,8 @@
-import type { BootContext } from '../../framework/core/boot';
+import type { BootContext } from '../../framework/app/boot';
 import { _decorator, Label, Node, profiler } from 'cc';
 import { GameSettings } from './GameSettings';
-import { App } from '../../framework/core/app';
-import { AppEntry } from '../../framework/core/app-entry';
+import { App } from '../../framework/app/app';
+import { AppEntry } from '../../framework/app/app-entry';
 import { modules, views } from '../app/generated/assembly';
 import { release } from '../app/generated/release';
 import { runtimeOptions } from '../app/generated/options';

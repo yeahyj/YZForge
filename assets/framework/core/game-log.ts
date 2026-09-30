@@ -1,12 +1,16 @@
-import type { GameConfig } from '../platform/game-config';
+/** 日志所需的最小配置；渠道、版本等前缀由应用装配。 */
+export interface LogOptions {
+    readonly level: 'debug' | 'info' | 'warn' | 'error' | 'silent';
+    readonly prefix: string;
+}
 
 /** 受当前配置日志级别控制的业务日志入口；既有 console 调用不会被全局替换。 */
 export class GameLog {
     private readonly threshold: number;
     private readonly prefix: string;
-    constructor(config: GameConfig) {
-        this.threshold = ['debug', 'info', 'warn', 'error', 'silent'].indexOf(config.diagnostics.logLevel);
-        this.prefix = `[${config.channel}/${config.environment} v${config.appVersion}]`;
+    constructor(options: LogOptions) {
+        this.threshold = ['debug', 'info', 'warn', 'error', 'silent'].indexOf(options.level);
+        this.prefix = options.prefix;
     }
     /** 开发调试信息。 */
     debug(message: string, ...values: unknown[]): void {

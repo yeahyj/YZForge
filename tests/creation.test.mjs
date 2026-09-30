@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, unlink, rmdir, rm } from 'node:fs/promises';
 import { join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { tmpdir } from 'node:os';
-import creation from '../extensions/yzforge-editor/creation.js';
+import creation from '../tools/yzforge/operations/creation.cjs';
 
 async function fixture(run) {
     const root = await mkdtemp(join(tmpdir(), 'yzforge-creation-'));

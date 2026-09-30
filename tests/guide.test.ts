@@ -5,7 +5,7 @@ import { untilCancelled } from '../assets/framework/core/cancellation';
 import { GuideRunner, type GuideCheckpoint } from '../assets/framework/guide/guide-runner';
 import { GuideTargets } from '../assets/framework/guide/guide-targets';
 import { StorageGuideProgress } from '../assets/framework/guide/guide-progress';
-import { Storage } from '../assets/framework/platform/storage';
+import { Storage } from '../assets/framework/storage/storage';
 import {
     focusFrame,
     focusGeometry,

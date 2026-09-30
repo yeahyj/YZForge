@@ -16,13 +16,11 @@ import {
     SpriteFrame,
     TextAsset,
     Texture2D,
-    director,
-    Director,
 } from 'cc';
 import type { AssetManager as EngineAssetManager } from 'cc';
 import type { ConfigManager, ScopedConfig } from '../config/config-manager';
 import { untilCancelled } from '../core/cancellation';
-import { bindAdditionalComponents } from '../core/component-binding';
+import { bindAdditionalComponents } from '../components/component-binding';
 import { FrameworkError, invariant, reportError } from '../core/errors';
 import { Scope, Lifetime, scopeOwner } from '../core/scope';
 import {
@@ -39,6 +37,7 @@ import { logicalKey, resolveIndex, validateIndex } from './catalog';
 import { LeaseCache } from './lease-cache';
 import { loadAssetBatch, type AssetBatchOptions, type LoadedAssets } from './asset-batch';
 import { PrefabPool, type PrefabPoolOptions } from './prefab-pool';
+import { destroyNode } from './node-lifetime';
 const constructors = {
     Prefab,
     SpriteFrame,
@@ -509,24 +508,6 @@ export class Assets {
         };
         for (const id of Object.keys(this.release.bundles)) visit(id);
     }
-}
-/**
- * @internal
- * 停用并请求销毁节点，等待引擎帧末完成实际销毁后才返回，用于保证资源释放顺序。
- * @param node - 待销毁节点；已无效时直接完成。
- * @returns 节点确实无效后完成的 Promise；依赖引擎继续派发绘制帧事件。
- */
-export function destroyNode(node: Node): Promise<void> {
-    if (!isValid(node)) return Promise.resolve();
-    node.active = false;
-    node.destroy();
-    return new Promise((resolve) => {
-        const check = () => {
-            if (!isValid(node)) resolve();
-            else director.once(Director.EVENT_AFTER_DRAW, check);
-        };
-        director.once(Director.EVENT_AFTER_DRAW, check);
-    });
 }
 /**
  * 带默认 Scope、命名空间和宿主模块的资源入口，通常从 ctx.assets 或 assets.in 获得。

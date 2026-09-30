@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateLocalizedRecords } from '../tools/yzforge/localized-bindings.mjs';
-import { decodeUuid } from '../tools/yzforge/catalog.mjs';
+import { validateLocalizedRecords } from '../tools/yzforge/validation/localized-bindings.mjs';
+import { decodeUuid } from '../tools/yzforge/project/catalog.mjs';
 const classes = new Map([
     ['label-class', 'text'],
     ['sprite-class', 'sprite'],

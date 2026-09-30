@@ -1,22 +1,31 @@
 // 自动生成的模块内部界面合同；import 不加载实现或资源。
 import type { ViewKey } from '../../../../../framework/ui/ui-manager';
-import type { ShowcasePageParams, ShowcasePageResult } from '../ui/ShowcasePage.types';
-import type { UiLabPageParams, UiLabPageResult } from '../ui/UiLabPage.types';
-import type { DataLabPageParams, DataLabPageResult } from '../ui/DataLabPage.types';
-import type { TimeLabPageParams, TimeLabPageResult } from '../ui/TimeLabPage.types';
-import type { AsyncLabPageParams, AsyncLabPageResult } from '../ui/AsyncLabPage.types';
-import type { StorageLabPageParams, StorageLabPageResult } from '../ui/StorageLabPage.types';
-import type { GuidePageParams, GuidePageResult } from '../ui/GuidePage.types';
-import type { ConfirmPopupParams, ConfirmPopupResult } from '../ui/ConfirmPopup.types';
-import type { InspectOverlayParams, InspectOverlayResult } from '../ui/InspectOverlay.types';
-import type { NoticeToastParams, NoticeToastResult } from '../ui/NoticeToast.types';
-import type { ProgressLoadingParams, ProgressLoadingResult } from '../ui/ProgressLoading.types';
-import type { VirtualListLabPageParams, VirtualListLabPageResult } from '../ui/VirtualListLabPage.types';
-import type { NetworkLabPageParams, NetworkLabPageResult } from '../ui/NetworkLabPage.types';
-import type { TutorialLabPageParams, TutorialLabPageResult } from '../ui/TutorialLabPage.types';
-import type { ComponentsLabPageParams, ComponentsLabPageResult } from '../ui/ComponentsLabPage.types';
-import type { ResourceLabPageParams, ResourceLabPageResult } from '../ui/ResourceLabPage.types';
-import type { LocalizationLabPageParams, LocalizationLabPageResult } from '../ui/LocalizationLabPage.types';
+import type { ShowcasePageParams, ShowcasePageResult } from '../../contracts/ShowcasePage.types';
+import type { UiLabPageParams, UiLabPageResult } from '../ui/ui-lab-page/UiLabPage.types';
+import type { DataLabPageParams, DataLabPageResult } from '../ui/data-lab-page/DataLabPage.types';
+import type { TimeLabPageParams, TimeLabPageResult } from '../ui/time-lab-page/TimeLabPage.types';
+import type { AsyncLabPageParams, AsyncLabPageResult } from '../ui/async-lab-page/AsyncLabPage.types';
+import type { StorageLabPageParams, StorageLabPageResult } from '../ui/storage-lab-page/StorageLabPage.types';
+import type { GuidePageParams, GuidePageResult } from '../ui/guide-page/GuidePage.types';
+import type { ConfirmPopupParams, ConfirmPopupResult } from '../ui/confirm-popup/ConfirmPopup.types';
+import type { InspectOverlayParams, InspectOverlayResult } from '../ui/inspect-overlay/InspectOverlay.types';
+import type { NoticeToastParams, NoticeToastResult } from '../ui/notice-toast/NoticeToast.types';
+import type { ProgressLoadingParams, ProgressLoadingResult } from '../ui/progress-loading/ProgressLoading.types';
+import type {
+    VirtualListLabPageParams,
+    VirtualListLabPageResult,
+} from '../ui/virtual-list-lab-page/VirtualListLabPage.types';
+import type { NetworkLabPageParams, NetworkLabPageResult } from '../ui/network-lab-page/NetworkLabPage.types';
+import type { TutorialLabPageParams, TutorialLabPageResult } from '../ui/tutorial-lab-page/TutorialLabPage.types';
+import type {
+    ComponentsLabPageParams,
+    ComponentsLabPageResult,
+} from '../ui/components-lab-page/ComponentsLabPage.types';
+import type { ResourceLabPageParams, ResourceLabPageResult } from '../ui/resource-lab-page/ResourceLabPage.types';
+import type {
+    LocalizationLabPageParams,
+    LocalizationLabPageResult,
+} from '../ui/localization-lab-page/LocalizationLabPage.types';
 /** showcase 的模块内全部界面引用。 */
 export const ShowcaseViews = {
     /** showcase.showcase-page；show.ui.pushPage 只等待切换完成；跨页面等待结果由外部会话使用 app.ui.pushPage。 */

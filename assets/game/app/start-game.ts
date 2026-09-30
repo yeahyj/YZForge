@@ -1,6 +1,6 @@
-import type { App } from '../../framework/core/app';
-import type { BootContext } from '../../framework/core/boot';
-import { ShowcaseViews } from '../modules/showcase/contracts/generated/views';
+import type { App } from '../../framework/app/app';
+import type { BootContext } from '../../framework/app/boot';
+import { ShowcaseViews } from '../modules/showcase/public';
 
 /**
  * 项目的启动接入点；通过公开界面合同选择首屏，复杂业务调用所属模块的公开 API。

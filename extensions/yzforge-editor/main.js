@@ -4,26 +4,27 @@ const syncFs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const { randomUUID, createHash } = require('crypto');
-const { runtimeOptions } = require('../../tools/yzforge/settings.cjs');
-const { formatScript } = require('../../tools/yzforge/format.cjs');
-const bindings = require('../../tools/yzforge/bindings.cjs');
-const naming = require('../../tools/yzforge/naming.cjs');
+const { runtimeOptions } = require('../../tools/yzforge/project/settings.cjs');
+const { formatScript } = require('../../tools/yzforge/generators/format.cjs');
+const bindings = require('../../tools/yzforge/generators/bindings.cjs');
+const naming = require('../../tools/yzforge/project/naming.cjs');
+const layout = require('../../tools/yzforge/project/layout.cjs');
 const bundleConfig = require('./bundle-config');
-const localizationLayout = require('../../tools/yzforge/localization-layout.cjs');
+const localizationLayout = require('../../tools/yzforge/project/localization-layout.cjs');
 const { pathToFileURL } = require('url');
 const workbookTools = () => {
-    const file = path.join(root(), 'tools/yzforge/workbooks.mjs');
+    const file = path.join(root(), 'tools/yzforge/project/workbooks.mjs');
     return import(pathToFileURL(file).href + '?v=' + syncFs.statSync(file).mtimeMs);
 };
 const projectTools = () => {
-    const file = path.join(root(), 'tools/yzforge/project.mjs');
+    const file = path.join(root(), 'tools/yzforge/project/project.mjs');
     return import(pathToFileURL(file).href + '?v=' + syncFs.statSync(file).mtimeMs);
 };
 const name = 'yzforge-editor';
 const workflow = require('./workflow');
 const gameSettings = require('./game-settings');
-const gameConfigTools = require('../../tools/yzforge/game-config.cjs');
-const gameBuild = require('../../tools/yzforge/game-build.cjs');
+const gameConfigTools = require('../../tools/yzforge/project/game-config.cjs');
+const gameBuild = require('../../tools/yzforge/operations/game-build.cjs');
 let queue = Promise.resolve();
 let autoTimer;
 let sourceWatcher;
@@ -73,6 +74,7 @@ async function ensureFolder(target) {
 }
 async function saveJson(target, value) {
     target = inside(target);
+    if (path.basename(target) === 'module.json') value = layout.sourceManifest(value);
     const previous = await fs.readFile(target, 'utf8').catch((error) => {
         if (error.code === 'ENOENT') return null;
         throw error;
@@ -110,12 +112,10 @@ async function moduleInfo(id, allowOrphan = false) {
     const directory = inside(`assets/game/modules/${id}`);
     const manifest = await read(path.join(directory, 'module.json')).catch((error) => {
         if (allowOrphan && error.code === 'ENOENT' && syncFs.statSync(directory).isDirectory())
-            return { id, layoutVersion: 2, orphan: true, dependencies: [], bundles: {}, views: {} };
+            return { id, layoutVersion: layout.layoutVersion, orphan: true, dependencies: {}, bundles: {}, views: {} };
         throw error;
     });
-    if (manifest.layoutVersion !== 2) throw Error(`${id}: 不支持的模块 layoutVersion`);
-    if ('assets' in manifest) throw Error(`${id}: module.json 不支持手工登记 assets，资源由 dynamic 目录生成`);
-    return { directory, manifest };
+    return { directory, manifest: manifest.orphan ? manifest : layout.resolveModule(manifest) };
 }
 async function bundleFolder(directory, definition, kind = 'resources') {
     await bundleConfig.ensurePresets();
@@ -134,6 +134,15 @@ async function bundleFolder(directory, definition, kind = 'resources') {
     const check = await Editor.Message.request('asset-db', 'query-asset-meta', url(target));
     if (check?.userData?.bundleName !== definition.id || !check.userData.isBundle) throw Error('资源包属性保存失败');
 }
+async function createPublicEntry(directory, manifest) {
+    const { publicContracts } = await import(
+        pathToFileURL(inside('tools/yzforge/generators/public-contracts.mjs')).href
+    );
+    const output = {};
+    await publicContracts(root(), [{ ...manifest, code: manifest.code ?? { mode: 'eager' }, directory }], output);
+    const target = path.join(directory, 'public.ts');
+    await writeScript('create-asset', target, output[rel(target)]);
+}
 async function createModule(args) {
     if (args.delivery === 'none') args = { ...args, codeOnly: false, dependencies: {} };
     const id = validId(naming.slug(args.id)),
@@ -145,7 +154,7 @@ async function createModule(args) {
     }
     const manifest = {
         id,
-        layoutVersion: 2,
+        layoutVersion: layout.layoutVersion,
         displayName: args.displayName || id,
         dependencies: naming.dependencies(
             [...(await exports.methods.state()).modules, { id, dependencies: [] }],
@@ -164,7 +173,10 @@ async function createModule(args) {
         await ensureFolder(path.join(directory, 'bundles/default/static'));
     }
     await ensureFolder(path.join(directory, 'contracts'));
-    if (args.delivery === 'none') return { id, directory: rel(directory) };
+    if (args.delivery === 'none') {
+        await createPublicEntry(directory, manifest);
+        return { id, directory: rel(directory) };
+    }
     const type = pascal(id),
         framework = path.relative(path.join(directory, 'code'), inside('assets/framework')).replaceAll('\\', '/');
     const dependencyImports = Object.entries(manifest.dependencies)
@@ -188,9 +200,10 @@ async function createModule(args) {
     );
     await writeScript(
         'create-asset',
-        path.join(directory, 'public.ts'),
-        `import type { ModuleRef } from '../../../framework/modules/module-manager';\n/** 模块公开 API 合同；跨模块调用依赖此合同，不直接导入 code 中的私有实现。 */\nexport interface ${type}Api {\n  /** 当前模块的稳定 ID。 */\n  readonly moduleId: string;\n}\n/** 轻量模块引用；await app.modules.use(此引用, owner) 后通过 handle.api 使用业务能力。 */\nexport const ${type}Module: ModuleRef<${type}Api> = { id: '${id}' };\n`,
+        path.join(directory, 'contracts/api.ts'),
+        `/** 人工维护的模块公开业务 API；实现留在 code。 */\nexport interface ${type}Api {\n  /** 当前模块的稳定 ID。 */\n  readonly moduleId: string;\n}\n`,
     );
+    await createPublicEntry(directory, manifest);
     await ensureFolder(path.join(directory, 'contracts'));
     if (args.delivery !== 'eager') {
         await writeScript(
@@ -232,18 +245,23 @@ async function createScript(args) {
     const { directory, manifest } = await moduleInfo(args.module),
         type = naming.named(args.id, args.kind).className;
     const component = args.kind === 'component',
-        folder = path.join(directory, 'code', component ? 'components' : 'services');
+        folder = path.join(
+            directory,
+            component
+                ? layout.itemPaths('component', naming.named(args.id, args.kind).id, { className: type }).directory
+                : 'code/services',
+        );
     await ensureFolder(folder);
     const framework = path.relative(folder, inside('assets/framework')).replaceAll('\\', '/');
     const content = component
-        ? `import { _decorator } from 'cc';\nimport { GameComponent, ActivationContext } from '${framework}/core/game-component';\nconst { ccclass } = _decorator;\n/** 普通框架组件；业务使用 onInit/onActivate/onTick 等钩子，不覆盖引擎 onLoad/update。 */\n@ccclass('${manifest.id}.${type}')\nexport class ${type} extends GameComponent {\n  /** 绑定与模块上下文就绪后执行一次，同步初始化组件自身状态。 */\n  protected onInit(): void {}\n  /**\n   * 每次业务激活执行；异步工作放入 _activation.run，并通过 task.commit 安全提交结果。\n   * @param _activation - 本次激活上下文；失活时取消，下一次激活会得到新的上下文。\n   */\n  protected onActivate(_activation: ActivationContext): void {\n    // 不把钩子改成 async：使用 _activation.run(async task => { ...; task.commit(() => { ... }); });\n  }\n}\n`
+        ? `import { _decorator } from 'cc';\nimport { GameComponent, ActivationContext } from '${framework}/components/game-component';\nconst { ccclass } = _decorator;\n/** 普通框架组件；业务使用 onInit/onActivate/onTick 等钩子，不覆盖引擎 onLoad/update。 */\n@ccclass('${manifest.id}.${type}')\nexport class ${type} extends GameComponent {\n  /** 绑定与模块上下文就绪后执行一次，同步初始化组件自身状态。 */\n  protected onInit(): void {}\n  /**\n   * 每次业务激活执行；异步工作放入 _activation.run，并通过 task.commit 安全提交结果。\n   * @param _activation - 本次激活上下文；失活时取消，下一次激活会得到新的上下文。\n   */\n  protected onActivate(_activation: ActivationContext): void {\n    // 不把钩子改成 async：使用 _activation.run(async task => { ...; task.commit(() => { ... }); });\n  }\n}\n`
         : `import type { ModuleContext } from '${framework}/modules/module-manager';\n/** 普通业务服务，用于可被多个界面共享的状态和业务规则；不依赖 Cocos 组件生命周期。 */\nexport class ${type} {\n  /**\n   * 创建服务；由模块工厂持有实例，需释放的监听或资源登记到对应 Scope。\n   * @param ctx - 宿主模块上下文；ctx.scope 覆盖本次模块业务实例。\n   */\n  constructor(private readonly ctx: ModuleContext) {}\n}\n`;
     const target = path.join(folder, `${type}.ts`);
     return writeScript('create-asset', target, content);
 }
-function bindingSource(module, className, fields, directory, component = false) {
+function bindingSource(module, className, fields, directory, component = false, typesImport) {
     const framework = path.relative(directory, inside('assets/framework')).replaceAll('\\', '/');
-    return bindings.bindingSource(module, className, fields, framework, component);
+    return bindings.bindingSource(module, className, fields, framework, component, typesImport);
 }
 async function resolveBindingFields(fields, directory) {
     return bindings.resolveBindingFields(fields, directory, async (classId) => {
@@ -268,15 +286,23 @@ async function createView(args) {
     if (!bundle) throw Error('请先创建目标资源包，再创建界面');
     const resolution = await Editor.Profile.getProject('project', 'general.designResolution');
     if (!(resolution?.width > 0 && resolution?.height > 0)) throw Error('请先在 Creator 项目设置中配置设计分辨率');
-    const code = path.join(directory, 'code/ui'),
+    const paths = layout.itemPaths('view', id, { className, visibility: args.visibility ?? 'internal' });
+    const code = path.join(directory, paths.directory),
         generated = path.join(code, 'generated');
     await ensureFolder(generated);
     const uiFolder = 'dynamic/ui';
     await ensureFolder(path.join(directory, bundle.root, uiFolder));
     const files = {
-        [path.join(code, `${className}.types.ts`)]:
+        [path.join(directory, paths.types)]:
             `// 界面参数与结果合同；公开范围由 module.json 的 visibility 决定。需要数据时将 void 替换为明确的只读对象类型。\n/** ui.open/pushPage 的参数类型，在 onShow 中通过 show.params 读取。 */\nexport type ${className}Params = void;\n/** show.finish 提交的业务结果类型，调用方在 handle.result 的 completed 分支读取。 */\nexport type ${className}Result = void;\n`,
-        [path.join(generated, `${className}Binding.ts`)]: bindingSource(manifest.id, className, [], generated),
+        [path.join(generated, `${className}Binding.ts`)]: bindingSource(
+            manifest.id,
+            className,
+            [],
+            generated,
+            false,
+            layout.importPath(paths.binding, paths.types),
+        ),
         [path.join(code, `${className}.ts`)]:
             `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n/** 完整 UI 的渲染与输入入口；节点来自 Binding，可按复杂度把业务规则委托给 Service/Presenter。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n  // 按需重写 onCreate/onShow/onHide/onDispose，不覆盖引擎生命周期。\n  // onShow(show: ViewShowContext<本界面Params, 本界面Result>) 可异步加载。\n  // 临时资源优先用 show.assets/show.config/show.audio，await 后通过 show.commit 同步修改节点。\n  // 点击监听使用 show.listen；成功用 show.finish(result)，取消用 show.dismiss()，返回用 show.ui.back()。\n}\n`,
     };
@@ -306,7 +332,7 @@ async function createView(args) {
         cache: 'none',
         duplicate: 'reject',
         className: `${manifest.id}.${className}`,
-        binding: `code/ui/generated/${className}Binding.ts`,
+        ...paths,
     };
     await saveJson(path.join(directory, 'module.json'), manifest);
     return { id: `${manifest.id}.${id}`, uuid: prefab.uuid, className: `${manifest.id}.${className}` };
@@ -325,7 +351,17 @@ async function bindView(args) {
         await scene('scanPrefab', asset.uuid, settings.bindingPrefixes),
         path.dirname(target),
     );
-    const text = await formatScript(target, bindingSource(manifest.id, className, fields, path.dirname(target)));
+    const text = await formatScript(
+        target,
+        bindingSource(
+            manifest.id,
+            className,
+            fields,
+            path.dirname(target),
+            false,
+            layout.importPath(view.binding, view.types),
+        ),
+    );
     await journal('binding', { path: rel(target), previous: await fs.readFile(target, 'utf8'), fields });
     await Editor.Message.request('asset-db', 'save-asset', url(target), text);
     await waitClass(view.className);
@@ -354,8 +390,7 @@ async function bindView(args) {
     return scene('validateBinding', asset.uuid, view.className, settings.bindingPrefixes);
 }
 async function resourceIdentity(manifest, id) {
-    if (manifest.assets?.[id]) return manifest.assets[id];
-    const ledger = await read(inside('project-settings/generated/resource-identities.json')).catch((error) => {
+    const ledger = await read(inside('project-settings/state/resource-identities.json')).catch((error) => {
         if (error.code === 'ENOENT') return { entries: {} };
         throw error;
     });
@@ -411,7 +446,7 @@ async function createTableTemplate(args) {
         module: manifest.id,
         bundle,
         enabled: true,
-        tables: [{ id, sheet: pascal(id), primaryKey: 'id', enabled: true }],
+        tables: [{ id, sheet: pascal(id), primaryKey: 'id', enabled: true, public: manifest.code?.mode === 'none' }],
     });
     return { source, hash: result.hash, config: result.config };
 }
@@ -476,24 +511,16 @@ async function previewDelete(args, creation) {
         const view = kind === 'view' ? manifest.views[args.id] : manifest.components?.[args.id];
         if (!view) throw Error('未找到界面');
         const registration = kind === 'view' ? await resourceIdentity(manifest, view.prefab) : { uuid: view.uuid };
-        const identities = await read(inside('project-settings/generated/resource-identities.json'));
+        const identities = await read(inside('project-settings/state/resource-identities.json'));
         const resourceId = view.prefab ?? identities.entries[view.uuid]?.id;
         if (!registration) throw Error('界面资源登记缺失');
         const prefab = await Editor.Message.request('asset-db', 'query-asset-info', registration.uuid);
         if (!prefab?.file) throw Error('界面 Prefab 未导入');
-        const binding = inside(path.join(directory, view.binding));
         targets.push(
             inside(prefab.file),
-            binding,
-            binding.replace(`${path.sep}generated${path.sep}`, path.sep).replace(/Binding\.ts$/, '.ts'),
-            ...(kind === 'view'
-                ? [binding.replace(`${path.sep}generated${path.sep}`, path.sep).replace(/Binding\.ts$/, '.types.ts')]
-                : []),
+            inside(path.join(directory, view.directory)),
+            ...(kind === 'view' && view.visibility === 'public' ? [inside(path.join(directory, view.types))] : []),
         );
-        const presenter = binding
-            .replace(path.sep + 'generated' + path.sep, path.sep)
-            .replace(/Binding\.ts$/, 'Presenter.ts');
-        if (syncFs.existsSync(presenter)) targets.push(presenter);
         ids.push(`${manifest.id}.${args.id}`, ...(resourceId ? [resourceId] : []));
         if (kind === 'view') delete nextManifest.views[args.id];
         else delete nextManifest.components[args.id];
@@ -537,9 +564,6 @@ async function previewDelete(args, creation) {
         targets.push(inside(path.join(directory, bundle.root)));
         ids.push(`${manifest.id}/${args.id}/`, bundle.id);
         if (bundle.localization) refs.push('此业务包拥有多语言资源，请先迁移或停用其声明');
-        for (const [base, definition] of Object.entries(manifest.bundles))
-            if (base !== args.id && Object.values(definition.localization?.variants ?? {}).includes(args.id))
-                refs.push(`语言资源包仍被 ${base} 的多语言声明使用`);
         for (const table of state.tables.tables)
             if (
                 table.id.startsWith(manifest.id + '.') &&
@@ -548,12 +572,6 @@ async function previewDelete(args, creation) {
                 refs.push(`配置表 ${table.id} 仍使用此包`);
         for (const view of Object.values(manifest.views ?? {}))
             if (view.prefab.startsWith(`${manifest.id}/${args.id}/`)) refs.push(`界面仍使用资源 ${view.prefab}`);
-        for (const id of Object.keys(nextManifest.assets ?? {}))
-            if (id.startsWith(`${manifest.id}/${args.id}/`)) {
-                if (Object.values(nextManifest.views).some((view) => view.prefab === id))
-                    refs.push(`界面仍使用资源 ${id}`);
-                delete nextManifest.assets[id];
-            }
         for (const component of Object.values(manifest.components ?? {})) {
             const info = await Editor.Message.request('asset-db', 'query-asset-info', component.uuid);
             if (info?.url.startsWith(url(inside(path.join(directory, bundle.root))) + '/'))
@@ -582,23 +600,26 @@ async function previewDelete(args, creation) {
         }
     }
     const owned = new Set(files.map((file) => file.toLowerCase()));
+    const generatedOwned = new Set(
+        Object.keys(await read(inside('project-settings/state/generated-files.json'))).map((file) =>
+            inside(file).toLowerCase(),
+        ),
+    );
     for (const file of creation?.restored ?? []) owned.add(inside(file).toLowerCase());
     const allAssets = await Editor.Message.request('asset-db', 'query-assets', { pattern: 'db://assets/game/**' });
     const assets = allAssets.filter((asset) => asset.file && owned.has(asset.file.toLowerCase()));
     const uuids = new Set(assets.map((asset) => asset.uuid));
-    for (const other of state.modules)
-        for (const [id, registration] of Object.entries(other.assets || {})) {
-            if (!uuids.has(registration.uuid.split('@')[0]) && !uuids.has(registration.uuid)) continue;
-            if (other.id === manifest.id && (kind === 'module' || !nextManifest.assets?.[id])) continue;
-            refs.push(`动态资源 ${id} 仍登记了待删除的文件`);
-        }
     for (const asset of assets) {
         const users = await Editor.Message.request('asset-db', 'query-asset-users', asset.uuid, 'all');
         for (const user of users || [])
             if (!uuids.has(user)) {
                 if (!user) continue; // Creator can include empty importer bookkeeping entries, which are not asset UUIDs.
                 const info = await Editor.Message.request('asset-db', 'query-asset-info', user);
-                if (info && (!info.file || !owned.has(info.file.toLowerCase())) && !info.url.includes('/generated/'))
+                if (
+                    info &&
+                    (!info.file ||
+                        (!owned.has(info.file.toLowerCase()) && !generatedOwned.has(info.file.toLowerCase())))
+                )
                     refs.push(`${info.url} 引用 ${asset.url}`);
             }
     }
@@ -611,19 +632,19 @@ async function previewDelete(args, creation) {
             : {};
     const languageBindings =
         kind === 'localization'
-            ? await import(pathToFileURL(path.join(root(), 'tools/yzforge/localized-bindings.mjs')).href)
+            ? await import(pathToFileURL(path.join(root(), 'tools/yzforge/validation/localized-bindings.mjs')).href)
             : null;
     const nativeLanguageTypes = new Set(['yzforge.LocalizedLabel', 'yzforge.LocalizedSprite']);
     if (kind === 'localization')
         for (const script of ['localized-label', 'localized-sprite']) {
-            const meta = await read(inside(`assets/framework/localization/${script}.ts.meta`));
+            const meta = await read(inside(`assets/framework/ui/localization/${script}.ts.meta`));
             nativeLanguageTypes.add(meta.uuid);
             nativeLanguageTypes.add(Editor.Utils.UUID.compressUUID(meta.uuid, false));
         }
     for (const file of await listFiles(inside('assets/game'))) {
         if (
             owned.has(file.toLowerCase()) ||
-            file.includes(`${path.sep}generated${path.sep}`) ||
+            generatedOwned.has(file.toLowerCase()) ||
             file.endsWith('.meta') ||
             file.endsWith('module.json')
         )
@@ -748,7 +769,9 @@ async function deleteModule(args) {
 async function restore(args) {
     return recovery.restore(args);
 }
-const recovery = require('./recovery').createRecovery({
+const recovery = require('../../tools/yzforge/operations/recovery.cjs').createRecovery({
+    root,
+    request: (...args) => Editor.Message.request(...args),
     inside,
     rel,
     url,
@@ -760,7 +783,7 @@ const recovery = require('./recovery').createRecovery({
     ensureFolder,
     workbookTools,
 });
-const creation = require('./creation').createCreationHistory({
+const creation = require('../../tools/yzforge/operations/creation.cjs').createCreationHistory({
     inside,
     url,
     db: (...args) => Editor.Message.request('asset-db', ...args),
@@ -816,13 +839,16 @@ const actions = {
     async generate() {
         await gameSettings.refreshChannels();
         const preview = await runTool('preview'),
-            obsoleteSet = new Set(preview.obsolete.map((item) => inside(item).toLowerCase()));
+            obsoleteSet = new Set(preview.obsolete.map((item) => inside(item).toLowerCase())),
+            managedSet = new Set(
+                [...preview.outputPaths, ...preview.obsolete].map((item) => inside(item).toLowerCase()),
+            );
         // Validate before replacing any good output; a removed table may still be imported by business code.
         const ts = require(path.join(root(), 'node_modules/typescript'));
         const config = ts.readConfigFile(inside('tsconfig.json'), ts.sys.readFile),
             compiler = ts.parseJsonConfigFileContent(config.config, ts.sys, root());
         for (const file of await listFiles(inside('assets/game'))) {
-            if (!file.endsWith('.ts') || file.includes(`${path.sep}generated${path.sep}`)) continue;
+            if (!file.endsWith('.ts') || managedSet.has(file.toLowerCase())) continue;
             const source = ts.createSourceFile(file, await fs.readFile(file, 'utf8'), ts.ScriptTarget.Latest, true);
             const visit = (node) => {
                 if (
@@ -853,7 +879,7 @@ const actions = {
                 for (const user of users || []) {
                     if (!user) continue;
                     const info = await Editor.Message.request('asset-db', 'query-asset-info', user);
-                    if (info && !info.url.includes('/generated/'))
+                    if (info && !managedSet.has(path.resolve(info.file).toLowerCase()))
                         throw Error(`旧生成文件仍有引用，请先处理：${obsolete} ← ${info.url}`);
                 }
             }
@@ -910,7 +936,11 @@ const actions = {
     async recoverGameBuild() {
         const result = await gameBuild.recover(root(), async () => {
             const state = await Editor.Message.request('builder', 'query-tasks-info');
-            return state?.free === true;
+            return (
+                state?.free === true &&
+                Array.isArray(state.list) &&
+                !state.list.some((task) => task.state === 'processing' || task.state === 'waiting')
+            );
         });
         await actions.generate();
         autoStatus = { state: 'ready', message: '构建状态已恢复，动态清单与配置已同步' };
@@ -941,12 +971,17 @@ const actions = {
                 .flatMap((module) =>
                     Object.entries(localizationLayout.physicalBundles(module)).map(([group, bundle]) => ({
                         id: `${module.id}/${group}`,
+                        language: !!bundle.language,
                         directory: inside(`assets/game/modules/${module.id}/${bundle.root}`),
                     })),
                 )
                 .filter((item) => file.startsWith(item.directory + path.sep))
-                .sort((a, b) => b.directory.length - a.directory.length)[0]?.id;
-        if (ownership(source.file) !== ownership(target))
+                .sort((a, b) => b.directory.length - a.directory.length)[0];
+        const before = ownership(source.file),
+            after = ownership(target);
+        if (before?.language || after?.language)
+            throw Error('语言资源移动会改变相对路径 key，请使用多语言页的资源改名，同步所有语言和引用');
+        if (before?.id !== after?.id)
             throw Error('跨资源包移动会改变资源身份，请通过显式迁移更新语言映射和所有引用；普通移动只允许同包改名');
         await ensureFolder(path.dirname(target));
         await Editor.Message.request('asset-db', 'move-asset', source.url, url(target));
@@ -957,6 +992,10 @@ const actions = {
     },
 };
 Object.assign(actions, require('./localization-update').createLocalizationUpdates({ inside, journal, moduleInfo }));
+Object.assign(
+    actions,
+    require('./language-rename').createLanguageRenames({ root, inside, ensureFolder, assertBindingSceneSaved }),
+);
 Object.assign(
     actions,
     require('./localization').createLocalizationTools({
@@ -975,7 +1014,11 @@ Object.assign(
 );
 Object.assign(
     actions,
-    require('./workbench').createWorkbench({
+    require('../../tools/yzforge/operations/workbench.cjs').createWorkbench({
+        request: (...args) => Editor.Message.request(...args),
+        ensurePresets: () => bundleConfig.ensurePresets(),
+        openBundleSettings: () => Editor.Message.send('project', 'open-settings', 'builder', 'bundle-config'),
+        openFile: (file) => require('electron').shell.openPath(file),
         root,
         inside,
         rel,
@@ -1097,7 +1140,7 @@ exports.methods = {
         for (const entry of entries)
             if (entry.isDirectory()) {
                 try {
-                    modules.push(await read(path.join(directory, entry.name, 'module.json')));
+                    modules.push(layout.resolveModule(await read(path.join(directory, entry.name, 'module.json'))));
                 } catch (error) {
                     if (error.code !== 'ENOENT') throw error;
                     orphans.push({ id: entry.name, displayName: `${entry.name}（未完成的模块目录）` });
@@ -1159,6 +1202,7 @@ exports.methods = {
             prefabs: prefabs.map(({ uuid, url }) => ({ uuid, url })),
             autoStatus,
             languageUpdates: await actions.languageUpdateHistory(),
+            languageRenames: await actions.languageRenameHistory(),
             presets: (await Editor.Profile.getProject('builder', 'bundleConfig.custom')) ?? {},
         };
     },
@@ -1180,6 +1224,8 @@ exports.methods = {
                         'createLocalization',
                         'applyLanguageUpdate',
                         'restoreLanguageUpdate',
+                        'applyLanguageRename',
+                        'restoreLanguageRename',
                         'deleteModule',
                         'restore',
                     ].includes(action)
@@ -1196,6 +1242,8 @@ exports.methods = {
                         'updateSettings',
                         'moveAsset',
                         'rollbackCreation',
+                        'applyLanguageRename',
+                        'restoreLanguageRename',
                     ].includes(action)
                 ) {
                     clearTimeout(autoTimer);

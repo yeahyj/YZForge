@@ -1,5 +1,5 @@
 'use strict';
-const { businessBundles } = require('../../tools/yzforge/localization-layout.cjs');
+const { businessBundles } = require('../../tools/yzforge/project/localization-layout.cjs');
 exports.template = require('./panel-template');
 exports.style = require('fs').readFileSync(require('path').join(__dirname, 'panel.css'), 'utf8');
 exports.$ = { workbench: '#workbench' };
@@ -11,6 +11,7 @@ exports.ready = function () {
         createPlan,
         languagePlan,
         languageUpdatePlan,
+        languageRenamePlan,
         creationRollbackPlan,
         deletePlan,
         workbookDraft,
@@ -34,6 +35,7 @@ exports.ready = function () {
             Creator: '元数据',
             existing: '保留',
             update: '更新',
+            move: '移动',
             generate: '生成',
             'regenerate-if-changed': '按需更新',
             conflict: '冲突',
@@ -131,6 +133,9 @@ exports.ready = function () {
         el('applyLanguageUpdate').disabled =
             busy || !val('languageApplyLocale') || (val('languageApplyScope') === 'bundle' && !languageUpdatePlan);
         el('restoreLanguageUpdate').disabled = busy || !val('languageUpdateRecord');
+        el('previewLanguageRename').disabled = busy || !val('languageRenameFrom') || !val('languageRenameTo');
+        el('applyLanguageRename').disabled = busy || !languageRenamePlan || languageRenamePlan.blocked;
+        el('restoreLanguageRename').disabled = busy || !val('languageRenameRecord');
         el('previewCreate').disabled = busy || !state || !val('newName');
         el('delete').disabled = busy || !deletePlan || deletePlan.references.length > 0;
         el('previewDelete').disabled =
@@ -210,6 +215,25 @@ exports.ready = function () {
         updateCreationActions();
     };
     const languageChanged = () => {
+        languageRenamePlan = undefined;
+        const renameNamespace = `${current()?.id}/${val('languageBundle')}`;
+        const renameKeys =
+            state.languageResources?.find(
+                (item) =>
+                    item.namespace === renameNamespace && item.locale === state.settings.localization?.defaultLocale,
+            )?.keys ?? [];
+        const renamePaths = new Set(
+            renameKeys.flatMap((key) => key.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'))),
+        );
+        options(
+            'languageRenameFrom',
+            [...renamePaths]
+                .filter((key) => key !== 'fonts/default')
+                .sort()
+                .map((key) => [key, key]),
+        );
+        renderFiles('languageRenameFiles', [], '预览会列出各语言文件和可追踪的引用。');
+        el('languageRenameResult').textContent = '';
         languageUpdatePlan = undefined;
         renderFiles('languageUpdateFiles', [], '当前范围使用原生撤销，修改后正常保存；批量范围会直接保存所列文件。');
         languagePlan = undefined;
@@ -240,9 +264,7 @@ exports.ready = function () {
                 const missing = keys ? defaults.filter((key) => !keys.includes(key)) : defaults;
                 for (const value of [
                     locale,
-                    declaration.locales?.[locale]
-                        ? `localization/${val('languageBundle')}/${locale}`
-                        : (declaration.variants?.[locale] ?? '回退默认语言'),
+                    declaration.locales?.[locale] ? `localization/${val('languageBundle')}/${locale}` : '回退默认语言',
                     `${texts.filter((row) => Object.prototype.hasOwnProperty.call(row.values, locale)).length} / ${texts.length}`,
                     keys
                         ? `${keys.length} 项${missing.length ? '；回退：' + missing.join('、') : ''}`
@@ -316,16 +338,9 @@ exports.ready = function () {
             state.workbooks.filter((w) => w.config.module === m?.id).map((w) => [w.source, w.source]),
         );
         loadWorkbook();
-        const dedicated = new Set(
-            Object.entries(m?.bundles ?? {}).flatMap(([base, bundle]) =>
-                Object.values(bundle.localization?.variants ?? {}).filter((group) => group !== base),
-            ),
-        );
         options(
             'languageBundle',
-            Object.keys(m?.bundles ?? {})
-                .filter((group) => !dedicated.has(group))
-                .map((group) => [group, group]),
+            Object.keys(m?.bundles ?? {}).map((group) => [group, group]),
         );
         options(
             'languageLocale',
@@ -345,6 +360,13 @@ exports.ready = function () {
             (state.languageUpdates ?? []).map((record) => [
                 record.id,
                 `${record.locale} · ${record.files} 个资源 · ${new Date(Number(record.id.split('-')[0])).toLocaleString()}`,
+            ]),
+        );
+        options(
+            'languageRenameRecord',
+            (state.languageRenames ?? []).map((record) => [
+                record.id,
+                `${record.request.module}/${record.request.bundle} · ${record.request.from} → ${record.request.to} · ${record.stage}`,
             ]),
         );
         languageChanged();
@@ -784,6 +806,41 @@ exports.ready = function () {
         if (result) el('languageUpdateResult').textContent = result.message;
     });
     on('languageUpdateRecord', updateCreationActions, 'change');
+    for (const id of ['languageRenameFrom', 'languageRenameTo'])
+        on(
+            id,
+            () => {
+                languageRenamePlan = undefined;
+                renderFiles('languageRenameFiles', [], '参数已变化，请重新预览。');
+                updateCreationActions();
+            },
+            'input',
+        );
+    on('previewLanguageRename', async () => {
+        languageRenamePlan = await run(
+            'previewLanguageRename',
+            {
+                module: val('module'),
+                bundle: val('languageBundle'),
+                from: val('languageRenameFrom'),
+                to: val('languageRenameTo'),
+            },
+            false,
+        );
+        if (languageRenamePlan) {
+            renderFiles('languageRenameFiles', languageRenamePlan.files, '没有需要修改的文件。');
+            el('languageRenameResult').textContent = languageRenamePlan.message;
+        }
+        updateCreationActions();
+    });
+    on('applyLanguageRename', async () => {
+        if (!languageRenamePlan || languageRenamePlan.blocked) throw Error('请先预览并处理引用冲突');
+        const { module, bundle, from, to, signature } = languageRenamePlan;
+        languageRenamePlan = undefined;
+        return run('applyLanguageRename', { module, bundle, from, to, signature });
+    });
+    on('restoreLanguageRename', () => run('restoreLanguageRename', { id: val('languageRenameRecord') }));
+    on('languageRenameRecord', updateCreationActions, 'change');
     on('recalculate', () => run('recalculate', { source: val('workbook') }, false));
     on('ensurePresets', () => run('ensurePresets'));
     on('bundleSettings', () => run('openBundleSettings', {}, false));

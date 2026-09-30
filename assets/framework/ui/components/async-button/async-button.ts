@@ -2,7 +2,7 @@ import { _decorator, Button, isValid, Node } from 'cc';
 import { EDITOR } from 'cc/env';
 import { type ErrorReporter, invariant, OperationCancelled, reportError } from '../../../core/errors';
 import type { Lifetime, TaskContext } from '../../../core/scope';
-import { ComponentScope, type ComponentContext } from '../component-scope';
+import { ComponentScope, type ComponentContext } from '../../../components/component-scope';
 import { AsyncButtonController } from './async-button-controller';
 const { ccclass, property, disallowMultiple, menu } = _decorator;
 

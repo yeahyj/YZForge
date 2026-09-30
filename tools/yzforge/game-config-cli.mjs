@@ -1,9 +1,9 @@
 import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import config from './game-config.cjs';
-import { generate } from './generate.mjs';
-import build from './game-build.cjs';
+import config from './project/game-config.cjs';
+import { generate } from './generators/generate.mjs';
+import build from './operations/game-build.cjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 try {

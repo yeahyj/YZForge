@@ -1,7 +1,7 @@
 'use strict';
 const { execFile } = require('child_process');
 const path = require('path');
-const gameBuild = require('../../tools/yzforge/game-build.cjs');
+const gameBuild = require('../../tools/yzforge/operations/game-build.cjs');
 let gameLease;
 async function releaseGameLease() {
     const lease = gameLease;
@@ -104,7 +104,7 @@ exports.onAfterBuild = async function (options, result) {
             languageCatalogs = [],
             problems = [];
         for (const module of definitions) {
-            const physical = require('../../tools/yzforge/localization-layout.cjs').physicalBundles(module);
+            const physical = require('../../tools/yzforge/project/localization-layout.cjs').physicalBundles(module);
             for (const target of Object.values(physical).filter((bundle) => bundle.language)) {
                 const { base, locale } = target.language;
                 const url = `db://assets/game/modules/${module.id}/${target.root}/yz-locale.json`;
@@ -141,13 +141,7 @@ exports.onAfterBuild = async function (options, result) {
             const entry = await Editor.Message.request(
                 'asset-db',
                 'query-asset-info',
-                'db://assets/game/modules/' +
-                    module.id +
-                    '/' +
-                    (module.code.root ?? 'code') +
-                    '/' +
-                    module.code.entryPath +
-                    '.prefab',
+                'db://assets/game/modules/' + module.id + '/' + 'code' + '/' + module.code.entryPath + '.prefab',
             );
             const locations = entry ? result.getAssetPathInfo(entry.uuid) : [];
             if (
@@ -170,7 +164,7 @@ exports.onAfterBuild = async function (options, result) {
                 hasPreloadScript: output?.config.hasPreloadScript,
             });
         }
-        const audit = await require('../../tools/yzforge/build-audit.cjs').auditProjectBuild(
+        const audit = await require('../../tools/yzforge/validation/build-audit.cjs').auditProjectBuild(
             root,
             result.dest,
             options.platform,

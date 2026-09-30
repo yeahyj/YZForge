@@ -6,8 +6,7 @@
   },
   "bundles": {
     "default": {
-      "id": "m-lobby",
-      "root": "bundles/default"
+      "id": "m-lobby"
     }
   },
   "views": {
@@ -17,7 +16,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "lobby.Dashboard",
-      "binding": "code/ui/generated/DashboardBinding.ts",
       "visibility": "public"
     },
     "reward-popup": {
@@ -26,17 +24,18 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "lobby.RewardPopup",
-      "binding": "code/ui/generated/RewardPopupBinding.ts",
       "visibility": "internal"
     }
   },
   "audio": {},
-  "layoutVersion": 2,
+  "layoutVersion": 3,
   "components": {
     "wallet-part": {
       "uuid": "76c109f2-ecfe-440d-a665-e7068c311358",
-      "className": "lobby.WalletPart",
-      "binding": "code/components/generated/WalletPartBinding.ts"
+      "className": "lobby.WalletPart"
     }
+  },
+  "code": {
+    "mode": "eager"
   }
 }

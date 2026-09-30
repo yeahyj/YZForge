@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { unlink, rmdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { call } from '../../tools/yzforge/mcp.mjs';
-import { readWorkbook } from '../../tools/yzforge/workbooks.mjs';
+import { readWorkbook } from '../../tools/yzforge/project/workbooks.mjs';
 const root = resolve(import.meta.dirname, '../..'),
     fixture = 'language-check-' + Date.now().toString(36);
 const editor = async (code, args = {}) => (await call('execute_javascript', { context: 'editor', code, args })).data;

@@ -2,14 +2,15 @@ import { untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, reportError } from '../core/errors';
 import { Scope, Lifetime, runTask } from '../core/scope';
-import type { RuntimeDiagnostics } from '../core/diagnostics';
+import type { RuntimeDiagnostics } from '../app/diagnostics';
 import type { ScopedAssets } from '../assets/asset-manager';
 import type { ScopedConfig } from '../config/config-manager';
 import type { Events } from '../core/events';
 import type { ScopedTime } from '../time/time-service';
 import type { AudioManager } from '../audio/audio-manager';
 import type { UIManager } from '../ui/ui-manager';
-import type { Storage } from '../platform/storage';
+import type { Storage } from '../storage/storage';
+import type { ComponentServicesFactory } from '../components/component-services';
 
 /**
  * 模块的轻量公开引用，通常由模块 public.ts 导出。
@@ -94,14 +95,16 @@ export function defineModule<Api, Services = unknown, D extends ModuleDependenci
  * 模块 Scope、界面展示 Scope、组件激活 Scope 长度不同，应按实际使用期选择。
  */
 export interface ModuleContext {
+    /** @internal 应用装配的组件服务工厂；按每次激活的 Scope 创建，不延长组件寿命。 */
+    readonly componentServices: ComponentServicesFactory;
     /** 按包使用语言目录；界面绑定优先使用 show.i18n / activation.i18n。 */
     readonly i18n: import('../localization/localization').Localization;
     /** 当前渠道、构建模式与环境的不可变配置；与数据表 ctx.config 分开。 */
-    readonly settings: import('../platform/game-config').GameConfig;
+    readonly settings: import('../app/game-config').GameConfig;
     /** 带渠道与环境上下文的业务日志。 */
     readonly log: import('../core/game-log').GameLog;
     /** 统一平台/发行 SDK；每次调用传入界面、流程或账号的实际 Scope。 */
-    readonly sdk: import('../platform/sdk').GameSdk;
+    readonly sdk: import('../sdk/sdk').GameSdk;
     /** 共享红点状态域；业务注册随模块或账号期限结束，UI 订阅使用 show/activation/item.scope。 */
     readonly badges: import('../badges/badge-store').BadgeStore;
     /** HTTP 入口；页面、条目及会话请求分别传入对应的 Scope，避免绑到过长的模块期限。 */

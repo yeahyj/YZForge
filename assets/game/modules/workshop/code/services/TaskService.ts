@@ -1,11 +1,11 @@
 import type { ModuleContext } from '../../../../../framework/modules/module-manager';
 import type { Lifetime } from '../../../../../framework/core/scope';
-import type { StorageKey } from '../../../../../framework/platform/storage';
+import type { StorageKey } from '../../../../../framework/storage/storage';
 import type { ProfileApi } from '../../../profile/public';
 import type { TasksRow } from '../../contracts/generated/config/Tasks.types';
 import type { TaskCardModel } from '../../contracts/workflow';
 import { TasksTable } from '../../contracts/generated/config/Tasks.table';
-import { EconomyTable } from '../../../common/contracts/generated/config/Economy.table';
+import { EconomyTable } from '../../../common/public';
 import { WorkshopChanged } from '../../contracts/workflow';
 import { invariant } from '../../../../../framework/core/errors';
 import type { BadgeSource } from '../../../../../framework/badges';

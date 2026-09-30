@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Storage, type StorageBackend, type StorageKey } from '../assets/framework/platform/storage';
+import { Storage, type StorageBackend, type StorageKey } from '../assets/framework/storage/storage';
 class MemoryStorage implements StorageBackend {
     readonly values = new Map<string, string>();
     failWrite = '';

@@ -1,7 +1,7 @@
 import { _decorator, Enum, settings as engineSettings } from 'cc';
 import { PREVIEW } from 'cc/env';
-import { AppSettings } from '../../framework/core/app-settings';
-import type { GameConfig, GameSelection } from '../../framework/platform/game-config';
+import { AppSettings } from '../../framework/app/app-settings';
+import type { GameConfig, GameSelection } from '../../framework/app/game-config';
 import { gameConfig } from '../app/generated/game-config';
 import { channelOptions } from '../app/generated/channel-options';
 const { ccclass, disallowMultiple, menu, property } = _decorator;

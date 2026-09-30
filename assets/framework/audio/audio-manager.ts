@@ -1,5 +1,6 @@
 import { AudioSource, isValid, Node } from 'cc';
-import { Assets, destroyNode } from '../assets/asset-manager';
+import { Assets } from '../assets/asset-manager';
+import { destroyNode } from '../assets/node-lifetime';
 import { AssetKey } from '../assets/asset-types';
 import { ClockDriver } from '../core/clock-driver';
 import { invariant, OperationCancelled, reportError } from '../core/errors';

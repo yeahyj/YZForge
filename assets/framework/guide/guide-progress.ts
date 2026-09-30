@@ -1,4 +1,4 @@
-import type { Storage, StorageKey } from '../platform/storage';
+import type { Storage, StorageKey } from '../storage/storage';
 import { invariant } from '../core/errors';
 import type { GuideCheckpoint, GuideProgressStore } from './guide-runner';
 

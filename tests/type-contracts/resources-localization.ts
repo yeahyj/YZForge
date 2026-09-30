@@ -1,7 +1,7 @@
 import type { Assets } from '../../assets/framework/assets/asset-manager';
 import type { Localization } from '../../assets/framework/localization/localization';
 import type { TextKey, LocalizedAssetKey } from '../../assets/framework/localization/localization';
-import type { LocalizedBundle } from '../../assets/framework/localization/localized-ui';
+import type { LocalizedBundle } from '../../assets/framework/ui/localization/localized-ui';
 import type { CountdownLabel } from '../../assets/framework/ui/components/countdown/countdown-label';
 import type { MarqueeLabel } from '../../assets/framework/ui/components/marquee/marquee-label';
 import type { Lifetime } from '../../assets/framework/core/scope';

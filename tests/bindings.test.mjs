@@ -6,9 +6,14 @@ import { resolve, join, sep } from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
-import { scanBindings, bindingShape } from '../tools/yzforge/binding-scan.cjs';
-import { componentExport, resolveBindingFields, bindingSource, bindingPlan } from '../tools/yzforge/bindings.cjs';
-import { runtimeOptions } from '../tools/yzforge/settings.cjs';
+import { scanBindings, bindingShape } from '../tools/yzforge/generators/binding-scan.cjs';
+import {
+    componentExport,
+    resolveBindingFields,
+    bindingSource,
+    bindingPlan,
+} from '../tools/yzforge/generators/bindings.cjs';
+import { runtimeOptions } from '../tools/yzforge/project/settings.cjs';
 import localizationScene from '../extensions/yzforge-editor/localization-scene.js';
 
 function engine() {
@@ -181,10 +186,10 @@ test('界面与 Part 更新绑定前及写回前检查未保存状态，阻止�
             ['bindView', 'assertBindingSceneSaved'].includes(statement.name?.text),
     );
     const workbenchSource = await readFile(
-        new URL('../extensions/yzforge-editor/workbench.js', import.meta.url),
+        new URL('../tools/yzforge/operations/workbench.cjs', import.meta.url),
         'utf8',
     );
-    const require = createRequire(new URL('../extensions/yzforge-editor/workbench.js', import.meta.url));
+    const require = createRequire(new URL('../tools/yzforge/operations/workbench.cjs', import.meta.url));
     for (const method of ['bindView', 'bindComponent'])
         for (const dirtyAt of [1, 2, 0]) {
             let checks = 0,
@@ -194,6 +199,7 @@ test('界面与 Part 更新绑定前及写回前检查未保存状态，阻止�
                 uuid: 'prefab',
                 className: 'demo.Part',
                 binding: 'generated/PartBinding.ts',
+                types: 'Part.types.ts',
                 prefab: 'resource',
             };
             const context = {
@@ -237,6 +243,7 @@ test('界面与 Part 更新绑定前及写回前检查未保存状态，阻止�
                 setTimeout,
             };
             vm.createContext(context);
+            context.request = (...args) => context.Editor.Message.request(...args);
             vm.runInContext(functions.map((declaration) => declaration.getText(source)).join('\n'), context);
             vm.runInContext(workbenchSource, context);
             const action =

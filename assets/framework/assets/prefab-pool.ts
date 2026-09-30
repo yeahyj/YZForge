@@ -1,9 +1,9 @@
 import { isValid, Node, type Quat, type Vec3 } from 'cc';
-import { componentBindings } from '../core/component-binding';
+import { componentBindings } from '../components/component-binding';
 import { FrameworkError, invariant } from '../core/errors';
 import type { Lifetime } from '../core/scope';
 import type { Assets } from './asset-manager';
-import { destroyNode } from './asset-manager';
+import { destroyNode } from './node-lifetime';
 import type { AssetKey } from './asset-types';
 import { InstancePool, type InstancePoolOptions } from './instance-pool';
 

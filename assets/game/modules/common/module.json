@@ -1,12 +1,11 @@
 {
   "id": "common",
-  "layoutVersion": 2,
+  "layoutVersion": 3,
   "displayName": "公共配置示例",
   "dependencies": {},
   "bundles": {
     "default": {
-      "id": "m-common",
-      "root": "bundles/default"
+      "id": "m-common"
     }
   },
   "views": {},

@@ -6,16 +6,16 @@
 
 先保存项目，等待导入和工作台生成完成。复制到一个新的目录，不覆盖已有项目。
 
-| 内容                                                            | 用途                                                      |
-| --------------------------------------------------------------- | --------------------------------------------------------- |
-| `assets/` 及所有配套 `.meta`                                    | 框架、启动场景、示例和稳定资源 UUID                       |
-| `extensions/yzforge-editor/`、`tools/yzforge/`                  | 工作台、生成器、构建检查，两者需要一起保留                |
-| `config-source/`                                                | XLSX 源表；仅复制导出 JSON 会丢失可编辑来源               |
-| `project-settings/`，包括 `generated/`                          | 框架参数、资源逻辑身份、生成文件所有权、已验证的公式结果  |
-| `settings/`、`.creator/`                                        | Creator 项目设置、代码/资源 Bundle 两份预设和默认导入设置 |
-| `package.json`、`package-lock.json`、`tsconfig*.json`           | 项目身份、固定依赖和类型检查                              |
-| `.vscode/`、`.editorconfig`、ESLint/Prettier 配置、`.gitignore` | 编辑器协作、格式和检查规则                                |
-| `README.md`、`docs/`、`tests/`                                  | 使用说明和框架回归验证                                    |
+| 内容                                                             | 用途                                                      |
+| ---------------------------------------------------------------- | --------------------------------------------------------- |
+| `assets/` 及所有配套 `.meta`                                     | 框架、启动场景、示例和稳定资源 UUID                       |
+| `extensions/yzforge-editor/`、`tools/yzforge/`                   | 工作台、生成器、构建检查，两者需要一起保留                |
+| `config-source/`                                                 | XLSX 源表；仅复制导出 JSON 会丢失可编辑来源               |
+| `project-settings/`，包括 `state/`、`snapshots/` 和 `generated/` | 框架参数、资源逻辑身份、生成文件所有权、已验证的公式结果  |
+| `settings/`、`.creator/`                                         | Creator 项目设置、代码/资源 Bundle 两份预设和默认导入设置 |
+| `package.json`、`package-lock.json`、`tsconfig*.json`            | 项目身份、固定依赖和类型检查                              |
+| `.vscode/`、`.editorconfig`、ESLint/Prettier 配置、`.gitignore`  | 编辑器协作、格式和检查规则                                |
+| `README.md`、`docs/`、`tests/`                                   | 使用说明和框架回归验证                                    |
 
 当前模板复制时排除：
 
@@ -33,7 +33,7 @@ funplay-cocos-mcp.config.json  # 本机 MCP 端口、项目身份和客户端路
 
 当前模板没有手写原生工程；原生构建产物可以重建。若后续项目在 `native/` 中加入手写代码、SDK 或工程修改，应单独纳入版本管理和复制范围。项目自行增加的源码、平台配置、构建模板和扩展也需要一起保留。
 
-**完整复制为独立项目时保留 `.meta`。** 不要批量重新生成资源 UUID，也不要清空 `project-settings/generated`。这些文件维护已有资源引用和稳定的逻辑 Key。项目内部复制单个资源则通过 Creator 操作，由编辑器分配新 UUID。
+**完整复制为独立项目时保留 `.meta`。** 不要批量重新生成资源 UUID，也不要清空 `project-settings/state`。持久状态维护已有资源的稳定逻辑 Key 和生成文件所有权；`snapshots/formulas` 保存已验证的公式结果。项目内部复制单个资源则通过 Creator 操作，由编辑器分配新 UUID。
 
 ## 2. 改哪些标识
 
@@ -76,8 +76,8 @@ npm install --package-lock-only --ignore-scripts
 空入口：
 
 ```ts
-import type { App } from '../../framework/core/app';
-import type { BootContext } from '../../framework/core/boot';
+import type { App } from '../../framework/app/app';
+import type { BootContext } from '../../framework/app/boot';
 
 /** 项目的启动接入点；创建自己的模块和首屏后在这里接入。 */
 export function startGame(_app: App, _boot: BootContext): void {}

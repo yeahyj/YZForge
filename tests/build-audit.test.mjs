@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import audit from '../tools/yzforge/build-audit.cjs';
+import audit from '../tools/yzforge/validation/build-audit.cjs';
 test('允许业务引用默认语言和同语言共享，拒绝业务引用其他语言和语言之间交叉依赖', async (t) => {
     const root = await mkdtemp(join(tmpdir(), 'yzforge-language-graph-'));
     t.after(() => rm(root, { recursive: true, force: true }));

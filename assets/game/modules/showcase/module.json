@@ -1,12 +1,11 @@
 {
   "id": "showcase",
-  "layoutVersion": 2,
+  "layoutVersion": 3,
   "displayName": "功能展示",
   "dependencies": {},
   "bundles": {
     "default": {
       "id": "m-showcase",
-      "root": "bundles/default",
       "localization": {
         "source": "config-source/showcase/localization-default.xlsx",
         "locales": {
@@ -16,8 +15,7 @@
       }
     },
     "extra": {
-      "id": "showcase-extra",
-      "root": "bundles/extra"
+      "id": "showcase-extra"
     }
   },
   "views": {
@@ -27,7 +25,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.ShowcasePage",
-      "binding": "code/ui/generated/ShowcasePageBinding.ts",
       "visibility": "public"
     },
     "ui-lab-page": {
@@ -36,7 +33,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.UiLabPage",
-      "binding": "code/ui/generated/UiLabPageBinding.ts",
       "visibility": "internal"
     },
     "data-lab-page": {
@@ -45,7 +41,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.DataLabPage",
-      "binding": "code/ui/generated/DataLabPageBinding.ts",
       "visibility": "internal"
     },
     "time-lab-page": {
@@ -54,7 +49,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.TimeLabPage",
-      "binding": "code/ui/generated/TimeLabPageBinding.ts",
       "visibility": "internal"
     },
     "async-lab-page": {
@@ -63,7 +57,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.AsyncLabPage",
-      "binding": "code/ui/generated/AsyncLabPageBinding.ts",
       "visibility": "internal"
     },
     "storage-lab-page": {
@@ -72,7 +65,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.StorageLabPage",
-      "binding": "code/ui/generated/StorageLabPageBinding.ts",
       "visibility": "internal"
     },
     "guide-page": {
@@ -81,7 +73,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.GuidePage",
-      "binding": "code/ui/generated/GuidePageBinding.ts",
       "visibility": "internal"
     },
     "confirm-popup": {
@@ -90,7 +81,6 @@
       "cache": "keep-one",
       "duplicate": "reject",
       "className": "showcase.ConfirmPopup",
-      "binding": "code/ui/generated/ConfirmPopupBinding.ts",
       "visibility": "internal"
     },
     "inspect-overlay": {
@@ -99,7 +89,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.InspectOverlay",
-      "binding": "code/ui/generated/InspectOverlayBinding.ts",
       "visibility": "internal"
     },
     "notice-toast": {
@@ -108,7 +97,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.NoticeToast",
-      "binding": "code/ui/generated/NoticeToastBinding.ts",
       "visibility": "internal"
     },
     "progress-loading": {
@@ -117,7 +105,6 @@
       "cache": "none",
       "duplicate": "reject",
       "className": "showcase.ProgressLoading",
-      "binding": "code/ui/generated/ProgressLoadingBinding.ts",
       "visibility": "internal"
     },
     "virtual-list-lab-page": {
@@ -126,8 +113,7 @@
       "kind": "page",
       "cache": "none",
       "duplicate": "reject",
-      "className": "showcase.VirtualListLabPage",
-      "binding": "code/ui/generated/VirtualListLabPageBinding.ts"
+      "className": "showcase.VirtualListLabPage"
     },
     "network-lab-page": {
       "visibility": "internal",
@@ -135,8 +121,7 @@
       "kind": "page",
       "cache": "none",
       "duplicate": "reject",
-      "className": "showcase.NetworkLabPage",
-      "binding": "code/ui/generated/NetworkLabPageBinding.ts"
+      "className": "showcase.NetworkLabPage"
     },
     "tutorial-lab-page": {
       "visibility": "internal",
@@ -144,8 +129,7 @@
       "kind": "page",
       "cache": "none",
       "duplicate": "reject",
-      "className": "showcase.TutorialLabPage",
-      "binding": "code/ui/generated/TutorialLabPageBinding.ts"
+      "className": "showcase.TutorialLabPage"
     },
     "components-lab-page": {
       "visibility": "internal",
@@ -153,8 +137,7 @@
       "kind": "page",
       "cache": "none",
       "duplicate": "reject",
-      "className": "showcase.ComponentsLabPage",
-      "binding": "code/ui/generated/ComponentsLabPageBinding.ts"
+      "className": "showcase.ComponentsLabPage"
     },
     "resource-lab-page": {
       "visibility": "internal",
@@ -162,8 +145,7 @@
       "kind": "page",
       "cache": "none",
       "duplicate": "reject",
-      "className": "showcase.ResourceLabPage",
-      "binding": "code/ui/generated/ResourceLabPageBinding.ts"
+      "className": "showcase.ResourceLabPage"
     },
     "localization-lab-page": {
       "visibility": "internal",
@@ -171,21 +153,21 @@
       "kind": "page",
       "cache": "none",
       "duplicate": "reject",
-      "className": "showcase.LocalizationLabPage",
-      "binding": "code/ui/generated/LocalizationLabPageBinding.ts"
+      "className": "showcase.LocalizationLabPage"
     }
   },
   "audio": {},
   "components": {
     "badge-part": {
       "uuid": "5749fee4-a52a-49eb-b411-c95cd8c19e1c",
-      "className": "showcase.BadgePart",
-      "binding": "code/components/generated/BadgePartBinding.ts"
+      "className": "showcase.BadgePart"
     },
     "virtual-list-item-part": {
       "uuid": "721bf3d6-8cd8-487d-b70d-2bd2f7f5ff95",
-      "className": "showcase.VirtualListItemPart",
-      "binding": "code/components/generated/VirtualListItemPartBinding.ts"
+      "className": "showcase.VirtualListItemPart"
     }
+  },
+  "code": {
+    "mode": "eager"
   }
 }

@@ -1,5 +1,5 @@
-import type { SdkIntegrationFactory } from '../../framework/platform/sdk';
-import type { SdkPlatformRegistration } from '../../framework/platform/sdk-adapters';
+import type { SdkIntegrationFactory } from '../../framework/sdk/sdk';
+import type { SdkPlatformRegistration } from '../../framework/sdk/sdk-adapters';
 
 /**
  * 项目渠道接入登记表；JSON 的 channels.<id>.integration 对应这里的键。

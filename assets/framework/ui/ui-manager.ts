@@ -1,16 +1,17 @@
 import { BlockInputEvents, instantiate, isValid, Node, UIOpacity, UITransform, Widget } from 'cc';
-import { Assets, destroyNode } from '../assets/asset-manager';
+import { Assets } from '../assets/asset-manager';
+import { destroyNode } from '../assets/node-lifetime';
 import { AssetKey } from '../assets/asset-types';
 import { untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, OperationCancelled, reportError } from '../core/errors';
-import { ComponentHost, type ComponentBinding } from '../core/component-binding';
+import { ComponentHost, type ComponentBinding } from '../components/component-binding';
 import { runTask, Scope, taskContext, TaskContext, Lifetime, scopeOwner } from '../core/scope';
 import { ModuleContext, ModuleManager } from '../modules/module-manager';
 import { TimeService } from '../time/time-service';
 import { UIView, ViewShowContext } from './ui-view';
 import { Actions } from '../core/actions';
-import { ScopedLocalization } from '../localization/localized-ui';
+import { ScopedLocalization } from './localization/localized-ui';
 
 /** 框架支持的完整界面类别；Part 不属于 UI 页面栈。 */
 export type ViewKind = 'page' | 'popup' | 'overlay' | 'toast' | 'loading';
@@ -414,7 +415,7 @@ export class UIManager {
                     widget.top = widget.bottom = widget.left = widget.right = 0;
                     widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
                     widget.updateAlignment();
-                    const host = new ComponentHost(node, context, scope, this.time);
+                    const host = new ComponentHost(node, context, scope);
                     instance = {
                         node,
                         container,

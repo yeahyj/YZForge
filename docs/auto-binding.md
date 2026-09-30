@@ -2,6 +2,8 @@
 
 在节点挂组件并命名，保存预制体后，在 **YZForge 工作台 → 自动绑定** 选择界面或 Part，执行更新绑定。工作台生成 Binding 基类，并通过 Creator 写入序列化引用。业务直接调用 getter，无需手动拖拽，也无需重复 getComponent。
 
+界面与绑定固定放在 `code/ui/<界面ID>/` 和其 `generated/`；Part 固定放在 `code/components/<部件ID>/`。公开界面的参数和结果位于 `contracts/<类名>.types.ts`，内部界面类型与脚本同目录。路径由共享布局规则推导，无需在 module.json 重复登记。
+
 ## 命名与类型
 
 | 节点名称        | 节点上挂载            | 生成的 getter 类型 | 使用方式                           |
@@ -37,7 +39,7 @@ await this.btnSubmit.run(async task => {
 await this.sprPreview.setSource('icons/alpha/token');
 ```
 
-实际示例见 [ComponentsLabPage](../assets/game/modules/showcase/code/ui/ComponentsLabPage.ts) 和它的 [生成绑定](../assets/game/modules/showcase/code/ui/generated/ComponentsLabPageBinding.ts)。预制体保留在 showcase 业务模块。
+实际示例见 [ComponentsLabPage](../assets/game/modules/showcase/code/ui/components-lab-page/ComponentsLabPage.ts) 和它的 [生成绑定](../assets/game/modules/showcase/code/ui/components-lab-page/generated/ComponentsLabPageBinding.ts)。预制体保留在 showcase 业务模块。
 
 自动绑定只提供引用，不启动组件、不创建订阅，也不改变 Scope、Part 或异步任务的清理规则。页面业务仍使用 onShow/onHide，Part 使用 onActivate/onDeactivate；异步回写继续通过 task.commit/show.commit。
 

@@ -1,5 +1,5 @@
 // 自动生成的项目设置，请通过工作台或源设置文件修改。
-import type { AppOptions } from '../../../framework/core/app';
+import type { AppOptions } from '../../../framework/app/app';
 /** App 的音频、日历及清理参数；日历 offsetMinutes 为固定时区分钟偏移，480 表示 UTC+8。 */
 export const runtimeOptions: Pick<
     AppOptions,

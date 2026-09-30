@@ -1,8 +1,8 @@
 import { _decorator, Component, isValid, Layout, Node, ScrollView, UITransform, Vec2, Widget } from 'cc';
 import type { ScopedAssets } from '../../../assets/asset-manager';
 import type { AssetKey } from '../../../assets/asset-types';
-import { GameComponent } from '../../../core/game-component';
-import { componentBindings } from '../../../core/component-binding';
+import { GameComponent } from '../../../components/game-component';
+import { componentBindings } from '../../../components/component-binding';
 import { type ErrorReporter, invariant, reportError } from '../../../core/errors';
 import type { Lifetime } from '../../../core/scope';
 import {

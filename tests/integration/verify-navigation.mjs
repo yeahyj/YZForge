@@ -104,7 +104,7 @@ C.prototype.onShow=async function(show){
 await original.call(this,show);
 const target=record('showcase.data-lab-page'),child=new cc.Node('activation-failure');this.node.addChild(child);
 const component=child.addComponent(G);component.onActivate=function(){throw Error('expected child activation failure');};
-component.__bind(target.instance.context,target.instance.scope,app.time);target.instance.components.push(component);
+component.__bind(target.instance.context,target.instance.scope);target.instance.components.push(component);
 };
 try{let failure;try{await home.show.ui.pushPage({id:'showcase.data-lab-page',kind:'page'},undefined);}catch(e){failure=e;}
 check(failure?.message==='expected child activation failure','Activation failure was lost');
