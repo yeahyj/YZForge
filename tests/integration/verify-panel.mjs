@@ -52,23 +52,38 @@ await panel('el("refresh").click();');
 await until('return root.dataset.busy !== "true";');
 const initialTime = await panel('return el("dayBoundary").value;');
 assert.match(initialTime, /^\d{2}:\d{2}$/);
-await panel('root.querySelector("[data-tab=settings]").click(); el("saveSettings").click();');
+const initialVoices = await panel('return el("maxVoices").value;');
+await panel('root.querySelector("[data-tab=settings]").click();set("maxVoices","0");el("saveSettings").click();');
+await until('return root.dataset.busy !== "true";');
+assert.equal(await panel('return el("moduleContext").hidden;'), true);
+assert.equal(await panel('return el("health").dataset.state;'), 'error');
+assert.equal(await panel('return !el("feedback").hidden && el("logDetails").open;'), true);
+assert.match(await panel('return el("feedback").textContent;'), /操作未完成/);
+await panel('set("maxVoices",args.value);el("saveSettings").click();', { value: initialVoices });
 await until('return root.dataset.busy !== "true";');
 assert.equal(await panel('return el("health").dataset.state;'), 'ready');
 assert.equal(await panel('return el("dayBoundary").value;'), initialTime);
+assert.equal(await panel('return el("logDetails").open;'), false);
+assert.match(await panel('return el("feedback").textContent;'), /已保存并生成/);
+await panel('root.querySelector(".pages").scrollTop=500;');
 await panel(
     'root.querySelector("[data-tab=create]").click();set("kind","module","change");set("delivery","none","change");set("newName",args.id);',
     { id: fixture },
 );
 await until('return !el("create").disabled;');
+assert.equal(await panel('return el("moduleContext").hidden;'), false);
+assert.equal(await panel('return root.querySelector(".pages").scrollTop;'), 0);
 const resourcePreview = await panel(
-    'return {text:el("createPreview").textContent,initial:el("initial").value,locked:el("initial").disabled};',
+    'return {text:el("createPreview").textContent,initial:el("initial").value,locked:el("initial").disabled,detailsOpen:el("createPreview").querySelector("details").open,visibleFiles:Array.from(el("createPreview").children).filter(n=>n.classList.contains("file-row")).map(n=>n.querySelector("code").title)};',
 );
 assert.ok(!resourcePreview.text.includes('Module.ts'));
 assert.ok(resourcePreview.text.includes('public.ts'));
 assert.equal(resourcePreview.initial, 'resources');
 assert.equal(resourcePreview.locked, true);
-console.log('PASS: automatic file preview, resource-only module, calendar settings round trip');
+assert.equal(resourcePreview.detailsOpen, false);
+assert.ok(resourcePreview.visibleFiles.some((path) => path.endsWith('/module.json')));
+assert.ok(resourcePreview.visibleFiles.every((path) => !path.endsWith('.meta')));
+console.log('PASS: compact file preview, page context, scroll reset, actionable errors and settings round trip');
 await panel('el("create").click();');
 await until('return root.dataset.busy !== "true";');
 assert.equal(await panel('return el("health").dataset.state;'), 'ready');
@@ -102,6 +117,9 @@ try {
     await panel('set("module","lobby","change");');
     assert.equal(await panel('return el("moduleDisplayName").value;'), '未保存草稿');
     assert.equal(await panel('return el("moduleDirty").textContent;'), '未保存');
+    await panel('el("refresh").click();');
+    await until('return root.dataset.busy !== "true";');
+    assert.equal(await panel('return el("moduleDisplayName").value;'), '未保存草稿');
     // Reset the draft to the persisted value without saving any sample rename.
     await panel('set("moduleDisplayName","示例大厅");set("newName","");');
     console.log('PASS: inline validation, stale preview rejection, unsaved draft preservation');
@@ -111,6 +129,7 @@ try {
         { id: fixture },
     );
     await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(await panel('return el("moduleContext").hidden;'), true);
     await panel('el("previewDelete").click();');
     await until('return root.dataset.busy !== "true" && !el("delete").disabled;');
     assert.ok(await panel('return el("deletePreview").querySelectorAll(".file-row").length > 0;'));
@@ -122,6 +141,8 @@ await panel(
     'root.querySelector("[data-tab=create]").click();set("module","lobby","change");set("kind","page","change");el("publicView").checked=false;el("publicView").dispatchEvent(new Event("input"));set("newName","Inventory");',
 );
 await until('return !el("create").disabled;');
+assert.equal(await panel('return el("presenterOptions").open;'), false);
+await panel('el("presenterOptions").open=true;');
 // 页面公开范围必须参与创建预览和签名；Key 由创建后的生成步骤更新。
 assert.deepEqual(
     await panel(
@@ -157,6 +178,21 @@ assert.deepEqual(contracts, {
 await panel('el("publicView").checked=false;el("publicView").dispatchEvent(new Event("input"));set("newName","");');
 console.log('PASS: real panel creation and backed-up deletion; no business factory required');
 console.log('PASS: page visibility participates in creation previews and generated contract boundaries');
+await panel('root.querySelector("[data-tab=localization]").click();');
+assert.equal(await panel('return el("languageUpdateFiles").hidden;'), true);
+await panel('set("languageApplyScope","bundle","change");');
+assert.equal(await panel('return el("languageUpdateFiles").hidden;'), false);
+assert.equal(await panel('return el("applyLanguageUpdate").disabled;'), true);
+await panel('set("languageApplyScope","current","change");');
+assert.equal(
+    await panel(
+        'return !el("languageSetup").open && !el("languageRename").open && el("languageBundle").getBoundingClientRect().height>0;',
+    ),
+    true,
+);
+await panel('root.querySelector("[data-tab=tables]").click();');
+assert.equal(await panel('return el("exportTables");'), null);
+assert.match(await panel('return el("saveTable").textContent;'), /保存并生成/);
 
 // Simulate a stopped ordinary-file generation without touching project assets.
 const generationId = Date.now() + '-acbd';
@@ -178,11 +214,14 @@ await until('return root.dataset.busy !== "true";');
 await panel('root.querySelector("[data-tab=recovery]").click();set("generationRecord",args.id,"change");', {
     id: generationId,
 });
+assert.equal(await panel('return el("generationRecovery").hidden;'), false);
 await writeFile(resolve(root, probePath), 'user edit');
 await panel('el("previewGeneration").click();');
 await until('return root.dataset.busy !== "true";');
 assert.equal(await panel('return el("recoverGeneration").disabled;'), true);
 assert.match(await panel('return el("generationPreview").textContent;'), /冲突/);
+assert.equal(await panel('return el("feedback").dataset.state;'), 'error');
+assert.match(await panel('return el("feedback").textContent;'), /冲突/);
 assert.equal(await readFile(resolve(root, probePath), 'utf8'), 'user edit');
 await writeFile(resolve(root, probePath), 'generated');
 await panel('el("previewGeneration").click();');
@@ -191,5 +230,6 @@ await panel('el("recoverGeneration").click();');
 await until('return root.dataset.busy !== "true";');
 assert.equal(await readFile(resolve(root, probePath), 'utf8'), 'original');
 assert.equal(await panel('return el("generationRecord").value;'), '');
+assert.equal(await panel('return el("generationRecovery").hidden;'), true);
 console.log('PASS: interrupted generation recovery refuses user edits, then restores its own output');
 await panel('root.querySelector("[data-tab=create]").click();');

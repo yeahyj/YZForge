@@ -26,7 +26,15 @@ exports.ready = function () {
     const show = (result) => {
         el('output').textContent = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
     };
+    const feedback = (message, kind = 'success') => {
+        el('feedback').textContent = message;
+        el('feedback').dataset.state = kind;
+        el('feedback').hidden = !message;
+    };
     const current = () => state?.modules.find((module) => module.id === val('module'));
+    const supportingFile = (file) =>
+        ['create-directory', 'Creator', 'existing'].includes(file.operation) ||
+        (file.operation !== 'conflict' && file.path.endsWith('.meta'));
     const renderFiles = (id, files, empty) => {
         const target = el(id);
         const labels = {
@@ -49,6 +57,15 @@ exports.ready = function () {
             target.textContent = empty;
             return;
         }
+        const supporting = id === 'createPreview' ? files.filter(supportingFile) : [];
+        let details;
+        if (supporting.length) {
+            details = document.createElement('details');
+            details.className = 'file-details';
+            const summary = document.createElement('summary');
+            summary.textContent = `目录、元数据和已有文件（${supporting.length} 项）`;
+            details.appendChild(summary);
+        }
         for (const file of files) {
             const row = document.createElement('div'),
                 operation = document.createElement('span'),
@@ -67,8 +84,9 @@ exports.ready = function () {
             code.title = file.path;
             code.append(name, directory);
             row.append(operation, code);
-            target.appendChild(row);
+            (details && supportingFile(file) ? details : target).appendChild(row);
         }
+        if (details) target.appendChild(details);
     };
     const renderRecovery = (id, plan) =>
         renderFiles(
@@ -127,6 +145,7 @@ exports.ready = function () {
         el('openLanguageWorkbook').disabled = busy || !current()?.bundles[val('languageBundle')]?.localization?.source;
         el('languageTexts').disabled = busy || !!current()?.bundles[val('languageBundle')]?.localization?.source;
         el('previewLanguageUpdate').hidden = val('languageApplyScope') !== 'bundle';
+        el('languageUpdateFiles').hidden = val('languageApplyScope') !== 'bundle';
         el('languageApplyBundleOptions').hidden = val('languageApplyScope') !== 'bundle';
         el('previewLanguageUpdate').disabled =
             busy || !current() || !val('languageApplyBundle') || !val('languageApplyLocale');
@@ -175,11 +194,20 @@ exports.ready = function () {
         el('presenterOptions').hidden = !ui;
         el('adoptOptions').hidden = !generic;
         if (val('delivery') === 'none') el('initial').value = 'resources';
-        el('roleHelp').textContent = ui
-            ? 'View 负责渲染与输入；Presenter 组织显示逻辑；跨界面状态放在模块 Service。'
-            : generic
-              ? '通用组件继承 GameComponent，通过创建实例或场景注入获得上下文。'
-              : '';
+        el('roleHelp').textContent = {
+            module: '创建独立的功能模块，例如大厅或背包。新模块不属于上方的当前模块。',
+            bundle: '在当前模块中添加资源包，用于单独加载一组资源。',
+            page: '完整页面，例如大厅或背包页。自动创建预制体、界面脚本和节点绑定。',
+            popup: '叠加在页面上的弹窗，例如确认框或奖励窗口。',
+            overlay: '独立覆盖层，例如引导或常驻悬浮界面。',
+            toast: '短提示界面，由 UI 系统管理显示和关闭。',
+            loading: '加载过程中的等待界面。',
+            part: '可复用的 UI 部件，例如道具格子。自动创建预制体、组件脚本和绑定。',
+            prefab: '可复用的通用预制体，例如场景物件。可接入已有预制体并创建配套脚本。',
+            component: '挂在节点上的脚本，用于行为或交互。',
+            service: '当前模块的业务服务，用于管理业务逻辑与状态。',
+            table: '创建 Excel 工作簿，导出数据和类型化 Key。',
+        }[kind];
         invalidateCreate();
         updateCreationActions();
     };
@@ -440,6 +468,9 @@ exports.ready = function () {
             ]),
         );
         generationChanged();
+        el('creationRecovery').hidden = !(state.creations?.length > 0);
+        el('generationRecovery').hidden = !(state.generations?.length > 0);
+        el('recoveryEmpty').hidden = !el('creationRecovery').hidden || !el('generationRecovery').hidden;
         el('presets').textContent = JSON.stringify(state.presets, null, 2);
         el('prefixes').textContent = JSON.stringify(state.settings.bindingPrefixes, null, 2);
         el('autoStatus').textContent = [
@@ -494,6 +525,7 @@ exports.ready = function () {
     };
     const run = async (action, args = {}, reload = true) => {
         if (busy || closed) return;
+        const wasLoaded = !!state;
         busy = true;
         clearTimeout(previewTimer);
         previewSequence++;
@@ -502,6 +534,7 @@ exports.ready = function () {
         el('health').textContent = '处理中';
         el('health').dataset.state = 'busy';
         el('status').textContent = '正在执行…';
+        feedback('');
         const controls = Array.from(this.$.workbench.querySelectorAll('button,input,select'), (control) => [
             control,
             control.disabled,
@@ -518,14 +551,45 @@ exports.ready = function () {
             if (action === 'updateModule') moduleDrafts.delete(args.module);
             if (action === 'updateSettings') settingsLoaded = false;
             if (reload && action !== 'refresh') await refresh();
-            el('status').textContent = result?.generationError
+            const invalid = result?.valid === false || result?.ok === false;
+            const blocked = result?.blocked || result?.conflicts?.length > 0 || result?.references?.length > 0;
+            const message = result?.generationError
                 ? action === 'create'
                     ? '创建已完成，生成未通过；请修复后重新生成'
                     : '操作已保存，但生成失败；请修复后重新生成'
-                : '已完成';
-            el('health').textContent = result?.generationError ? '需要处理' : '已连接';
-            el('health').dataset.state = result?.generationError ? 'error' : 'ready';
-            if (result?.generationError) el('logDetails').open = true;
+                : invalid
+                  ? '检查未通过：' + (result.validationErrors?.[0] ?? result.message ?? '请查看操作详情')
+                  : blocked
+                    ? '发现冲突或外部引用，请先处理下方列表中的问题，再重新检查。'
+                    : (result?.message ??
+                      {
+                          refresh: '面板已刷新，未保存的表单草稿已保留。',
+                          create: `已创建 ${args.request?.id ?? args.request?.locale ?? '内容'}，相关代码和资源索引已生成。`,
+                          saveWorkbook: '导出设置已保存，数据和代码已生成。',
+                          updateModule: '模块设置已保存并生成。',
+                          updateSettings: '项目设置已保存并生成。',
+                          bindView: '节点绑定已更新。增删节点或改名后可再次扫描。',
+                          bindComponent: '节点绑定已更新。增删节点或改名后可再次扫描。',
+                          generate: '项目代码和资源索引已生成。',
+                          check: '项目检查通过。',
+                          previewTables: '已保存的表格与多语言检查通过；未保存的设置未参与检查。',
+                          previewCreate: '创建范围已检查，请确认文件列表后创建。',
+                          previewDelete: '删除范围已检查，请确认文件列表后备份并删除。',
+                          deleteModule: '已备份并删除。需要找回时展开“恢复已删除的内容”。',
+                          previewCreationCleanup: '残留已检查，请确认清理范围。',
+                          cleanupCreation: '未完成的创建已清理。',
+                          previewGenerationRecovery: '恢复范围已检查，请确认文件列表后恢复。',
+                          recoverGeneration: '已恢复生成前的内容。',
+                          restore: '已恢复删除的内容并核验引用。',
+                          openWorkbook: '已请求打开工作簿，请在 Excel 中编辑并保存。',
+                      }[action] ??
+                      '操作已完成，详细结果可在底部查看。');
+            const needsAttention = result?.generationError || invalid || blocked;
+            el('status').textContent = needsAttention ? '需要处理，请查看提示与操作详情' : '已完成';
+            el('health').textContent = needsAttention ? '需要处理' : '已连接';
+            el('health').dataset.state = needsAttention ? 'error' : 'ready';
+            if (action !== 'refresh' || wasLoaded) feedback(message, needsAttention ? 'error' : 'success');
+            el('logDetails').open = !!needsAttention;
             return result;
         } catch (error) {
             if (['create', 'cleanupCreation'].includes(action)) {
@@ -550,6 +614,7 @@ exports.ready = function () {
     const failure = (error) => {
         if (closed) return;
         show(error.message);
+        feedback('操作未完成：' + error.message.split('\n')[0], 'error');
         el('status').textContent = '操作未完成，请查看原因';
         el('health').textContent = '需要处理';
         el('health').dataset.state = 'error';
@@ -567,6 +632,7 @@ exports.ready = function () {
         });
     this.$.workbench.querySelectorAll('[data-tab]').forEach((button) =>
         button.addEventListener('click', () => {
+            const changed = button.getAttribute('aria-selected') !== 'true';
             this.$.workbench.querySelectorAll('[data-tab]').forEach((b) => {
                 b.classList.toggle('selected', b === button);
                 b.setAttribute('aria-selected', String(b === button));
@@ -574,6 +640,14 @@ exports.ready = function () {
             this.$.workbench.querySelectorAll('[data-page]').forEach((page) => {
                 page.hidden = page.dataset.page !== button.dataset.tab;
             });
+            const page = button.dataset.tab;
+            el('moduleContext').hidden = ['settings', 'recovery'].includes(page);
+            el('contextHint').hidden = !el('moduleContext').hidden;
+            el('contextHint').textContent = page === 'settings' ? '项目设置作用于整个项目' : '删除目标在下方选择';
+            if (changed) {
+                this.$.workbench.querySelector('.pages').scrollTop = 0;
+                feedback('');
+            }
         }),
     );
     on('module', moduleChanged, 'change');
@@ -607,7 +681,7 @@ exports.ready = function () {
             if (closed || sequence !== previewSequence) return;
             createPlan = plan;
             renderFiles('createPreview', plan.files, '没有需要创建的文件。');
-            el('fileCount').textContent = `${plan.files.length} 项`;
+            el('fileCount').textContent = `${plan.files.filter((file) => !supportingFile(file)).length} 个文件`;
             el('createIssue').hidden = !plan.conflicts.length;
             el('createIssue').textContent = plan.conflicts.length
                 ? '以下文件已存在，请调整名称：\n' + plan.conflicts.join('\n')
@@ -711,7 +785,6 @@ exports.ready = function () {
         return run('saveWorkbook', { source: workbookDraft.source, hash: workbookDraft.hash, config });
     });
     on('previewTables', () => run('previewTables', {}, false));
-    on('exportTables', () => run('generate'));
     for (const id of ['languageBundle', 'languageLocale']) on(id, languageChanged, 'change');
     on(
         'languageTexts',
@@ -932,10 +1005,8 @@ exports.ready = function () {
     role();
     void run('refresh').catch((error) => {
         if (!closed) {
-            show(error.message);
-            el('logDetails').open = true;
+            failure(error);
             el('health').textContent = '连接失败';
-            el('health').dataset.state = 'error';
         }
     });
 };

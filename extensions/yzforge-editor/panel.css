@@ -158,6 +158,9 @@ aside {
     letter-spacing: 2px;
     margin: 0 10px 12px;
 }
+.nav-caption.maintenance {
+    margin-top: 18px;
+}
 nav {
     display: flex;
     flex-direction: column;
@@ -224,6 +227,16 @@ nav svg {
     padding: 12px 24px;
     background: #1b1f26;
 }
+.module-context {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+#contextHint {
+    margin: 0;
+}
 .context label {
     min-width: 180px;
     max-width: 250px;
@@ -251,6 +264,22 @@ nav svg {
 }
 .notice:empty {
     display: none;
+}
+.feedback {
+    padding: 10px 24px;
+    color: #a7dfbd;
+    background: #20352b;
+    border-bottom: 1px solid #36533f;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    max-height: 100px;
+    overflow: auto;
+}
+.feedback[data-state='error'] {
+    color: #ffc0c9;
+    background: #39272d;
+    border-color: #6d414f;
 }
 .pages {
     background: #16191f;
@@ -422,6 +451,17 @@ select option {
 }
 .file-row:last-child {
     border: 0;
+}
+.file-details {
+    border-top: 1px solid var(--line);
+}
+.file-details > summary {
+    padding: 10px 11px;
+}
+.advanced {
+    border-top: 1px solid var(--line);
+    margin-top: 18px;
+    padding-top: 12px;
 }
 .file-row code {
     display: block;
@@ -622,6 +662,10 @@ footer details[open] > summary {
     }
     .context {
         padding: 10px 16px;
+    }
+    .notice,
+    .feedback {
+        padding: 8px 16px;
     }
     .pages {
         padding: 16px;

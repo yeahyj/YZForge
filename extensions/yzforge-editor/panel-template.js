@@ -4,21 +4,36 @@ const field = (id, label, type = 'text', extra = '') =>
         ? `<label class="check"><input id="${id}" type="checkbox" ${extra}><span>${label}</span></label>`
         : `<label>${label}<input id="${id}" type="${type}" ${extra}></label>`;
 const select = (id, label, values = [], extra = '') =>
-    `<label>${label}<select id="${id}" ${extra}>${values.map(([key, text]) => `<option value="${key}">${text}</option>`).join('')}</select></label>`;
+    `<label>${label}<select id="${id}" ${extra}>${values.map(([key, text]) => (Array.isArray(text) ? `<optgroup label="${key}">${text.map(([value, title]) => `<option value="${value}">${title}</option>`).join('')}</optgroup>` : `<option value="${key}">${text}</option>`)).join('')}</select></label>`;
 const button = (id, text, extra = '') => `<button id="${id}" ${extra}>${text}</button>`;
 const kinds = [
-    ['module', '模块'],
-    ['bundle', '资源包'],
-    ['page', '页面 · Page'],
-    ['popup', '弹窗 · Popup'],
-    ['overlay', '覆盖层 · Overlay'],
-    ['toast', '提示 · Toast'],
-    ['loading', '加载界面 · Loading'],
-    ['part', 'UI 部件 · Part'],
-    ['prefab', '通用预制体'],
-    ['component', '节点脚本 · Component'],
-    ['service', '业务服务 · Service'],
-    ['table', '配置表 · XLSX'],
+    [
+        '项目结构',
+        [
+            ['module', '模块'],
+            ['bundle', '资源包'],
+        ],
+    ],
+    [
+        '游戏界面',
+        [
+            ['page', '完整页面'],
+            ['popup', '弹窗'],
+            ['overlay', '覆盖层'],
+            ['toast', '短提示'],
+            ['loading', '加载界面'],
+        ],
+    ],
+    [
+        '复用与逻辑',
+        [
+            ['part', 'UI 部件'],
+            ['prefab', '通用预制体'],
+            ['component', '节点脚本'],
+            ['service', '业务服务'],
+        ],
+    ],
+    ['数据', [['table', '配置表 · XLSX']]],
 ];
 const tabs = [
     ['create', '创建内容', '模块 / 界面 / 脚本', 'M12 5v14M5 12h14'],
@@ -29,14 +44,14 @@ const tabs = [
     ['recovery', '删除与恢复', '引用检查与操作记录', 'M5 8a8 8 0 111 10M5 3v6h6'],
 ];
 module.exports = `<main id="workbench">
-<header class="topbar"><span class="brand-mark">Y</span><div class="brand"><strong>YZForge</strong><span>框架工作台</span></div><span id="health" class="badge">正在连接</span>${button('refresh', '刷新', 'class="quiet"')}</header>
-<div class="workspace"><aside><div class="nav-caption">工作流程</div><nav role="tablist" aria-label="工作台页面">${tabs.map(([id, title, detail, icon]) => `<button data-tab="${id}" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg><span>${title}<small>${detail}</small></span></button>`).join('')}</nav><div class="sidebar-foot"><span id="summary"></span><span id="project" title="当前项目"></span></div></aside>
-<div class="body"><div class="context">${select('module', '当前模块')}<span id="moduleTag" class="badge subtle"></span><div class="context-actions">${button('check', '检查项目', 'class="quiet"')}${button('generate', '重新生成')}</div></div><div id="autoStatus" class="notice" role="status"></div>
+<header class="topbar"><span class="brand-mark">Y</span><div class="brand"><strong>YZForge</strong><span>框架工作台</span></div><span id="health" class="badge">正在连接</span>${button('refresh', '刷新面板', 'class="quiet" title="重新读取项目状态，保留未保存的表单草稿"')}</header>
+<div class="workspace"><aside><nav role="tablist" aria-label="工作台页面">${tabs.map(([id, title, detail, icon], index) => `${index === 0 ? '<div class="nav-caption">日常开发</div>' : id === 'settings' ? '<div class="nav-caption maintenance">项目维护</div>' : ''}<button data-tab="${id}" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg><span>${title}<small>${detail}</small></span></button>`).join('')}</nav><div class="sidebar-foot"><span id="summary"></span><span id="project" title="当前项目"></span></div></aside>
+<div class="body"><div class="context"><div id="moduleContext" class="module-context">${select('module', '当前模块')}<span id="moduleTag" class="badge subtle"></span></div><p id="contextHint" class="hint" hidden></p><div class="context-actions">${button('check', '检查项目', 'class="quiet" title="检查整个项目的代码、资源引用和生成结果"')}${button('generate', '重新生成', 'class="quiet" title="整个项目通常会自动生成；修复错误后可手动重试"')}</div></div><div id="autoStatus" class="notice" role="status"></div><div id="feedback" class="feedback" role="status" hidden></div>
 <section class="pages">
-<article data-page="create"><div class="page-head"><div><h1>创建内容</h1><p>选择职责，预览文件，然后创建。</p></div><span class="badge subtle">自动命名 · 自动登记</span></div>
+<article data-page="create"><div class="page-head"><div><h1>创建内容</h1><p>选类型 → 填名称 → 确认文件 → 创建。</p></div></div>
 <div class="split"><div class="card"><h2>基本信息</h2><div class="grid">${select('kind', '创建类型', kinds)}${field('newName', '名称', 'text', 'placeholder="例如 Inventory 或 Reward" autocomplete="off"')}</div><div id="moduleOptions"><div class="grid">${field('displayName', '显示名称（可选）', 'text', 'placeholder="便于团队识别的名称"')}${select(
     'delivery',
-    '代码交付',
+    '代码加载方式',
     [
         ['bundled', '按需加载代码包'],
         ['eager', '随应用启动加载'],
@@ -46,11 +61,11 @@ module.exports = `<main id="workbench">
     ['resources', '同时创建默认资源包'],
     ['code', '仅创建代码'],
 ])}</div>
-<div id="bundleOptions">${select('bundle', '目标资源包')}</div><div id="presenterOptions">${field('presenter', '同时创建 Presenter（复杂页面可选）', 'checkbox')}${field('publicView', '公开界面合同（允许启动入口和其他模块引用）', 'checkbox')}</div><div id="adoptOptions">${select('adopt', '预制体来源')}</div><p id="roleHelp" class="hint"></p><div id="createIssue" class="issue" role="alert" hidden></div></div>
-<div class="card preview-card"><div class="card-heading"><h2>文件预览</h2><span id="fileCount" class="badge subtle">等待名称</span></div><p class="hint">修改输入后自动校验；包含脚本、预制体和生成文件。</p><div id="createPreview" class="file-list empty">填写名称，即可查看所有文件的名字和位置。</div><div class="card-actions">${button('previewCreate', '重新预览', 'class="quiet"')}${button('create', '创建这些内容', 'class="primary" disabled')}</div></div></div>
+<div id="bundleOptions">${select('bundle', '目标资源包')}</div><div id="adoptOptions">${select('adopt', '预制体来源')}</div><p id="roleHelp" class="hint"></p><details id="presenterOptions" class="advanced"><summary>界面进阶选项（可选）</summary>${field('presenter', '增加 Presenter，单独组织复杂交互', 'checkbox')}${field('publicView', '允许启动入口和其他模块打开此界面', 'checkbox')}</details><div id="createIssue" class="issue" role="alert" hidden></div></div>
+<div class="card preview-card"><div class="card-heading"><h2>将要创建的内容</h2><span id="fileCount" class="badge subtle">等待名称</span></div><p class="hint">输入后自动预览。创建完成会同步资源索引和代码 Key。</p><div id="createPreview" class="file-list empty">先填写名称，这里会列出文件及保存位置。</div><div class="card-actions">${button('previewCreate', '重新检查', 'class="quiet"')}${button('create', '创建', 'class="primary" disabled')}</div></div></div>
 <details class="card"><summary>当前模块设置 <span id="moduleDirty" class="dirty"></span></summary><div class="grid">${field('moduleDisplayName', '显示名称')}${select('dependencies', '业务依赖（Ctrl / Cmd 多选）', [], 'multiple size="3"')}</div><p class="hint">依赖的类型入口随声明自动生成。纯资源模块无需业务依赖。</p>${button('saveModule', '保存模块设置')}<details><summary>查看模块声明</summary><pre id="moduleInfo"></pre></details></details></article>
 <article data-page="bindings" hidden><div class="page-head"><div><h1>自动绑定</h1><p>按命名规则连接节点，无需拖拽引用。</p></div></div><div class="card"><h2>选择预制体</h2>${select('binding', '界面或部件')}<div class="card-actions">${button('bind', '扫描并更新绑定', 'class="primary"')}</div><p id="bindingEmpty" class="hint"></p></div><div class="card"><h2>节点命名示例</h2><div class="examples"><code>btn_confirm <span>Button</span></code><code>lbl_title <span>Label</span></code><code>spr_icon <span>Sprite</span></code></div><p>增删节点或改名后重新扫描。嵌套预制体保留各自的绑定边界。</p><p>已有预制体可在“创建内容”选择 Part 或通用预制体接入。</p><details><summary>查看已登记的绑定</summary><pre id="bindingInfo"></pre></details></div></article>
-<article data-page="tables" hidden><div class="page-head"><div><h1>配置表</h1><p>在工作簿中维护数据，在这里选择导出目标并校验。</p></div><span id="tableDirty" class="dirty"></span></div><div class="card"><div class="grid">${select('workbook', '当前工作簿')}${select('table', '导出表')}</div><div class="card-actions">${button('openWorkbook', '打开工作簿', 'class="quiet"')}${button('previewTables', '预览校验')}</div><div id="tableEmpty" class="hint"></div></div><div class="card"><h2>导出设置</h2><div class="grid">${select('workbookBundle', '工作簿默认资源包')}${select('tableBundle', '此表的资源包')}${select('sheet', '数据工作表')}${select('primaryKey', '主键字段')}</div><div class="checks">${field('workbookEnabled', '启用工作簿', 'checkbox')}${field('tableEnabled', '启用此表', 'checkbox')}${field('tablePublic', '公开类型合同，供其他模块使用', 'checkbox')}</div><div class="card-actions">${button('saveTable', '保存设置', 'class="primary"')}${button('exportTables', '校验并导出')}</div></div><details class="card"><summary>公式与高级声明</summary><p>正式导出使用经过重算校验的结果；工作簿中的缓存仅用于预览。</p>${button('formulaEnvironment', '检测公式环境')}${button('recalculate', '重新计算公式')}<p>__config 定义索引、约束、分片及工作簿联动；__enums 定义可用于类型行的枚举。</p><pre id="tableInfo"></pre></details></article>
+<article data-page="tables" hidden><div class="page-head"><div><h1>配置表</h1><p>数据在 Excel 中编辑；这里维护导出设置，保存时自动生成。</p></div><span id="tableDirty" class="dirty"></span></div><div class="card"><div class="grid">${select('workbook', '当前工作簿')}${select('table', '导出表')}</div><div class="card-actions">${button('openWorkbook', '打开工作簿', 'class="quiet"')}${button('previewTables', '检查全部表格', 'title="检查已保存的所有工作簿；未保存的导出设置不参与检查"')}</div><div id="tableEmpty" class="hint"></div></div><div class="card"><h2>导出设置</h2><div class="grid">${select('workbookBundle', '工作簿默认资源包')}${select('tableBundle', '此表的资源包')}${select('sheet', '数据工作表')}${select('primaryKey', '主键字段')}</div><div class="checks">${field('workbookEnabled', '启用工作簿', 'checkbox')}${field('tableEnabled', '启用此表', 'checkbox')}${field('tablePublic', '公开类型合同，供其他模块使用', 'checkbox')}</div><div class="card-actions">${button('saveTable', '保存并生成', 'class="primary"')}</div></div><details class="card"><summary>公式与高级声明</summary><p>正式导出使用经过重算校验的结果；工作簿中的缓存仅用于预览。</p>${button('formulaEnvironment', '检测公式环境')}${button('recalculate', '重新计算公式')}<p>__config 定义索引、约束、分片及工作簿联动；__enums 定义可用于类型行的枚举。</p><pre id="tableInfo"></pre></details></article>
 <article data-page="localization" hidden><div class="page-head"><div><h1>多语言</h1><p>每个业务资源包维护自己的文案和语言资源，切换时只准备正在使用的内容。</p></div></div>
 <div class="card"><h2>应用语言到界面</h2><div class="grid">${select('languageApplyLocale', '目标语言')}${select(
     'languageApplyScope',
@@ -60,11 +75,11 @@ module.exports = `<main id="workbench">
         ['selection', '选中节点及子节点'],
         ['bundle', '所选业务资源包 · 批量保存'],
     ],
-)}<div id="languageApplyBundleOptions" hidden>${select('languageApplyBundle', '目标业务资源包')}</div></div><p class="hint">直接更新已配置多语言组件的文字、图片和语言字体，保留原生样式与布局模式。当前编辑内容支持撤销、手动保存；发布前应用项目默认语言。运行语言仍由游戏统一设置。</p><div class="card-actions">${button('previewLanguageUpdate', '检查批量范围', 'hidden')}${button('applyLanguageUpdate', '应用语言', 'class="primary"')}</div><div id="languageUpdateFiles" class="file-list empty"></div><p id="languageUpdateResult" class="hint"></p><details><summary>恢复批量更新</summary>${select('languageUpdateRecord', '更新记录')}${button('restoreLanguageUpdate', '恢复所选更新')}<p class="hint">只恢复仍与更新结果一致的文件，保留后续编辑。嵌套实例覆盖通过当前场景更新，批量只修改源资源。</p></details></div>
-<div class="card"><h2>语言资源包</h2><div class="grid">${select('languageBundle', '业务资源包')}${select('languageLocale', '语言')}</div><div class="checks">${field('languageTexts', '同时创建文案工作簿', 'checkbox')}</div><p class="hint">统一保存到 localization/业务包/语言，每种语言一个 Bundle。首次创建会同时启用默认语言；纯图片、音频等资源无需 Excel。已有工作簿会追加语言列。停用与恢复请使用“删除与恢复”页。</p><div class="card-actions">${button('previewLanguage', '预览创建')}${button('createLanguage', '创建并生成', 'class="primary" disabled')}</div><div id="languagePreview" class="file-list empty">选择业务包与语言，预览将创建或更新的文件。</div></div>
-<div class="card"><h2>文案与语言资源</h2><p id="languageSource" class="hint"></p><div id="languageStatus"></div><div class="card-actions">${button('openLanguageWorkbook', '打开文案工作簿')}${button('validateLanguages', '校验预览', 'class="quiet"')}${button('generateLanguages', '校验并生成')}</div><p class="hint">Excel 的 texts 页只填写文案。资源放入各语言 dynamic 的相同相对路径，key 不含扩展名，如 images/greeting；字体可约定为 fonts/default。缺失版本回退默认语言。修改后点击校验并生成，再应用语言到界面。</p></div>
-<div class="card"><h2>语言资源改名</h2><div class="grid">${select('languageRenameFrom', '现有资源键')}${field('languageRenameTo', '新相对路径（不含扩展名）', 'text', 'placeholder="images/welcome"')}</div><p class="hint">同步各语言文件并保留 UUID。改名后生成新 Key，并报告待修复的旧引用；不自动改写业务代码或预制体。可选择整个路径前缀；图集仅支持同目录整体改名。</p><div class="card-actions">${button('previewLanguageRename', '预览改名')}${button('applyLanguageRename', '执行改名', 'class="primary" disabled')}</div><div id="languageRenameFiles" class="file-list empty"></div><p id="languageRenameResult" class="hint"></p><details><summary>恢复资源改名</summary>${select('languageRenameRecord', '改名记录')}${button('restoreLanguageRename', '恢复所选改名')}</details></div></article>
-<article data-page="settings" hidden><div class="page-head"><div><h1>项目设置</h1><p>统一维护交付方式和框架默认行为。</p></div><span id="settingsDirty" class="dirty"></span></div><div class="card"><h2>Bundle 公共配置</h2><p>代码与资源分别使用独立配置。支持分包的小游戏使用分包交付。</p>${button('ensurePresets', '检查配置')}${button('bundleSettings', '打开 Creator 配置', 'class="quiet"')}<details><summary>配置详情</summary><pre id="presets"></pre></details></div><div class="card"><h2>多语言</h2><div class="grid">${field('defaultLocale', '默认语言', 'text', 'placeholder="zh-CN"')}${field('supportedLocales', '支持语言（逗号分隔）', 'text', 'placeholder="zh-CN, en"')}</div><p class="hint">先保存支持语言，再到多语言页为业务资源包添加语言。语言列与默认文案均会在生成时检查。</p></div><div class="card"><h2>业务日历</h2><div class="grid">${select(
+)}<div id="languageApplyBundleOptions" hidden>${select('languageApplyBundle', '目标业务资源包')}</div></div><p class="hint">更新已配置多语言组件的文字、图片和字体。当前编辑内容支持撤销，需手动保存；批量范围直接保存。发布前应用默认语言，运行时由游戏统一切换。</p><div class="card-actions">${button('previewLanguageUpdate', '检查批量范围', 'hidden')}${button('applyLanguageUpdate', '应用语言', 'class="primary"')}</div><div id="languageUpdateFiles" class="file-list empty" hidden></div><p id="languageUpdateResult" class="hint"></p><details><summary>恢复批量更新</summary>${select('languageUpdateRecord', '更新记录')}${button('restoreLanguageUpdate', '恢复所选更新')}<p class="hint">只恢复仍与更新结果一致的文件，保留后续编辑。嵌套实例覆盖通过当前场景更新，批量只修改源资源。</p></details></div>
+<div class="card"><h2>文案与语言资源</h2>${select('languageBundle', '要管理的业务资源包')}<p id="languageSource" class="hint"></p><div id="languageStatus"></div><div class="card-actions">${button('openLanguageWorkbook', '打开文案工作簿')}${button('validateLanguages', '检查全部多语言', 'class="quiet"')}${button('generateLanguages', '检查并生成')}</div><p class="hint">文案填写在 Excel 的 texts 页；资源放在各语言 dynamic 下的相同相对路径，以不含扩展名的路径为 Key。已启用的语言必须补齐资源；未启用的语言使用默认语言资源。</p>
+<details id="languageSetup" class="advanced"><summary>添加语言 / 语言资源包设置</summary>${select('languageLocale', '添加语言')}${field('languageTexts', '同时创建文案工作簿', 'checkbox')}<p class="hint">为上方业务包创建语言 Bundle。首次创建会同时启用默认语言；纯资源无需 Excel，已有文案工作簿会追加语言列。停用语言请使用“删除与恢复”页。</p><div class="card-actions">${button('previewLanguage', '检查创建范围')}${button('createLanguage', '创建并生成', 'class="primary" disabled')}</div><div id="languagePreview" class="file-list empty">选择业务包与语言，检查将创建或更新的文件。</div></details>
+<details id="languageRename" class="advanced"><summary>语言资源改名</summary><div class="grid">${select('languageRenameFrom', '现有资源键')}${field('languageRenameTo', '新相对路径（不含扩展名）', 'text', 'placeholder="images/welcome"')}</div><p class="hint">为上方业务包同步各语言文件并保留 UUID。改名后生成新 Key，并报告待修复的旧引用；不自动改写业务代码或预制体。可选择整个路径前缀；图集仅支持同目录整体改名。</p><div class="card-actions">${button('previewLanguageRename', '预览改名')}${button('applyLanguageRename', '执行改名', 'class="primary" disabled')}</div><div id="languageRenameFiles" class="file-list empty"></div><p id="languageRenameResult" class="hint"></p><details><summary>恢复资源改名</summary>${select('languageRenameRecord', '改名记录')}${button('restoreLanguageRename', '恢复所选改名')}</details></details></div></article>
+<article data-page="settings" hidden><div class="page-head"><div><h1>项目设置</h1><p>统一维护交付方式和框架默认行为。</p></div><span id="settingsDirty" class="dirty"></span></div><details class="card"><summary>分包配置（首次配置或调整交付方式时使用）</summary><p>代码与资源分别使用独立配置。支持分包的小游戏使用分包交付。</p>${button('ensurePresets', '检查配置')}${button('bundleSettings', '打开 Creator 配置', 'class="quiet"')}<details><summary>配置详情</summary><pre id="presets"></pre></details></details><div class="card"><h2>多语言</h2><div class="grid">${field('defaultLocale', '默认语言', 'text', 'placeholder="zh-CN"')}${field('supportedLocales', '支持语言（逗号分隔）', 'text', 'placeholder="zh-CN, en"')}</div><p class="hint">先保存支持语言，再到多语言页为业务资源包添加语言。语言列与默认文案均会在生成时检查。</p></div><div class="card"><h2>业务日历</h2><div class="grid">${select(
     'utcOffset',
     '固定业务时区',
     [
@@ -104,7 +119,8 @@ module.exports = `<main id="workbench">
         ['script', '手写脚本'],
     ],
 )}</div><div id="deleteItemOptions">${select('deleteItem', '具体内容')}</div><div id="deletePreview" class="file-list empty">预览后显示实际文件和外部引用。</div><div class="card-actions">${button('previewDelete', '检查并预览')}${button('delete', '备份并删除', 'class="danger" disabled')}</div></div>
-<div class="card"><h2>已删除的内容</h2>${select('restoreRecord', '可恢复记录')}${button('restore', '恢复并核验引用')}</div>
-<div class="card"><h2>未完成的创建</h2>${select('creationRecord', '创建记录')}<p>只清理创建中断的残留。整次检查通过后，恢复本次修改的旧内容并删除新增内容。创建完成后的生成错误，请修复后点击“重新生成”。</p><div id="creationPreview" class="file-list empty">没有未完成的创建。</div><div class="card-actions">${button('previewCreationCleanup', '检查残留', 'class="quiet"')}${button('cleanupCreation', '清理本次创建', 'class="danger" disabled')}</div></div>
-<div class="card"><h2>中断的生成</h2>${select('generationRecord', '生成记录')}<div id="generationPreview" class="file-list empty">没有需要恢复的生成。</div><div class="card-actions">${button('previewGeneration', '预览恢复范围')}${button('recoverGeneration', '恢复上次内容', 'class="danger" disabled')}</div></div></article>
+<details class="card"><summary>恢复已删除的内容</summary>${select('restoreRecord', '可恢复记录')}${button('restore', '恢复并核验引用')}</details>
+<p id="recoveryEmpty" class="hint">没有中断的创建或生成需要处理。</p>
+<div id="creationRecovery" class="card" hidden><h2>未完成的创建</h2>${select('creationRecord', '创建记录')}<p>只清理创建中断的残留。整次检查通过后，恢复本次修改的旧内容并删除新增内容。创建完成后的生成错误，请修复后点击“重新生成”。</p><div id="creationPreview" class="file-list empty">没有未完成的创建。</div><div class="card-actions">${button('previewCreationCleanup', '检查残留', 'class="quiet"')}${button('cleanupCreation', '清理本次创建', 'class="danger" disabled')}</div></div>
+<div id="generationRecovery" class="card" hidden><h2>中断的生成</h2>${select('generationRecord', '生成记录')}<div id="generationPreview" class="file-list empty">没有需要恢复的生成。</div><div class="card-actions">${button('previewGeneration', '预览恢复范围')}${button('recoverGeneration', '恢复上次内容', 'class="danger" disabled')}</div></div></article>
 </section><footer><div class="status-line"><span id="statusDot"></span><strong id="status" role="status">就绪</strong><span class="footer-hint">所有操作以当前项目为范围</span></div><details id="logDetails"><summary>操作详情</summary><pre id="output">操作结果与校验信息会显示在这里。</pre></details></footer></div></div></main>`;

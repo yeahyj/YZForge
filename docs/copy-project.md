@@ -69,7 +69,7 @@ npm install --package-lock-only --ignore-scripts
 1. 将 `assets/game/app/start-game.ts` 替换为下面的空入口，移除所有示例导入。多语言路由由资源包声明自动生成，删除模块时工作台会停用对应语言工作簿，无需修改 GameRoot。
 2. 等待脚本导入完成。在工作台“删除与恢复”中，依次预览并删除 `showcase`、`workshop`、`lobby`、`profile`、`common`。每次处理引用提示，确认备份成功；不要跳过检查强删目录。
 3. 模块删除会停用关联 XLSX 导出，并保留源表。确认这些表没有自己的新增数据后，将 `config-source/showcase/`、`config-source/workshop/`、`config-source/lobby/`、`config-source/common/` 移到项目外归档，或删除。不要只改文件夹名字留在 `config-source` 内，该目录会递归扫描。
-4. 工作台执行“生成清单与配置”和“检查”，确认模块、资源、配置路由已经收敛。生成的主包装配会变成空列表；资源身份记录中的停用项保留即可。
+4. 工作台执行“重新生成”和“检查项目”，确认模块、资源、配置路由已经收敛。生成的主包装配会变成空列表；资源身份记录中的停用项保留即可。
 5. 打开 `assets/game/boot/Bootstrap.scene` 预览。没有业务页面时应显示“YZForge / 启动完成”，控制台打印 `Bootstrap ready`。
 6. 在项目根目录运行 `npm run verify`。
 
