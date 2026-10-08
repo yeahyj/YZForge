@@ -220,6 +220,7 @@ test('界面与 Part 更新绑定前及写回前检查未保存状态，阻止�
                 bindingPlan,
                 formatScript: async (_file, value) => value,
                 bindings: { bindingPlan },
+                layout: require('../project/layout.cjs'),
                 fs: { readFile: async () => 'previous' },
                 path: require('path'),
                 scene: async (method) => {

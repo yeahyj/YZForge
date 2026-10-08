@@ -67,12 +67,13 @@ export function parseLocalizationWorkbook(book, source) {
     }
     return output;
 }
-export async function createLocalizationWorkbook(root, source, locales, rows) {
+export async function renderLocalizationWorkbook(source, locales, rows) {
     if (!source.startsWith('config-source/') || !source.endsWith('.xlsx'))
         throw Error('多语言源文件必须位于 config-source');
     if (Object.keys(rows ?? {}).some((key) => key !== 'texts')) throw Error('多语言工作簿只接受 texts 文案');
     const book = new ExcelJS.Workbook();
     book.creator = 'YZForge';
+    book.created = book.modified = new Date(0);
     book.addWorksheet('__localization').addRows([['formatVersion', 2]]);
     book.addWorksheet('__help').addRows([
         ['空单元格表示缺译；#EMPTY 表示有意留空；##EMPTY 输出字面 #EMPTY。'],
@@ -93,8 +94,12 @@ export async function createLocalizationWorkbook(root, source, locales, rows) {
         });
     }
     parseLocalizationWorkbook(book, source);
+    return Buffer.from(await book.xlsx.writeBuffer());
+}
+export async function createLocalizationWorkbook(root, source, locales, rows) {
+    const bytes = await renderLocalizationWorkbook(source, locales, rows);
     const target = await safePath(root, source);
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, Buffer.from(await book.xlsx.writeBuffer()), { flag: 'wx' });
+    await writeFile(target, bytes, { flag: 'wx' });
     return { source, hash: digest(await readFile(target)) };
 }

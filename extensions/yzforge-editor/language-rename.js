@@ -1,7 +1,6 @@
 'use strict';
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const fs = require('node:fs/promises');
 
 /** Creator 只执行共享计划中的资源操作；预览、引用分析和恢复规则位于 tools。 */
 exports.createLanguageRenames = function ({ root, inside, ensureFolder, assertBindingSceneSaved }) {
@@ -17,11 +16,6 @@ exports.createLanguageRenames = function ({ root, inside, ensureFolder, assertBi
             const after = await db('query-asset-info', 'db://' + to);
             if (after?.uuid !== uuid) throw Error('移动未保留资源 UUID：' + to);
         },
-        async save(file, content) {
-            await assertBindingSceneSaved();
-            await db('save-asset', 'db://' + file, content);
-            if ((await fs.readFile(inside(file), 'utf8')) !== content) throw Error('Creator 写入尚未完成：' + file);
-        },
     };
     return {
         async previewLanguageRename(args) {
@@ -30,16 +24,9 @@ exports.createLanguageRenames = function ({ root, inside, ensureFolder, assertBi
             return {
                 ...plan.request,
                 signature: plan.signature,
-                files: [
-                    ...plan.moves.map((move) => ({ path: move.from + ' → ' + move.to, operation: 'move' })),
-                    ...plan.updates.map((file) => ({ path: file.path, operation: 'update', count: file.count })),
-                    ...plan.unresolved.map((file) => ({
-                        path: file.path + (file.line ? ':' + file.line : '') + ' · ' + file.reason,
-                        operation: 'conflict',
-                    })),
-                ],
-                blocked: plan.unresolved.length > 0,
-                message: `移动 ${plan.moves.length} 个语言资源，更新 ${plan.updates.length} 个引用文件；动态拼接的键仍需项目自行核对。`,
+                files: [...plan.moves.map((move) => ({ path: move.from + ' → ' + move.to, operation: 'move' }))],
+                blocked: false,
+                message: `移动 ${plan.moves.length} 个语言资源并保留 UUID。生成后请根据报错修复代码、场景和预制体中的旧 Key；动态 Key 在使用时校验。`,
             };
         },
         async applyLanguageRename(args) {

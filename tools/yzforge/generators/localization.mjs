@@ -132,6 +132,10 @@ export function compileLocalization(root, modules, settings, sources, registry, 
         );
         const defaultAssets = resources[defaults].assets;
         for (const [locale, { assets }] of Object.entries(resources))
+            for (const key of Object.keys(defaultAssets))
+                if (!has(assets, key))
+                    throw Error(`${namespace}/${locale}: 缺少语言资源 ${key}；已声明的语言变体必须具有相同资源键`);
+        for (const [locale, { assets }] of Object.entries(resources))
             for (const [key, value] of Object.entries(assets)) {
                 if (!has(defaultAssets, key)) throw Error(`${namespace}/${locale}: 默认语言缺少资源路径 ${key}`);
                 if (defaultAssets[key].type !== value.type)

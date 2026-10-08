@@ -15,7 +15,8 @@ try {
         throw Error('仅 build-options 支持 --platform <构建目标>');
     if (command === 'recover-build') {
         const recovery = await build.recover(root);
-        await generate(root);
+        const generated = await generate(root);
+        if (!generated.valid) throw Error(generated.validationErrors.join('\n'));
         console.log(JSON.stringify({ ok: true, ...recovery }, null, 2));
     } else {
         const snapshot = await config.readConfig(root);

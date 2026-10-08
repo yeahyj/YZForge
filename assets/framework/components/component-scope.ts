@@ -1,19 +1,19 @@
 import { Component, isValid } from 'cc';
-import type { ScopedAssets } from '../assets/asset-manager';
+import type { AssetAccess } from '../assets/asset-access';
 import { registerComponentBinding, type ComponentBinding } from './component-binding';
 import { FrameworkError, invariant, OperationCancelled, reportError } from '../core/errors';
 import { untilCancelled } from '../core/cancellation';
-import type { ModuleContext } from '../modules/module-manager';
+import type { ComponentServicesHost } from './component-services';
 import { Scope, type Lifetime } from '../core/scope';
-import type { ScopedTime } from '../time/time-service';
-import type { ScopedLocalization } from '../ui/localization/localized-ui';
+import type { TimeAccess } from '../time/time-access';
+import type { LocalizationAccess } from '../ui/localization/localization-access';
 
 /** @internal 原生 UI 扩展的一次启用期；资源和框架时间由现有实例绑定流程注入。 */
 export interface ComponentContext {
     readonly scope: Lifetime;
-    readonly assets?: ScopedAssets;
-    readonly time?: ScopedTime;
-    readonly i18n?: ScopedLocalization;
+    readonly assets?: AssetAccess;
+    readonly time?: TimeAccess;
+    readonly i18n?: LocalizationAccess;
 }
 
 /**
@@ -29,7 +29,7 @@ export class ComponentScope implements ComponentBinding {
     binding?: Scope;
     private readonly bindings = new Set<Scope>();
     private instance?: Scope;
-    private module?: ModuleContext;
+    private module?: ComponentServicesHost;
     private owner?: Scope;
     private activation?: Scope;
     private draining?: Promise<void>;
@@ -44,7 +44,7 @@ export class ComponentScope implements ComponentBinding {
         registerComponentBinding(component, this);
     }
 
-    __bind(context: ModuleContext, instance: Scope): void {
+    __bind(context: ComponentServicesHost, instance: Scope): void {
         invariant(!this.instance, 'COMPONENT_ALREADY_BOUND', this.component.name);
         this.instance = instance;
         this.module = context;

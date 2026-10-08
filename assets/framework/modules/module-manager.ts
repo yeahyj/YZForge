@@ -3,10 +3,10 @@ import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, reportError } from '../core/errors';
 import { Scope, Lifetime, runTask } from '../core/scope';
 import type { RuntimeDiagnostics } from '../app/diagnostics';
-import type { ScopedAssets } from '../assets/asset-manager';
-import type { ScopedConfig } from '../config/config-manager';
+import type { AssetAccess } from '../assets/asset-access';
+import type { ConfigAccess } from '../config/config-access';
 import type { Events } from '../core/events';
-import type { ScopedTime } from '../time/time-service';
+import type { TimeAccess } from '../time/time-access';
 import type { AudioManager } from '../audio/audio-manager';
 import type { UIManager } from '../ui/ui-manager';
 import type { Storage } from '../storage/storage';
@@ -133,11 +133,11 @@ export interface ModuleContext {
      * 默认使用模块 Scope、“当前模块/default”命名空间和当前宿主的资源入口。
      * 临时界面资源使用 ctx.assets.in(show.scope)。
      */
-    readonly assets: ScopedAssets;
+    readonly assets: AssetAccess;
     /**
      * 默认由模块持有的配置入口；界面短期使用请 load(Table, show.scope)。
      */
-    readonly config: ScopedConfig;
+    readonly config: ConfigAccess;
     /**
      * 共享类型化事件总线；on 需显式传订阅所有者，例如 show.scope。
      */
@@ -145,7 +145,7 @@ export interface ModuleContext {
     /**
      * 默认绑定模块 Scope 的业务时间入口；界面短期订阅使用 show.time。
      */
-    readonly time: ScopedTime;
+    readonly time: TimeAccess;
     /**
      * 共享 UI 管理器，open 和 pushPage 需显式传入界面所有者。
      */

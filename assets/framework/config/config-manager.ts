@@ -1,3 +1,5 @@
+import type { ConfigAccess } from './config-access';
+import type { ConfigLoadOptions, LoadedTable } from './config-access';
 import type { Assets } from '../assets/asset-manager';
 import { BundleRef, bundleId } from '../assets/asset-types';
 import { LeaseCache } from '../assets/lease-cache';
@@ -5,21 +7,7 @@ import { invariant } from '../core/errors';
 import { Scope, Lifetime } from '../core/scope';
 import { ConfigTable, parseTable, TableData } from './config-table';
 import { TableDefinition, TableKey } from './schema';
-/**
- * 配置加载选项，用于选择同表在不同资源包中的数据分片。
- */
-export interface ConfigLoadOptions {
-    /**
-     * 指定承载数据的 Bundle 引用；表只有一条路由时可省略，多条路由时必须指定。
-     * 不会自动合并多个包的数据；BundleHandle.tables 已默认绑定其包。
-     */
-    readonly bundle?: BundleRef;
-}
 type AnyTableKey = TableKey<unknown, string | number, object>;
-/**
- * 从生成的 TableKey 推导 ConfigTable 的行、主键和索引类型，供 loadMany 保留每张表的类型提示。
- */
-export type LoadedTable<T> = T extends TableKey<infer R, infer K, infer I> ? ConfigTable<R, K, I> : never;
 /**
  * 集成于 App 的配置管理器：按合同找路由、按需加载 JSON、校验版本和数据、构建索引并共享只读数据。
  * 导出 XLSX 是编辑器和构建工具的职责；运行时 API 负责加载和查询已经导出的数据。
@@ -137,7 +125,7 @@ export class ConfigManager {
  * 带默认所有者的配置入口，通常从 show.config、ctx.config 或 BundleHandle.tables 获得。
  * ctx.config 默认跟随模块，show.config 默认跟随本次展示；跨模块公开表使用相同入口。
  */
-export class ScopedConfig {
+export class ScopedConfig implements ConfigAccess {
     /** 切换表的默认使用期限，保留当前默认数据包；不加载资源。 */
     in(scope: Lifetime): ScopedConfig {
         return this.manager.in(scope, this.bundle);

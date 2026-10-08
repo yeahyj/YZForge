@@ -1,10 +1,7 @@
 import { readFile, writeFile, mkdir, readdir, stat, rename } from 'node:fs/promises';
 import { dirname, extname, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import ts from 'typescript';
-import { digest, files, json, modules, pascal, safePath, withProjectLock } from '../project/project.mjs';
-import { decodeUuid } from '../project/catalog.mjs';
-import { localizedNamespace } from '../validation/localized-bindings.mjs';
+import { digest, json, modules, safePath, withProjectLock } from '../project/project.mjs';
 import localizationLayout from '../project/localization-layout.cjs';
 
 const forward = (value) => value.replaceAll('\\', '/');
@@ -20,117 +17,7 @@ const keyPattern = /^[a-zA-Z][a-zA-Z0-9_-]*(\/[a-zA-Z][a-zA-Z0-9_-]*)*$/;
 const matches = (key, prefix) => key === prefix || key.startsWith(prefix + '/');
 const replaceKey = (key, from, to) => to + key.slice(from.length);
 
-/** 只改可证明属于目标语言契约的表达式；同名局部变量不会被当成导入契约。 */
-export function planScriptKeys(program, file, moduleDirectory, exportName, group, from, to) {
-    const checker = program.getTypeChecker(),
-        source = program.getSourceFile(file),
-        aliases = new Set(),
-        namespaces = new Set();
-    if (!source) throw Error('脚本尚未解析：' + file);
-    const targets = [
-        resolve(moduleDirectory, 'public'),
-        resolve(moduleDirectory, `contracts/generated/localization-${group}`),
-    ];
-    for (const node of source.statements) {
-        if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier) || node.importClause?.isTypeOnly)
-            continue;
-        if (!targets.includes(resolve(dirname(file), node.moduleSpecifier.text.replace(/\.ts$/, '')))) continue;
-        const binding = node.importClause?.namedBindings;
-        if (binding && ts.isNamespaceImport(binding)) namespaces.add(checker.getSymbolAtLocation(binding.name));
-        if (binding && ts.isNamedImports(binding))
-            for (const spec of binding.elements)
-                if (!spec.isTypeOnly && (spec.propertyName ?? spec.name).text === exportName)
-                    aliases.add(checker.getSymbolAtLocation(spec.name));
-    }
-    const selected = (node) =>
-        ts.isIdentifier(node)
-            ? aliases.has(checker.getSymbolAtLocation(node))
-            : ts.isPropertyAccessExpression(node) &&
-              node.name.text === exportName &&
-              ts.isIdentifier(node.expression) &&
-              namespaces.has(checker.getSymbolAtLocation(node.expression));
-    const edits = [],
-        unresolved = [];
-    const location = (node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
-    const visit = (node) => {
-        if (
-            ts.isElementAccessExpression(node) &&
-            ts.isPropertyAccessExpression(node.expression) &&
-            node.expression.name.text === 'asset' &&
-            selected(node.expression.expression)
-        ) {
-            const key = node.argumentExpression;
-            if (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) {
-                if (matches(key.text, from))
-                    edits.push({
-                        start: key.getStart(source) + 1,
-                        end: key.end - 1,
-                        value: replaceKey(key.text, from, to),
-                    });
-            } else
-                unresolved.push({
-                    line: location(node),
-                    reason: '目标语言契约使用动态计算的资源键，请先改为可检查的静态键',
-                });
-        }
-        if (
-            ts.isCallExpression(node) &&
-            ts.isPropertyAccessExpression(node.expression) &&
-            node.expression.name.text === 'assetKey'
-        ) {
-            const key = node.arguments[0];
-            if (key && (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) && matches(key.text, from))
-                unresolved.push({
-                    line: location(node),
-                    reason: 'assetKey 字符串的业务包无法静态确认，请使用生成的 I18n.asset 契约',
-                });
-        }
-        if (
-            ts.isPropertyAccessExpression(node) &&
-            node.name.text === 'asset' &&
-            selected(node.expression) &&
-            !(ts.isElementAccessExpression(node.parent) && node.parent.expression === node)
-        )
-            unresolved.push({
-                line: location(node),
-                reason: '语言资源字典被整体引用，请先改为 I18n.asset[静态键]，以便跟踪改名',
-            });
-        ts.forEachChild(node, visit);
-    };
-    visit(source);
-    let after = source.text;
-    for (const edit of edits.sort((a, b) => b.start - a.start))
-        after = after.slice(0, edit.start) + edit.value + after.slice(edit.end);
-    return { after, count: edits.length, unresolved };
-}
-
-/** 原生组件保存的键按源预制体/显式跨包来源解析；无法确认的实例覆盖阻止执行。 */
-export function planSavedKeys(records, classes, namespace, sources, selectedNamespace, from, to) {
-    let count = 0;
-    const unresolved = [];
-    for (const component of records) {
-        if (!component || typeof component !== 'object') continue;
-        if (classes.has(component.__type__) || classes.has(decodeUuid(component.__type__))) {
-            if (
-                typeof component.key === 'string' &&
-                matches(component.key, from) &&
-                localizedNamespace(records, component, namespace, sources) === selectedNamespace
-            ) {
-                component.key = replaceKey(component.key, from, to);
-                count++;
-            }
-        }
-        if (
-            Array.isArray(component.propertyPath) &&
-            component.propertyPath.includes('key') &&
-            typeof component.value === 'string' &&
-            matches(component.value, from)
-        )
-            unresolved.push({ reason: '预制体实例包含语言键覆盖；请先在 Creator 中明确该覆盖的来源' });
-    }
-    return { count, unresolved };
-}
-
+/** 只计划各语言资源文件的移动；代码和序列化 Key 由生成/类型检查报告，不自动改写。 */
 export async function planLanguageRename(root, input) {
     const request = { module: input.module, bundle: input.bundle, from: input.from, to: input.to };
     if (
@@ -205,71 +92,9 @@ export async function planLanguageRename(root, input) {
         }
     }
     if (!defaultFound || !moves.size) throw Error('默认语言中没有这个资源键；请先生成并检查路径');
-    const sources = {},
-        serialized = [];
-    for (const file of await files(resolve(root, 'assets'))) {
-        if (!/\.(prefab|scene)$/.test(file)) continue;
-        const meta = JSON.parse(await read(file + '.meta'));
-        sources[meta.uuid] = localizationLayout.sourceNamespace(file, projectModules);
-        serialized.push({ file, uuid: meta.uuid });
-    }
-    const spriteMeta = JSON.parse(await read('assets/framework/ui/localization/localized-sprite.ts.meta'));
-    const classes = new Set(['yzforge.LocalizedSprite', spriteMeta.uuid]),
-        updates = [],
-        unresolved = [];
-    for (const { file, uuid } of serialized) {
-        const before = await read(file),
-            records = JSON.parse(before);
-        if (!Array.isArray(records)) continue;
-        const changes = planSavedKeys(
-            records,
-            classes,
-            sources[uuid] ?? '',
-            sources,
-            `${request.module}/${request.bundle}`,
-            request.from,
-            request.to,
-        );
-        const target = forward(relative(root, file));
-        unresolved.push(...changes.unresolved.map((item) => ({ path: target, ...item })));
-        if (changes.count)
-            updates.push({
-                path: target,
-                before,
-                after: JSON.stringify(records, null, 2) + '\n',
-                count: changes.count,
-            });
-    }
-    const scripts = (await files(resolve(root, 'assets/game'), '.ts')).filter(
-        (file) => !forward(file).includes('/generated/') && !file.endsWith('public.ts'),
-    );
-    const program = ts.createProgram(scripts, {
-        noLib: true,
-        noResolve: true,
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-    });
-    const exportName = pascal(module.id) + (request.bundle === 'default' ? '' : pascal(request.bundle)) + 'I18n';
-    for (const file of scripts) {
-        const before = await read(file),
-            changes = planScriptKeys(
-                program,
-                file,
-                module.directory,
-                exportName,
-                request.bundle,
-                request.from,
-                request.to,
-            );
-        const target = forward(relative(root, file));
-        unresolved.push(...changes.unresolved.map((item) => ({ path: target, ...item })));
-        if (changes.count) updates.push({ path: target, before, after: changes.after, count: changes.count });
-    }
     const plan = {
         request,
         moves: [...moves.values()].sort((a, b) => a.from.localeCompare(b.from)),
-        updates,
-        unresolved,
         keys: [...keys].sort(),
         snapshots,
     };
@@ -291,14 +116,13 @@ async function verifyMove(root, move, atTarget) {
     if (digest(await readFile(file)) !== move.hash || (await json(file + '.meta')).uuid !== move.uuid)
         throw Error('资源已变化，不能移动：' + forward(relative(root, file)));
 }
-/** adapter 的 move/save 必须经 Creator；调用返回后核对文件及 UUID。 */
+/** adapter.move 必须经 Creator；调用返回后核对文件及 UUID。 */
 export async function applyLanguageRename(root, input, adapter) {
     return withProjectLock(root, async () => {
         await adapter.assertClean();
         const plan = await planLanguageRename(root, input);
         if (plan.signature !== input.signature) throw Error('项目已变化，请重新预览语言资源改名');
-        if (plan.unresolved.length) throw Error('存在不能自动处理的语言引用，请先处理预览中的引用');
-        const record = { id: Date.now() + '-' + randomUUID(), stage: 'applying', plan, moved: [], updated: [] };
+        const record = { id: Date.now() + '-' + randomUUID(), stage: 'applying', plan, moved: [] };
         await saveRecord(root, record);
         try {
             for (const move of plan.moves) {
@@ -308,18 +132,9 @@ export async function applyLanguageRename(root, input, adapter) {
                 record.moved.push(move.from);
                 await saveRecord(root, record);
             }
-            for (const file of plan.updates) {
-                if ((await readFile(await safePath(root, file.path), 'utf8')) !== file.before)
-                    throw Error('引用文件已变化：' + file.path);
-                await adapter.save(file.path, file.after);
-                if ((await readFile(await safePath(root, file.path), 'utf8')) !== file.after)
-                    throw Error('引用更新读回失败：' + file.path);
-                record.updated.push(file.path);
-                await saveRecord(root, record);
-            }
             record.stage = 'applied';
             await saveRecord(root, record);
-            return { id: record.id, stage: record.stage, moved: plan.moves.length, updated: plan.updates.length };
+            return { id: record.id, stage: record.stage, moved: plan.moves.length, keys: plan.keys };
         } catch (error) {
             record.stage = 'interrupted';
             record.error = error.message;
@@ -335,8 +150,7 @@ export async function restoreLanguageRename(root, id, adapter) {
         const record = await json(await recordPath(root, id));
         if (!['applying', 'applied', 'interrupted', 'restoring'].includes(record.stage))
             throw Error('此记录不需要恢复');
-        const moves = [],
-            updates = [];
+        const moves = [];
         for (const move of record.plan.moves) {
             const old = await exists(await safePath(root, move.from)),
                 next = await exists(await safePath(root, move.to));
@@ -344,25 +158,15 @@ export async function restoreLanguageRename(root, id, adapter) {
             await verifyMove(root, move, next);
             if (next) moves.push(move);
         }
-        for (const file of record.plan.updates) {
-            const current = await readFile(await safePath(root, file.path), 'utf8');
-            if (current === file.after) updates.push(file);
-            else if (current !== file.before) throw Error('引用存在后续编辑，保留冲突：' + file.path);
-        }
         record.stage = 'restoring';
         await saveRecord(root, record);
         for (const move of moves.reverse()) {
             await adapter.move(move.to, move.from, move.uuid);
             await verifyMove(root, move, false);
         }
-        for (const file of updates) {
-            await adapter.save(file.path, file.before);
-            if ((await readFile(await safePath(root, file.path), 'utf8')) !== file.before)
-                throw Error('引用恢复读回失败：' + file.path);
-        }
         record.stage = 'restored';
         await saveRecord(root, record);
-        return { id, stage: record.stage, moved: moves.length, updated: updates.length };
+        return { id, stage: record.stage, moved: moves.length };
     });
 }
 export async function languageRenameHistory(root) {

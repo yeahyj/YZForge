@@ -1,5 +1,5 @@
 import { _decorator, Button } from 'cc';
-import type { PlaybackHandle } from '../../../../../../framework/audio/audio-manager';
+import type { PlaybackHandle } from '../../../../../../framework/audio/audio-access';
 import type { ViewShowContext } from '../../../../../../framework/ui/ui-view';
 import { ShowcaseRes } from '../../../contracts/generated/resources-default';
 import { ShowcaseBundles } from '../../../contracts/generated/bundles';

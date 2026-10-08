@@ -3,18 +3,18 @@ import { ResourceLabPageBinding } from './generated/ResourceLabPageBinding';
 import type { ViewShowContext } from '../../../../../../framework/ui/ui-view';
 import type { Scope } from '../../../../../../framework/core/scope';
 import { OperationCancelled } from '../../../../../../framework/core/errors';
-import type { PrefabLease, PrefabPool } from '../../../../../../framework/assets/prefab-pool';
+import type { PrefabPoolAccess, PrefabLease } from '../../../../../../framework/assets/asset-access';
 import { ShowcaseRes } from '../../../contracts/generated/resources-default';
 import { ShowcaseBundles } from '../../../contracts/generated/bundles';
 import { ShowcaseI18n } from '../../../contracts/generated/localization-default';
-import type { LocalizedBinding } from '../../../../../../framework/ui/localization/localized-ui';
+import type { LocalizedBinding } from '../../../../../../framework/ui/localization/localization-access';
 import type { TextKey } from '../../../../../../framework/localization/localization';
 import { BadgePart } from '../../components/badge-part/BadgePart';
 const { ccclass } = _decorator;
 /** 资源准备、实例池和语言 Bundle 的可删除业务示例。 */
 @ccclass('showcase.ResourceLabPage')
 export class ResourceLabPage extends ResourceLabPageBinding {
-    private pool?: PrefabPool;
+    private pool?: PrefabPoolAccess;
     private batch?: Scope;
     private leases: PrefabLease[] = [];
     private ids = new WeakMap<Node, number>();

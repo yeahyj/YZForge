@@ -2,19 +2,13 @@
 const fs = require('fs/promises');
 const path = require('path');
 const { createHash } = require('crypto');
-const naming = require('../project/naming.cjs');
-const layout = require('../project/layout.cjs');
-const { businessBundles, physicalBundles } = require('../project/localization-layout.cjs');
+const { businessBundles } = require('../project/localization-layout.cjs');
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 exports.createWorkbench = function (ctx) {
     const {
         root,
         inside,
-        rel,
-        url,
         moduleInfo,
-        ensureFolder,
-        saveJson,
         writeScript,
         waitClass,
         scene,
@@ -27,304 +21,20 @@ exports.createWorkbench = function (ctx) {
         request,
     } = ctx;
     async function previewCreate(args) {
-        const request = { ...args };
-        delete request.signature;
-        const kind = request.kind;
-        const paths = [],
-            updates = [],
-            folders = [];
-        let manifest;
-        const add = (value) => paths.push(value);
-        if (kind === 'module') {
-            request.id = naming.slug(request.id);
-            const prefix = `assets/game/modules/${request.id}`,
-                type = naming.named(request.id, 'component').className.replace(/Component$/, '');
-            folders.push(prefix, `${prefix}/contracts`);
-            if (request.delivery === 'none') request.codeOnly = false;
-            else folders.push(`${prefix}/code`, `${prefix}/code/generated`);
-            add(`${prefix}/module.json`);
-            add(`${prefix}/public.ts`);
-            if (request.delivery !== 'none') {
-                add(`${prefix}/contracts/api.ts`);
-                add(`${prefix}/code/${type}Module.ts`);
-                add(`${prefix}/code/generated/dependencies.ts`);
-            }
-            if (!['eager', 'none'].includes(request.delivery)) {
-                add(`${prefix}/code/${type}ModuleEntry.ts`);
-                add(`${prefix}/code/entry.prefab`);
-            }
-            if (!request.codeOnly)
-                folders.push(
-                    `${prefix}/bundles`,
-                    `${prefix}/bundles/default`,
-                    `${prefix}/bundles/default/dynamic`,
-                    `${prefix}/bundles/default/static`,
-                );
-            const state = await ctx.state();
-            request.dependencies = naming.dependencies(
-                [...state.modules, { id: request.id, dependencies: [] }],
-                request.id,
-                request.dependencies ?? [],
-            );
-        } else {
-            ({ manifest } = await moduleInfo(request.module));
-            if (manifest.code?.mode === 'none' && !['bundle', 'table', 'localization'].includes(kind))
-                throw Error('当前模块只有资源与配置，请选择带业务代码的模块来创建脚本或界面');
-            const prefix = `assets/game/modules/${manifest.id}`;
-            if (kind === 'localization') {
-                const plan = await ctx.actions().planLocalization(request);
-                Object.assign(request, plan.request);
-                paths.push(...plan.paths);
-                folders.push(...plan.folders);
-                updates.push(...plan.updates);
-            } else if (kind === 'bundle') {
-                request.id = request.id === 'default' ? 'default' : naming.slug(request.id);
-                if (physicalBundles(manifest)[request.id]) throw Error('资源包或语言分组已存在');
-                folders.push(
-                    `${prefix}/bundles/${request.id}`,
-                    `${prefix}/bundles/${request.id}/dynamic`,
-                    `${prefix}/bundles/${request.id}/static`,
-                );
-                updates.push(`${prefix}/module.json`);
-            } else if (kind === 'table') {
-                request.id = naming.slug(request.id);
-                if (!businessBundles(manifest)[request.bundle]) throw Error('请选择已有业务资源包');
-                add(`config-source/${manifest.id}/${request.id}.xlsx`);
-                updates.push(
-                    `${prefix}/${manifest.bundles[request.bundle].root}/dynamic/config/${request.id}.json`,
-                    `${prefix}/${manifest.code?.mode === 'none' ? 'contracts' : 'code'}/generated/config/${naming.named(request.id, 'component').className.replace(/Component$/, '')}.table.ts`,
-                );
-            } else {
-                const named = naming.named(request.id, kind);
-                request.id = named.id;
-                if (['service', 'component'].includes(kind))
-                    add(
-                        kind === 'service'
-                            ? `${prefix}/code/services/${named.className}.ts`
-                            : `${prefix}/${layout.itemPaths('component', named.id, named).script}`,
-                    );
-                else {
-                    const bundle = businessBundles(manifest)[request.bundle];
-                    if (!bundle) throw Error('请选择已有资源包');
-                    const generic = ['part', 'prefab'].includes(kind);
-                    const className =
-                        kind === 'prefab'
-                            ? naming.named(request.id.replace(/-prefab$/, ''), 'component').className
-                            : named.className;
-                    const paths = layout.itemPaths(generic ? 'component' : 'view', named.id, {
-                        className,
-                        visibility: request.visibility ?? 'internal',
-                    });
-                    add(`${prefix}/${paths.script}`);
-                    add(`${prefix}/${paths.binding}`);
-                    if (!generic) {
-                        request.visibility ??= 'internal';
-                        if (!['public', 'internal'].includes(request.visibility))
-                            throw Error('请选择正确的界面公开范围');
-                        add(`${prefix}/${paths.types}`);
-                    }
-                    if (!generic && request.presenter) add(`${prefix}/${paths.presenter}`);
-                    if (request.prefabUUID) {
-                        const info = await ctx.request('asset-db', 'query-asset-info', request.prefabUUID);
-                        if (
-                            info?.importer !== 'prefab' ||
-                            !Object.values(manifest.bundles).some((bundle) =>
-                                info.url.startsWith(`db://${prefix}/${bundle.root}/`),
-                            )
-                        )
-                            throw Error('请选择当前模块已有的预制体');
-                        updates.push(rel(info.file));
-                    } else
-                        add(`${prefix}/${bundle.root}/dynamic/${generic ? 'prefabs' : 'ui'}/${named.className}.prefab`);
-                    updates.push(`${prefix}/module.json`);
-                }
-            }
-        }
-        // Include every generator-owned output and missing parent/meta file in the review.
-        const ledger = await fs
-            .readFile(inside('project-settings/state/generated-files.json'), 'utf8')
-            .then(JSON.parse, (error) => {
-                if (error.code === 'ENOENT') return {};
-                throw error;
-            });
-        const prefix = 'assets/game/modules/' + (kind === 'module' ? request.id : manifest.id);
-        const generated = new Set(
-            Object.keys(ledger).filter(
-                (file) =>
-                    file.startsWith(prefix + '/') ||
-                    file.startsWith('assets/game/app/generated/') ||
-                    file.startsWith('project-settings/generated/'),
-            ),
-        );
-        const generatedRoot = prefix + '/contracts/generated';
-        generated.add(prefix + '/public.ts');
-        for (const name of ['views.ts', 'bundles.ts']) generated.add(generatedRoot + '/' + name);
-        if ((kind === 'module' && request.delivery !== 'none') || (kind !== 'module' && manifest.code?.mode !== 'none'))
-            generated.add(prefix + '/code/generated/views.ts');
-        if ((kind === 'module' && request.delivery !== 'none') || (kind !== 'module' && manifest.code?.mode !== 'none'))
-            generated.add(prefix + '/code/generated/dependencies.ts');
-        const groups =
-            kind === 'module' ? (request.codeOnly ? [] : ['default']) : kind === 'bundle' ? [request.id] : [];
-        for (const group of groups) {
-            generated.add(generatedRoot + '/resources-' + group + '.ts');
-            generated.add(prefix + '/bundles/' + group + '/yz-index.json');
-        }
-        if (kind === 'table') {
-            const type = naming.named(request.id, 'component').className.replace(/Component$/, '');
-            const target = prefix + (manifest.code?.mode === 'none' ? '/contracts' : '/code') + '/generated/config/';
-            for (const file of [type + '.table.ts', type + '.types.ts']) generated.add(target + file);
-            if (manifest.code?.mode !== 'none') generated.add(target + 'tables.ts');
-        }
-        for (const name of ['assembly.ts', 'release.ts', 'options.ts'])
-            generated.add('assets/game/app/generated/' + name);
-        generated.add('project-settings/state/generated-files.json');
-        generated.add('project-settings/state/resource-identities.json');
-        generated.add('project-settings/generated/localization.json');
-        for (const file of generated) if (!paths.includes(file) && !updates.includes(file)) updates.push(file);
-        if (['module', 'bundle'].includes(kind)) updates.push('settings/v2/packages/builder.json');
-        for (const file of [...paths, ...updates]) {
-            let parent = path.posix.dirname(file);
-            while (parent.startsWith('assets/') || parent.startsWith('config-source/')) {
-                const exists = await fs.stat(inside(parent)).then(
-                    () => true,
-                    (error) => {
-                        if (error.code === 'ENOENT') return false;
-                        throw error;
-                    },
-                );
-                if (exists) break;
-                if (!folders.includes(parent)) folders.push(parent);
-                parent = path.posix.dirname(parent);
-            }
-        }
-        const files = [];
-        for (const file of [...folders, ...paths]) {
-            const exists = await fs.stat(inside(file)).then(
-                () => true,
-                (error) => {
-                    if (error.code === 'ENOENT') return false;
-                    throw error;
-                },
-            );
-            files.push({
-                path: file,
-                operation: exists ? 'conflict' : folders.includes(file) ? 'create-directory' : 'create',
-            });
-            if (file.startsWith('assets/'))
-                files.push({ path: file + '.meta', operation: exists ? 'existing' : 'Creator' });
-        }
-        const changed = [];
-        for (const file of updates) {
-            const content = await fs.readFile(inside(file)).catch((error) => {
-                if (error.code === 'ENOENT') return null;
-                throw error;
-            });
-            files.push({
-                path: file,
-                operation: content ? (generated.has(file) ? 'regenerate-if-changed' : 'update') : 'generate',
-            });
-            if (
-                file.startsWith('assets/') &&
-                !(await fs.stat(inside(file + '.meta')).then(
-                    () => true,
-                    (error) => {
-                        if (error.code === 'ENOENT') return false;
-                        throw error;
-                    },
-                ))
-            )
-                files.push({ path: file + '.meta', operation: 'Creator' });
-            changed.push([file, content?.toString('base64')]);
-        }
-        const conflicts = files.filter((file) => file.operation === 'conflict').map((file) => file.path);
-        return { request, files, conflicts, signature: digest({ request, files, manifest, changed }) };
+        const plan = await require('./create-plan.cjs').planCreation(ctx, args);
+        const directory = inside('.yzforge/creation-plans');
+        await fs.mkdir(directory, { recursive: true });
+        await fs.writeFile(path.join(directory, plan.signature + '.json'), JSON.stringify(plan));
+        return plan;
     }
     async function create(args) {
-        const preview = await previewCreate(args.request);
-        if (args.signature !== preview.signature) throw Error('创建条件已变化，请重新预览');
-        if (preview.conflicts.length) throw Error('文件已存在：\n' + preview.conflicts.join('\n'));
-        const request = preview.request,
-            kind = request.kind;
-        if (!['module', 'bundle', 'table', 'localization'].includes(kind)) {
-            const { manifest } = await moduleInfo(request.module);
-            if (manifest.code?.mode === 'none')
-                throw Error('当前模块只有资源与配置，请选择带业务代码的模块来创建脚本或界面');
-        }
-        const method =
-            kind === 'localization'
-                ? 'createLocalization'
-                : kind === 'module'
-                  ? 'createModule'
-                  : kind === 'bundle'
-                    ? 'createBundle'
-                    : kind === 'table'
-                      ? 'createTableTemplate'
-                      : ['service', 'component'].includes(kind)
-                        ? 'createScript'
-                        : ['part', 'prefab'].includes(kind)
-                          ? 'createPrefab'
-                          : 'createView';
-        const result = await ctx.creation.run(preview, () => ctx.actions()[method](request));
-        return { ...result, files: preview.files };
-    }
-    async function createPrefab(args) {
-        const { directory, manifest } = await moduleInfo(args.module),
-            bundle = manifest.bundles[args.bundle];
-        if (!bundle) throw Error('请选择已有资源包');
-        const named = naming.named(args.id, args.kind),
-            className =
-                args.kind === 'prefab'
-                    ? naming.named(named.id.replace(/-prefab$/, ''), 'component').className
-                    : named.className;
-        const paths = layout.itemPaths('component', named.id, { className });
-        const code = path.join(directory, paths.directory),
-            generated = path.join(code, 'generated');
-        await ensureFolder(generated);
-        const binding = path.join(generated, `${className}Binding.ts`);
-        await writeScript('create-asset', binding, bindingSource(manifest.id, className, [], generated, true));
-        await writeScript(
-            'create-asset',
-            path.join(code, `${className}.ts`),
-            `import { _decorator } from 'cc';\nimport { ${className}Binding } from './generated/${className}Binding';\nconst { ccclass } = _decorator;\n/** 可组合的预制体部件；节点由 Binding 自动绑定，使用父对象传入的数据和回调，不进入 UI 页面栈。 */\n@ccclass('${manifest.id}.${className}')\nexport class ${className} extends ${className}Binding {\n    /** 绑定和宿主上下文就绪后同步执行一次，适合初始化部件自身状态。 */\n    protected onInit(): void {}\n    // 按需重写 onActivate/onDeactivate/onDispose；异步任务放在 activation.run。\n    // 动态实例使用 ctx.assets.in(owner).instantiate，并由 owner 管理生命周期。\n}\n`,
+        if (!/^[a-f0-9]{64}$/.test(args.signature)) throw Error('请先预览创建计划');
+        const plan = JSON.parse(
+            await fs.readFile(inside('.yzforge/creation-plans/' + args.signature + '.json'), 'utf8'),
         );
-        await waitClass(`${manifest.id}.${className}`);
-        let info;
-        if (args.prefabUUID) {
-            info = await request('asset-db', 'query-asset-info', args.prefabUUID);
-            if (
-                info?.importer !== 'prefab' ||
-                !Object.values(manifest.bundles).some((bundle) =>
-                    info.url.startsWith(url(path.join(directory, bundle.root)) + '/'),
-                )
-            )
-                throw Error('请选择当前模块的已有预制体');
-            if (await request('scene', 'query-dirty')) throw Error('请先保存正在编辑的场景或预制体');
-            const content = await scene('attachComponent', info.uuid, `${manifest.id}.${className}`);
-            await request('asset-db', 'save-asset', info.url, content);
-        } else {
-            const folder = path.join(directory, bundle.root, 'dynamic/prefabs');
-            await ensureFolder(folder);
-            const content = await scene(
-                'createPrefab',
-                `${manifest.id}.${className}`,
-                named.className,
-                args.kind === 'part',
-            );
-            info = await request(
-                'asset-db',
-                'create-asset',
-                url(path.join(folder, `${named.className}.prefab`)),
-                content,
-            );
-        }
-        (manifest.components ??= {})[named.id] = {
-            uuid: info.uuid,
-            className: `${manifest.id}.${className}`,
-            binding: rel(binding).slice(rel(directory).length + 1),
-        };
-        await saveJson(path.join(directory, 'module.json'), manifest);
-        await bindComponent({ module: manifest.id, id: named.id });
-        return { id: named.id, uuid: info.uuid, className: `${manifest.id}.${className}` };
+        if (digest(args.request) !== digest(plan.request)) throw Error('创建请求已变化，请重新预览');
+        const result = await require('./execute-creation.cjs').executeCreation(ctx, plan);
+        return { ...result, files: plan.files };
     }
     async function bindComponent(args) {
         await assertBindingSceneSaved();
@@ -381,7 +91,6 @@ exports.createWorkbench = function (ctx) {
     return {
         previewCreate,
         create,
-        createPrefab,
         bindComponent,
         saveWorkbook,
         async ensurePresets() {

@@ -81,9 +81,8 @@ try {
             target: asset('zh-CN', 'greeting'),
         },
     );
-    await action('generate');
+    await assert.rejects(action('generate'), /缺少语言资源 images\/greeting/);
     await refresh();
-    assert.match(await panel('return el("languageStatus").textContent;'), /回退：images\/greeting/);
     await editor(
         'return await Editor.Message.request("asset-db","copy-asset",args.source,args.target,{overwrite:false,rename:false});',
         {
@@ -122,7 +121,7 @@ try {
     assert.equal(await editor('return await Editor.Message.request("scene","query-current-scene");'), before.source);
     assert.equal(await editor('return await Editor.Message.request("scene","query-dirty");'), before.dirty);
     console.log(
-        'PASS: 原生面板创建纯资源包、缺失资源回退提示、按路径改名、追加纯文案工作簿、停用预览、保持当前编辑状态',
+        'PASS: 原生面板创建纯资源包、缺失资源明确报错、按路径改名、追加纯文案工作簿、停用预览、保持当前编辑状态',
     );
 } catch (error) {
     console.error('Path localization check failed:', error);

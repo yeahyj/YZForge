@@ -1,3 +1,5 @@
+import type { PrefabPoolAccess } from './asset-access';
+import type { PrefabPoolOptions, PrefabSpawnOptions, PrefabLease } from './asset-access';
 import { isValid, Node, type Quat, type Vec3 } from 'cc';
 import { componentBindings } from '../components/component-binding';
 import { FrameworkError, invariant } from '../core/errors';
@@ -5,28 +7,12 @@ import type { Lifetime } from '../core/scope';
 import type { Assets } from './asset-manager';
 import { destroyNode } from './node-lifetime';
 import type { AssetKey } from './asset-types';
-import { InstancePool, type InstancePoolOptions } from './instance-pool';
-
-export interface PrefabPoolOptions extends InstancePoolOptions {
-    /** GameComponent 的宿主模块；ctx.assets 默认传入当前模块。 */
-    readonly moduleId?: string;
-}
-export interface PrefabSpawnOptions {
-    /** 节点仍 inactive 时同步填入本次业务状态；异步工作通过本次 owner 登记。 */
-    readonly prepare?: (node: Node, owner: Lifetime) => void;
-}
-/** 借出期间持有节点，归还后此句柄失效；下一次借用得到新的 scope。 */
-export interface PrefabLease {
-    readonly node: Node;
-    readonly scope: Lifetime;
-    /** 立即取消本次使用，完成停用与任务收尾后归还；不要在自身的受跟踪任务中 await。 */
-    release(): Promise<void>;
-}
+import { InstancePool } from './instance-pool';
 /**
  * 按预制体复用实例。池持有节点和资源，每次借用持有激活任务；停止完成后才允许复用。
  * 每次借出恢复根节点默认变换；游戏状态由 prepare/onActivate 每次设置，不复用 UIView。
  */
-export class PrefabPool {
+export class PrefabPool implements PrefabPoolAccess {
     private readonly pool: InstancePool<Node, { parent: Node; options: PrefabSpawnOptions }>;
     private readonly parking: Node;
     private readonly unown: () => void;

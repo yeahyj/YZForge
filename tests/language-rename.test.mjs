@@ -78,36 +78,31 @@ async function fixture(t) {
     return { root, put, read, request, plan, adapter, script, prefab, moduleRoot };
 }
 
-test('改名同步语言、原生图片键与静态契约引用，UUID 和实例标识保留，可完整恢复', async (t) => {
+test('改名仅同步各语言文件，保留 UUID 和所有消费方 Key，恢复也不覆盖业务内容', async (t) => {
     const f = await fixture(t),
         beforeScript = await f.read(f.script),
         beforePrefab = await f.read(f.prefab),
         plan = await f.plan();
     assert.equal(plan.moves.length, 2);
-    assert.equal(plan.updates.length, 2);
-    assert.deepEqual(plan.unresolved, []);
     const result = await applyLanguageRename(f.root, { ...f.request, signature: plan.signature }, f.adapter);
     assert.equal(result.stage, 'applied');
     for (const move of plan.moves) {
         assert.equal(JSON.parse(await f.read(move.to + '.meta')).uuid, move.uuid);
         await assert.rejects(f.read(move.from), { code: 'ENOENT' });
     }
-    assert.match(await f.read(f.script), /export const image = I18n.asset\['pictures\/welcome'\]/);
-    assert.match(await f.read(f.script), /return I18n.asset\['images\/logo'\]/);
-    const saved = JSON.parse(await f.read(f.prefab));
-    assert.equal(saved[0].key, 'pictures/welcome');
-    assert.equal(saved[0].__prefab.fileId, 'unchanged-component');
-    assert.equal(saved[2].key, 'images/logo');
-    await restoreLanguageRename(f.root, result.id, f.adapter);
     assert.equal(await f.read(f.script), beforeScript);
+    assert.equal(await f.read(f.prefab), beforePrefab);
+    await f.put(f.script, '// 后续业务编辑');
+    await restoreLanguageRename(f.root, result.id, f.adapter);
+    assert.equal(await f.read(f.script), '// 后续业务编辑');
     assert.equal(await f.read(f.prefab), beforePrefab);
     assert.deepEqual(await languageRenameHistory(f.root), []);
 });
 
-test('改名前验证签名和所有目标，阻止覆盖已有文件及不可追踪的引用', async (t) => {
+test('改名计划绑定源资源和配置状态，目标冲突与过期预览不能执行', async (t) => {
     const f = await fixture(t),
         plan = await f.plan();
-    await f.put(f.script, (await f.read(f.script)) + '\n// edited\n');
+    await f.put(plan.moves[0].from, 'changed image');
     await assert.rejects(
         applyLanguageRename(f.root, { ...f.request, signature: plan.signature }, f.adapter),
         /重新预览/,
@@ -115,20 +110,9 @@ test('改名前验证签名和所有目标，阻止覆盖已有文件及不可�
     assert.deepEqual(await languageRenameHistory(f.root), []);
     await f.put(plan.moves[0].to, 'occupied');
     await assert.rejects(f.plan(), /目标文件已存在/);
-    const g = await fixture(t);
-    await g.put(
-        g.script,
-        "import * as Public from '../public'; const key='images/logo'; const item=Public.ShopI18n.asset[key]; const alias=Public.ShopI18n.asset; api.assetKey('images/logo','SpriteFrame');",
-    );
-    const blocked = await g.plan();
-    assert.equal(blocked.unresolved.length, 3);
-    await assert.rejects(
-        applyLanguageRename(g.root, { ...g.request, signature: blocked.signature }, g.adapter),
-        /不能自动处理/,
-    );
 });
 
-test('Creator 移动已完成但响应失败时，恢复根据实际 UUID 和位置识别进度', async (t) => {
+test('Creator 移动已完成但响应失败时，按实际 UUID 和位置恢复', async (t) => {
     const f = await fixture(t),
         plan = await f.plan();
     let moves = 0;
@@ -144,32 +128,28 @@ test('Creator 移动已完成但响应失败时，恢复根据实际 UUID 和位
         /已保存，可恢复/,
     );
     const [record] = await languageRenameHistory(f.root);
-    assert.equal(record.stage, 'interrupted');
     await restoreLanguageRename(f.root, record.id, f.adapter);
     for (const move of plan.moves) assert.equal(JSON.parse(await f.read(move.from + '.meta')).uuid, move.uuid);
 });
 
-test('恢复先核对全部引用，遇到后续编辑时不移动任何资源、不覆盖人工内容', async (t) => {
+test('恢复先核对全部资源，遇到后续编辑不移动任何文件', async (t) => {
     const f = await fixture(t),
         plan = await f.plan();
     const result = await applyLanguageRename(f.root, { ...f.request, signature: plan.signature }, f.adapter);
-    await f.put(f.script, '// new work');
-    await assert.rejects(restoreLanguageRename(f.root, result.id, f.adapter), /后续编辑/);
+    await f.put(plan.moves[1].to, 'user image');
+    await assert.rejects(restoreLanguageRename(f.root, result.id, f.adapter), /资源已变化/);
     for (const move of plan.moves) await f.read(move.to);
-    assert.equal(await f.read(f.script), '// new work');
 });
 
-test('路径前缀改名更新全部键，未解析的实例覆盖阻止自动修改', async (t) => {
+test('路径前缀改名不猜测或修改动态键及预制体实例覆盖', async (t) => {
     const f = await fixture(t);
     f.request.from = 'images';
     f.request.to = 'textures';
+    await f.put(f.script, 'const {asset} = ShopI18n; asset[name];');
+    await f.put(f.prefab, [{ propertyPath: ['key'], value: 'images/logo' }]);
     const plan = await f.plan();
     assert.ok(plan.moves.every((move) => move.to.endsWith('/textures/logo.png')));
-    await f.put(f.prefab, [...JSON.parse(await f.read(f.prefab)), { propertyPath: ['key'], value: 'images/logo' }]);
-    const blocked = await f.plan();
-    assert.equal(blocked.unresolved.length, 1);
-    await assert.rejects(
-        applyLanguageRename(f.root, { ...f.request, signature: blocked.signature }, f.adapter),
-        /不能自动处理/,
-    );
+    await applyLanguageRename(f.root, { ...f.request, signature: plan.signature }, f.adapter);
+    assert.equal(await f.read(f.script), 'const {asset} = ShopI18n; asset[name];');
+    assert.equal(JSON.parse(await f.read(f.prefab))[0].value, 'images/logo');
 });

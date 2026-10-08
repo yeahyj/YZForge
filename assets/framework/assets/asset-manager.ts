@@ -1,3 +1,4 @@
+import type { AssetAccess, BundleAccess } from './asset-access';
 import {
     Asset,
     assetManager,
@@ -18,10 +19,11 @@ import {
     Texture2D,
 } from 'cc';
 import type { AssetManager as EngineAssetManager } from 'cc';
-import type { ConfigManager, ScopedConfig } from '../config/config-manager';
+import type { ConfigManager } from '../config/config-manager';
+import type { ConfigAccess } from '../config/config-access';
 import { untilCancelled } from '../core/cancellation';
 import { bindAdditionalComponents } from '../components/component-binding';
-import { FrameworkError, invariant, reportError } from '../core/errors';
+import { FrameworkError, invariant, OperationCancelled, reportError } from '../core/errors';
 import { Scope, Lifetime, scopeOwner } from '../core/scope';
 import {
     AssetAddress,
@@ -36,7 +38,8 @@ import {
 import { logicalKey, resolveIndex, validateIndex } from './catalog';
 import { LeaseCache } from './lease-cache';
 import { loadAssetBatch, type AssetBatchOptions, type LoadedAssets } from './asset-batch';
-import { PrefabPool, type PrefabPoolOptions } from './prefab-pool';
+import { PrefabPool } from './prefab-pool';
+import type { PrefabPoolOptions } from './asset-access';
 import { destroyNode } from './node-lifetime';
 const constructors = {
     Prefab,
@@ -229,7 +232,16 @@ export class Assets {
      */
     async load<K extends AssetKind>(key: AssetKey<K>, scope: Lifetime): Promise<AssetTypes[K]> {
         const address = await this.resolve(key, scope);
-        return this.loadAddress(address, scope);
+        try {
+            return await this.loadAddress(address, scope);
+        } catch (error) {
+            if (error instanceof OperationCancelled) throw error;
+            throw new FrameworkError(
+                'ASSET_LOAD_FAILED',
+                `资源加载失败：${key.id} → ${address.bundle}/${address.path}${address.atlasFrame ? '/' + address.atlasFrame : ''}`,
+                { key, address, error },
+            );
+        }
     }
     /**
      * 准备命名的一组资源，保留各项类型；成功由 owner 的子 Scope 持有，失败回收本批。
@@ -513,7 +525,7 @@ export class Assets {
  * 带默认 Scope、命名空间和宿主模块的资源入口，通常从 ctx.assets 或 assets.in 获得。
  * 资源包只决定内容位置，scope 决定加载结果何时释放。
  */
-export class ScopedAssets {
+export class ScopedAssets implements AssetAccess {
     /** 提前销毁托管实例并归还资源；通常由创建它的父页面调用并等待。 */
     destroyInstance(node: Node): Promise<void> {
         return this.manager.destroyInstance(node);
@@ -699,7 +711,7 @@ export class ScopedAssets {
  * 已准备的 Bundle 访问入口；本身不代表全包资源已下载，也不提供“一次释放全包”。
  * 通过创建时的 Scope 统一结束后续资源、配置及实例的持有。
  */
-export class BundleHandle {
+export class BundleHandle implements BundleAccess {
     /**
      * 默认使用此包命名空间及句柄 scope 的资源入口；生成的完整键仍可指向其他包。
      */
@@ -707,7 +719,7 @@ export class BundleHandle {
     /**
      * 默认选择此 Bundle 数据路由的配置入口，适合加载分包配置；可在 load 选项中显式覆盖。
      */
-    readonly tables: ScopedConfig;
+    readonly tables: ConfigAccess;
     /**
      * @internal
      * 由 assets.openBundle 创建，接入资源和配置管理器并绑定默认所有者。

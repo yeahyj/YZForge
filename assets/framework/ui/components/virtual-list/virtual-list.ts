@@ -1,5 +1,5 @@
 import { _decorator, Component, isValid, Layout, Node, ScrollView, UITransform, Vec2, Widget } from 'cc';
-import type { ScopedAssets } from '../../../assets/asset-manager';
+import type { AssetAccess } from '../../../assets/asset-access';
 import type { AssetKey } from '../../../assets/asset-types';
 import { GameComponent } from '../../../components/game-component';
 import { componentBindings } from '../../../components/component-binding';
@@ -19,7 +19,7 @@ export interface VirtualListOptions<T, Part extends GameComponent> {
     /** 列表的使用期限，通常为 show.scope 或 activation.scope。 */
     readonly owner: Lifetime;
     /** 当前业务宿主的资源入口；内部重新绑定到每个实例的期限。 */
-    readonly assets: ScopedAssets;
+    readonly assets: AssetAccess;
     /** 业务模块 dynamic 目录下生成的 Prefab Key；框架目录不存业务条目。 */
     readonly prefab: AssetKey<'Prefab'>;
     /** 预制体根节点上的业务 Part 类，通常继承自动生成的 Binding。 */

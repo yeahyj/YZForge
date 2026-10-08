@@ -13,6 +13,7 @@ import { workbookSources } from '../project/workbooks.mjs';
 import { identityFile, scanCatalog, scriptDependencies } from '../project/catalog.mjs';
 import { publicContracts } from './public-contracts.mjs';
 import { architectureCheck } from '../validation/architecture.mjs';
+import { typeDiagnostics } from '../validation/dependencies.mjs';
 import {
     digest,
     files,
@@ -106,8 +107,6 @@ async function generateLocked(
     const sources = await workbookSources(root);
     const identities = await scanCatalog(root, projectModules, meta, sources);
     validateModules(projectModules);
-    await codeBoundaryCheck(root, projectModules);
-    await architectureCheck(root, projectModules);
     const requiredScripts = await scriptDependencies(projectModules, meta);
     const paths = new Set();
     for (const module of projectModules) {
@@ -346,7 +345,10 @@ async function generateLocked(
             output[target] = JSON.stringify(index, null, 2) + '\n';
         }
     const localization = compileLocalization(root, projectModules, settings, sources, registry, meta);
-    await validateLocalizedBindings(root, meta, localization, projectModules, { forBuild: !!platform });
+    const validationErrors = await validateLocalizedBindings(root, meta, localization, projectModules, {
+        forBuild: !!platform,
+        collect: true,
+    });
     Object.assign(output, localization.output);
     await publicContracts(root, projectModules, output);
     output['project-settings/generated/localization.json'] =
@@ -413,6 +415,7 @@ async function generateLocked(
             throw Error(`Obsolete generated file was manually changed; review before removal: ${path}`);
         obsolete.push(path);
     }
+    if (check && validationErrors.length) throw Error(validationErrors.join('\n'));
     if (check && (differences.length || obsolete.length))
         throw Error(
             `Generated output is stale; use the workbench or npm run generate:\n${differences.join('\n')}\nObsolete files: ${obsolete.join(', ')}`,
@@ -421,23 +424,33 @@ async function generateLocked(
         throw Error(
             `Use the Creator workbench to inspect references and archive obsolete generated assets:\n${obsolete.join('\n')}`,
         );
-    const result =
-        check || preview
-            ? { paths: differences, transaction: null }
-            : await writeBatch(root, {
-                  ...output,
-                  ...stateOutput,
-                  'project-settings/state/generated-files.json': JSON.stringify(
-                      {
-                          ...Object.fromEntries(obsolete.map((path) => [path, owned[path]])),
-                          ...Object.fromEntries(Object.entries(output).map(([path, text]) => [path, digest(text)])),
-                      },
-                      null,
-                      2,
-                  ),
-              });
+    const plannedOutput = {
+        ...output,
+        ...stateOutput,
+        'project-settings/state/generated-files.json': JSON.stringify(
+            {
+                ...Object.fromEntries(obsolete.map((path) => [path, owned[path]])),
+                ...Object.fromEntries(Object.entries(output).map(([path, text]) => [path, digest(text)])),
+            },
+            null,
+            2,
+        ),
+    };
+    const result = check || preview ? { paths: differences, transaction: null } : await writeBatch(root, plannedOutput);
+    // 消费方错误不能让当前 Key/目录停留在旧版本；检查与构建仍必须拒绝这些错误。
+    for (const validate of [codeBoundaryCheck, architectureCheck]) {
+        try {
+            await validate(root, projectModules);
+        } catch (error) {
+            validationErrors.push(error.message);
+        }
+    }
+    if (!preview) validationErrors.push(...typeDiagnostics(root));
+    if (check && validationErrors.length) throw Error(validationErrors.join('\n'));
     return {
         ...result,
+        valid: validationErrors.length === 0,
+        validationErrors,
         obsolete,
         outputPaths: Object.keys(output),
         moduleCount: projectModules.length,

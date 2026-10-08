@@ -6,6 +6,8 @@ import type { CountdownLabel } from '../../assets/framework/ui/components/countd
 import type { MarqueeLabel } from '../../assets/framework/ui/components/marquee/marquee-label';
 import type { Lifetime } from '../../assets/framework/core/scope';
 import type { AudioClip, Node, Prefab, SpriteFrame } from 'cc';
+import type { ComponentServices } from '../../assets/framework/components/component-services';
+import type { TableKey } from '../../assets/framework/config/schema';
 declare const assets: Assets;
 declare const owner: Lifetime;
 declare const parent: Node;
@@ -17,6 +19,31 @@ declare const countdown: CountdownLabel;
 declare const marquee: MarqueeLabel;
 declare const remaining: TextKey<'seconds'>;
 declare const namedRemaining: TextKey<'name' | 'seconds'>;
+declare const services: ComponentServices;
+declare const tableKey: TableKey<{ name: string }, number, { name: string }>;
+async function capabilityContracts(): Promise<void> {
+    const scoped = services.assets.in(owner);
+    const values = await scoped.loadMany({
+        image: { id: 'image', type: 'SpriteFrame' },
+        prefab: { id: 'view', type: 'Prefab' },
+    });
+    const frame: SpriteFrame = values.image;
+    // @ts-expect-error 组件不能通过门面取得全局资源管理器，绕过当前使用期。
+    void scoped.manager;
+    // @ts-expect-error 返回类型仍区分图片与预制体。
+    const wrong: SpriteFrame = values.prefab;
+    const tables = await (await scoped.openBundle('bundle')).tables.loadMany({ items: tableKey });
+    const name: string = tables.items.require(1).name;
+    // @ts-expect-error 表主键类型经过包和配置接口后仍保留。
+    tables.items.require('1');
+    const language = await services.i18n.in(owner).use('bundle');
+    const localizedFrame: SpriteFrame = await scoped.load(language.asset(logo));
+    // @ts-expect-error 参数合同经过多语言能力接口后仍必填。
+    language.t(title);
+    language.t(title, { name });
+    void [frame, wrong, localizedFrame];
+}
+void capabilityContracts;
 async function contracts(): Promise<void> {
     await bundle.bindText(marquee, title, { name: '玩家' });
     await bundle.bindCountdownFormat(countdown, remaining);

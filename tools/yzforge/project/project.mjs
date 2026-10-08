@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, rename, readdir, realpath, unlink, open } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, readdir, realpath, unlink } from 'node:fs/promises';
 import { resolve, relative, dirname, isAbsolute, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import projectLock from './project-lock.cjs';
@@ -191,49 +191,24 @@ export async function previewTransaction(root, id) {
 }
 /** 恢复前重新校验预览；生成锁在仍存活的其他进程持有时拒绝执行。 */
 export async function recoverTransaction(root, request) {
-    const guard = await safePath(root, '.yzforge/recovery.lock');
-    const reservation = await open(guard, 'wx').catch((error) => {
-        if (error.code === 'EEXIST') throw Error('已有恢复正在执行；若上次恢复进程中断，请检查 .yzforge/recovery.lock');
-        throw error;
-    });
-    try {
-        await reservation.writeFile(JSON.stringify({ pid: process.pid }));
-        const lock = await safePath(root, '.yzforge/generation.lock'),
-            raw = await textOrNull(lock);
-        if (raw !== null) {
-            const state = JSON.parse(raw);
-            if (!Number.isSafeInteger(state.pid) || state.pid <= 0) throw Error('生成锁缺少有效进程信息，请检查后恢复');
-            try {
-                process.kill(state.pid, 0);
-                throw Error('生成进程仍在运行，请等待完成');
-            } catch (error) {
-                if (error.code !== 'ESRCH') throw error;
-            }
-            if ((await textOrNull(lock)) !== raw) throw Error('生成锁已变化，请重新预览');
-            await unlink(lock);
+    return projectLock.withProjectRecovery(root, async () => {
+        const plan = await previewTransaction(root, request.id);
+        if (plan.signature !== request.signature || plan.conflicts.length)
+            throw Error('恢复条件变化或存在用户修改，请重新预览');
+        const base = await safePath(root, `.yzforge/changes/${request.id}`),
+            record = await json(resolve(base, 'transaction.json'));
+        for (const change of [...plan.changes].reverse()) {
+            const item = record.entries.find((item) => item.path === change.path),
+                target = await safePath(root, item.path);
+            if ((await textOrNull(target)) !== item.content) throw Error('恢复期间文件被修改：' + item.path);
+            if (item.previous === null) await unlink(target);
+            else await writeFile(target, item.previous);
+            if ((await textOrNull(target)) !== item.previous) throw Error('恢复写回校验失败：' + item.path);
         }
-        return await withProjectLock(root, async () => {
-            const plan = await previewTransaction(root, request.id);
-            if (plan.signature !== request.signature || plan.conflicts.length)
-                throw Error('恢复条件变化或存在用户修改，请重新预览');
-            const base = await safePath(root, `.yzforge/changes/${request.id}`),
-                record = await json(resolve(base, 'transaction.json'));
-            for (const change of [...plan.changes].reverse()) {
-                const item = record.entries.find((item) => item.path === change.path),
-                    target = await safePath(root, item.path);
-                if ((await textOrNull(target)) !== item.content) throw Error('恢复期间文件被修改：' + item.path);
-                if (item.previous === null) await unlink(target);
-                else await writeFile(target, item.previous);
-                if ((await textOrNull(target)) !== item.previous) throw Error('恢复写回校验失败：' + item.path);
-            }
-            record.status = 'rolled-back';
-            await saveTransaction(base, record);
-            return { id: record.id, status: record.status, changes: plan.changes };
-        });
-    } finally {
-        await reservation.close();
-        await unlink(guard);
-    }
+        record.status = 'rolled-back';
+        await saveTransaction(base, record);
+        return { id: record.id, status: record.status, changes: plan.changes };
+    });
 }
 export function withProjectLock(root, action) {
     return projectLock.withProjectLock(root, action);

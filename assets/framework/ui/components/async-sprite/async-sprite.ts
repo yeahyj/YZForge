@@ -1,6 +1,6 @@
 import { _decorator, isValid, Sprite, SpriteFrame } from 'cc';
 import { EDITOR } from 'cc/env';
-import type { ScopedAssets } from '../../../assets/asset-manager';
+import type { AssetAccess } from '../../../assets/asset-access';
 import type { AssetKey } from '../../../assets/asset-types';
 import { invariant, reportError } from '../../../core/errors';
 import { type Lifetime, type Scope, runTask } from '../../../core/scope';
@@ -68,7 +68,7 @@ export class AsyncSprite extends Sprite {
      * @param owner 图片实际显示期限，列表条目传 item.scope。
      * @param assets 当前业务的资源入口；每次请求创建独立的持有期限。
      */
-    bind(owner: Lifetime, assets: ScopedAssets): AsyncSpriteHandle {
+    bind(owner: Lifetime, assets: AssetAccess): AsyncSpriteHandle {
         let request: Scope | undefined,
             version = 0,
             state: AsyncSpriteState = 'empty';

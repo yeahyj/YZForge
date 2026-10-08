@@ -121,6 +121,57 @@ test('值依赖循环被拒绝，纯类型循环不制造运行时循环', async
     await f.put('assets/framework/core/b.ts', "import type { A } from './a'; export interface B { next: A }");
     await architectureCheck(f.root, []);
 });
+
+test('组件通过能力接口消费服务，纯类型引用也不能重新耦合具体管理器', async (t) => {
+    const f = await fixture(t);
+    await f.put('assets/framework/assets/asset-manager.ts', 'export class Assets {}');
+    await f.put('assets/framework/assets/asset-access.ts', 'export interface AssetAccess { load():void }');
+    await f.put(
+        'assets/framework/components/host.ts',
+        "export type Service = import('../assets/asset-manager').Assets;",
+    );
+    await assert.rejects(architectureCheck(f.root, []), /应依赖能力接口/);
+    await f.put(
+        'assets/framework/components/host.ts',
+        "export type Service = import('../assets/asset-access').AssetAccess;",
+    );
+    await architectureCheck(f.root, []);
+});
+
+test('内联类型、typeof import、import equals 和静态模板导入遵守相同边界', async (t) => {
+    const f = await fixture(t);
+    for (const text of [
+        "export type Node = import('cc').Node;",
+        "export type Engine = typeof import('cc');",
+        "import Engine = require('cc'); export const engine=Engine;",
+        'export const engine = import(`cc`);',
+    ]) {
+        await f.put('assets/framework/core/probe.ts', text);
+        await assert.rejects(architectureCheck(f.root, []), /core 只能依赖/);
+    }
+    await f.put('assets/framework/core/probe.ts', 'export const x=1;');
+    await f.put('assets/game/modules/demo/code/private.ts', 'export type Value = string;');
+    await f.put('tsconfig.json', {
+        compilerOptions: {
+            moduleResolution: 'node',
+            baseUrl: '.',
+            paths: { '@demo/*': ['assets/game/modules/demo/*'] },
+        },
+    });
+    for (const text of [
+        "export type Value = import('@demo/code/private').Value;",
+        "export type Value = typeof import('@demo/code/private');",
+        "import Value = require('@demo/code/private'); export { Value };",
+        'export const value = import(`@demo/code/private`);',
+    ]) {
+        await f.put('assets/game/boot/probe.ts', text);
+        await assert.rejects(codeBoundaryCheck(f.root, [{ ...f.module, directory: f.directory }]), /模块边界/);
+    }
+    await f.put('assets/game/boot/probe.ts', "const name='./private'; export const value=import(name);");
+    await assert.rejects(codeBoundaryCheck(f.root, []), /静态字符串/);
+    await f.put('assets/game/boot/probe.ts', "import { value } from './missing'; export { value };");
+    await assert.rejects(codeBoundaryCheck(f.root, []), /无法解析/);
+});
 test('资源身份缺失不能静默重建，初始化拒绝覆盖已有项目', async (t) => {
     const f = await fixture(t);
     await assert.rejects(scanCatalog(f.root, [], new Map(), { tables: [] }), /缺少资源身份状态/);

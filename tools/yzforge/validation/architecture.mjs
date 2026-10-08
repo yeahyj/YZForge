@@ -1,66 +1,46 @@
 import { resolve, relative } from 'node:path';
-import ts from 'typescript';
+import { dependencyResolver } from './dependencies.mjs';
 import { files } from '../project/project.mjs';
 
 const forward = (file) => file.replaceAll('\\', '/');
-function imports(file, text) {
-    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-    const result = [];
-    function visit(node) {
-        if (
-            (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-            node.moduleSpecifier &&
-            ts.isStringLiteral(node.moduleSpecifier)
-        )
-            result.push(node.moduleSpecifier.text);
-        if (
-            ts.isCallExpression(node) &&
-            (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-                (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
-            node.arguments[0] &&
-            ts.isStringLiteral(node.arguments[0])
-        )
-            result.push(node.arguments[0].text);
-        ts.forEachChild(node, visit);
-    }
-    visit(source);
-    return result;
-}
 /** 验证真正发出的值导入；类型导入另由公开契约和 core 边界检查。 */
 export async function architectureCheck(root, modules) {
     const framework = forward(resolve(root, 'assets/framework')) + '/';
-    const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), ts.sys.readFile);
-    const parsed = ts.parseJsonConfigFileContent(config.config ?? {}, ts.sys, root);
-    const targetOf = (from, spec) => {
-        const file = ts.resolveModuleName(spec, from, parsed.options, ts.sys).resolvedModule?.resolvedFileName;
-        return file ? forward(file) : undefined;
-    };
+    const dependencies = dependencyResolver(root);
     const graph = new Map(),
         errors = [];
     const runtime = (file) => {
-        if (graph.has(file)) return graph.get(file);
-        const text = ts.sys.readFile(file);
-        if (text === undefined) return [];
-        const emitted = ts.transpileModule(text, {
-            compilerOptions: {
-                target: ts.ScriptTarget.ES2020,
-                module: ts.ModuleKind.ESNext,
-                experimentalDecorators: true,
-            },
-        }).outputText;
-        const edges = imports(file, emitted).map((spec) => ({ spec, target: targetOf(file, spec) }));
-        graph.set(file, edges);
-        return edges;
+        if (!graph.has(file)) graph.set(file, dependencies.imports(file, { runtime: true }));
+        return graph.get(file);
     };
     for (const file of await files(resolve(root, 'assets/framework'), '.ts')) {
         const from = forward(file),
             core = from.startsWith(framework + 'core/');
-        if (core)
-            for (const spec of imports(file, ts.sys.readFile(file))) {
-                const target = targetOf(file, spec);
-                if (spec === 'cc' || spec.startsWith('cc/') || (target && !target.startsWith(framework + 'core/')))
-                    errors.push(`${relative(root, file)}: core 只能依赖自身基础机制：${spec}`);
-            }
+        for (const edge of dependencies.imports(file)) {
+            if (
+                from.startsWith(framework + 'components/') &&
+                edge.target &&
+                [
+                    'assets/asset-manager.ts',
+                    'config/config-manager.ts',
+                    'audio/audio-manager.ts',
+                    'time/time-service.ts',
+                    'ui/localization/localized-ui.ts',
+                ].some((file) => edge.target === framework + file)
+            )
+                errors.push(`${relative(root, file)}: 组件基础设施应依赖能力接口，不能引用具体服务实现：${edge.spec}`);
+            if (edge.target?.includes('/assets/game/'))
+                errors.push(`${relative(root, file)}: 框架不能依赖项目实现：${edge.spec}`);
+            if (!edge.target && edge.spec.startsWith('.'))
+                errors.push(`${relative(root, file)}: 无法解析模块边界：${edge.spec}`);
+            if (
+                core &&
+                (edge.spec === 'cc' ||
+                    edge.spec.startsWith('cc/') ||
+                    (edge.target && !edge.target.startsWith(framework + 'core/')))
+            )
+                errors.push(`${relative(root, file)}: core 只能依赖自身基础机制：${edge.spec}`);
+        }
         for (const edge of runtime(from))
             if (
                 from.startsWith(framework + 'components/') &&

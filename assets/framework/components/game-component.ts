@@ -1,11 +1,11 @@
 import { _decorator, Component, isValid, Node } from 'cc';
-import type { ScopedAssets } from '../assets/asset-manager';
-import type { ScopedConfig } from '../config/config-manager';
-import type { ScopedAudio } from '../audio/audio-manager';
-import type { ScopedLocalization } from '../ui/localization/localized-ui';
+import type { AssetAccess } from '../assets/asset-access';
+import type { ConfigAccess } from '../config/config-access';
+import type { AudioAccess } from '../audio/audio-access';
+import type { LocalizationAccess } from '../ui/localization/localization-access';
 import { Actions } from '../core/actions';
 import type { ModuleContext } from '../modules/module-manager';
-import type { ScopedTime } from '../time/time-service';
+import type { TimeAccess } from '../time/time-access';
 import { registerComponentBinding } from './component-binding';
 import { invariant, reportError } from '../core/errors';
 import { assertLifecycle, synchronous } from './lifecycle';
@@ -16,19 +16,19 @@ const { ccclass } = _decorator;
  */
 export interface ActivationContext extends TaskContext {
     /** 本次激活的多语言使用入口；实例池复用不会保留上次绑定。 */
-    readonly i18n: ScopedLocalization;
+    readonly i18n: LocalizationAccess;
     /** 本次激活的资源入口；禁用后归还，重新激活使用新的入口。 */
-    readonly assets: ScopedAssets;
+    readonly assets: AssetAccess;
     /** 本次激活的配置入口，跨模块公开表同样按合同加载。 */
-    readonly config: ScopedConfig;
+    readonly config: ConfigAccess;
     /** 本次激活的音频入口，停用时自动结束持有。 */
-    readonly audio: ScopedAudio;
+    readonly audio: AudioAccess;
     /** 最新查询、防重复触发和顺序执行入口。 */
     readonly actions: Actions;
     /**
      * 跟随此次激活的时间接口，取消激活后自动移除日历订阅。
      */
-    readonly time: ScopedTime;
+    readonly time: TimeAccess;
     /**
      * 登记此次激活的工作，停用时等待它退出。
      * @param task 通过 signal 响应取消，异步完成后用 task.commit 同步更新。

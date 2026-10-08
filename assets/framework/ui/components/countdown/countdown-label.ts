@@ -2,12 +2,12 @@ import { _decorator, Component, game, Game, Label } from 'cc';
 import { EDITOR } from 'cc/env';
 import { type ErrorReporter, invariant, OperationCancelled, reportError } from '../../../core/errors';
 import { type Lifetime, type TaskContext, runTask } from '../../../core/scope';
-import type { ScopedTime } from '../../../time/time-service';
+import type { TimeAccess } from '../../../time/time-access';
 import { ComponentScope } from '../../../components/component-scope';
 import { countdownSeconds, formatCountdown } from './countdown';
 const { ccclass, property, disallowMultiple, menu } = _decorator;
 /** 倒计时需要的最小时间接口；不传时独立节点使用 Date.now，框架节点自动使用校时服务。 */
-export type CountdownTime = Pick<ScopedTime, 'nowMs' | 'onChanged'>;
+export type CountdownTime = Pick<TimeAccess, 'nowMs' | 'onChanged'>;
 const deviceTime: CountdownTime = { nowMs: () => Date.now(), onChanged: () => () => {} };
 /** 倒计时配置；更换截止时间请重新 bind，每次绑定只通知一次完成。 */
 export interface CountdownOptions {

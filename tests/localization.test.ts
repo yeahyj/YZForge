@@ -80,6 +80,23 @@ function fixture(loader?: (path: string, owner: Scope['lifetime']) => Promise<un
     );
     return { root, owner, calls, i18n };
 }
+
+test('声明的语言目录丢失资源键时拒绝切换，保留旧语言与绑定；未声明整组仍回退', async () => {
+    const f = fixture(async (path) => (path === 'en' ? { ...en, assets: {} } : data[path]));
+    const handle = await f.i18n.use('shop', f.owner);
+    const target = { text: '' };
+    await handle.bind(
+        binding(target, (reader) => reader.asset(logo).id),
+        f.owner,
+    );
+    await assert.rejects(f.i18n.setLocale('en', f.owner), { code: 'I18N_ASSET_MISSING' });
+    assert.equal(f.i18n.locale, 'zh-CN');
+    assert.equal(target.text, 'zh-CN/logo');
+    assert.equal(handle.asset(logo).id, 'zh-CN/logo');
+    await f.i18n.setLocale('fr', f.owner);
+    assert.equal(handle.asset(logo).id, 'zh-CN/logo');
+    await f.root.close();
+});
 function binding(
     target: { text: string },
     get: (reader: LocaleReader) => string,

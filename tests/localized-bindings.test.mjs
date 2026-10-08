@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateLocalizedRecords } from '../tools/yzforge/validation/localized-bindings.mjs';
+import {
+    validateLocalizedRecords,
+    validateLocalizedOverrides,
+} from '../tools/yzforge/validation/localized-bindings.mjs';
 import { decodeUuid } from '../tools/yzforge/project/catalog.mjs';
 const classes = new Map([
     ['label-class', 'text'],
@@ -100,4 +103,49 @@ test('空来源按源资源自动解析；嵌套公共预制体保留自身归�
     validateLocalizedRecords(shared, classes, catalogs, 'other/default', { 'shared-prefab': 'shop/default' });
     shared[0].namespace = 'shop/default';
     validateLocalizedRecords(shared, classes, catalogs, 'other/default', {});
+});
+
+test('实例覆盖按源组件和嵌套 localID 检查最终 key 与参数，不误判业务字段', () => {
+    const source = label({ namespace: '', __prefab: { fileId: 'label-id' } });
+    source.push({ __type__: 'business', __prefab: { fileId: 'business-id' } });
+    const change = (ids, field, value) => ({
+        __type__: 'CCPropertyOverrideInfo',
+        targetInfo: { localID: ids },
+        propertyPath: field.split('.'),
+        value,
+    });
+    const instance = {
+        __type__: 'cc.PrefabInstance',
+        fileId: 'instance-id',
+        propertyOverrides: [change(['label-id'], 'key', 'blank')],
+    };
+    const nested = [instance, { instance: { __id__: 0 }, asset: { __uuid__: 'source' } }];
+    const prefabs = new Map([
+        ['source', source],
+        ['nested', nested],
+    ]);
+    const sources = { source: 'shop/default' };
+    validateLocalizedOverrides(nested, classes, catalogs, sources, prefabs);
+    instance.propertyOverrides[0].value = 'renamed-old-key';
+    assert.throws(
+        () => validateLocalizedOverrides(nested, classes, catalogs, sources, prefabs),
+        /renamed-old-key.*文案/,
+    );
+    instance.propertyOverrides = [change(['label-id'], 'parameters.0.name', 'wrong')];
+    assert.throws(() => validateLocalizedOverrides(nested, classes, catalogs, sources, prefabs), /缺少固定参数 name/);
+    instance.propertyOverrides = [change(['label-id'], 'key', 'blank')];
+    const scene = [
+        {
+            __type__: 'cc.PrefabInstance',
+            propertyOverrides: [change(['instance-id', 'label-id'], 'namespace', 'missing')],
+        },
+        { instance: { __id__: 0 }, asset: { __uuid__: 'nested' } },
+    ];
+    assert.throws(() => validateLocalizedOverrides(scene, classes, catalogs, sources, prefabs), /未登记/);
+    scene[0].propertyOverrides = [change(['instance-id', 'label-id'], 'key', 'missing')];
+    assert.throws(() => validateLocalizedOverrides(scene, classes, catalogs, sources, prefabs), /missing.*文案/);
+    instance.propertyOverrides = [change(['business-id'], 'parameters.0.name', 'anything')];
+    validateLocalizedOverrides(nested, classes, catalogs, sources, prefabs);
+    assert.equal(source[0].key, 'greeting');
+    assert.equal(source[2].name, 'name');
 });

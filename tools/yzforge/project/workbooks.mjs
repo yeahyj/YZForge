@@ -236,9 +236,8 @@ export async function workbookSources(root, { tolerant = false } = {}) {
     }
     return { tables, enums, workbooks, localizationWorkbooks, diagnostics };
 }
-export async function createWorkbook(
-    root,
-    source,
+export async function renderWorkbook(
+    configSource,
     config,
     data = [
         ['id', 'name', 'enabled'],
@@ -249,8 +248,8 @@ export async function createWorkbook(
     ],
     enums = [],
 ) {
-    const target = await safePath(root, source),
-        book = new ExcelJS.Workbook();
+    const book = new ExcelJS.Workbook();
+    book.created = book.modified = new Date(0);
     book.creator = 'YZForge';
     book.addWorksheet('__config').addRows(configRows(config));
     const enumSheet = book.addWorksheet('__enums');
@@ -264,8 +263,14 @@ export async function createWorkbook(
             column.width = 22;
         });
     }
+    parseConfig(book, configSource);
+    return Buffer.from(await book.xlsx.writeBuffer());
+}
+export async function createWorkbook(root, source, config, data, enums) {
+    const target = await safePath(root, source);
+    const bytes = await renderWorkbook(source, config, data, enums);
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, Buffer.from(await book.xlsx.writeBuffer()), { flag: 'wx' });
+    await writeFile(target, bytes, { flag: 'wx' });
     return readWorkbook(root, source);
 }
 function elements(xml, localName) {
@@ -385,7 +390,7 @@ export async function formulaResults(root, mapping, preview = false) {
 export async function writeLocalizationWorkbook(root, source, patch, expectedHash) {
     return withProjectLock(root, () => writeLocalizationWorkbookLocked(root, source, patch, expectedHash));
 }
-async function writeLocalizationWorkbookLocked(root, source, patch, expectedHash) {
+export async function planLocalizationWorkbook(root, source, patch, expectedHash) {
     const current = await readWorkbook(root, source),
         target = await safePath(root, source);
     if (current.kind !== 'localization' || !expectedHash || current.hash !== expectedHash)
@@ -465,6 +470,11 @@ async function writeLocalizationWorkbookLocked(root, source, patch, expectedHash
     const parsed = new ExcelJS.Workbook();
     await parsed.xlsx.load(next);
     parseLocalizationWorkbook(parsed, source);
+    return { source, bytes: next, hash: hash(next), beforeHash: current.hash };
+}
+async function writeLocalizationWorkbookLocked(root, source, patch, expectedHash) {
+    const { bytes: next } = await planLocalizationWorkbook(root, source, patch, expectedHash);
+    const target = await safePath(root, source);
     const backup = await safePath(root, `.yzforge/workbook-history/${Date.now()}-${randomUUID()}.xlsx`);
     await mkdir(dirname(backup), { recursive: true });
     await copyFile(target, backup);

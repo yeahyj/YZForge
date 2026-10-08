@@ -13,8 +13,9 @@ function textParameters(values = []) {
 
 function resolveValue(binding, current, fallback, assetUuid) {
     const field = binding.kind === 'sprite' ? 'assets' : 'texts';
-    const catalog = Object.hasOwn(current[field], binding.key) ? current : fallback;
-    if (!Object.hasOwn(catalog[field], binding.key)) throw Error('语言键不存在：' + binding.key);
+    const catalog = binding.kind === 'sprite' || Object.hasOwn(current[field], binding.key) ? current : fallback;
+    if (!Object.hasOwn(catalog[field], binding.key))
+        throw Error(`语言键不存在：${catalog.namespace ?? ''}/${catalog.locale}/${binding.key}`);
     if (binding.kind === 'sprite') {
         const key = catalog.assets[binding.key];
         if (key.type !== 'SpriteFrame') throw Error('语言键不是图片：' + binding.key);

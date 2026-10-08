@@ -1,3 +1,4 @@
+import type { TableAccess } from './config-access';
 import { invariant } from '../core/errors';
 import { Lifetime } from '../core/scope';
 import { DeepReadonly, freeze, TableDefinition, validateRow } from './schema';
@@ -131,7 +132,11 @@ export function parseTable(input: unknown, definition: TableDefinition, revision
  * @typeParam Key - 主键类型，字符串与数值不会互相转换。
  * @typeParam Indexes - 生成的索引名与索引值类型。
  */
-export class ConfigTable<Row, Key extends string | number = number, Indexes extends object = object> {
+export class ConfigTable<
+    Row,
+    Key extends string | number = number,
+    Indexes extends object = object,
+> implements TableAccess<Row, Key, Indexes> {
     /**
      * @internal
      * 由 ConfigManager.load 创建，将共享解析数据绑定到本次加载所有者。

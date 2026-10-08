@@ -71,17 +71,38 @@ exports.methods = {
             root.destroy();
         }
     },
-    async attachComponent(uuid, className) {
+    async attachComponent(uuid, className, prefixes, plan) {
         const prefab = await load(uuid),
             ctor = cc.js.getClassByName(className);
         if (!(prefab instanceof cc.Prefab) || !ctor) throw Error('Prefab or compiled component unavailable');
         if (prefab.data.getComponent(ctor)) throw Error('Root already has this component');
-        prefab.data.addComponent(ctor);
-        ensurePrefabIds(prefab.data, prefab);
-        return serialize(prefab);
+        let fields = [];
+        if (plan) {
+            fields = scan(prefab.data, prefixes);
+            if (
+                ctor.__yzforgeBindingSignature !== plan.signature ||
+                JSON.stringify(bindingShape(fields)) !== JSON.stringify(plan.fields)
+            )
+                throw Error('绑定脚本或预制体在创建期间发生变化');
+        }
+        const component = prefab.data.addComponent(ctor);
+        try {
+            for (const field of fields) component[field.field] = field.target;
+            ensurePrefabIds(prefab.data, prefab);
+            return serialize(prefab);
+        } finally {
+            // 此步骤只生成候选序列化内容，真正保存由后续 AssetDB 步骤执行。
+            component.destroy();
+        }
     },
-    classReady(name) {
-        return !!cc.js.getClassByName(name);
+    classReady(name, expected = {}) {
+        const ctor = cc.js.getClassByName(name);
+        return (
+            !!ctor &&
+            (!expected.signature || ctor.__yzforgeSourceSignature === expected.signature) &&
+            (!expected.binding || ctor.__yzforgeBindingSignature === expected.binding) &&
+            (!expected.ids || expected.ids.includes(cc.js._getClassId(ctor)))
+        );
     },
     async scanPrefab(uuid, prefixes) {
         const prefab = await load(uuid);

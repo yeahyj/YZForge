@@ -5,6 +5,7 @@ const config = require('../../tools/yzforge/project/game-config.cjs');
 exports.checkSettings = async function (settings) {
     try {
         const current = await config.readConfig(Editor.Project.path);
+        await Editor.Message.request('yzforge-editor', 'dispatch', 'check', {});
         settings.yzforge = { gameConfigHash: current.configHash };
     } catch (error) {
         // Creator 会吞掉预览钩子的异常，因此通过设置显式交给 GameSettings.resolve 报错。

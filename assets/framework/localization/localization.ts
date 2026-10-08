@@ -1,3 +1,4 @@
+import type { LocaleAccess } from './locale-access';
 import type { AssetAddress, AssetKey, AssetKind, BundleRef } from '../assets/asset-types';
 import { bundleId } from '../assets/asset-types';
 import { LeaseCache } from '../assets/lease-cache';
@@ -121,6 +122,8 @@ export function parseLocaleCatalog(input: unknown, definition: LocalizationDefin
     });
 }
 function compatible(current: LocaleCatalog, fallback: LocaleCatalog): void {
+    for (const key of Object.keys(fallback.assets))
+        invariant(has(current.assets, key), 'I18N_ASSET_MISSING', `${current.namespace}/${current.locale}/${key}`);
     for (const [key, value] of Object.entries(current.texts))
         invariant(
             has(fallback.texts, key) &&
@@ -132,7 +135,7 @@ function compatible(current: LocaleCatalog, fallback: LocaleCatalog): void {
         invariant(fallback.assets[key]?.type === value.type, 'I18N_ASSET_TYPE', `${current.namespace}/${key}`);
 }
 /** 准备好的目录快照；直接取出的资源键仍通过原有 assets API 持有。 */
-export class LocaleReader {
+export class LocaleReader implements LocaleAccess {
     constructor(
         readonly locale: string,
         private readonly current: LocaleCatalog,
@@ -156,6 +159,11 @@ export class LocaleReader {
         };
     }
     assetKey<K extends AssetKind>(name: string, type: K): LocalizedAssetKey<K> {
+        invariant(
+            has(this.fallback.assets, name),
+            'I18N_ASSET_MISSING',
+            `${this.fallback.namespace}/${this.locale}/${name}`,
+        );
         invariant(this.fallback.assets[name]?.type === type, 'I18N_ASSET_TYPE', name);
         return { namespace: this.fallback.namespace, contract: this.fallback.contract, key: name, type };
     }
@@ -183,8 +191,10 @@ export class LocaleReader {
     }
     asset<K extends AssetKind>(key: LocalizedAssetKey<K>): AssetKey<K> {
         this.check(key);
-        const value = this.current.assets[key.key] ?? this.fallback.assets[key.key];
-        invariant(value?.type === key.type, 'I18N_ASSET_TYPE', key.key);
+        const value = this.current.assets[key.key];
+        const location = `${this.current.namespace}/${this.current.locale}/${key.key}`;
+        invariant(value, 'I18N_ASSET_MISSING', location);
+        invariant(value.type === key.type, 'I18N_ASSET_TYPE', location);
         return value as AssetKey<K>;
     }
 }

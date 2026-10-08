@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { typeDiagnostics } from '../tools/yzforge/validation/dependencies.mjs';
 import JSZip from 'jszip';
 import ExcelJS from 'exceljs';
 import { scanCatalog } from '../tools/yzforge/project/catalog.mjs';
@@ -258,16 +259,15 @@ test('工作簿只含文案，拒绝未支持的版本和工作表', async (t) =
     await assert.rejects(readWorkbook(f.root, f.source), /不支持的多语言工作表/);
 });
 
-test('相对路径 key 跟随实际改名，缺少版本列入回退清单，默认版本必须完整', async (t) => {
+test('相对路径 key 跟随实际改名，声明的语言版本缺失必须报错', async (t) => {
     const f = await fixture(t),
         initial = await f.compile();
     const english = f.registry.get('shop/default-en/sprite/logo');
     f.registry.delete('shop/default-en/sprite/logo');
-    const missing = await f.compile();
-    assert.deepEqual(missing.reports.find((r) => r.locale === 'en').missingAssets, ['images/logo']);
+    await assert.rejects(f.compile(), /shop\/default\/en: 缺少语言资源 images\/logo/);
     f.registry.set('shop/default-en/sprite/logo', english);
     f.metadata.get('uuid-en').source = join(f.module.directory, 'localization/default/en/dynamic/images/renamed.png');
-    await assert.rejects(f.compile(), /默认语言缺少资源路径 images\/renamed/);
+    await assert.rejects(f.compile(), /缺少语言资源 images\/logo/);
     f.metadata.get('uuid-zh').source = join(
         f.module.directory,
         'localization/default/zh-CN/dynamic/images/renamed.png',
@@ -276,6 +276,35 @@ test('相对路径 key 跟随实际改名，缺少版本列入回退清单，默
     const zh = JSON.parse(renamed.output['assets/game/modules/shop/localization/default/zh-CN/yz-locale.json']);
     assert.deepEqual(Object.keys(zh.assets), ['images/renamed']);
     assert.notEqual(renamed.release.bundles.shop.contract, initial.release.bundles.shop.contract);
+});
+
+test('真实生成键改名后，直接引用、字典别名和解构都由 TypeScript 报错', async (t) => {
+    const f = await fixture(t);
+    const generated = 'assets/game/modules/shop/contracts/generated/localization-default.ts';
+    await mkdir(join(f.module.directory, 'contracts/generated'), { recursive: true });
+    await writeFile(
+        join(f.root, 'tsconfig.json'),
+        JSON.stringify({
+            extends: resolve('tsconfig.json'),
+            compilerOptions: { rootDirs: [join(f.root, 'assets'), resolve('assets')] },
+            include: ['assets/**/*.ts'],
+        }),
+    );
+    await writeFile(
+        join(f.module.directory, 'consumer.ts'),
+        `import { ShopI18n } from './contracts/generated/localization-default';
+export const direct = ShopI18n.asset['images/logo'];
+const keys = ShopI18n; export const aliased = keys.asset['images/logo'];
+const {asset} = ShopI18n; export const destructured = asset['images/logo'];`,
+    );
+    await writeFile(join(f.root, generated), (await f.compile()).output[generated]);
+    assert.deepEqual(typeDiagnostics(f.root), []);
+    for (const uuid of ['uuid-zh', 'uuid-en'])
+        f.metadata.get(uuid).source = f.metadata.get(uuid).source.replace('logo.', 'renamed.');
+    await writeFile(join(f.root, generated), (await f.compile()).output[generated]);
+    const errors = typeDiagnostics(f.root);
+    assert.equal(errors.length, 3, errors.join('\n'));
+    assert.ok(errors.every((error) => error.includes('images/logo') && error.includes('consumer.ts')));
 });
 
 test('图片自动选择 SpriteFrame，拒绝同 key 的扩展名与大小写冲突', async (t) => {

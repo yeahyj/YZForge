@@ -62,7 +62,7 @@ render(item: VirtualListItemContext<Row>): void {
 }
 ```
 
-`assets` 使用当前业务上下文的 `ScopedAssets`，内部按每个复用实例创建子期限，用现有 `instantiate({ active: false })` / `activate` 接通宿主、自动绑定和 Part 生命周期。不要自行调用底层 `cc.instantiate` 或在框架目录存放业务预制体。
+`assets` 使用当前业务上下文的 `AssetAccess` 能力接口，内部按每个复用实例创建子期限，用现有 `instantiate({ active: false })` / `activate` 接通宿主、自动绑定和 Part 生命周期。不要自行调用底层 `cc.instantiate` 或在框架目录存放业务预制体。
 
 ## 布局参数
 

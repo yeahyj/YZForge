@@ -1,5 +1,6 @@
 import { resolve, relative } from 'node:path';
 import ts from 'typescript';
+import { dependencyResolver, dependencySpecifiers } from './dependencies.mjs';
 import { files, identifier } from '../project/project.mjs';
 export async function lifecycleCheck(root) {
     const paths = await files(resolve(root, 'assets'), '.ts');
@@ -46,18 +47,6 @@ export async function lifecycleCheck(root) {
                 if (!checker.isArrayType(type) && !checker.isTupleType(type))
                     issue(node, 'Creator loose builds require Array.from(iterable) before spreading non-array values');
             }
-            if (
-                isFramework &&
-                (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-                node.moduleSpecifier &&
-                ts.isStringLiteral(node.moduleSpecifier)
-            ) {
-                const target = ts
-                    .resolveModuleName(node.moduleSpecifier.text, source.fileName, parsed.options, ts.sys)
-                    .resolvedModule?.resolvedFileName.replaceAll('\\', '/');
-                if (target?.includes('/assets/game/'))
-                    issue(node, 'Framework core cannot import project implementation or generated project settings');
-            }
             if (isFramework) {
                 ts.forEachChild(node, visit);
                 return;
@@ -90,6 +79,16 @@ export async function lifecycleCheck(root) {
             }
             ts.forEachChild(node, visit);
         };
+        if (isFramework)
+            for (const { spec, line } of dependencySpecifiers(source.fileName, source.text)) {
+                const target = ts
+                    .resolveModuleName(spec, source.fileName, parsed.options, ts.sys)
+                    .resolvedModule?.resolvedFileName.replaceAll('\\', '/');
+                if (target?.includes('/assets/game/'))
+                    errors.push(
+                        `${relative(root, source.fileName)}:${line}: Framework core cannot import project implementation or generated project settings`,
+                    );
+            }
         visit(source);
     }
     return errors;
@@ -187,8 +186,7 @@ export function validateModules(modules) {
 }
 
 export async function codeBoundaryCheck(root, modules) {
-    const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), ts.sys.readFile);
-    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
+    const dependencies = dependencyResolver(root);
     const boundaries = modules.map((module) => ({
         ...module,
         directoryPath: resolve(module.directory).replaceAll('\\', '/') + '/',
@@ -196,48 +194,22 @@ export async function codeBoundaryCheck(root, modules) {
     }));
     const errors = [];
     for (const file of await files(resolve(root, 'assets/game'), '.ts')) {
-        const source = ts.createSourceFile(file, ts.sys.readFile(file), ts.ScriptTarget.Latest, true);
         const from = file.replaceAll('\\', '/');
-        const inspect = (specifier) => {
-            const target = ts
-                .resolveModuleName(specifier, file, parsed.options, ts.sys)
-                .resolvedModule?.resolvedFileName.replaceAll('\\', '/');
+        for (const { spec, target, line } of dependencies.imports(file)) {
+            if (!target && spec.startsWith('.')) {
+                errors.push(`${relative(root, file)}:${line}: 无法解析模块边界：${spec}`);
+                continue;
+            }
             const owner = boundaries.find((module) => target?.startsWith(module.directoryPath));
-            if (!owner) return;
+            if (!owner) continue;
             const local = from.startsWith(owner.directoryPath);
-            if (local && (!target.startsWith(owner.codePath) || from.startsWith(owner.codePath))) return;
-            if (!local && target === owner.directoryPath + 'public.ts') return;
-            // Generated assembly may directly construct eager factories; bundled implementations have no such exception.
-            if (owner.code?.mode === 'eager' && from.endsWith('/app/generated/assembly.ts')) return;
+            if (local && (!target.startsWith(owner.codePath) || from.startsWith(owner.codePath))) continue;
+            if (!local && target === owner.directoryPath + 'public.ts') continue;
+            if (owner.code?.mode === 'eager' && from.endsWith('/app/generated/assembly.ts')) continue;
             errors.push(
-                `${relative(root, file)}: 模块边界禁止导入 ${specifier}（包含类型引用）；跨模块只使用 public.ts，公开契约不能引用 code`,
+                `${relative(root, file)}:${line}: 模块边界禁止导入 ${spec}（包含类型引用）；跨模块只使用 public.ts，公开契约不能引用 code`,
             );
-        };
-        const visit = (node) => {
-            if (
-                (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-                node.moduleSpecifier &&
-                ts.isStringLiteral(node.moduleSpecifier)
-            ) {
-                inspect(node.moduleSpecifier.text);
-            }
-            if (
-                ts.isCallExpression(node) &&
-                (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-                    (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
-            ) {
-                const argument = node.arguments[0];
-                if (argument && ts.isStringLiteral(argument)) inspect(argument.text);
-            }
-            if (
-                ts.isImportTypeNode(node) &&
-                ts.isLiteralTypeNode(node.argument) &&
-                ts.isStringLiteral(node.argument.literal)
-            )
-                inspect(node.argument.literal.text);
-            ts.forEachChild(node, visit);
-        };
-        visit(source);
+        }
     }
     if (errors.length) throw Error(errors.join('\n'));
 }

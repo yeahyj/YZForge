@@ -3,7 +3,7 @@ import { LocalizationLabPageBinding } from './generated/LocalizationLabPageBindi
 import type { ViewShowContext } from '../../../../../../framework/ui/ui-view';
 import { ShowcaseBundles } from '../../../contracts/generated/bundles';
 import { ShowcaseI18n } from '../../../contracts/generated/localization-default';
-import type { LocalizedBinding } from '../../../../../../framework/ui/localization/localized-ui';
+import type { LocalizedBinding } from '../../../../../../framework/ui/localization/localization-access';
 const { ccclass } = _decorator;
 /** 对照示例：前两项由代码绑定，后两项只在 Creator 的原生组件属性中配置。 */
 @ccclass('showcase.LocalizationLabPage')

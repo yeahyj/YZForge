@@ -53,6 +53,10 @@ test('面板应用与运行时一致：缺译与字体回退、固定参数、�
         /重复/,
     );
     assert.throws(() => resolveValue({ kind: 'sprite', key: 'unknown' }, current, fallback, uuid), /语言键不存在/);
+    assert.throws(
+        () => resolveValue({ kind: 'sprite', key: 'logo' }, { ...current, assets: {} }, fallback, uuid),
+        /语言键不存在.*en\/logo/,
+    );
 });
 
 test('批量更新只改变对应原生字段，保留节点身份、样式和原生布局模式', () => {

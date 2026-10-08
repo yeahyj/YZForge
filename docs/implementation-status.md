@@ -14,7 +14,7 @@
 | 时间         | 固定 UTC 偏移，不支持 IANA 时区或夏令时。服务器时间源由项目注入；跨重启计划、补算和结算去重由业务保存。                                                                                                                                      |
 | HTTP 与 SDK  | HTTP 支持 XHR、wx/tt 请求及自定义传输；不含 WebSocket、自动重连或令牌刷新。SDK 提供平台与渠道组合入口，发行商、真实登录和广告需项目接入。                                                                                                    |
 | UI 组件      | 虚拟列表只支持固定尺寸纵向列表/网格。SafeWidget 和聚焦引导限同一正交 Canvas 的轴对齐布局；MarqueeLabel 为单行普通文本。详细限制见各组件文档。                                                                                                |
-| 制作恢复     | 创建、生成、删除和构建各有恢复流程；冲突会停止，不保证任意崩溃时刻自动恢复。包内移动可保持资源身份，跨包迁移和全项目重命名需要另行处理引用。                                                                                                 |
+| 制作恢复     | 创建中断可整次检查、清理残留；创建完成后的生成错误保留成果并正常重新生成。生成写入、删除和构建各有恢复流程；冲突会停止，不保证任意崩溃时刻自动恢复。包内移动保持资源身份，跨包迁移和全项目重命名需要另行处理引用。                           |
 | 静态检查     | 可检查显式导入、序列化引用、已知逻辑名及配置引用；不能完整证明反射、字符串拼接和动态表达式的行为。                                                                                                                                           |
 | 交付审计     | 检查 Bundle/代码入口归属、未压缩输出字节、完整文件重复和体积预算；不分析图集/合并 JSON 内部的语义重复，不提供 CDN 发布、原生代码热更新或跨版本补丁系统。                                                                                     |
 
@@ -38,7 +38,7 @@ npm run test:showcase
 | 入口（位于 `tests/integration/`）                                                           | 前置条件与覆盖范围                                                                                                                               |
 | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [verify-workbench.mjs](../tests/integration/verify-workbench.mjs)                           | Creator 与 MCP 已连接；创建临时模块，检查脚本、Part、绑定、XLSX、删除及恢复。成功后回收，失败保留现场；`--keep-for-build` 可保留夹具供构建检查。 |
-| [verify-creation.mjs](../tests/integration/verify-creation.mjs)                             | Creator 与 MCP 已连接；故障注入、后续修改冲突和创建撤销。                                                                                        |
+| [verify-creation.mjs](../tests/integration/verify-creation.mjs)                             | Creator 与 MCP 已连接；创建中断、残留清理、后续修改冲突、生成错误与创建成果分离。                                                                |
 | [verify-panel.mjs](../tests/integration/verify-panel.mjs)                                   | 保留示例数据；检查真实工作台预览、草稿、设置及生成恢复。                                                                                         |
 | [verify-showcase-editor.mjs](../tests/integration/verify-showcase-editor.mjs)               | 保留 workshop 示例；检查步骤、源码阅读和跳转。                                                                                                   |
 | [verify-preview.mjs](../tests/integration/verify-preview.mjs)                               | Bootstrap 已在 Game View 运行且保留大厅示例；检查 UI、结果与生命周期。                                                                           |

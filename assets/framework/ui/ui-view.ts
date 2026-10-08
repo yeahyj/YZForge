@@ -1,11 +1,11 @@
 import { _decorator, Component, isValid, Node, Sprite } from 'cc';
 import type { AssetKey } from '../assets/asset-types';
-import type { ScopedAssets } from '../assets/asset-manager';
-import type { ScopedConfig } from '../config/config-manager';
-import type { ScopedAudio } from '../audio/audio-manager';
+import type { AssetAccess } from '../assets/asset-access';
+import type { ConfigAccess } from '../config/config-access';
+import type { AudioAccess } from '../audio/audio-access';
 import type { ScopedLocalization } from './localization/localized-ui';
 import type { ModuleContext } from '../modules/module-manager';
-import type { ScopedTime } from '../time/time-service';
+import type { TimeAccess } from '../time/time-access';
 import { invariant } from '../core/errors';
 import { assertLifecycle, synchronous } from '../components/lifecycle';
 import { Lifetime, TaskContext } from '../core/scope';
@@ -38,11 +38,11 @@ export interface ViewShowContext<Params, Result> extends TaskContext {
     /** 本次展示的命名操作：latest 查询、exclusive 防重复、serial 顺序执行。 */
     readonly actions: Actions;
     /** 本次显示使用的资源入口；load/instantiate 的资源自动随本次显示释放。 */
-    readonly assets: ScopedAssets;
+    readonly assets: AssetAccess;
     /** 本次显示使用的配置入口；load(Table) 无需再传 show.scope。 */
-    readonly config: ScopedConfig;
+    readonly config: ConfigAccess;
     /** 本次显示使用的音频入口；play(Key) 无需再传 show.scope。 */
-    readonly audio: ScopedAudio;
+    readonly audio: AudioAccess;
     /**
      * 本次运行中递增的显示序号，区分同一预制体实例的不同显示代次。
      */
@@ -55,7 +55,7 @@ export interface ViewShowContext<Params, Result> extends TaskContext {
     /**
      * 归属于本次显示的时间接口；日历订阅、校时等待随 show.scope 结束而取消。
      */
-    readonly time: ScopedTime;
+    readonly time: TimeAccess;
     /**
      * 登记本次显示的工作，关闭时等待其退出。
      * @param task 通过 signal 响应取消，异步完成后用 task.commit 同步更新界面。

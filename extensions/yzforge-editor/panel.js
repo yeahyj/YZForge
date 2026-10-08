@@ -12,7 +12,7 @@ exports.ready = function () {
         languagePlan,
         languageUpdatePlan,
         languageRenamePlan,
-        creationRollbackPlan,
+        creationCleanupPlan,
         deletePlan,
         workbookDraft,
         generationPlan,
@@ -113,14 +113,14 @@ exports.ready = function () {
     };
     const updateCreationActions = () => {
         const record = state?.creations?.find((record) => record.id === val('creationRecord'));
-        el('retryCreation').disabled = busy || !['awaiting-generation', 'generation-failed'].includes(record?.stage);
-        el('previewCreationRollback').disabled = busy || !record || record.stage === 'creating';
-        el('rollbackCreation').disabled =
+        el('previewCreationCleanup').disabled = busy || !record || record.busy;
+        el('cleanupCreation').disabled =
             busy ||
-            !creationRollbackPlan ||
-            creationRollbackPlan.id !== record?.id ||
-            creationRollbackPlan.conflicts.length > 0 ||
-            creationRollbackPlan.references.length > 0;
+            record?.busy ||
+            !creationCleanupPlan ||
+            creationCleanupPlan.id !== record?.id ||
+            creationCleanupPlan.conflicts.length > 0 ||
+            creationCleanupPlan.references.length > 0;
         el('create').disabled = busy || !createPlan || createPlan.conflicts.length > 0;
         el('createLanguage').disabled = busy || !languagePlan || languagePlan.conflicts.length > 0;
         el('previewLanguage').disabled = busy || !val('languageBundle') || !val('languageLocale');
@@ -156,12 +156,13 @@ exports.ready = function () {
         el('tableDirty').textContent = workbookDrafts.has(val('workbook')) ? '未保存' : '';
     };
     const creationChanged = () => {
-        creationRollbackPlan = undefined;
+        creationCleanupPlan = undefined;
         const record = state?.creations?.find((record) => record.id === val('creationRecord'));
         el('creationPreview').textContent = record
-            ? record.stage === 'creating'
-                ? '此记录没有完整完成快照，请检查残留文件并使用普通删除流程。'
-                : record.error || '请选择重试生成，或预览本次创建的撤销范围。'
+            ? record.busy
+                ? '项目操作仍在运行，请完成后刷新。'
+                : (record.error ? record.error + '\n' : '') +
+                  '检查残留后，可清理整次未完成的创建。人工修改和外部引用会阻止清理。'
             : '没有未完成的创建。';
         updateCreationActions();
     };
@@ -232,7 +233,7 @@ exports.ready = function () {
                 .sort()
                 .map((key) => [key, key]),
         );
-        renderFiles('languageRenameFiles', [], '预览会列出各语言文件和可追踪的引用。');
+        renderFiles('languageRenameFiles', [], '预览会列出各语言文件；改名后的旧 Key 由检查报告。');
         el('languageRenameResult').textContent = '';
         languageUpdatePlan = undefined;
         renderFiles('languageUpdateFiles', [], '当前范围使用原生撤销，修改后正常保存；批量范围会直接保存所列文件。');
@@ -267,7 +268,7 @@ exports.ready = function () {
                     declaration.locales?.[locale] ? `localization/${val('languageBundle')}/${locale}` : '回退默认语言',
                     `${texts.filter((row) => Object.prototype.hasOwnProperty.call(row.values, locale)).length} / ${texts.length}`,
                     keys
-                        ? `${keys.length} 项${missing.length ? '；回退：' + missing.join('、') : ''}`
+                        ? `${keys.length} 项${missing.length ? '；缺失（阻止构建）：' + missing.join('、') : ''}`
                         : declaration.locales?.[locale]
                           ? '待生成'
                           : '回退默认语言',
@@ -427,7 +428,7 @@ exports.ready = function () {
             'creationRecord',
             (state.creations ?? []).map((record) => [
                 record.id,
-                `${record.request.kind} · ${record.request.id} · ${record.stage}`,
+                `${record.request.kind} · ${record.request.id} · ${record.busy ? '操作中' : record.stage === 'creating' ? '创建已中断' : record.stage.startsWith('clean') ? '清理未完成' : '创建未完成'}`,
             ]),
         );
         creationChanged();
@@ -517,11 +518,24 @@ exports.ready = function () {
             if (action === 'updateModule') moduleDrafts.delete(args.module);
             if (action === 'updateSettings') settingsLoaded = false;
             if (reload && action !== 'refresh') await refresh();
-            el('status').textContent = result?.generationError ? '操作已保存，但生成失败；请修复后重新生成' : '已完成';
+            el('status').textContent = result?.generationError
+                ? action === 'create'
+                    ? '创建已完成，生成未通过；请修复后重新生成'
+                    : '操作已保存，但生成失败；请修复后重新生成'
+                : '已完成';
             el('health').textContent = result?.generationError ? '需要处理' : '已连接';
             el('health').dataset.state = result?.generationError ? 'error' : 'ready';
             if (result?.generationError) el('logDetails').open = true;
             return result;
+        } catch (error) {
+            if (['create', 'cleanupCreation'].includes(action)) {
+                try {
+                    await refresh();
+                } catch (refreshError) {
+                    error.message += '\n刷新失败：' + refreshError.message;
+                }
+            }
+            throw error;
         } finally {
             busy = false;
             if (!closed) {
@@ -909,18 +923,17 @@ exports.ready = function () {
     on('formulaEnvironment', () => run('formulaEnvironment', {}, false));
     on('restore', () => run('restore', { id: val('restoreRecord') }));
     on('creationRecord', creationChanged, 'change');
-    on('retryCreation', () => run('retryCreationGeneration', { id: val('creationRecord') }));
-    on('previewCreationRollback', async () => {
-        creationRollbackPlan = await run('previewCreationRollback', { id: val('creationRecord') }, false);
-        if (creationRollbackPlan) renderRecovery('creationPreview', creationRollbackPlan);
+    on('previewCreationCleanup', async () => {
+        creationCleanupPlan = await run('previewCreationCleanup', { id: val('creationRecord') }, false);
+        if (creationCleanupPlan) renderRecovery('creationPreview', creationCleanupPlan);
         updateCreationActions();
     });
-    on('rollbackCreation', async () => {
-        const plan = creationRollbackPlan;
+    on('cleanupCreation', async () => {
+        const plan = creationCleanupPlan;
         if (!plan) return;
-        creationRollbackPlan = undefined;
-        el('rollbackCreation').disabled = true;
-        await run('rollbackCreation', plan);
+        creationCleanupPlan = undefined;
+        el('cleanupCreation').disabled = true;
+        await run('cleanupCreation', plan);
     });
     const generationChanged = () => {
         generationPlan = undefined;

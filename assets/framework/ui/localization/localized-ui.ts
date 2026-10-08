@@ -1,9 +1,12 @@
+import type { LocalizationAccess, LocalizedBundleAccess } from './localization-access';
+import type { LocalizedParameters } from './localization-access';
+import type { LocalizedBinding, LocalizedTextBinding } from './localization-access';
 import { Component, isValid, js, Label, Sprite } from 'cc';
 import { MarqueeLabel } from '../components/marquee/marquee-label';
 import type { CountdownLabel } from '../components/countdown/countdown-label';
-import type { ScopedAssets } from '../../assets/asset-manager';
+import type { AssetAccess } from '../../assets/asset-access';
 import type { AssetKind, BundleRef } from '../../assets/asset-types';
-import { invariant, reportError } from '../../core/errors';
+import { FrameworkError, invariant, OperationCancelled, reportError } from '../../core/errors';
 import type { Lifetime } from '../../core/scope';
 import {
     Localization,
@@ -15,17 +18,7 @@ import {
     type TextKey,
     type TextParameters,
 } from '../../localization/localization';
-
-export interface LocalizedBinding {
-    refresh(): void;
-    dispose(): void;
-}
-export interface LocalizedTextBinding<P extends string> extends LocalizedBinding {
-    /** 参数变更立即刷新已显示的文字，切换提交也会读取最新值。 */
-    update(values: Readonly<Record<P, string | number>>): void;
-}
-type Parameters<P extends string> =
-    Readonly<Record<P, string | number>> | ((reader: LocaleReader) => Readonly<Record<P, string | number>>);
+type Parameters<P extends string> = LocalizedParameters<P>;
 type Slot = { dispose(): void };
 type TextTarget = Label | MarqueeLabel;
 type CountdownToken = 'hh' | 'mm' | 'ss' | 'seconds';
@@ -37,10 +30,10 @@ function instanceOf(target: Component, name: string): boolean {
 }
 
 /** show/activation/列表项期限内的入口；in 可用于独立的实例借用期限。 */
-export class ScopedLocalization {
+export class ScopedLocalization implements LocalizationAccess {
     constructor(
         private readonly manager: Localization,
-        private readonly assets: ScopedAssets,
+        private readonly assets: AssetAccess,
         private readonly owner: Lifetime,
         private readonly current: () => boolean = () => true,
     ) {}
@@ -70,10 +63,10 @@ export class ScopedLocalization {
     }
 }
 /** 一份已经准备好的业务语言目录，UI 绑定与资源持有均跟随使用期限。 */
-export class LocalizedBundle {
+export class LocalizedBundle implements LocalizedBundleAccess {
     constructor(
         private readonly handle: LocaleHandle,
-        private readonly assets: ScopedAssets,
+        private readonly assets: AssetAccess,
         private readonly current: () => boolean,
     ) {}
     get locale(): string {
@@ -220,7 +213,18 @@ export class LocalizedBundle {
                 target.spriteFrame = original;
             },
             async (reader, owner) => {
-                const frame = await this.assets.in(owner).load(reader.asset(key));
+                const resource = reader.asset(key);
+                const frame = await this.assets
+                    .in(owner)
+                    .load(resource)
+                    .catch((error: unknown) => {
+                        if (error instanceof OperationCancelled) throw error;
+                        throw new FrameworkError(
+                            'I18N_ASSET_LOAD_FAILED',
+                            `多语言资源加载失败：${key.namespace}/${reader.locale}/${key.key} → ${error instanceof Error ? error.message : String(error)}`,
+                            { key, locale: reader.locale, resource, error },
+                        );
+                    });
                 return {
                     validate: () => {},
                     commit: () => {

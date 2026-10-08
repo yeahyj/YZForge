@@ -1,11 +1,22 @@
+import type { TimeAccess } from './time-access';
+import type {
+    TimeSnapshot,
+    TimePolicy,
+    TimeOptions,
+    AutoSyncOptions,
+    CalendarEvent,
+    TimeHandle,
+    CalendarCallback,
+    BoundaryOptions,
+    RepeatOptions,
+} from './time-access';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { untilCancelled } from '../core/cancellation';
 import { ErrorReporter, invariant, OperationCancelled, reportError } from '../core/errors';
-import { runTask, Scope, TaskContext, Lifetime } from '../core/scope';
+import { runTask, Scope, Lifetime } from '../core/scope';
 import {
     add,
     createCalendar,
-    CalendarOptions,
     CalendarPeriod,
     CalendarUnit,
     nextBoundary,
@@ -16,184 +27,6 @@ import {
     validEpoch,
     validPeriod,
 } from './calendar';
-
-/**
- * 服务器校时响应；两个时间值必须来自同一服务器时钟，均为 UTC 毫秒时间戳。
- */
-export interface ServerTimeReply {
-    /**
-     * 原样返回请求编号，防止旧响应或错配响应更新当前校时结果。
-     */
-    readonly requestId: string;
-    /**
-     * 服务器收到本次请求时的 UTC 毫秒时间戳。
-     */
-    readonly receivedAtMs: number;
-    /**
-     * 服务器发出本次响应时的 UTC 毫秒时间戳，不得早于 receivedAtMs。
-     */
-    readonly sentAtMs: number;
-}
-/**
- * 由项目提供的服务器时间适配器；框架通过多次采样估算网络往返与服务器处理时间。
- */
-export interface ServerTimeSource {
-    /**
-     * 向项目服务器请求一次校时样本。
-     * @param requestId - 本次请求编号，响应须原样返回。
-     * @param task - 本次采样的 scope、signal 和 commit；网络适配应响应取消，超时通过 signal 通知。
-     * @returns 服务器收到请求、发出响应的 UTC 毫秒时间戳。
-     */
-    sample(requestId: string, task: TaskContext): Promise<ServerTimeReply>;
-}
-/**
- * 框架当前估计时间及其来源、可信度快照。重要结算应检查质量或使用 requireNowMs。
- */
-export interface TimeSnapshot {
-    /**
-     * 当前估计的 UTC 毫秒时间戳。
-     */
-    readonly nowMs: number;
-    /**
-     * device 表示设备时钟；server 表示存在服务器校时锚点。来源为 server 时仍可能已过期。
-     */
-    readonly source: 'device' | 'server';
-    /**
-     * local 仅本地估计；synced 已校时且满足项目阈值；stale 未完成、过期或恢复后待重新校时。
-     */
-    readonly quality: 'local' | 'synced' | 'stale';
-    /**
-     * 距选中样本的时间，单位毫秒；无有效锚点或时钟连续性失效时为 null。
-     */
-    readonly sampleAgeMs: number | null;
-    /**
-     * 估计误差，单位毫秒，包含采样和随时间增长的估计漂移；无法估计时为 null。
-     */
-    readonly estimatedErrorMs: number | null;
-    /**
-     * 本次进程内校时锚点更新/重置的递增版本，供界面识别时间变化。
-     */
-    readonly revision: number;
-}
-/**
- * 可信服务器时间的质量要求。传给 requireNowMs 时是在项目规则基础上进一步收紧。
- */
-export interface TimePolicy {
-    /**
-     * 允许的样本最大年龄，单位毫秒。项目默认 300000（5 分钟）；单次 requireNowMs 省略时不额外收紧。
-     */
-    readonly maxAgeMs?: number;
-    /**
-     * 允许的估计误差上限，单位毫秒。项目默认 5000；单次 requireNowMs 省略时不额外收紧。
-     */
-    readonly maxErrorMs?: number;
-}
-/**
- * 应用级时间配置，通常来自面板生成选项，并由项目注入服务器适配器。
- */
-export interface TimeOptions extends TimePolicy {
-    /** 自动校时策略；有 source 时默认启用，false 表示所有校时（包括恢复前台）由调用方控制。 */
-    readonly autoSync?: false | AutoSyncOptions;
-    /**
-     * 服务器时间适配器；不提供时仅使用设备时间，sync 会报 TIME_SOURCE_MISSING。
-     */
-    readonly source?: ServerTimeSource;
-    /**
-     * 每轮校时采样次数，整数 1～8，默认 3。
-     */
-    readonly sampleCount?: number;
-    /**
-     * 单次采样的前台等待上限，单位毫秒，默认 5000。
-     * 时钟进入后台会使当前校时轮次失效，恢复前台后由服务重新发起校时；不保证后台继续采样。
-     */
-    readonly requestTimeoutMs?: number;
-    /**
-     * 日期工具和周期通知的默认时区、周起始日和日切点；单次调用可覆盖。
-     */
-    readonly calendar?: CalendarOptions;
-}
-/** 有服务器适配器时的自动校时策略；后台停止请求，恢复前台立即重试。 */
-export interface AutoSyncOptions {
-    /** 正常刷新间隔，毫秒；默认有效期的 80%，设置更大时仍会在质量过期前提前刷新。 */
-    readonly intervalMs?: number;
-    /** 首次失败后的重试间隔，毫秒，默认 1000；后续指数退避。 */
-    readonly retryDelayMs?: number;
-    /** 失败重试间隔上限，毫秒，默认 60000。 */
-    readonly maxRetryDelayMs?: number;
-}
-/**
- * 某个日历周期或截止时刻已到的通知；框架只通知，由业务决定刷新、结算与持久化去重。
- */
-export interface CalendarEvent {
-    /**
-     * 本次周期/时刻的标识；跨重启去重需要业务保存最后处理标识。
-     */
-    readonly occurrenceKey: string;
-    /**
-     * 本次边界或计划发生的 UTC 毫秒时间戳，可能早于实际派发时刻。
-     */
-    readonly scheduledAtMs: number;
-    /**
-     * 框架观察并派发时的 UTC 毫秒时间戳。
-     */
-    readonly observedAtMs: number;
-    /**
-     * due 到期；resume 回前台核对；time-adjusted 时间校正；initial 注册时主动通知当前周期。
-     */
-    readonly reason: 'due' | 'resume' | 'time-adjusted' | 'initial';
-    /**
-     * 本次合并通知中跳过的中间周期数；无法建立上一次期次时为 null。业务需要逐日补算时应自行读取持久化记录。
-     */
-    readonly missedCount: number | null;
-}
-/**
- * 一次性或周期订阅句柄，跟随注册时的 Scope 结束；不会自动跨进程重启保存。
- */
-export interface TimeHandle {
-    /**
-     * 计划是否仍有效；取消、持有者结束或一次性执行完成后为 false。
-     */
-    readonly active: boolean;
-    /**
-     * 预计下一次到期的 UTC 毫秒时间戳；没有下一次时为 null，不承诺后台精确准时回调。
-     */
-    readonly nextAtMs: number | null;
-    /**
-     * 提前取消本计划，重复调用安全；已执行中的回调通过 task.signal/commit 配合退出，不会被强制中断。
-     */
-    cancel(): void;
-}
-/**
- * 日历通知回调，可同步或返回 Promise。event 描述期次，task 管理本次工作；同一订阅串行执行。
- * 异步写 UI 使用 task.commit；回调失败会取消该订阅并上报，不自动重试业务操作。
- */
-export type CalendarCallback = (event: CalendarEvent, task: TaskContext) => void | Promise<void>;
-/**
- * 跨日/周/月/年订阅选项；未提供的日历字段继承项目默认设置。
- */
-export interface BoundaryOptions extends CalendarOptions {
-    /**
-     * 是否在注册后的异步派发中先通知当前周期，默认 false；true 适合初次刷新界面，不代表业务奖励可以重复发放。
-     */
-    readonly emitCurrent?: boolean;
-}
-/**
- * 相对日历周期的重复计划选项，围绕固定起算点计算每一期。
- */
-export interface RepeatOptions {
-    /**
-     * 固定时区偏移分钟数，例如 480 为 UTC+8；省略时继承项目日历偏移。
-     */
-    readonly offsetMinutes?: number;
-    /**
-     * 最初起算的 UTC 毫秒时间戳，省略时捕获注册当时的有效业务时间。跨重启恢复应保存并复用它。
-     */
-    readonly anchorMs?: number;
-    /**
-     * 注册时是否异步通知最近已到的期次，默认 false；用于持久化 anchor 的恢复，业务负责去重。
-     */
-    readonly emitLatestOnStart?: boolean;
-}
 type Anchor = { utc: number; mono: number; epoch: number; error: number };
 type Round = { scope: Scope; epoch: number; serial: number; waiters: number; promise: Promise<TimeSnapshot> };
 type Plan = {
@@ -872,7 +705,7 @@ export class TimeService {
  * 绑定固定 Scope 的时间入口，通常由 show.time、activation.time、ctx.time 提供；不创建新时钟。
  * 订阅跟随该期限取消，读取时间与纯日期工具本身不承担资源持有。
  */
-export class ScopedTime {
+export class ScopedTime implements TimeAccess {
     /**
      * @internal
      * 使用 TimeService.in(scope) 创建固定持有者入口。
