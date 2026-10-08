@@ -234,7 +234,7 @@ test('the last delivered lease waits for asynchronous resource cleanup', async (
     assert.equal(released, true);
     assert.equal(pool.retainedCount, 0);
 });
-test('resource short names are resolved only in the selected namespace and kind', () => {
+test('resource relative names are resolved only in the selected namespace and kind', () => {
     assert.deepEqual(logicalKey('coin', 'SpriteFrame', 'battle/forest'), {
         id: 'battle/forest/sprite/coin',
         type: 'SpriteFrame',

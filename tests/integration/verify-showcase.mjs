@@ -93,16 +93,22 @@ try {
         return { modules: state.modules, bundles: state.assets.bundles };
     });
     await verifyNavigation({ run, stage, back });
-    await stage('configuration, resource ambiguity, shards and audio', async () => {
+    await stage('configuration, exact resource paths, shards and audio', async () => {
         await pointerClick('showcase.showcase-page', '_bindBtnData');
         await run("await until(()=>record('showcase.data-lab-page')?.interactive);return true;");
         await run(
             "check(!!record('showcase.data-lab-page').instance.view._bindSprPreview.spriteFrame,'static sprite reference missing');return true;",
         );
+        await run(`
+const assets=record('showcase.data-lab-page').show.assets,key={id:'showcase/default/sprite/icons/alpha/token',type:'SpriteFrame'};
+const typed=await assets.resolve(key),relative=await assets.resolve('icons/alpha/token','SpriteFrame'),full=await app.assets.resolve(key.id,key.type,assets.scope);
+check(typed.bundle===relative.bundle&&typed.path===relative.path&&typed.path===full.path,'Resource entry points disagree');
+let error;try{await assets.resolve('token','SpriteFrame');}catch(e){error=e;}
+check(error?.code==='ASSET_NOT_REGISTERED','Missing exact path searched other directories');return true;`);
         const outputs = [];
         for (const [button, expected] of [
             ['_bindBtnResource', '类型化 Key'],
-            ['_bindBtnAmbiguous', '预期歧义'],
+            ['_bindBtnPath', '精确相对路径'],
             ['_bindBtnDefault', '权重 1.5'],
             ['_bindBtnExtra', '扩展分片'],
             ['_bindBtnPublic', '公共表'],

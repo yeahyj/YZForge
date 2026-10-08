@@ -65,7 +65,7 @@ const resourcePreview = await panel(
     'return {text:el("createPreview").textContent,initial:el("initial").value,locked:el("initial").disabled};',
 );
 assert.ok(!resourcePreview.text.includes('Module.ts'));
-assert.ok(!resourcePreview.text.includes('public.ts'));
+assert.ok(resourcePreview.text.includes('public.ts'));
 assert.equal(resourcePreview.initial, 'resources');
 assert.equal(resourcePreview.locked, true);
 console.log('PASS: automatic file preview, resource-only module, calendar settings round trip');
@@ -73,17 +73,20 @@ await panel('el("create").click();');
 await until('return root.dataset.busy !== "true";');
 assert.equal(await panel('return el("health").dataset.state;'), 'ready');
 assert.equal(
-    await access(resolve(root, 'assets/game/modules', fixture, 'public.ts')).then(
+    await access(resolve(root, 'assets/game/modules', fixture, 'code')).then(
         () => true,
         () => false,
     ),
     false,
 );
+const resourcePublic = await readFile(resolve(root, 'assets/game/modules', fixture, 'public.ts'), 'utf8');
+assert.match(resourcePublic, /contracts\/generated\/resources-default/);
+assert.ok(!resourcePublic.includes('defineModule'));
 try {
     await panel('set("module",args.id,"change");set("kind","page","change");set("newName","Sample");', { id: fixture });
     await until('return !el("createIssue").hidden;');
     assert.equal(await panel('return el("create").disabled;'), true);
-    assert.match(await panel('return el("createIssue").textContent;'), /只有资源与配置/);
+    assert.match(await panel('return el("createIssue").textContent;'), /纯资源模块.*业务脚本/);
     await panel('set("kind","module","change");set("newName","lobby");');
     await until('return !el("createIssue").hidden;');
     assert.equal(await panel('return el("create").disabled;'), true);
@@ -116,10 +119,44 @@ try {
     assert.equal(await panel('return el("health").dataset.state;'), 'ready');
 }
 await panel(
-    'root.querySelector("[data-tab=create]").click();set("module","lobby","change");set("kind","page","change");set("newName","Inventory");',
+    'root.querySelector("[data-tab=create]").click();set("module","lobby","change");set("kind","page","change");el("publicView").checked=false;el("publicView").dispatchEvent(new Event("input"));set("newName","Inventory");',
 );
 await until('return !el("create").disabled;');
+// 页面公开范围必须参与创建预览和签名；Key 由创建后的生成步骤更新。
+assert.deepEqual(
+    await panel(
+        'return {checked:el("publicView").checked,hidden:el("presenterOptions").hidden,kind:el("kind").value};',
+    ),
+    { checked: false, hidden: false, kind: 'page' },
+);
+assert.match(await panel('return el("createPreview").textContent;'), /InventoryPage\.types\.ts/);
+await panel('el("publicView").checked=true;el("publicView").dispatchEvent(new Event("input"));');
+await until('return !el("create").disabled;');
+assert.equal(
+    await panel(
+        'return Array.from(el("createPreview").querySelectorAll("code"),n=>n.title).includes("assets/game/modules/lobby/contracts/InventoryPage.types.ts");',
+    ),
+    true,
+);
+const contracts = await editor(`
+const input={kind:'page',id:'Inventory',module:'lobby',bundle:'default'};
+const internal=await Editor.Message.request('yzforge-editor','dispatch','previewCreate',input);
+const published=await Editor.Message.request('yzforge-editor','dispatch','previewCreate',{...input,visibility:'public'});
+const view=plan=>plan.steps.find(step=>step.path==='assets/game/modules/lobby/module.json').content.views['inventory-page'];
+const fsNav=require('fs'),pathNav=require('path');
+const publicSource=fsNav.readFileSync(pathNav.join(Editor.Project.path,'assets/game/modules/showcase/contracts/generated/views.ts'),'utf8');
+const privateSource=fsNav.readFileSync(pathNav.join(Editor.Project.path,'assets/game/modules/showcase/code/generated/views.ts'),'utf8');
+return {internal:view(internal).visibility,published:view(published).visibility,different:internal.signature!==published.signature,publicOnly:publicSource.includes('showcasePage:')&&!publicSource.includes('uiLabPage:'),privateAll:privateSource.includes('uiLabPage:')&&privateSource.includes('confirmPopup:')};`);
+assert.deepEqual(contracts, {
+    internal: 'internal',
+    published: 'public',
+    different: true,
+    publicOnly: true,
+    privateAll: true,
+});
+await panel('el("publicView").checked=false;el("publicView").dispatchEvent(new Event("input"));set("newName","");');
 console.log('PASS: real panel creation and backed-up deletion; no business factory required');
+console.log('PASS: page visibility participates in creation previews and generated contract boundaries');
 
 // Simulate a stopped ordinary-file generation without touching project assets.
 const generationId = Date.now() + '-acbd';

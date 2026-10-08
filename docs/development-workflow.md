@@ -1,6 +1,6 @@
 # 正式开发工作流
 
-先运行 `assets/game/boot/Bootstrap.scene`，选择“正式业务流程 · 任务奖励”。再打开 **YZForge → 项目工作台 → 示例工作流**，按步骤查看实际源码。本文的任务、训练、金币都是示例业务；框架本身不要求这些概念。
+先运行 `assets/game/boot/Bootstrap.scene`，选择“正式业务流程 · 任务奖励”，再按本文的源码链接查看实际实现。**YZForge → 项目工作台** 提供创建、自动绑定和配置表等编辑工具。本文的任务、训练、金币都是示例业务；框架本身不要求这些概念。
 
 ## 1. 从职责开始
 
@@ -131,7 +131,6 @@ npm run test:showcase
 node tests/integration/serve-build.mjs build/verify-showcase-web
 # 另一个终端，填写服务输出的实际端口；需要连接当前项目的 Cocos MCP。
 node tests/integration/verify-showcase.mjs http://127.0.0.1:实际端口/
-node tests/integration/verify-showcase-editor.mjs
 ```
 
 示例集成检查使用独立窗口和临时浏览器会话，不使用玩家已有存档。覆盖按钮输入、弹窗返回、资源路由、业务回收和页面反复进出；截图帮助检查屏幕适配。小游戏构建检查不能代替微信真机验证，Web 验证也不能代替原生设备验证。完整入口和覆盖范围见 [功能展示](showcase.md)。

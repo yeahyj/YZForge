@@ -27,7 +27,7 @@ export async function initializeState(root) {
         return writeBatch(
             root,
             {
-                [targets[0]]: JSON.stringify({ formatVersion: 2, entries: {}, aliases: {} }, null, 2) + '\n',
+                [targets[0]]: JSON.stringify({ formatVersion: 2, entries: {} }, null, 2) + '\n',
                 [targets[1]]: '{}\n',
             },
             'initialize-state',

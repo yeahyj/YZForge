@@ -161,7 +161,7 @@ const address = await assets.resolve('status', 'SpriteFrame');
 await assets.setSprite(this.sprIcon, LobbyRes.sprite.status);
 ```
 
-`resolve` 取得清单中的 Bundle 路径，可能读取清单 JSON，但不加载目标图片。`load` 才加载资源；`instantiate` 另外创建托管节点。推荐用生成键消除拼写和重名问题，短名称有多个候选时会报错。不同资源种类分别编目，`SpriteFrame`、`Texture2D` 与 `ImageAsset` 含义不同。
+`resolve` 取得清单中的 Bundle 路径，可能读取清单 JSON，但不加载目标图片。`load` 才加载资源；`instantiate` 另外创建托管节点。优先使用生成的 `AssetKey`；字符串按当前命名空间内的相对逻辑路径精确匹配，例如 `coin` 只对应根目录逻辑名称，`icons/coin` 只对应该逻辑路径。缺少该路径时抛 `ASSET_NOT_REGISTERED`，不会按文件末段搜索其他目录。跨命名空间使用生成的 Key；没有默认命名空间的入口要求完整逻辑 ID。普通资源在同包内移动或改名后仍保留稳定逻辑 ID，当前物理路径以索引为准；语言资源按相对路径生成 Key，改名须更新引用。不同资源种类分别编目，`SpriteFrame`、`Texture2D` 与 `ImageAsset` 含义不同。
 
 实际 Bundle 是 `bundles/default` 或其他资源包根目录；`dynamic` 自动进入清单，`static` 保留静态引用资源，两者都在资源包内部。打开一个 Bundle 不会自动加载全部内容；依赖资源仍可能由引擎一起加载。关闭 Scope 归还本调用者的持有，其他调用者仍使用的资源不会因此释放，也不会卸载已注册 JS。
 

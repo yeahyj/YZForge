@@ -1490,7 +1490,7 @@
       "b": 255,
       "a": 255
     },
-    "_string": "动态图片 · Key 与短名",
+    "_string": "动态图片 · 类型化 Key",
     "_horizontalAlign": 0,
     "_verticalAlign": 1,
     "_actualFontSize": 0,
@@ -1720,7 +1720,7 @@
   },
   {
     "__type__": "cc.Node",
-    "_name": "btn_ambiguous",
+    "_name": "btn_path",
     "_objFlags": 0,
     "__editorExtras__": {},
     "_parent": {
@@ -1878,7 +1878,7 @@
       "b": 255,
       "a": 255
     },
-    "_string": "同名资源 · 查看候选",
+    "_string": "相对路径 · 精确加载",
     "_horizontalAlign": 0,
     "_verticalAlign": 1,
     "_actualFontSize": 0,
@@ -5717,7 +5717,7 @@
     "_bindBtnResource": {
       "__id__": 59
     },
-    "_bindBtnAmbiguous": {
+    "_bindBtnPath": {
       "__id__": 75
     },
     "_bindBtnDefault": {

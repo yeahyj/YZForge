@@ -21,7 +21,6 @@ const projectTools = () => {
     return import(pathToFileURL(file).href + '?v=' + syncFs.statSync(file).mtimeMs);
 };
 const name = 'yzforge-editor';
-const workflow = require('./workflow');
 const gameSettings = require('./game-settings');
 const gameConfigTools = require('../../tools/yzforge/project/game-config.cjs');
 const gameBuild = require('../../tools/yzforge/operations/game-build.cjs');
@@ -296,19 +295,6 @@ const creation = require('../../tools/yzforge/operations/creation.cjs').createCr
     },
 });
 const actions = {
-    async readWorkflowSource(args) {
-        if (!Object.prototype.hasOwnProperty.call(workflow.sources, args.id)) throw Error('未知示例源码');
-        const relative = workflow.sources[args.id];
-        const target = inside(relative);
-        if (!syncFs.existsSync(target))
-            return {
-                path: relative,
-                content: '此示例文件已被移除。通用工作台功能仍可使用，请参照自己的业务文件。',
-                missing: true,
-            };
-        const content = await fs.readFile(target, 'utf8');
-        return { path: relative, content, missing: false };
-    },
     formulaEnvironment: () => runTool('formula-status'),
     previewCreationCleanup: (args) => creation.previewCleanup(args),
     cleanupCreation: (args) => creation.cleanup(args),

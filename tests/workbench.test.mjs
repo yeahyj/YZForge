@@ -80,40 +80,52 @@ test('role suffixes are idempotent and missing or cyclic dependencies fail befor
     );
     assert.throws(() => naming.dependencies([{ id: 'a', dependencies: {} }], 'a', ['missing']));
 });
-test('resource paths disambiguate basenames and indexes reject unsupported versions', () => {
+test('resource lookup uses exact logical paths even when basenames are shared', () => {
     const address = { type: 'SpriteFrame', bundle: 'm-inventory', path: 'dynamic/a/icon/spriteFrame' };
     const index = validateIndex(
         {
             formatVersion: 2,
             namespace: 'inventory/default',
             assets: {
+                'inventory/default/sprite/icon': { ...address, path: 'dynamic/icon/spriteFrame' },
                 'inventory/default/sprite/a/icon': address,
                 'inventory/default/sprite/b/icon': { ...address, path: 'dynamic/b/icon/spriteFrame' },
             },
         },
         'inventory/default',
     );
-    assert.throws(() => resolveIndex(index, logicalKey('icon', 'SpriteFrame', index.namespace), true), {
-        code: 'ASSET_NAME_AMBIGUOUS',
-    });
-    assert.equal(resolveIndex(index, logicalKey('a/icon', 'SpriteFrame', index.namespace), true), address);
-    assert.throws(() => validateIndex({ ...index, formatVersion: 99 }, index.namespace));
-    assert.throws(() =>
-        validateIndex(
-            { ...index, aliases: { 'inventory/default/sprite/a': 'inventory/default/sprite/missing' } },
-            index.namespace,
-        ),
-    );
     assert.equal(
-        resolveIndex(
-            validateIndex(
-                { ...index, aliases: { 'inventory/default/sprite/shortcut': 'inventory/default/sprite/a/icon' } },
-                index.namespace,
-            ),
-            logicalKey('shortcut', 'SpriteFrame', index.namespace),
-        ),
-        address,
+        resolveIndex(index, logicalKey('icon', 'SpriteFrame', index.namespace)).path,
+        'dynamic/icon/spriteFrame',
     );
+    assert.equal(resolveIndex(index, logicalKey('inventory/default/sprite/a/icon', 'SpriteFrame')), address);
+    assert.equal(resolveIndex(index, logicalKey('a/icon', 'SpriteFrame', index.namespace)), address);
+    assert.equal(
+        resolveIndex(index, logicalKey('b/icon', 'SpriteFrame', index.namespace)).path,
+        'dynamic/b/icon/spriteFrame',
+    );
+    assert.throws(() => validateIndex({ ...index, formatVersion: 99 }, index.namespace));
+});
+
+test('resource lookup rejects a missing exact path even when one basename candidate exists', () => {
+    const index = validateIndex(
+        {
+            formatVersion: 2,
+            namespace: 'inventory/default',
+            assets: {
+                'inventory/default/sprite/a/icon': {
+                    type: 'SpriteFrame',
+                    bundle: 'm-inventory',
+                    path: 'dynamic/a/icon/spriteFrame',
+                },
+            },
+        },
+        'inventory/default',
+    );
+    for (const name of ['icon', 'b/icon'])
+        assert.throws(() => resolveIndex(index, logicalKey(name, 'SpriteFrame', index.namespace)), {
+            code: 'ASSET_NOT_REGISTERED',
+        });
 });
 test('config writeback preserves unrelated ZIP payloads, formula text and styles and rejects stale versions', () =>
     fixture(async (root) => {

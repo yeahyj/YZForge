@@ -31,13 +31,12 @@ export class DataLabPage extends DataLabPageBinding {
                 `类型化 Key → ${address.bundle}\n${address.path}\n也可用相对名 icons/alpha/token。\nstatic 通过预制体直接引用，dynamic 自动编目。`,
             );
         });
-        bind(this.btnAmbiguous, async () => {
-            try {
-                await show.assets.resolve('token', 'SpriteFrame');
-                output('异常：同名资源未被拒绝。');
-            } catch (error) {
-                output(`预期歧义：${String(error)}\n请使用完整 Key 或 icons/alpha/token。`);
-            }
+        bind(this.btnPath, async () => {
+            const address = await show.assets.resolve('icons/beta/token', 'SpriteFrame');
+            await show.setSprite(this.sprPreview, 'icons/beta/token');
+            output(
+                `精确相对路径 → ${address.bundle}\n${address.path}\nicons/alpha/token 与 icons/beta/token 分别定位。\n字符串不按文件末段猜测资源。`,
+            );
         });
         bind(this.btnDefault, async () => {
             const table = await show.config.load(SamplesTable, { bundle: ShowcaseBundles.default });
@@ -101,7 +100,7 @@ export class DataLabPage extends DataLabPageBinding {
             output(`sfx 音量：${Math.round(next * 100)}%\n这里只调节音效通道，退出实验恢复原值。`);
         });
         output(
-            '右侧图片最初来自 static 序列化引用。\n动态按钮改用自动生成的 AssetKey。\n两份 token 同名：短名失败、完整 Key 明确。\nXLSX 覆盖枚举、数组、向量、颜色、外键和分片。',
+            '右侧图片最初来自 static 序列化引用。\n动态按钮改用自动生成的 AssetKey。\n两份 token 用各自的完整逻辑路径精确加载。\nXLSX 覆盖枚举、数组、向量、颜色、外键和分片。',
         );
     }
 }

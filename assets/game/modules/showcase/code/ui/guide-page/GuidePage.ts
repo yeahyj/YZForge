@@ -3,7 +3,7 @@ import type { ViewShowContext } from '../../../../../../framework/ui/ui-view';
 import { GuidePageBinding } from './generated/GuidePageBinding';
 import { WorkshopViews } from '../../../../workshop/public';
 const { ccclass } = _decorator;
-/** 运行时说明与真实源码一一对应；详细编辑流程见工作台“示例工作流”。 */
+/** 运行时说明与真实源码一一对应；详细编辑流程见 docs/development-workflow.md。 */
 @ccclass('showcase.GuidePage')
 export class GuidePage extends GuidePageBinding {
     protected onShow(show: ViewShowContext<void, void>): void {
@@ -54,6 +54,6 @@ export class GuidePage extends GuidePageBinding {
                 }),
         );
         this.lblOutput.string =
-            '正式流程：创建 → 配置 → 业务 → 交互 → 渲染 → 绑定 → 验证\n左上返回恢复上一页的新 show。\n工作台也提供源码定位、表格与绑定入口。\n完整说明：docs/development-workflow.md';
+            '正式流程：创建 → 配置 → 业务 → 交互 → 渲染 → 绑定 → 验证\n左上返回恢复上一页的新 show。\n工作台提供创建、表格与绑定入口。\n完整说明：docs/development-workflow.md';
     }
 }

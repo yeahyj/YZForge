@@ -87,7 +87,7 @@ export function startGame(_app: App, _boot: BootContext): void {}
 
 工作台备份位于**副本自己的** `.yzforge/trash`。恢复示例时先按依赖恢复 `profile`、`common`，再恢复 `lobby`、`workshop` 和 `showcase`，最后接回 `start-game.ts` 的首屏调用。已移到项目外的 XLSX 也需要归还到原路径。工作台会检查当前文件冲突，不应覆盖后续业务修改。
 
-`tests/examples/` 是可选的示例业务测试，可随示例一起归档；`npm run test:showcase` 需要示例存在。通用 `npm run verify` 不导入这些业务文件。工作台的“示例工作流”源码阅读在示例移除后会提示文件不存在，不影响创建、配置、绑定和恢复。
+`tests/examples/` 是可选的示例业务测试，可随示例一起归档；`npm run test:showcase` 需要示例存在。通用 `npm run verify` 不导入这些业务文件。工作台的创建、配置、绑定和恢复功能不依赖示例模块。
 
 ## 4. 开始自己的业务
 

@@ -84,16 +84,16 @@ export interface AssetAccess {
      * 查询资源在 Bundle 中的路径，不加载目标资源；查询索引本身可能产生加载。
      * 传生成的 AssetKey，或传相对名称及 Cocos 种类（例如 resolve("icons/coin", "SpriteFrame")）。
      * @param key - 生成的 AssetKey；完整键不依赖默认命名空间。
-     * @returns 资源地址；短名称重名时抛 ASSET_NAME_AMBIGUOUS，须改用相对路径或生成的键。
+     * @returns 资源地址；逻辑路径未登记时抛 ASSET_NOT_REGISTERED。
      */
     resolve<K extends AssetKind>(key: AssetKey<K>): Promise<AssetAddress<K>>;
 
     /**
      * 查询资源在 Bundle 中的路径，不加载目标资源；查询索引本身可能产生加载。
      * 传生成的 AssetKey，或传相对名称及 Cocos 种类（例如 resolve("icons/coin", "SpriteFrame")）。
-     * @param name - 相对资源名或包含子目录的路径；名称重名时请使用生成键或完整相对路径。
+     * @param name - 精确的相对逻辑路径，例如 coin 或 icons/coin；不会按文件末段搜索。
      * @param type - Cocos 资源种类，例如 SpriteFrame；字符串形式必须提供。
-     * @returns 资源地址；短名称重名时抛 ASSET_NAME_AMBIGUOUS，须改用相对路径或生成的键。
+     * @returns 资源地址；逻辑路径未登记时抛 ASSET_NOT_REGISTERED。
      */
     resolve(name: string, type: AssetKind): Promise<AssetAddress>;
 
@@ -102,7 +102,7 @@ export interface AssetAccess {
      * 优先传生成的 AssetKey；字符串写法例如 load("icons/coin", "SpriteFrame")。
      * @param key - 生成的 AssetKey；完整键不依赖默认命名空间。
      * @returns 加载后的 Cocos 资源，不会自动实例化或播放。
-     * @throws OperationCancelled 当前 scope 取消；名称歧义、未登记及引擎加载失败也会拒绝。
+     * @throws OperationCancelled 当前 scope 取消；未登记及引擎加载失败也会拒绝。
      * @remarks 直接赋图时需处理先后请求竞争，推荐 setSprite 自动处理最新请求及引用释放。
      */
     load<K extends AssetKind>(key: AssetKey<K>): Promise<AssetTypes[K]>;
@@ -110,10 +110,10 @@ export interface AssetAccess {
     /**
      * 按资源键或相对名称加载，类型由键或第二个 type 参数推导，引用由当前 scope 持有。
      * 优先传生成的 AssetKey；字符串写法例如 load("icons/coin", "SpriteFrame")。
-     * @param name - 相对资源名或包含子目录的路径；名称重名时请使用生成键或完整相对路径。
+     * @param name - 精确的相对逻辑路径，例如 coin 或 icons/coin；不会按文件末段搜索。
      * @param type - Cocos 资源种类，例如 SpriteFrame；字符串形式必须提供。
      * @returns 加载后的 Cocos 资源，不会自动实例化或播放。
-     * @throws OperationCancelled 当前 scope 取消；名称歧义、未登记及引擎加载失败也会拒绝。
+     * @throws OperationCancelled 当前 scope 取消；未登记及引擎加载失败也会拒绝。
      * @remarks 直接赋图时需处理先后请求竞争，推荐 setSprite 自动处理最新请求及引用释放。
      */
     load<K extends AssetKind>(name: string, type: K): Promise<AssetTypes[K]>;

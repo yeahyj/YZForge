@@ -39,8 +39,7 @@ npm run test:showcase
 | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [verify-workbench.mjs](../tests/integration/verify-workbench.mjs)                           | Creator 与 MCP 已连接；创建临时模块，检查脚本、Part、绑定、XLSX、删除及恢复。成功后回收，失败保留现场；`--keep-for-build` 可保留夹具供构建检查。 |
 | [verify-creation.mjs](../tests/integration/verify-creation.mjs)                             | Creator 与 MCP 已连接；创建中断、残留清理、后续修改冲突、生成错误与创建成果分离。                                                                |
-| [verify-panel.mjs](../tests/integration/verify-panel.mjs)                                   | 保留示例数据；检查真实工作台预览、草稿、设置及生成恢复。                                                                                         |
-| [verify-showcase-editor.mjs](../tests/integration/verify-showcase-editor.mjs)               | 保留 workshop 示例；检查步骤、源码阅读和跳转。                                                                                                   |
+| [verify-panel.mjs](../tests/integration/verify-panel.mjs)                                   | 保留示例数据；检查真实工作台预览、页面公开范围、草稿、设置及生成恢复。                                                                           |
 | [verify-preview.mjs](../tests/integration/verify-preview.mjs)                               | Bootstrap 已在 Game View 运行且保留大厅示例；检查 UI、结果与生命周期。                                                                           |
 | [verify-build.mjs](../tests/integration/verify-build.mjs)                                   | 保留大厅示例，用 `serve-build.mjs` 启动构建产物并传入 URL；可选第二个参数为工作台测试模块 ID，额外检查 Part 代码按需加载。                       |
 | [verify-runtime.mjs](../tests/integration/verify-runtime.mjs)                               | 参数传入 Web 运行 URL，保留大厅示例；在独立窗口执行底层运行时回归。                                                                              |

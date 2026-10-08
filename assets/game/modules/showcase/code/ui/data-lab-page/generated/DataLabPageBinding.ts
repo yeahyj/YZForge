@@ -2,15 +2,19 @@
 import { _decorator, Button, Node, Label, Sprite } from 'cc';
 import { UIView } from '../../../../../../../framework/ui/ui-view';
 import type { DataLabPageParams, DataLabPageResult } from '../DataLabPage.types';
+
 const { ccclass, property } = _decorator;
 /** 自动绑定基类；由 Creator 根据节点命名写入引用，业务继承后直接使用受保护的节点 getter。 */
 @ccclass('showcase.DataLabPageBinding')
 export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageResult> {
+    /** @internal 编辑器核对本次生成是否已编译，不用于业务逻辑。 */
+    static readonly __yzforgeBindingSignature: string =
+        'f261e65f5129b3bb11ef015fe3d0fdc7f5ba9a959346a0f140dec1138bdc4e5b';
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Button, visible: false })
     private _bindBtnBack: Button | null = null;
     /**
-     * 自动绑定节点 btn_back 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_back 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get btnBack(): Button {
@@ -20,7 +24,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Node, visible: false })
     private _bindNodeContent: Node | null = null;
     /**
-     * 自动绑定节点 node_content 的 Node；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 node_content 的 Node；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get nodeContent(): Node {
@@ -30,7 +34,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Button, visible: false })
     private _bindBtnResource: Button | null = null;
     /**
-     * 自动绑定节点 btn_resource 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_resource 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get btnResource(): Button {
@@ -38,19 +42,19 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Button, visible: false })
-    private _bindBtnAmbiguous: Button | null = null;
+    private _bindBtnPath: Button | null = null;
     /**
-     * 自动绑定节点 btn_ambiguous 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_path 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
-    protected get btnAmbiguous(): Button {
-        return this.requireBinding(this._bindBtnAmbiguous, 'btn_ambiguous');
+    protected get btnPath(): Button {
+        return this.requireBinding(this._bindBtnPath, 'btn_path');
     }
     /** @internal Creator 自动写入的序列化引用，无需手动拖节点；请勿手改生成字段。 */
     @property({ type: Button, visible: false })
     private _bindBtnDefault: Button | null = null;
     /**
-     * 自动绑定节点 btn_default 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_default 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get btnDefault(): Button {
@@ -60,7 +64,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Button, visible: false })
     private _bindBtnExtra: Button | null = null;
     /**
-     * 自动绑定节点 btn_extra 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_extra 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get btnExtra(): Button {
@@ -70,7 +74,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Button, visible: false })
     private _bindBtnPublic: Button | null = null;
     /**
-     * 自动绑定节点 btn_public 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_public 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get btnPublic(): Button {
@@ -80,7 +84,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Button, visible: false })
     private _bindBtnMany: Button | null = null;
     /**
-     * 自动绑定节点 btn_many 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_many 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get btnMany(): Button {
@@ -90,7 +94,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Button, visible: false })
     private _bindBtnAudio: Button | null = null;
     /**
-     * 自动绑定节点 btn_audio 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_audio 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get btnAudio(): Button {
@@ -100,7 +104,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Button, visible: false })
     private _bindBtnVolume: Button | null = null;
     /**
-     * 自动绑定节点 btn_volume 的 Button；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 btn_volume 的 Button；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get btnVolume(): Button {
@@ -110,7 +114,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Label, visible: false })
     private _bindLblOutput: Label | null = null;
     /**
-     * 自动绑定节点 lbl_output 的 Label；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 lbl_output 的 Label；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get lblOutput(): Label {
@@ -120,7 +124,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Node, visible: false })
     private _bindNodePreview: Node | null = null;
     /**
-     * 自动绑定节点 node_preview 的 Node；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 node_preview 的 Node；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get nodePreview(): Node {
@@ -130,7 +134,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
     @property({ type: Sprite, visible: false })
     private _bindSprPreview: Sprite | null = null;
     /**
-     * 自动绑定节点 spr_preview 的 Sprite；节点改名或增删后通过工作台更新绑定。
+     * 自动绑定节点 spr_preview 的 Sprite；节点改名、替换组件后通过工作台更新绑定。
      * @throws FrameworkError 引用缺失或已失效，需检查命名、组件和绑定结果。
      */
     protected get sprPreview(): Sprite {
@@ -141,7 +145,7 @@ export class DataLabPageBinding extends UIView<DataLabPageParams, DataLabPageRes
         void this.btnBack;
         void this.nodeContent;
         void this.btnResource;
-        void this.btnAmbiguous;
+        void this.btnPath;
         void this.btnDefault;
         void this.btnExtra;
         void this.btnPublic;

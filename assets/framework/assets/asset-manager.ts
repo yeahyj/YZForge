@@ -158,37 +158,37 @@ export class Assets {
     /**
      * 将资源键解析为 Bundle 地址；可能加载 Bundle 和索引 JSON，但不加载目标资源。
      * AssetKey 传完整 ID；字符串形式须另传 type、scope，可用 namespace 指定“模块/资源包”。
-     * 同名时使用包含子目录的名称或生成的 AssetKey，框架不会任意选择。
+     * 逻辑路径必须精确匹配；跨命名空间引用优先使用生成的 AssetKey。
      * @param key - 完整的类型化资源键；查询不加载目标资源。
      * @param scope - 本次解析等待的所有者，取消时终止本次等待。
      * @returns 当前发布版本下的只读资源地址。
-     * @throws FrameworkError 未登记、名称有歧义、种类不匹配或索引无效。
+     * @throws FrameworkError 未登记、种类不匹配或索引无效。
      * @throws OperationCancelled 所有者已取消或等待期间取消。
      */
     async resolve<K extends AssetKind>(key: AssetKey<K>, scope: Lifetime): Promise<AssetAddress<K>>;
     /**
      * 将资源键解析为 Bundle 地址；可能加载 Bundle 和索引 JSON，但不加载目标资源。
      * AssetKey 传完整 ID；字符串形式须另传 type、scope，可用 namespace 指定“模块/资源包”。
-     * 同名时使用包含子目录的名称或生成的 AssetKey，框架不会任意选择。
-     * @param name - 相对资源名或包含子目录的路径；名称重名时请使用生成键或完整相对路径。
+     * 逻辑路径必须精确匹配；跨命名空间引用优先使用生成的 AssetKey。
+     * @param name - 精确的相对逻辑路径，例如 coin 或 icons/coin；不会按文件末段搜索。
      * @param type - Cocos 资源种类，例如 SpriteFrame；字符串形式必须提供。
      * @param scope - 本次解析等待的所有者，取消时终止本次等待。
      * @param namespace - 可选“模块/资源包”，例如 lobby/default；未提供时 name 必须是完整逻辑 ID。
      * @returns 当前发布版本下的只读资源地址。
-     * @throws FrameworkError 未登记、名称有歧义、种类不匹配或索引无效。
+     * @throws FrameworkError 未登记、种类不匹配或索引无效。
      * @throws OperationCancelled 所有者已取消或等待期间取消。
      */
     async resolve(name: string, type: AssetKind, scope: Lifetime, namespace?: string): Promise<AssetAddress>;
     /**
      * 将资源键解析为 Bundle 地址；可能加载 Bundle 和索引 JSON，但不加载目标资源。
      * AssetKey 传完整 ID；字符串形式须另传 type、scope，可用 namespace 指定“模块/资源包”。
-     * 同名时使用包含子目录的名称或生成的 AssetKey，框架不会任意选择。
+     * 逻辑路径必须精确匹配；跨命名空间引用优先使用生成的 AssetKey。
      * @param keyOrName - 生成的 AssetKey 或资源名称；字符串形式需要同时提供资源种类。
      * @param typeOrScope - 键形式传 Scope，字符串形式传资源种类。
      * @param explicitScope - 字符串形式的等待所有者。
      * @param namespace - 可选“模块/资源包”，例如 lobby/default；未提供时 name 必须是完整逻辑 ID。
      * @returns 当前发布版本下的只读资源地址。
-     * @throws FrameworkError 未登记、名称有歧义、种类不匹配或索引无效。
+     * @throws FrameworkError 未登记、种类不匹配或索引无效。
      * @throws OperationCancelled 所有者已取消或等待期间取消。
      */
     async resolve(
@@ -218,7 +218,7 @@ export class Assets {
         }
         const index = await untilCancelled(pending, owner.signal);
         return Object.freeze({
-            ...resolveIndex(index, key, typeof keyOrName === 'string'),
+            ...resolveIndex(index, key),
             revision: this.release.releaseId,
         });
     }
@@ -579,15 +579,15 @@ export class ScopedAssets implements AssetAccess {
      * 查询资源在 Bundle 中的路径，不加载目标资源；查询索引本身可能产生加载。
      * 传生成的 AssetKey，或传相对名称及 Cocos 种类（例如 resolve("icons/coin", "SpriteFrame")）。
      * @param key - 生成的 AssetKey；完整键不依赖默认命名空间。
-     * @returns 资源地址；短名称重名时抛 ASSET_NAME_AMBIGUOUS，须改用相对路径或生成的键。
+     * @returns 资源地址；逻辑路径未登记时抛 ASSET_NOT_REGISTERED。
      */
     resolve<K extends AssetKind>(key: AssetKey<K>): Promise<AssetAddress<K>>;
     /**
      * 查询资源在 Bundle 中的路径，不加载目标资源；查询索引本身可能产生加载。
      * 传生成的 AssetKey，或传相对名称及 Cocos 种类（例如 resolve("icons/coin", "SpriteFrame")）。
-     * @param name - 相对资源名或包含子目录的路径；名称重名时请使用生成键或完整相对路径。
+     * @param name - 精确的相对逻辑路径，例如 coin 或 icons/coin；不会按文件末段搜索。
      * @param type - Cocos 资源种类，例如 SpriteFrame；字符串形式必须提供。
-     * @returns 资源地址；短名称重名时抛 ASSET_NAME_AMBIGUOUS，须改用相对路径或生成的键。
+     * @returns 资源地址；逻辑路径未登记时抛 ASSET_NOT_REGISTERED。
      */
     resolve(name: string, type: AssetKind): Promise<AssetAddress>;
     /**
@@ -595,7 +595,7 @@ export class ScopedAssets implements AssetAccess {
      * 传生成的 AssetKey，或传相对名称及 Cocos 种类（例如 resolve("icons/coin", "SpriteFrame")）。
      * @param key - 生成的 AssetKey；完整键不依赖默认命名空间。
      * @param type - Cocos 资源种类，例如 SpriteFrame；字符串形式必须提供。
-     * @returns 资源地址；短名称重名时抛 ASSET_NAME_AMBIGUOUS，须改用相对路径或生成的键。
+     * @returns 资源地址；逻辑路径未登记时抛 ASSET_NOT_REGISTERED。
      */
     resolve(key: AssetKey | string, type?: AssetKind): Promise<AssetAddress> {
         return typeof key === 'string'
@@ -607,17 +607,17 @@ export class ScopedAssets implements AssetAccess {
      * 优先传生成的 AssetKey；字符串写法例如 load("icons/coin", "SpriteFrame")。
      * @param key - 生成的 AssetKey；完整键不依赖默认命名空间。
      * @returns 加载后的 Cocos 资源，不会自动实例化或播放。
-     * @throws OperationCancelled 当前 scope 取消；名称歧义、未登记及引擎加载失败也会拒绝。
+     * @throws OperationCancelled 当前 scope 取消；未登记及引擎加载失败也会拒绝。
      * @remarks 直接赋图时需处理先后请求竞争，推荐 setSprite 自动处理最新请求及引用释放。
      */
     load<K extends AssetKind>(key: AssetKey<K>): Promise<AssetTypes[K]>;
     /**
      * 按资源键或相对名称加载，类型由键或第二个 type 参数推导，引用由当前 scope 持有。
      * 优先传生成的 AssetKey；字符串写法例如 load("icons/coin", "SpriteFrame")。
-     * @param name - 相对资源名或包含子目录的路径；名称重名时请使用生成键或完整相对路径。
+     * @param name - 精确的相对逻辑路径，例如 coin 或 icons/coin；不会按文件末段搜索。
      * @param type - Cocos 资源种类，例如 SpriteFrame；字符串形式必须提供。
      * @returns 加载后的 Cocos 资源，不会自动实例化或播放。
-     * @throws OperationCancelled 当前 scope 取消；名称歧义、未登记及引擎加载失败也会拒绝。
+     * @throws OperationCancelled 当前 scope 取消；未登记及引擎加载失败也会拒绝。
      * @remarks 直接赋图时需处理先后请求竞争，推荐 setSprite 自动处理最新请求及引用释放。
      */
     load<K extends AssetKind>(name: string, type: K): Promise<AssetTypes[K]>;
@@ -627,7 +627,7 @@ export class ScopedAssets implements AssetAccess {
      * @param key - 生成的 AssetKey；完整键不依赖默认命名空间。
      * @param type - Cocos 资源种类，例如 SpriteFrame；字符串形式必须提供。
      * @returns 加载后的 Cocos 资源，不会自动实例化或播放。
-     * @throws OperationCancelled 当前 scope 取消；名称歧义、未登记及引擎加载失败也会拒绝。
+     * @throws OperationCancelled 当前 scope 取消；未登记及引擎加载失败也会拒绝。
      * @remarks 直接赋图时需处理先后请求竞争，推荐 setSprite 自动处理最新请求及引用释放。
      */
     load(key: AssetKey | string, type?: AssetKind): Promise<Asset> {

@@ -67,7 +67,7 @@ export interface AssetTypes {
 export type AssetKind = keyof AssetTypes;
 /**
  * 资源的公开类型合同：稳定的逻辑 ID 加资源种类，不包含资源对象，也不会在 import 时下载资源。
- * 优先使用自动扫描 dynamic 目录生成的常量，避免手写名称和同名歧义。
+ * 优先使用自动扫描 dynamic 目录生成的常量，避免手写逻辑 ID。
  * @typeParam K - 资源种类，决定加载结果的 Cocos 类型。
  */
 export interface AssetKey<K extends AssetKind = AssetKind> {
@@ -155,11 +155,6 @@ export interface NamespaceIndex {
      * 完整逻辑 ID 到实际资源地址的映射；相同文件名可以用不同相对路径区分。
      */
     readonly assets: Readonly<Record<string, AssetAddress>>;
-    /**
-     * 可选别名映射：别名完整 ID → 当前索引的目标完整 ID。
-     * 别名不能覆盖现有 ID，也不能再次指向别名。
-     */
-    readonly aliases?: Readonly<Record<string, string>>;
 }
 /**
  * 一份配置表 JSON 数据在某个资源包中的路由。

@@ -112,7 +112,6 @@ export async function scanCatalog(root, modules, metadata, sources) {
     return {
         formatVersion: 2,
         entries: Object.fromEntries(Object.entries(entries).sort(([a], [b]) => a.localeCompare(b))),
-        aliases: previous.aliases ?? {},
     };
 }
 /** Read-only serialization analysis; never rewrites .prefab/.scene/.meta. */
