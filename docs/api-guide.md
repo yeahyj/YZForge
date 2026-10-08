@@ -290,11 +290,15 @@ if (result.status === 'completed') {
 
 `show.ui.open` 等待局部界面打开，`handle.result` 等待结束。默认持有期为当前 show，也可传 `{ owner: task.scope }` 缩短到任务，不能传入其他会话或祖先 Scope。`completed` 来自 `show.finish`，`cancelled` 来自取消/外部关闭，`failed` 提供错误和 `cleanupPending`；后者为 `true` 时实际清理仍未结束。
 
-页面内调用 `show.ui.back()`。外部流程使用 `await app.ui.back().completed` 等待返回完成；`back()` 本身返回非 Promise 的请求句柄，不能再用 `await app.ui.back()` 表示清理完成。连续对同一栈顶发出返回请求只关闭该页。`handle.close()` 的 Promise 也只供外部协调等待，不要在该界面自己的受管回调中等待它。
+页面内调用 `show.ui.back()`。外部流程使用 `await app.ui.back().completed` 等待交接和旧页清理完成；上一页会更早恢复显示与交互。`back()` 本身返回非 Promise 的请求句柄，不能用 `await app.ui.back()` 表示清理完成。对同一次待完成返回的重复请求合并，不排队多退一页；交接后再返回属于新栈顶的操作。`handle.close()` 的 Promise 也只供外部协调等待，不要在该界面自己的受管回调中等待它。
+
+页面前进与正常返回统一为“准备 → 同步交接 → 异步清理”。准备时保留当前页的显示期和资源，只停止输入；目标的 `onShow` 和必要组件资源均就绪后，同步切换可见性、输入与页面栈，再取消并清理旧显示。`show.finish/dismiss`、外部 `handle.close()` 结束栈顶页也遵循此规则。所有者取消、应用关闭与运行故障仍立即取消，不为保留画面延长已结束的期限。
+
+返回准备失败时保留当前页和原页面栈，只清理失败的那次准备；清理中重试返回会报 `UI_CLEANUP_PENDING`，清理完成后可重新尝试。交接后的旧页清理失败会上报错误、使 `completed` 拒绝，已显示页面不回退。`onHide` 只承担旧显示清理，不作为新页面读取业务数据的前置步骤；业务变更应在导航前完成，需要持续变化的数据使用 Service 与显示期订阅。
 
 页面前进使用 `show.ui.pushPage(PageKey, 参数)`，返回 `opened` 或 `ignored/busy`，只等待切换，不提供下一页关闭结果。新页面继承页面栈的外部所有者；旧页面 show 被挂起取消时，新页面继续存在。下一页准备完成并再次核验来源后才入栈；慢加载期间返回会取消本次前进，源页面关闭也会撤销准备。失败保留原页；失败实例收尾中，同 Key 再次打开会报 `UI_CLEANUP_PENDING`，需等待收尾完成。
 
-`onShow`、非页面、非栈顶或不可交互状态不能发起导航；失效的 `show.ui.pushPage/open` 会拒绝，失效的 `back` 无操作。每次返回恢复页面都会取得全新的 show。避免在 Service 保存 `show.ui`。
+页面 `onShow` 期间不能导航或调用 `show.ui.open`，避免准备中的页面提前露出弹窗。非页面、非栈顶不能导航；导航准备期间源页面的再次前进返回 `ignored/busy`，返回则按取消前进或合并返回处理。失效的 `show.ui.pushPage/open` 会拒绝，失效的 `back` 无操作。每次返回恢复页面都会取得全新的 show。避免在 Service 保存 `show.ui`。
 
 ```ts
 // 页面可交互后的按钮回调中：

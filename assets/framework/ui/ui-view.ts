@@ -145,7 +145,9 @@ export class UIView<Params = void, Result = void> extends Component {
      */
     protected onCreate(_instance: ViewInstanceContext): void | Promise<void> {}
     /**
-     * 每次显示时调用，可异步准备配置与资源；成功结束后才进入可交互状态并开始 onTick。
+     * 每次显示前调用，可异步准备配置与资源；页面准备时保持隐藏，原页仍显示。
+     * 钩子及必要组件准备成功后才交接画面、进入可交互状态并开始 onTick。
+     * 此阶段不要导航或打开局部界面；需要用户交互的操作放在显示后的事件中。
      * @param _show 本次显示的参数、资源期限、时间与提交入口。
      * @example
      * protected async onShow(show: ViewShowContext<Params, Result>): Promise<void> {
@@ -156,6 +158,7 @@ export class UIView<Params = void, Result = void> extends Component {
     protected onShow(_show: ViewShowContext<Params, Result>): void | Promise<void> {}
     /**
      * 关闭或导航挂起时调用，可返回 Promise；框架先取消原 show、等待登记工作，再执行本钩子。
+     * 正常导航时下一页已经显示，只在此清理旧显示。业务状态应在导航前提交，由新页面订阅后续变化。
      * 不要在这里 await 同一界面的 result/close，以免等待自己。
      * @param _hide 隐藏原因和清理阶段 Scope。
      */

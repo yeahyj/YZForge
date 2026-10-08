@@ -2,7 +2,7 @@ import { BlockInputEvents, instantiate, isValid, Node, UIOpacity, UITransform, W
 import { Assets } from '../assets/asset-manager';
 import { destroyNode } from '../assets/node-lifetime';
 import { AssetKey } from '../assets/asset-types';
-import { untilCancelled } from '../core/cancellation';
+import { CancellationSource, untilCancelled } from '../core/cancellation';
 import { ClockDriver, foregroundDeadline } from '../core/clock-driver';
 import { ErrorReporter, FrameworkError, invariant, OperationCancelled, reportError } from '../core/errors';
 import { ComponentHost, type ComponentBinding } from '../components/component-binding';
@@ -100,6 +100,7 @@ export interface ViewHandle<T> {
     readonly result: Promise<ViewResult<T>>;
     /**
      * 从外部以 cancelled 结果请求关闭，可重复调用并等待实际清理。
+     * 栈顶页面会先准备上一页再交接画面；准备失败拒绝并保留当前页。
      * @returns 本次关闭流程完成的 Promise，不承载业务返回值。
      * @remarks 界面内部提交成功结果用 show.finish；不要在自己的受跟踪任务中 await 自身 close，以免互相等待。
      */
@@ -115,6 +116,7 @@ export interface ViewUI {
      * 打开局部界面，默认随当前 show 结束。owner 只允许是当前 show 或其子期限。
      * 任务内的确认弹窗可传 { owner: task.scope }，取消任务会关闭弹窗。
      * 返回时界面已打开；handle.result 才是最终选择。旧 show 调用会取消。
+     * 页面准备期间不能打开局部界面；在页面可交互后的事件中调用。
      */
     open<P, R>(key: LocalViewKey<P, R>, params: P, options?: { readonly owner?: Lifetime }): Promise<ViewHandle<R>>;
     /**
@@ -165,7 +167,8 @@ export interface ViewDefinition {
 /** 已发出的页面返回请求；本对象不是 Promise，页面点击回调发出请求后即可结束。 */
 export interface NavigationRequest {
     /**
-     * 外部协调器等待关闭和恢复完成的屏障；失败时拒绝。
+     * 外部协调器等待交接及旧页清理完成的屏障；上一页通常更早恢复显示与交互。
+     * 准备失败保留当前页；提交后的清理失败只拒绝此 Promise，不回退画面。
      * 不在即将关闭页面自己的受跟踪任务中等待此属性，否则该页面仍会等待该任务退出。
      */
     readonly completed: Promise<void>;
@@ -191,6 +194,8 @@ type RecordView = {
     loadingScope?: Scope;
     show?: ViewShowContext<unknown, unknown>;
     preparing: Promise<void>;
+    resetting?: Promise<void>;
+    leaving?: Promise<void>;
     closing?: Promise<void>;
     termination?: ViewResult<unknown>;
     published: boolean;
@@ -208,10 +213,13 @@ type RecordView = {
     pagePending: boolean;
 };
 type PendingPage = {
+    kind: 'push' | 'back';
+    owner: Lifetime;
     source?: RecordView;
     sourceShow?: ViewShowContext<unknown, unknown>;
     target?: RecordView;
-    cancelled: boolean;
+    targetShow?: ViewShowContext<unknown, unknown>;
+    cancellation: CancellationSource;
     committed: boolean;
     detach: () => void;
 };
@@ -252,6 +260,9 @@ export class UIManager {
     private sequence = 0;
     private showing = 0;
     private accepting = true;
+    private readonly reportNavigation = (error: unknown) => {
+        if (!(error instanceof OperationCancelled)) this.report(error);
+    };
     /**
      * @internal
      * 由 App 创建 UI 层并接入资源、模块及时间服务。
@@ -371,7 +382,7 @@ export class UIManager {
         record.handle = Object.freeze({
             id: key.id,
             result,
-            close: () => this.requestClose(record, { status: 'cancelled' }),
+            close: () => this.requestEnd(record, { status: 'cancelled' }),
         });
         this.records.set(record.id, record);
         record.detach = owner.signal.onAbort(() => {
@@ -437,10 +448,12 @@ export class UIManager {
                     container.addChild(node);
                     if ((definition.modal ?? definition.kind === 'popup') && !node.getComponent(BlockInputEvents))
                         node.addComponent(BlockInputEvents);
-                    this.gate(instance, false);
+                    this.setVisible(instance, false);
+                    this.setInteractive(record, false);
                     node.active = true;
                     container.active = true;
-                    this.gate(instance, false);
+                    this.setVisible(instance, false);
+                    this.setInteractive(record, false);
                     // Cocos activates the whole subtree synchronously before this call returns.
                     await view.__create({ scope: scope.lifetime, ctx: context });
                 } catch (error) {
@@ -451,7 +464,8 @@ export class UIManager {
                 }
             }
             if (record.termination) return;
-            await this.show(record);
+            await this.prepareShow(record);
+            if (!record.termination && !record.show?.signal.aborted && !record.pagePending) this.activateShow(record);
         });
         void record.preparing.catch((error) => {
             if (error instanceof OperationCancelled && record.termination) return;
@@ -492,7 +506,7 @@ export class UIManager {
             throw record.termination?.status === 'failed' ? record.termination.error : error;
         }
     }
-    private async show(record: RecordView): Promise<void> {
+    private async prepareShow(record: RecordView): Promise<void> {
         const instance = record.instance!;
         const scope = instance.scope.child(`show:${++this.showing}`);
         const isCurrent = () => record.show === context && !record.termination && !record.suspended;
@@ -540,11 +554,11 @@ export class UIManager {
             setSprite: (sprite, key) => runTask(scope, () => scopedAssets.setSprite(sprite, key), isCurrent),
             finish: (value) => {
                 if (isCurrent() && !scope.signal.aborted)
-                    void this.requestClose(record, { status: 'completed', value }).catch(this.report);
+                    void this.requestEnd(record, { status: 'completed', value }).catch(this.reportNavigation);
             },
             dismiss: () => {
                 if (isCurrent() && !scope.signal.aborted)
-                    void this.requestClose(record, { status: 'cancelled' }).catch(this.report);
+                    void this.requestEnd(record, { status: 'cancelled' }).catch(this.reportNavigation);
             },
         });
         record.show = context;
@@ -554,21 +568,16 @@ export class UIManager {
             void this.requestClose(record, { status: 'failed', error, cleanupPending: false }).catch(this.report);
         });
         instance.node.active = true;
-        this.gate(instance, false);
+        this.setVisible(instance, false);
+        this.setInteractive(record, false);
         await runTask(scope, () => instance.view.__show(context), isCurrent, 'onShow');
-        if (record.termination || scope.signal.aborted || record.pagePending) return;
-        await this.prepareActivation(record);
         if (record.termination || scope.signal.aborted) return;
-        this.activateShow(record);
-    }
-    private async prepareActivation(record: RecordView): Promise<void> {
-        await record.instance!.host.prepare();
+        await instance.host.prepare();
     }
     private activateShow(record: RecordView): void {
         const instance = record.instance!;
-        record.interactive = true;
-        this.gate(instance, true);
-        instance.view.__interactive(record.show);
+        this.setVisible(instance, true);
+        this.setInteractive(record, true);
         this.updateInput();
     }
 
@@ -581,7 +590,8 @@ export class UIManager {
             check();
             invariant(record.definition.kind === 'page', 'UI_NOT_PAGE', 'Navigation belongs to a page');
             invariant(
-                record.interactive && this.pages[this.pages.length - 1] === record,
+                (record.interactive || this.pendingPage?.source === record) &&
+                    this.pages[this.pages.length - 1] === record,
                 'UI_NAVIGATION_NOT_READY',
                 'Navigate from the interactive top page, after onShow completes',
             );
@@ -589,13 +599,14 @@ export class UIManager {
         return Object.freeze({
             open: async <P, R>(key: LocalViewKey<P, R>, params: P, options?: { readonly owner?: Lifetime }) => {
                 check();
+                if (record.definition.kind === 'page') checkPage();
                 const owner = options?.owner ?? scope;
                 invariant(scopeOwner(scope).owns(owner), 'UI_OWNER_OUTSIDE_SHOW', 'Local UI cannot outlive its show');
                 return this.open(key, params, owner);
             },
             pushPage: async <P, R>(key: PageKey<P, R>, params: P): Promise<PageNavigationResult> => {
                 checkPage();
-                if (this.pendingPage) return { status: 'ignored', reason: 'busy' };
+                if (this.pendingPage || record.leaving) return { status: 'ignored', reason: 'busy' };
                 await this.pushPage(key, params, record.owner);
                 return { status: 'opened' };
             },
@@ -610,10 +621,9 @@ export class UIManager {
         if (record.settled) return record.closing ?? Promise.resolve();
         if (!record.termination || outcome.status === 'failed') record.termination = outcome;
         if (record.closing) return record.closing;
-        record.interactive = false;
+        this.setInteractive(record, false);
         if (record.instance) {
-            this.gate(record.instance, false);
-            record.instance.view.__interactive(undefined);
+            this.setVisible(record.instance, false);
             record.instance.host.allow(undefined);
         }
         if (record.show) scopeOwner(record.show.scope).cancel();
@@ -686,9 +696,8 @@ export class UIManager {
     private async hide(record: RecordView, reason: 'completed' | 'cancelled' | 'failed' | 'suspended'): Promise<void> {
         const instance = record.instance!,
             show = record.show;
-        record.interactive = false;
-        this.gate(instance, false);
-        instance.view.__interactive(undefined);
+        this.setInteractive(record, false);
+        this.setVisible(instance, false);
         instance.host.allow(undefined);
         if (!show) return;
         scopeOwner(show.scope).cancel();
@@ -696,7 +705,6 @@ export class UIManager {
         const fault = results.find(
             (result) => result.status === 'rejected' && !(result.reason instanceof OperationCancelled),
         ) as PromiseRejectedResult | undefined;
-        if (fault) record.termination = { status: 'failed', error: fault.reason, cleanupPending: false };
         await Promise.all(instance.components.map((component) => component.__deactivate()));
         const hiding = instance.scope.child('hide');
         try {
@@ -706,16 +714,23 @@ export class UIManager {
             await scopeOwner(show.scope).close();
             record.show = undefined;
         }
+        if (fault) throw fault.reason;
     }
     private settle(record: RecordView): void {
         if (record.settled) return;
         record.settled = true;
         record.resolve(record.termination ?? { status: 'cancelled' });
     }
-    private gate(instance: Instance, visible: boolean): void {
+    private setVisible(instance: Instance, visible: boolean): void {
         if (!isValid(instance.node, true)) return;
         if (isValid(instance.container, true)) instance.container.getComponent(UIOpacity)!.opacity = visible ? 255 : 0;
-        if (visible) instance.node.resumeSystemEvents(true);
+    }
+    private setInteractive(record: RecordView, enabled: boolean): void {
+        record.interactive = enabled;
+        const instance = record.instance;
+        if (!instance || !isValid(instance.node, true)) return;
+        instance.view.__interactive(enabled ? record.show : undefined);
+        if (enabled) instance.node.resumeSystemEvents(true);
         else instance.node.pauseSystemEvents(true);
     }
     private updateInput(): void {
@@ -762,11 +777,191 @@ export class UIManager {
         this.navigation = next.catch(() => {});
         return next;
     }
+    private beginNavigation(kind: PendingPage['kind'], source: RecordView | undefined, owner: Lifetime): PendingPage {
+        owner.signal.throwIfAborted();
+        invariant(this.accepting, 'APP_STOPPING', 'UI is shutting down');
+        invariant(!this.pendingPage, 'UI_NAVIGATION_BUSY', 'A page navigation is already in progress');
+        const pending: PendingPage = {
+            kind,
+            owner,
+            source,
+            sourceShow: source?.show,
+            cancellation: new CancellationSource(this.report),
+            committed: false,
+            detach: () => {},
+        };
+        this.pendingPage = pending;
+        // 保留显示期及资源，只阻止输入；取消 show 会让多语言等组件提前清空画面。
+        if (source) this.setInteractive(source, false);
+        const offOwner = owner.signal.onAbort(() => this.cancelNavigation(pending));
+        const offSource = source?.show?.signal.onAbort(() => this.cancelNavigation(pending)) ?? (() => {});
+        pending.detach = () => {
+            offOwner();
+            offSource();
+        };
+        return pending;
+    }
+    private endNavigation(pending: PendingPage): void {
+        pending.detach();
+        if (this.pendingPage === pending) this.pendingPage = undefined;
+        const source = pending.source;
+        if (
+            !pending.committed &&
+            source &&
+            !source.termination &&
+            source.show === pending.sourceShow &&
+            !source.show?.signal.aborted &&
+            !source.owner.signal.aborted &&
+            this.accepting &&
+            this.pages[this.pages.length - 1] === source
+        )
+            this.setInteractive(source, true);
+        this.updateInput();
+    }
+    private checkNavigation(pending: PendingPage): void {
+        pending.cancellation.signal.throwIfAborted();
+        pending.owner.signal.throwIfAborted();
+        const source = pending.source;
+        if (
+            !this.accepting ||
+            this.pages[this.pages.length - 1] !== source ||
+            (source && (source.termination || source.show !== pending.sourceShow || source.show?.signal.aborted))
+        )
+            throw new OperationCancelled('The navigation source has ended');
+    }
+    /** 可见性和页面栈在同一同步调用中提交；所有异步收尾在提交之后进行。 */
+    private commitPage(pending: PendingPage): void {
+        this.checkNavigation(pending);
+        const target = pending.target;
+        if (target && (target.termination || !target.show || target.show.signal.aborted || target.owner.signal.aborted))
+            throw new OperationCancelled('The target page ended before navigation committed');
+        pending.committed = true;
+        pending.detach();
+        if (pending.source) {
+            this.setInteractive(pending.source, false);
+            this.setVisible(pending.source.instance!, false);
+            if (pending.kind === 'push') pending.source.suspended = true;
+        }
+        if (pending.kind === 'push') this.pages.push(target!);
+        else this.pages.pop();
+        this.endNavigation(pending);
+        if (target) {
+            target.pagePending = false;
+            this.activateShow(target);
+        }
+    }
+    /** 正常结束栈顶页走导航交接；所有者取消和故障仍直接 requestClose。 */
+    private requestEnd(record: RecordView, outcome: ViewResult<unknown>): Promise<void> {
+        if (record.leaving) return record.leaving;
+        if (
+            record.termination ||
+            !this.accepting ||
+            this.pages[this.pages.length - 1] !== record ||
+            (!record.interactive && this.pendingPage?.source !== record)
+        )
+            return this.requestClose(record, outcome);
+        if (this.pendingPage?.kind === 'push') this.cancelNavigation(this.pendingPage);
+        const switched = this.navigate(async () => {
+            if (record.termination || this.pages[this.pages.length - 1] !== record)
+                return { cleanup: record.closing ?? Promise.resolve() };
+            const pending = this.beginNavigation('back', record, record.owner);
+            const target = this.pages[this.pages.length - 2];
+            pending.target = target;
+            const detach = pending.detach;
+            const offTarget = target?.owner.signal.onAbort(() => this.cancelNavigation(pending)) ?? (() => {});
+            pending.detach = () => {
+                detach();
+                offTarget();
+            };
+            try {
+                if (target) {
+                    invariant(
+                        !target.resetting,
+                        'UI_CLEANUP_PENDING',
+                        `Previous preparation is draining: ${target.definition.id}`,
+                    );
+                    this.modules.assertCanOpen(target.definition.module, target.owner);
+                    target.preparing = target.preparing.then(async () => {
+                        this.checkNavigation(pending);
+                        if (target.termination || target.owner.signal.aborted)
+                            throw new OperationCancelled('The previous page has ended');
+                        const preparing = this.prepareShow(target);
+                        pending.targetShow = target.show;
+                        await preparing;
+                    });
+                    await untilCancelled(target.preparing, pending.cancellation.signal);
+                }
+                this.commitPage(pending);
+                // 清理的 Promise 作为值返回，不把帧末销毁等待塞进导航队列。
+                return { cleanup: this.requestClose(record, outcome) };
+            } catch (error) {
+                if (target && pending.targetShow && !target.termination && target.show === pending.targetShow)
+                    this.resetPreparation(target);
+                throw error;
+            } finally {
+                this.endNavigation(pending);
+            }
+        });
+        const completed = switched.then(async ({ cleanup }) => {
+            await cleanup;
+            if (record.termination?.status === 'failed') throw record.termination.error;
+        });
+        record.leaving = completed;
+        const clear = () => {
+            if (record.leaving === completed) record.leaving = undefined;
+        };
+        void completed.then(clear, clear);
+        return completed;
+    }
+    /** 失败只结束本次准备的显示期，保留上一页实例和栈位置，清理结束后可重试。 */
+    private resetPreparation(record: RecordView): void {
+        this.setInteractive(record, false);
+        this.setVisible(record.instance!, false);
+        record.suspended = true;
+        record.instance!.host.allow(undefined);
+        if (record.show) scopeOwner(record.show.scope).cancel();
+        let stop = () => {};
+        const resetting = record.preparing
+            .catch(() => {})
+            .then(async () => {
+                if (record.termination) return;
+                await this.hide(record, 'failed');
+                if (isValid(record.instance!.node, true)) record.instance!.node.active = false;
+            })
+            .catch((error: unknown) => {
+                void this.requestClose(record, { status: 'failed', error, cleanupPending: false }).catch(this.report);
+                this.report(error);
+            })
+            .finally(() => {
+                stop();
+                record.resetting = undefined;
+                if (!record.termination) {
+                    record.faultPending = false;
+                    this.blocked.delete(record.definition.id);
+                }
+            });
+        record.preparing = record.resetting = resetting;
+        stop = foregroundDeadline(this.clock, this.cleanupTimeoutMs, () => {
+            if (record.termination) return;
+            record.faultPending = true;
+            this.blocked.add(record.definition.id);
+            this.modules.quarantine(record.definition.module, resetting);
+            this.report(
+                new FrameworkError(
+                    'UI_CLEANUP_PENDING',
+                    `Previous preparation has not drained: ${record.definition.id}`,
+                ),
+            );
+        });
+    }
     private async resumeTop(): Promise<void> {
         const record = this.pages[this.pages.length - 1];
         if (!record || record.termination || !record.suspended || !this.accepting) return;
         record.preparing = record.preparing.then(async () => {
-            if (!record.termination && this.pages[this.pages.length - 1] === record) await this.show(record);
+            if (record.termination || this.pages[this.pages.length - 1] !== record) return;
+            await this.prepareShow(record);
+            if (!record.termination && !record.show?.signal.aborted && this.pages[this.pages.length - 1] === record)
+                this.activateShow(record);
         });
         try {
             await record.preparing;
@@ -781,6 +976,7 @@ export class UIManager {
      * @param owner - 页面所属导航会话；应覆盖该页的存活期，避免使用即将被暂停的上一页 show.scope。
      * @returns 新页面句柄，不等待页面结束或前一页全部清理完成。
      * @remarks 上一页暂停时结束旧 show.scope；返回后重新执行 onShow，并提供新的展示上下文。
+     * 准备期间保留源页面的显示与资源并停止输入；目标准备成功才同步交接，随后异步清理旧显示。
      * @throws FrameworkError 目标不是页面、已有导航准备中（UI_NAVIGATION_BUSY）或打开失败；取消错误与 open 一致。
      */
     async pushPage<P, R>(key: PageKey<P, R>, params: P, owner: Lifetime): Promise<ViewHandle<R>> {
@@ -788,32 +984,23 @@ export class UIManager {
         invariant(this.accepting, 'APP_STOPPING', 'UI is shutting down');
         invariant(!this.pendingPage, 'UI_NAVIGATION_BUSY', 'A page navigation is already in progress');
         const source = this.pages[this.pages.length - 1];
-        const pending: PendingPage = {
-            source,
-            sourceShow: source?.show,
-            cancelled: false,
-            committed: false,
-            detach: () => {},
-        };
-        this.pendingPage = pending;
-        const offOwner = owner.signal.onAbort(() => this.cancelNavigation(pending));
-        const offSource = source?.show?.signal.onAbort(() => this.cancelNavigation(pending)) ?? (() => {});
-        pending.detach = () => {
-            offOwner();
-            offSource();
-        };
-        try {
-            return await this.navigate(() => this.pushPageNow(key, params, owner, pending));
-        } finally {
-            pending.detach();
-            if (this.pendingPage === pending) this.pendingPage = undefined;
-        }
+        invariant(!source?.leaving, 'UI_NAVIGATION_BUSY', 'The current page is leaving');
+        const pending = this.beginNavigation('push', source, owner);
+        return this.navigate(async () => {
+            try {
+                return await this.pushPageNow(key, params, owner, pending);
+            } finally {
+                this.endNavigation(pending);
+            }
+        });
     }
 
     private cancelNavigation(pending: PendingPage): void {
-        if (pending.committed || pending.cancelled) return;
-        pending.cancelled = true;
-        if (pending.target) void this.requestClose(pending.target, { status: 'cancelled' }).catch(this.report);
+        if (pending.committed || pending.cancellation.signal.aborted) return;
+        pending.cancellation.cancel();
+        if (pending.kind === 'push' && pending.target)
+            void this.requestClose(pending.target, { status: 'cancelled' }).catch(this.report);
+        else if (pending.targetShow) scopeOwner(pending.targetShow.scope).cancel();
     }
 
     private async pushPageNow<P, R>(
@@ -824,17 +1011,7 @@ export class UIManager {
     ): Promise<ViewHandle<R>> {
         invariant(this.definitions.get(key.id)?.kind === 'page', 'UI_NOT_PAGE', key.id);
         const previous = pending.source;
-        const check = () => {
-            owner.signal.throwIfAborted();
-            if (
-                pending.cancelled ||
-                !this.accepting ||
-                this.pages[this.pages.length - 1] !== previous ||
-                (previous &&
-                    (previous.termination || previous.show !== pending.sourceShow || previous.show?.signal.aborted))
-            )
-                throw new OperationCancelled('The navigation source has ended');
-        };
+        const check = () => this.checkNavigation(pending);
         check();
         let handle: ViewHandle<R>;
         try {
@@ -842,9 +1019,6 @@ export class UIManager {
             check();
             if (!pending.target || pending.target.termination)
                 throw new OperationCancelled('The target page ended before navigation committed');
-            // 子组件的语言和图片也须就绪，失败时保留旧页面。
-            await this.prepareActivation(pending.target);
-            check();
         } catch (error) {
             if (pending.target && !pending.target.termination && !(error instanceof OperationCancelled))
                 void this.requestClose(pending.target, { status: 'failed', error, cleanupPending: false }).catch(
@@ -853,15 +1027,8 @@ export class UIManager {
             this.cancelNavigation(pending);
             throw error;
         }
-        const current = pending.target;
-        // 提交后解除来源取消监听；挂起旧 show 不能再取消已就绪的新页面。
-        pending.committed = true;
-        pending.detach();
+        this.commitPage(pending);
         if (previous && !previous.termination) {
-            previous.suspended = true;
-            previous.interactive = false;
-            this.gate(previous.instance!, false);
-            previous.instance!.view.__interactive(undefined);
             if (previous.show) scopeOwner(previous.show.scope).cancel();
             // Do not wait here: the previous page's tracked click may itself be awaiting pushPage.
             previous.preparing = previous.preparing.then(async () => {
@@ -872,13 +1039,10 @@ export class UIManager {
                 void this.requestClose(previous, { status: 'failed', error, cleanupPending: false }).catch(this.report);
             });
         }
-        current.pagePending = false;
-        this.pages.push(current);
-        this.activateShow(current);
         return handle;
     }
     /**
-     * 串行关闭当前栈顶页面，然后恢复前一页；空栈时直接完成，只有一页时会关闭最后一页。
+     * 准备前一页后同步交接画面，再清理当前页；准备失败保留原页。空栈直接完成，单页关闭最后一页。
      * @returns 非 Promise 的请求句柄。按钮回调调用 back() 后即可结束；外部需要等待时使用 request.completed。
      * @example
      * show.listen(button.node, Button.EventType.CLICK, () => { show.ui.back(); });
@@ -886,19 +1050,14 @@ export class UIManager {
      */
     back(): NavigationRequest {
         const pending = this.pendingPage;
-        if (pending && !pending.committed) {
+        if (pending?.kind === 'push' && !pending.committed) {
             this.cancelNavigation(pending);
             // 本次返回只撤销尚未提交的前进，不顺带弹出来源页面。
             return Object.freeze({ completed: this.navigation.then(() => {}) });
         }
-        const requested = this.pages[this.pages.length - 1];
-        const completed = this.navigate(async () => {
-            const current = this.pages[this.pages.length - 1];
-            if (current !== requested) return; // 合并同一栈顶的重复返回请求，不关闭后来打开的页面。
-            if (current) await this.requestClose(current, { status: 'cancelled' });
-            await this.resumeTop();
-        });
-        void completed.catch(this.report);
+        const current = this.pages[this.pages.length - 1];
+        const completed = current ? this.requestEnd(current, { status: 'cancelled' }) : Promise.resolve();
+        void completed.catch(this.reportNavigation);
         return Object.freeze({ completed });
     }
     /**

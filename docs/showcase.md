@@ -54,7 +54,7 @@ node tests/integration/verify-ui-components.mjs http://127.0.0.1:7456/
 ## 可控失败与自动验证
 
 - `npm run test:showcase`：业务规则、写入失败一致性、领取去重、Presenter 确认/取消、跨模块状态刷新、订阅失败与结束后的解绑、模拟时间回收、存档故障。
-- `tests/integration/verify-showcase.mjs`：在真实 Cocos 运行时检查任务流程、导航、UI 结果、缓存、分包、资源持有、失败恢复及多屏适配，包含慢加载下的真实鼠标输入。
+- `tests/integration/verify-showcase.mjs`：在真实 Cocos 运行时检查任务流程、导航、UI 结果、缓存、分包、资源持有、失败恢复及多屏适配，包含慢加载下的真实鼠标输入。自动调用 `verify-return-navigation.mjs` 逐帧检查返回不出现空白或双页重叠，并覆盖多语言就绪、重复返回、准备失败、慢清理、清理错误、所有者取消和关机中断。
 - `tests/integration/verify-panel.mjs`：真实 Creator 工作台的创建预览、页面公开范围、草稿、设置与生成恢复。
 - `npm run verify`：通用框架的静态检查、生成一致性与回归测试；与可删除的示例业务测试分开。
 

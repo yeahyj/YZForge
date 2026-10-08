@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { call } from '../../tools/yzforge/mcp.mjs';
 import { preview, screenshot } from './preview.mjs';
 import { verifyNavigation } from './verify-navigation.mjs';
+import { verifyReturnNavigation, verifyNavigationShutdown } from './verify-return-navigation.mjs';
 const url = new URL(process.argv[2]);
 assert.equal(url.hostname, '127.0.0.1');
 process.env.YZFORGE_BUILT_RUNTIME = '1';
@@ -93,6 +94,7 @@ try {
         return { modules: state.modules, bundles: state.assets.bundles };
     });
     await verifyNavigation({ run, stage, back });
+    await verifyReturnNavigation({ run, stage, back });
     await stage('configuration, exact resource paths, shards and audio', async () => {
         await pointerClick('showcase.showcase-page', '_bindBtnData');
         await run("await until(()=>record('showcase.data-lab-page')?.interactive);return true;");
@@ -160,7 +162,8 @@ globalThis.__showcaseGate=gate;return true;`);
             await run('await until(()=>globalThis.__showcaseGate.loads===1);return true;');
             await pointerClick('showcase.showcase-page', '_bindBtnTime');
             const state = await run(`
-const gate=globalThis.__showcaseGate;await until(()=>gate.clicks===2);gate.release();await app.ui.navigation;
+const gate=globalThis.__showcaseGate;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+check(gate.clicks===1&&!record('showcase.showcase-page').interactive,'Preparing page accepted another physical click');gate.release();await app.ui.navigation;
 check(JSON.stringify(app.ui.inspect().pages)===JSON.stringify(['showcase.showcase-page','showcase.data-lab-page']),'Second navigation unexpectedly queued a page');
 return {physicalClicks:gate.clicks,pages:app.ui.inspect().pages};`);
             await back();
@@ -336,7 +339,7 @@ try{
         assert.match(batch, /持有表条目：0 → 0/);
         await run('await until(()=>app.inspect().config.length===0);return true;');
         await run(
-            "click('showcase.async-lab-page','_bindBtnLeave');await until(()=>record('showcase.showcase-page')?.interactive);check(record('showcase.showcase-page').instance.view._bindLblOutput.string.includes('已拦截过期回写 1 次'),'stale commit not reported');return true;",
+            "const source=record('showcase.async-lab-page');click('showcase.async-lab-page','_bindBtnLeave');await until(()=>record('showcase.showcase-page')?.interactive);await source.handle.result;await until(()=>record('showcase.showcase-page').instance.view._bindLblOutput.string.includes('已拦截过期回写 1 次'));return true;",
         );
         return outputs;
     });
@@ -372,7 +375,7 @@ try{
         await back();
         await go('_bindBtnLegacy', 'lobby.dashboard');
         await run(
-            "click('lobby.dashboard','_bindBtnBack');await until(()=>record('showcase.showcase-page')?.interactive);return true;",
+            "const source=record('lobby.dashboard');click('lobby.dashboard','_bindBtnBack');await until(()=>record('showcase.showcase-page')?.interactive);await source.handle.result;return true;",
         );
         const baseline = await run(
             'return {resources:app.inspect().assets.resources.length,config:app.inspect().config.length,modules:app.inspect().modules.map(m=>m.id)};',
@@ -423,7 +426,8 @@ try{
     await run(
         "check(record('workshop.workflow-page').instance.view._bindLblOutput.string.includes('训练 1 次 · 余额 20'),'platform save did not survive application reload');return true;",
     );
-    const closed = await run('await app.close();await app.close();return app.inspect();');
+    await verifyNavigationShutdown({ run, stage, back });
+    const closed = await run('await app.close();return app.inspect();');
     assert.equal(closed.scope.state, 'closed');
     assert.deepEqual(closed.scope.children, []);
     assert.deepEqual(closed.modules, []);

@@ -4,6 +4,7 @@ import { ShowcaseViews } from '../../generated/views';
 import { WorkshopViews } from '../../../../workshop/public';
 import { LobbyViews } from '../../../../lobby/public';
 import { ShowcaseServices } from '../../ShowcaseServices';
+import { ShowcaseChanged } from '../../services/ShowcaseService';
 import { ShowcasePageBinding } from './generated/ShowcasePageBinding';
 import { Badge } from '../../../../../../framework/ui/components/badge/badge';
 import { TaskBadges } from '../../../../workshop/public';
@@ -11,6 +12,9 @@ const { ccclass } = _decorator;
 /** 展示应用入口；这是可删除的示例业务，不是框架内置首页。 */
 @ccclass('showcase.ShowcasePage')
 export class ShowcasePage extends ShowcasePageBinding {
+    private workshopCodeReady = false;
+    private workshopBusinessReady = false;
+
     protected onShow(show: ViewShowContext<void, void>): void {
         this.nodeBadge.getComponent(Badge)!.bind(this.ctx.badges, TaskBadges, show.scope);
         this.btnBack.node.active = false;
@@ -38,7 +42,28 @@ export class ShowcasePage extends ShowcasePageBinding {
                         this.lblOutput.string = String(error);
                     }),
             );
+        // 旧页面的异步工作可能在首页恢复显示后才退出，统计必须持续订阅。
+        this.ctx.events.on(
+            ShowcaseChanged,
+            () => {
+                show.commit(() => this.refreshOutput());
+            },
+            show.scope,
+        );
+        this.refreshOutput();
+    }
+
+    protected onTick(): void {
+        // 诊断状态不是业务事件；只在模块加载/清理状态变化时重绘。
         const state = this.ctx.diagnostics.module('workshop');
+        if (state.codeReady !== this.workshopCodeReady || state.businessReady !== this.workshopBusinessReady)
+            this.refreshOutput();
+    }
+
+    private refreshOutput(): void {
+        const state = this.ctx.diagnostics.module('workshop');
+        this.workshopCodeReady = state.codeReady;
+        this.workshopBusinessReady = state.businessReady;
         const events = this.ctx.services(ShowcaseServices).showcase.snapshot();
         this.lblOutput.string = [
             '三种展示：可交互实验 / 编辑器工作流 / 边界与失败验证',

@@ -117,14 +117,16 @@ return {sourcePreserved:true,failedTargetRemoved:true};
     await stage('initialization cannot reenter navigation and staged page stays hidden', async () => {
         const result = await run(`
 const C=cc.js.getClassByName('showcase.DataLabPage'),original=C.prototype.onShow;
-let ready,release,denied;const prepared=new Promise(resolve=>ready=resolve),gate=new Promise(resolve=>release=resolve);
+let ready,release,denied,popupDenied;const prepared=new Promise(resolve=>ready=resolve),gate=new Promise(resolve=>release=resolve);
 C.prototype.onShow=async function(show){
 try{await show.ui.pushPage({id:'showcase.time-lab-page',kind:'page'},undefined);}catch(e){denied=e.code;}
+try{await show.ui.open({id:'showcase.confirm-popup',kind:'popup'},{title:'not ready',detail:''});}catch(e){popupDenied=e.code;}
 await original.call(this,show);ready();await gate;};
 try{const home=record('showcase.showcase-page');const pending=home.show.ui.pushPage({id:'showcase.data-lab-page',kind:'page'},undefined);
 await prepared;const target=record('showcase.data-lab-page');
 check(denied==='UI_NAVIGATION_NOT_READY','onShow reentered navigation');
-check(!target.interactive&&target.instance.container.getComponent(cc.UIOpacity).opacity===0&&home.interactive,'Uncommitted target became interactive');
+check(popupDenied==='UI_NAVIGATION_NOT_READY'&&!record('showcase.confirm-popup'),'Preparing page exposed a popup before handoff');
+check(!target.interactive&&target.instance.container.getComponent(cc.UIOpacity).opacity===0&&!home.interactive&&!home.show.signal.aborted&&home.instance.container.getComponent(cc.UIOpacity).opacity===255,'Preparation did not retain the source display while blocking input');
 release();check((await pending).status==='opened','Prepared target did not commit');
 return {reentryRejected:true,stagedHidden:true};
 }finally{release();C.prototype.onShow=original;}`);
