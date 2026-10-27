@@ -2,9 +2,9 @@
 
 基于 Cocos 的通用游戏框架，面向小游戏、Web 和原生项目。当前在 **PinK** 中开发，通过命令维护配置、源码和生成物。原生编辑能力与验证边界见 [PinK 工作流](docs/pink-workflow.md)；旧 Creator 工作台不作为 PinK 的操作依赖。
 
-可以直接复制本项目开始开发。项目自带可运行的示例，也支持清理示例后从空框架开始。
+本项目自带可运行的示例，可作为新项目的基础。当前 PinK 下尚无经过验证的完整示例清理流程，不能将本仓库视为已清空的模板。
 
-AI 协作入口见 [AGENTS.md](AGENTS.md)，按任务查找契约、现有工具与验证命令。
+AI 协作入口见 [AGENTS.md](AGENTS.md) 和 [AI 上手与交付](docs/ai-onboarding.md)，按任务查找契约、现有工具与验证命令。
 
 ## 功能
 
@@ -12,7 +12,7 @@ AI 协作入口见 [AGENTS.md](AGENTS.md)，按任务查找契约、现有工具
 | -------------- | --------------------------------------------------------------------------------------------------------- |
 | 模块与分包     | 组织业务模块，选择代码加载方式，管理模块依赖和 Cocos Bundle                                               |
 | UI 管理        | Page、Popup、Overlay、Toast、Loading；页面导航、界面参数和返回结果                                        |
-| 自动绑定       | 按节点命名生成类型化访问代码，并自动写入节点引用；支持界面和 Part                                         |
+| 自动绑定       | 已有示例展示绑定结果；PinK 下新建绑定和写入引用的直接接口尚未接通                                         |
 | 虚拟列表       | 纵向固定网格、变高列表、横向固定单行，支持 Part 复用、局部刷新和定位；见 [使用文档](docs/virtual-list.md) |
 | 通用 UI 组件   | 安全区 Widget、原生按钮/图片扩展、倒计时、子节点切换、超宽滚动文本；见 [使用文档](docs/ui-components.md)  |
 | 红点与数量     | 分组聚合、批量更新、页面/条目订阅清理；见 [使用文档](docs/badges.md)                                      |
@@ -37,7 +37,7 @@ AI 协作入口见 [AGENTS.md](AGENTS.md)，按任务查找契约、现有工具
 
 使用步骤：
 
-1. 将项目复制到新目录，保留 `.meta` 和项目设置，排除缓存、构建产物及本机配置。文件清单与标识设置见 [复制项目与清理示例](docs/copy-project.md)。
+1. 将项目复制到新目录，保留 `.meta` 和项目设置，排除缓存、构建产物及本机配置。参考[复制清单](docs/copy-project.md)，注意其中旧 Creator 操作不适用于当前 PinK 流程。
 2. 在项目根目录执行 `npm ci`。
 3. 用 PinK 打开项目，等待资源导入和脚本编译完成。
 4. 执行 `npm run yz -- doctor`、`npm run generate` 和 `npm run verify`，确认类型声明对应实际目标引擎。
@@ -53,7 +53,7 @@ AI 协作入口见 [AGENTS.md](AGENTS.md)，按任务查找契约、现有工具
 
 游戏版本、渠道、构建模式、服务环境以及地址、公开 AppID、SDK 参数统一维护在 `project-settings/game-config.json`。`npm run yz -- config set` 修改启动选择，`GameSettings` 只读取生成快照。默认本地存档共用，切换这些选项不会建立新存档。
 
-项目附带 `showcase`、`workshop`、`lobby`、`profile`、`common` 五个示例模块，展示功能实验、任务流程、界面交互、共享服务和公共配置。示例模块可以按需清理，具体见 [示例应用说明](docs/example-app.md)。
+项目附带 `showcase`、`workshop`、`lobby`、`profile`、`common` 五个示例模块，展示功能实验、任务流程、界面交互、共享服务和公共配置。示例职责见 [示例应用说明](docs/example-app.md)，当前清理限制见 [复制项目](docs/copy-project.md)。
 
 ## 项目结构
 
@@ -69,13 +69,13 @@ assets/
 extensions/yzforge-editor/        # Creator 工作台
 config-source/                   # XLSX 源工作簿
 project-settings/                # 参数、state/ 持久状态、snapshots/ 及 generated/
-settings/                        # Creator 项目设置及 Bundle 预设
+settings/                        # PinK 项目设置
 tools/yzforge/                   # 生成、校验和构建工具
 tests/                           # 自动化测试
 docs/                            # 使用文档
 ```
 
-包含代码与资源的模块使用以下结构；工作台按所选模块类型创建相应目录：
+包含代码与资源的模块通常使用以下结构；各类模块的实际创建能力见 [PinK 工作流](docs/pink-workflow.md)：
 
 ```text
 assets/game/modules/inventory/
@@ -99,19 +99,15 @@ assets/game/modules/inventory/
 
 ### 创建模块
 
-在工作台选择模块类型、依赖和资源包，确认文件预览后创建。模块可以包含业务代码、资源，也可以只包含其中一类。
+通过 `npm run yz -- create plan` 预览创建计划，再用返回的签名执行 `create apply`。当前支持 eager 纯代码模块；包含资源的模块和资源包需先确认已验证的 PinK 原生接口。完整范围和示例见 [PinK 工作流](docs/pink-workflow.md)。
 
-代码可以随应用加载，也可以通过代码 Bundle 按需加载。**加载代码与初始化业务是两个阶段**：代码模块在首次使用其 API 或打开所属界面时初始化业务。按需代码模块的入口由工作台生成。
+代码可以随应用加载，也可以通过代码 Bundle 按需加载。**加载代码与初始化业务是两个阶段**：代码模块在首次使用其 API 或打开所属界面时初始化业务。现有按需模块的入口由生成器维护。
 
 跨模块调用通过公开 API 或类型化事件完成。跨模块资源和配置使用公开的资源 Key、配置类型；模块内部实现放在自己的 `code` 目录。
 
 ### 创建界面与 Part
 
-在工作台选择 Page、Popup 等界面类型，或创建可复用的 Part。工作台自动补齐脚本和预制体后缀，并在创建前展示文件名及路径。
-
-在 Creator 中编辑预制体，用 `btn_confirm`、`lbl_title`、`spr_icon` 等名称标记需要访问的节点，再执行自动绑定。生成的 Binding 提供对应属性，节点引用由工作台写入，无需手动拖拽。
-
-原生前缀会识别实际挂载的项目子类；普通业务组件用 `comp_`。生成后可直接调用 `this.btnSubmit.run(...)`、`this.compState.updateCheck(1)`。多个匹配组件按 Inspector 顺序取第一个，详见[自动绑定文档](docs/auto-binding.md)。
+Page、Part、Prefab 创建和自动绑定尚未接通已验证的 PinK 直接接口。已有示例可帮助理解代码和绑定结果；缺少能力时报告限制，不使用旧 Creator MCP 或手改序列化文件。历史绑定规则见[自动绑定文档](docs/auto-binding.md)。
 
 界面脚本负责渲染和输入；复杂的显示流程可以交给 ViewModel，多个界面共享的业务状态放在模块 Service。UI 之间通过打开参数、返回结果或事件通信。
 
@@ -125,19 +121,19 @@ assets/game/modules/inventory/
 - 只通过场景或预制体序列化引用使用的资源放在 `static`。
 - 动态 Part 放在 `dynamic/prefabs`；仅用于嵌套引用的 Part 放在 `static/prefabs`。
 
-优先使用生成的 Key 加载资源，也支持当前命名空间内的路径或唯一短名；存在重名时会列出候选并报错。资源实际打包归属由 Bundle 配置和 Creator 的引用规则共同决定。
+优先使用生成的 Key 加载资源，也支持当前命名空间内的路径或唯一短名；存在重名时会列出候选并报错。资源实际打包归属由 Bundle 配置和引擎引用规则共同决定。
 
-代码与资源分别使用 **YZForge 代码配置**、**YZForge 资源配置** 两份 Bundle 预设，在 Creator 中统一调整各平台的交付方式。资源和配置的加载用法见 [API 使用指南](docs/api-guide.md)。
+资源包配置尚未接通已验证的 PinK 直接接口。资源和配置的加载用法见 [API 使用指南](docs/api-guide.md)。
 
 ### 制作配置表
 
-通过工作台创建或接入 XLSX，选择表、主键和目标资源包。工作簿的 `__config` 页保存导出设置，`__enums` 页定义枚举；数据表前四行依次填写字段名、类型、默认值和说明。
+已有业务资源包的 XLSX 源文件可通过创建计划建立。工作簿的 `__config` 页保存导出设置，`__enums` 页定义枚举；数据表前四行依次填写字段名、类型、默认值和说明。
 
 支持整数、浮点数、布尔值、字符串、命名枚举、外键、资源引用、向量、颜色、数组及可空类型。导出结果包括目标包内的 JSON 数据，以及 TypeScript 类型、枚举和加载入口。
 
 跨模块使用的表应公开其配置类型，调用方通过该类型加载数据，框架按发布路由定位资源包。公共配置可以归属项目选择的任意模块。
 
-含公式的工作簿需要先重算再正式导出。当前公式重算使用 **Windows 桌面 Excel COM**；工作台提供环境检查和重算操作。字段类型、枚举、分片与公式流程见 [XLSX 配置表制作](docs/config-tables.md)。
+含公式的工作簿需要先重算再正式导出。当前公式重算使用 **Windows 桌面 Excel COM**；命令见 [PinK 工作流](docs/pink-workflow.md)，字段类型、枚举和分片见 [XLSX 配置表制作](docs/config-tables.md)。
 
 ### 管理使用期限与时间
 
@@ -147,24 +143,13 @@ assets/game/modules/inventory/
 
 完整参数、生命周期和调用示例见 [API 使用指南](docs/api-guide.md)，也可在 VS Code 悬停查看源码中文注释。
 
-## 工作台与日常维护
+## 日常维护
 
-| 页面       | 用途                                                                                 |
-| ---------- | ------------------------------------------------------------------------------------ |
-| 创建内容   | 模块、资源包、界面、Part、普通预制体、Component、Service 和 XLSX；预览文件与命名冲突 |
-| 自动绑定   | 扫描节点、生成 Binding、写入引用，也可接入已有预制体                                 |
-| 配置表     | 选择导出目标、校验数据、预览、重算公式和导出                                         |
-| 项目设置   | 分包配置、应用标识、音频、日历及框架运行参数                                         |
-| 删除与恢复 | 检查引用、备份并删除模块或资源，处理恢复与冲突                                       |
-| 示例工作流 | 按步骤阅读任务示例源码，跳转到配置表与自动绑定                                       |
-
-资源和 XLSX 变化后会自动校验并更新生成文件，也可以在工作台手动触发生成和检查。删除模块、资源包或界面时使用工作台的引用检查与备份流程。
-
-场景、预制体和资源移动通过 Creator 完成。保留 `.meta`、`project-settings/generated` 和框架生成文件，并随源码提交，保证资源引用、逻辑身份和生成记录一致。
+使用 `npm run yz -- help` 查询命令，源声明变化后运行生成和检查。场景、预制体和资源移动只使用已验证的 PinK/Cocos CLI 直接接口，保留 UUID 并读回；能力不足时报告限制。保留 `.meta`、`project-settings/state` 和生成文件，保证资源引用、逻辑身份和生成记录一致。
 
 ## 常用命令
 
-首次运行检查前，先用 Creator 打开项目并等待导入完成，以生成引擎类型声明。
+首次运行完整检查前，先用目标 PinK 引擎打开项目并等待导入完成，再通过 `doctor` 核对引擎声明来源。
 
 | 命令                                      | 用途                                                   |
 | ----------------------------------------- | ------------------------------------------------------ |
@@ -177,9 +162,9 @@ assets/game/modules/inventory/
 | `npm run generate`                        | 生成资源清单、配置和 TypeScript 文件                   |
 | `npm test`                                | 运行自动化测试                                         |
 
-脚本使用 **4 个空格**缩进，JSON 和 Markdown 使用 **2 个空格**。VS Code 保存时执行格式化与 ESLint 修复；**Ctrl+Shift+B** 运行完整检查，**F5** 连接 Creator 浏览器预览进行调试。
+脚本使用 **4 个空格**缩进，JSON 和 Markdown 使用 **2 个空格**。VS Code 保存时执行格式化与 ESLint 修复；**Ctrl+Shift+B** 运行完整检查。
 
-构建前保存 `Bootstrap/GameRoot/GameSettings` 的版本、渠道、模式和环境，从 **YZForge → 游戏设置 → 导出构建参数** 导出并导入 Creator 构建面板，使用 `Bootstrap.scene` 启动。切换配置后重新导出，详细流程见 [游戏设置与 SDK](docs/game-settings-sdk.md)。框架在构建前检查源码和配置一致性，在构建后输出资源包与体积审计报告至 `.yzforge/build-reports`。
+构建前以 JSON 配置为准，生成并检查后使用 `config build-options` 导出参数。当前独立 Web 构建验收与主项目构建能力边界见 [PinK 工作流](docs/pink-workflow.md)。
 
 ## 文档
 

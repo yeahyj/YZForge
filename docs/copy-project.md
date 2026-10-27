@@ -1,5 +1,7 @@
 # 复制项目与清理示例
 
+> **当前 PinK 限制：** 下文的 Creator 3.8、工作台删除/恢复、MCP 和空项目验收步骤为历史流程，不能用于当前项目。PinK 尚无经过验证的完整示例删除与资源引用检查流程，因此不要照此强删模块或改写资产。复制时保留资源 UUID、生成归属与状态，按 [PinK 工作流](pink-workflow.md) 验证；需要真正的空项目时先解决原生删除和读回能力。下文的标识设置也需结合当前配置核对，启动选择以 `project-settings/game-config.json` 为准。
+
 本项目直接作为新项目模板使用。复制源码、安装依赖、打开 Creator，再替换业务入口即可；没有额外的框架安装或初始化步骤。示例可以保留学习，也可以通过工作台清理。
 
 ## 1. 复制哪些内容
@@ -15,7 +17,7 @@
 | `settings/`、`.creator/`                                                          | Creator 项目设置、代码/资源 Bundle 两份预设和默认导入设置 |
 | `package.json`、`package-lock.json`、`tsconfig*.json`                             | 项目身份、固定依赖和类型检查                              |
 | `.vscode/`、`.editorconfig`、`.gitattributes`、ESLint/Prettier 配置、`.gitignore` | 编辑器协作、换行、格式和检查规则                          |
-| `README.md`、`docs/`、`tests/`                                                    | 使用说明和框架回归验证                                    |
+| `AGENTS.md`、`README.md`、`docs/`、`tests/`                                       | AI 协作入口、使用说明和框架回归验证                       |
 | `.github/workflows/`                                                              | Windows、macOS、Linux 的 Node 自动验证与报告上传          |
 
 当前模板复制时排除：

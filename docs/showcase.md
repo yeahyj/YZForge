@@ -1,5 +1,7 @@
 # 功能展示与验证入口
 
+> 示例存在时可用于阅读源码和在 PinK 中预览；文中 Creator 工作台与 MCP 操作为历史流程，当前能力和验证范围见 [PinK 工作流](pink-workflow.md)。
+
 打开 `assets/game/boot/Bootstrap.scene` 预览。首页列表可滚动，子页面提供返回按钮和结果区域。示例直接使用框架的实际实现。
 
 ## 可交互演示

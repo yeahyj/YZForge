@@ -1,5 +1,7 @@
 # 自动绑定
 
+> 本文描述旧 Creator 工作台的绑定规则和已有生成结果。PinK 尚未接通并验证自动绑定及序列化引用写入；不要按下文操作工作台，也不要手改序列化文件绕过，当前能力见 [PinK 工作流](pink-workflow.md)。
+
 在节点挂组件并命名，保存预制体后，在 **YZForge 工作台 → 自动绑定** 选择界面或 Part，执行更新绑定。工作台生成 Binding 基类，并通过 Creator 写入序列化引用。业务直接调用 getter，无需手动拖拽，也无需重复 getComponent。
 
 界面与绑定固定放在 `code/ui/<界面ID>/` 和其 `generated/`；Part 固定放在 `code/components/<部件ID>/`。公开界面的参数和结果位于 `contracts/<类名>.types.ts`，内部界面类型与脚本同目录。路径由共享布局规则推导，无需在 module.json 重复登记。
